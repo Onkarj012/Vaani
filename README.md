@@ -29,11 +29,18 @@ Vaani is a fast, privacy-first voice dictation app for macOS powered by [Groq's 
 
 Download the latest `Vaani-x.x.x-arm64.dmg` from [Releases](https://github.com/Onkarj012/Vaani/releases), open it, and drag `Vaani.app` to your Applications folder.
 
-> **"Vaani is damaged and can't be opened"** — this is macOS Gatekeeper blocking an unsigned app, not actual damage. Run this once in Terminal to fix it:
-> ```bash
-> xattr -cr /Applications/Vaani.app
-> ```
-> Then open Vaani normally.
+> **"Vaani is damaged and can't be opened"?**
+> This is macOS blocking an app that isn't signed with an Apple Developer certificate — the app itself is fine.
+>
+> **Fix (one time only):**
+> 1. Open **Terminal** (search "Terminal" in Spotlight with `Cmd+Space`)
+> 2. Paste this and press Enter:
+>    ```bash
+>    xattr -cr /Applications/Vaani.app
+>    ```
+> 3. Open Vaani normally
+>
+> You only need to do this once after installing.
 
 ### Build from Source
 
