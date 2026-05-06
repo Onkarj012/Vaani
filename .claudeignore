@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+build/
+out/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Lock files
+bun.lockb
+
+# Native build intermediates
+build/Release/obj/
+build/Debug/
+
+# Assets Claude doesn't need
+*.png
+*.jpg
+*.ico
+*.icns
+*.svg
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Required for AppleScript/System Events automation -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+  
+  <!-- Required for JIT compilation in Electron -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  
+  <!-- Required for unsigned executable memory (Electron/Node.js) -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  
+  <!-- Required for native modules (node-gyp built modules) -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  
+  <!-- Audio input permission -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  
+  <!-- Microphone permission -->
+  <key>com.apple.security.device.microphone</key>
+  <true/>
+  
+  <!-- Accessibility permission (for global hotkeys and text injection) -->
+  <key>com.apple.security.accessibility</key>
+  <true/>
+</dict>
+</plist>

@@ -1,0 +1,237 @@
+import Groq from "groq-sdk";
+
+const FORMATTING_MODEL = "llama-3.1-8b-instant";
+const MIN_WORDS_FOR_FORMATTING = 4;
+const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will format|raw transcript|according to the rules|i can help|here['\u2019]s the formatted|i need the|i need more|i need you to|however.*proceed|let me (format|help|know)|as requested|original text|to proceed|here is|i hope|i think|i believe|in my opinion|the answer is|to answer|based on|as an ai|as a language|the question|your question|you asked|you mentioned|would you like|feel free|let me know|can i help|how can i|i understand|i see you|here are some|sure!?|certainly!?|of course!?)\b/i;
+
+const FORMATTING_PROMPT = [
+  "You are a transcript formatter. Your ONLY job is to add proper punctuation, capitalization, and structure to dictated speech.",
+  "This is NOT a conversation. Do NOT answer, respond, engage, or add any commentary whatsoever.",
+  "The text in <transcript> is speech the user spoke. Format it for readability.",
+  "",
+  "CRITICAL RULES:",
+  "1. PRESERVE EVERY WORD exactly. Delete nothing. Add nothing except punctuation and whitespace formatting.",
+  "2. NEVER answer questions, give opinions, or respond to the content. You are a text formatter, not an assistant.",
+  "3. NEVER add explanations, labels, greetings, sign-offs, or notes.",
+  "",
+  "FORMATTING RULES:",
+  "4. Add proper sentence punctuation — periods, commas, question marks — based on speech patterns.",
+  "5. Capitalize the first letter of each sentence.",
+  "6. Break run-on speech into separate sentences logically.",
+  "7. For lists:",
+  "   - 'number one/1', 'first', 'item one' → '1. '",
+  "   - 'bullet point', 'dash' → '- '",
+  "   - 'new line', 'next line' → line break",
+  "   - 'new paragraph' → blank line",
+  "   - Comma-separated items (3+) → each on its own line with '- ' prefix",
+  "8. Add commas where natural pauses occur in speech.",
+  "",
+  "OUTPUT: Return ONLY the formatted text. No tags, no preamble, no commentary."
+].join("\n");
+
+const STRICT_FORMATTING_PROMPT = [
+  "You are a transcript formatter. Minimal changes ONLY.",
+  "Do NOT answer, respond, or engage with the content. Format only.",
+  "",
+  "MANDATORY: Preserve 100% of the original words. Delete nothing. Add nothing except punctuation.",
+  "ONLY do these things:",
+  "  - Add sentence punctuation (periods, commas, question marks)",
+  "  - Capitalize sentence starts",
+  "  - Convert spoken list markers into symbols ('number one' → '1.')",
+  "  - Convert spoken line cues ('new line', 'new paragraph') into actual breaks",
+  "  - Break comma-separated series (3+ items) into dash-prefixed lines",
+  "If unsure, return the text exactly as-is.",
+  "Content is in <transcript> tags. Output only the formatted text — no tags, no notes."
+].join("\n");
+
+let groqClient: Groq | null = null;
+
+function getClient(apiKey: string): Groq {
+  if (!groqClient) {
+    groqClient = new Groq({ apiKey });
+  }
+
+  return groqClient;
+}
+
+
+
+// Spoken formatting cues that get compressed into short symbols.
+// Each match roughly represents a "spoken word cluster → short symbol" replacement
+// so we need to account for their removal when doing length/word-count comparisons.
+const SPOKEN_CUE_STRIP_RE = /\b(bullet\s*point|new\s+paragraph|new\s+line|next\s+line|number\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)|no\.\s*\d+|point\s+\d+|item\s+\d+|first|second|third|fourth|fifth)\b/gi;
+
+function stripSpokenCues(text: string): string {
+  return text.replace(SPOKEN_CUE_STRIP_RE, "").replace(/\s{2,}/g, " ").trim();
+}
+
+function looksSuspicious(rawText: string, formattedText: string): boolean {
+  if (!formattedText.trim()) {
+    return true;
+  }
+
+  if (ASSISTANT_REPLY_PATTERN.test(formattedText)) {
+    return true;
+  }
+
+  // Strip spoken cues from raw before comparing lengths, because valid formatting
+  // legitimately compresses "bullet point" (12 chars) → "-" (1 char), "new line" → "\n", etc.
+  const rawStripped = stripSpokenCues(rawText);
+
+  // Check for massive length changes (against cue-stripped raw so compressions are expected)
+  if (formattedText.length < rawStripped.length * 0.55) {
+    console.warn("[formatting] Rejecting: text shortened excessively even after stripping cues");
+    return true;
+  }
+
+  if (formattedText.length > rawText.length * 1.5 + 50) {
+    console.warn("[formatting] Rejecting: text expanded by >50%");
+    return true;
+  }
+
+  const firstSentenceOverlap = calculateFirstSentenceOverlap(rawText, formattedText);
+  if (firstSentenceOverlap < 0.5) {
+    console.warn("[formatting] Rejecting: first sentence overlap too low", { firstSentenceOverlap });
+    return true;
+  }
+
+  if (!hasLeadWordOverlap(rawText, formattedText)) {
+    console.warn("[formatting] Rejecting: opening words do not align");
+    return true;
+  }
+
+  // Word-level check: allow larger variation when cues are present (they reduce word count)
+  const rawWords = rawText.trim().split(/\s+/);
+  const formattedWords = formattedText.trim().split(/\s+/);
+  const cueWords = (rawText.match(SPOKEN_CUE_STRIP_RE) ?? [])
+    .join(" ").trim().split(/\s+/).filter(Boolean).length;
+  // Allow up to (3 + number of cue words) difference
+  const allowedWordDiff = 3 + cueWords;
+
+  if (Math.abs(formattedWords.length - rawWords.length) > allowedWordDiff) {
+    console.warn("[formatting] Rejecting: word count changed significantly", {
+      raw: rawWords.length,
+      formatted: formattedWords.length,
+      cueWords,
+      allowedDiff: allowedWordDiff
+    });
+    return true;
+  }
+
+  // Vocabulary overlap: use stripped raw text so removed cue words don't penalise the ratio
+  const rawVocabulary = tokenizeForComparison(rawStripped);
+  const formattedVocabulary = tokenizeForComparison(formattedText);
+  if (rawVocabulary.length > 0) {
+    const overlapCount = rawVocabulary.filter((word) => formattedVocabulary.includes(word)).length;
+    const overlapRatio = overlapCount / rawVocabulary.length;
+    if (overlapRatio < 0.55) {
+      console.warn("[formatting] Rejecting: vocabulary overlap too low", {
+        overlapRatio,
+        rawVocabulary,
+        formattedVocabulary
+      });
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function tokenizeForComparison(text: string): string[] {
+  return Array.from(new Set(
+    text
+      .toLowerCase()
+      .split(/\s+/)
+      .map((token) => token.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ""))
+      .filter(Boolean)
+  ));
+}
+
+function tokenizeOrdered(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ""))
+    .filter(Boolean);
+}
+
+function firstSentence(text: string): string {
+  const stripped = stripSpokenCues(text).trim();
+  const match = stripped.match(/^(.+?)(?:[.!?](?:\s|$)|\n|$)/);
+  return (match?.[1] ?? stripped).trim();
+}
+
+function calculateFirstSentenceOverlap(rawText: string, formattedText: string): number {
+  const rawTokens = tokenizeOrdered(firstSentence(rawText));
+  const formattedTokens = tokenizeOrdered(firstSentence(formattedText));
+  if (rawTokens.length === 0) {
+    return 1;
+  }
+
+  const formattedVocabulary = new Set(formattedTokens);
+  const overlap = rawTokens.filter((token) => formattedVocabulary.has(token)).length;
+  return overlap / rawTokens.length;
+}
+
+function hasLeadWordOverlap(rawText: string, formattedText: string): boolean {
+  const rawLead = tokenizeOrdered(stripSpokenCues(rawText)).slice(0, 5);
+  const formattedLead = tokenizeOrdered(formattedText).slice(0, 5);
+  const sampleSize = Math.min(rawLead.length, formattedLead.length, 5);
+  if (sampleSize < 3) {
+    return true;
+  }
+
+  const formattedSample = new Set(formattedLead.slice(0, sampleSize));
+  const overlap = rawLead.slice(0, sampleSize).filter((token) => formattedSample.has(token)).length;
+  return overlap / sampleSize >= 0.5;
+}
+
+async function requestFormatting(apiKey: string, text: string, prompt: string): Promise<string | null> {
+  const response = await getClient(apiKey).chat.completions.create({
+    model: FORMATTING_MODEL,
+    temperature: 0,
+    max_completion_tokens: Math.max(256, text.length * 2),
+    messages: [
+      { role: "system", content: prompt },
+      { role: "user", content: `<transcript>\n${text}\n</transcript>` }
+    ]
+  });
+
+  return response.choices[0]?.message?.content?.trim() || null;
+}
+
+export async function formatTranscript(apiKey: string, rawText: string): Promise<string> {
+  const text = rawText.trim();
+  if (!text) {
+    return text;
+  }
+
+  if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) {
+    return text;
+  }
+
+  try {
+    const formatted = await requestFormatting(apiKey, text, FORMATTING_PROMPT);
+    if (!formatted) {
+      return text;
+    }
+
+    if (looksSuspicious(text, formatted)) {
+      const strictFormatted = await requestFormatting(apiKey, text, STRICT_FORMATTING_PROMPT);
+      if (!strictFormatted) {
+        return text;
+      }
+
+      if (looksSuspicious(text, strictFormatted)) {
+        return text;
+      }
+
+      return strictFormatted;
+    }
+
+    return formatted;
+  } catch (error) {
+    console.error("[vaani][formatting] Groq format step failed, using raw transcript", error);
+    return text;
+  }
+}
