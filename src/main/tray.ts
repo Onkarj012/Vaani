@@ -18,10 +18,11 @@ export function createTray(
 ): TrayController {
   let icon: Electron.NativeImage;
   const candidatePaths = [
+    // packaged app: extraResource copies to Contents/Resources/ (flat)
+    join(process.resourcesPath ?? "", "trayTemplate@2x.png"),
+    // dev
     join(currentDir, "../../assets/iconset/trayTemplate@2x.png"),
     join(currentDir, "../../../assets/iconset/trayTemplate@2x.png"),
-    join(process.resourcesPath ?? "", "assets/iconset/trayTemplate@2x.png"),
-    join(process.resourcesPath ?? "", "app", "assets/iconset/trayTemplate@2x.png"),
   ];
 
   let loaded = false;

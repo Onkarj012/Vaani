@@ -18,7 +18,9 @@ const config: ForgeConfig = {
     darwinDarkModeSupport: true,
     // Copy native module to the packaged app
     extraResource: [
-      join(__dirname, "build", "Release", "vaani_native.node")
+      join(__dirname, "build", "Release", "vaani_native.node"),
+      join(__dirname, "assets", "iconset", "trayTemplate.png"),
+      join(__dirname, "assets", "iconset", "trayTemplate@2x.png"),
     ],
     // Code signing configuration - uncomment and fill in when ready
     // osxSign: {

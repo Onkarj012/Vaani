@@ -34,6 +34,8 @@ let cachedBridge: NativeBridge | null = null;
 
 function candidatePaths(): string[] {
   return [
+    // packaged app: extraResource copies to Contents/Resources/
+    join(process.resourcesPath ?? "", "vaani_native.node"),
     join(currentDir, "vaani_native.node"),
     join(process.resourcesPath ?? "", "app.asar.unpacked", ".vite", "build", "vaani_native.node"),
     join(process.resourcesPath ?? "", "app", ".vite", "build", "vaani_native.node"),
