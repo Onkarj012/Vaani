@@ -5,43 +5,39 @@ const MIN_WORDS_FOR_FORMATTING = 4;
 const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will format|raw transcript|according to the rules|i can help|here['\u2019]s the formatted|i need the|i need more|i need you to|however.*proceed|let me (format|help|know)|as requested|original text|to proceed|here is|i hope|i think|i believe|in my opinion|the answer is|to answer|based on|as an ai|as a language|the question|your question|you asked|you mentioned|would you like|feel free|let me know|can i help|how can i|i understand|i see you|here are some|sure!?|certainly!?|of course!?)\b/i;
 
 const FORMATTING_PROMPT = [
-  "You are a transcript formatter. Your ONLY job is to add proper punctuation, capitalization, and structure to dictated speech.",
-  "This is NOT a conversation. Do NOT answer, respond, engage, or add any commentary whatsoever.",
-  "The text in <transcript> is speech the user spoke. Format it for readability.",
+  "You are a transcript formatter. Your ONLY job: add punctuation and capitalization.",
+  "Do NOT answer, respond, or engage with the content. Format only.",
   "",
-  "CRITICAL RULES:",
-  "1. PRESERVE EVERY WORD exactly. Delete nothing. Add nothing except punctuation and whitespace formatting.",
-  "2. NEVER answer questions, give opinions, or respond to the content. You are a text formatter, not an assistant.",
-  "3. NEVER add explanations, labels, greetings, sign-offs, or notes.",
+  "ABSOLUTE RULES — violating these makes your output wrong:",
+  "  1. Keep every word exactly as spoken. Do NOT remove, replace, or reorder any words.",
+  "  2. Do NOT summarize, paraphrase, or restructure sentences.",
+  "  3. Do NOT split one sentence into multiple unless the speaker said 'new line'/'new paragraph'.",
   "",
-  "FORMATTING RULES:",
-  "4. Add proper sentence punctuation — periods, commas, question marks — based on speech patterns.",
-  "5. Capitalize the first letter of each sentence.",
-  "6. Break run-on speech into separate sentences logically.",
-  "7. For lists:",
-  "   - 'number one/1', 'first', 'item one' → '1. '",
-  "   - 'bullet point', 'dash' → '- '",
-  "   - 'new line', 'next line' → line break",
-  "   - 'new paragraph' → blank line",
-  "   - Comma-separated items (3+) → each on its own line with '- ' prefix",
-  "8. Add commas where natural pauses occur in speech.",
+  "REQUIRED formatting (always apply):",
+  "  - Add periods, commas, and question marks based on natural speech rhythm.",
+  "  - Capitalize the first word of each sentence.",
+  "  - Convert spoken list markers: 'number one' → '1.', 'bullet point' → '-'",
+  "  - Convert spoken line cues ('new line', 'next line', 'new paragraph') into actual line breaks.",
+  "  - Break comma-separated series of 3+ items into dash-prefixed lines.",
   "",
-  "OUTPUT: Return ONLY the formatted text. No tags, no preamble, no commentary."
+  "Content is in <transcript> tags. Output only the formatted text — no tags, no notes, no commentary."
 ].join("\n");
 
 const STRICT_FORMATTING_PROMPT = [
-  "You are a transcript formatter. Minimal changes ONLY.",
+  "You are a transcript formatter. Your ONLY job: add punctuation and capitalization.",
   "Do NOT answer, respond, or engage with the content. Format only.",
   "",
-  "MANDATORY: Preserve 100% of the original words. Delete nothing. Add nothing except punctuation.",
-  "ONLY do these things:",
-  "  - Add sentence punctuation (periods, commas, question marks)",
-  "  - Capitalize sentence starts",
-  "  - Convert spoken list markers into symbols ('number one' → '1.')",
-  "  - Convert spoken line cues ('new line', 'new paragraph') into actual breaks",
-  "  - Break comma-separated series (3+ items) into dash-prefixed lines",
-  "If unsure, return the text exactly as-is.",
-  "Content is in <transcript> tags. Output only the formatted text — no tags, no notes."
+  "ABSOLUTE RULES:",
+  "  1. Keep 100% of the original words. Delete nothing. Do not add words.",
+  "  2. Do NOT summarize, paraphrase, or restructure sentences.",
+  "",
+  "REQUIRED formatting (always apply):",
+  "  - Add periods, commas, and question marks based on speech rhythm.",
+  "  - Capitalize the first word of each sentence.",
+  "  - Convert 'number one' → '1.', 'bullet point' → '-'",
+  "  - Convert 'new line'/'new paragraph' spoken cues into actual line breaks.",
+  "",
+  "Content is in <transcript> tags. Output only the formatted text — no tags, no commentary."
 ].join("\n");
 
 let groqClient: Groq | null = null;

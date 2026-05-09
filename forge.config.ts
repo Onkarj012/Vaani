@@ -55,10 +55,12 @@ new MakerDMG({
     new VitePlugin({
       build: [
         { entry: "src/main/index.ts", config: "vite.main.config.ts", target: "main" },
-        { entry: "src/preload/index.ts", config: "vite.preload.config.ts", target: "preload" }
+        { entry: "src/preload/index.ts", config: "vite.preload.config.ts", target: "preload" },
+        { entry: "src/preload/overlay.ts", config: "vite.overlay-preload.config.ts", target: "preload" }
       ],
       renderer: [
-        { name: "main_window", config: "vite.renderer.config.ts" }
+        { name: "main_window", config: "vite.renderer.config.ts" },
+        { name: "overlay_window", config: "vite.overlay.config.ts" }
       ]
     })
   ]
