@@ -15,7 +15,7 @@ const _dir = dirname(fileURLToPath(import.meta.url));
 const CAPSULE_BOTTOM_MARGIN = 24;
 // Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)
 const PILL_W = 120;
-const PILL_H = 44;
+const PILL_H = 52;
 // Prompt card: matches CapsuleOverlay.tsx prompt width (340px) + shadow clearance
 const PROMPT_W = 360;
 const PROMPT_H = 210;
@@ -23,7 +23,7 @@ const PROMPT_H = 210;
 export class OverlayController {
   private window: BrowserWindow | null = null;
   private loadReady = false;
-  private pendingMode: "idle" | "recording" | "transcribing" | "done" | "error" | null = null;
+  private pendingMode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error" | null = null;
   private pendingBars: number[] | null = null;
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
@@ -56,6 +56,12 @@ export class OverlayController {
 
   // ── Visibility / state ───────────────────────────────────────────────────
 
+  prewarm(): void {
+    if (this.window && !this.window.isDestroyed()) return;
+    this.loadReady = false;
+    void this.createWindow();
+  }
+
   show(): void {
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     if (this.window && !this.window.isDestroyed()) {
@@ -65,6 +71,7 @@ export class OverlayController {
     }
     this.loadReady = false;
     void this.createWindow().then(() => {
+      this.window?.showInactive();
       void this.restoreFocusIfNeeded(frontmostBefore);
     });
   }
@@ -86,6 +93,13 @@ export class OverlayController {
     this.tryUpdateMode("recording");
   }
 
+  setPressed(): void {
+    this.pendingMode = "pressed";
+    this.pendingBars = null;
+    this.show();
+    this.tryUpdateMode("pressed");
+  }
+
   setProcessing(): void {
     this.pendingMode = "transcribing";
     this.tryUpdateMode("transcribing");
@@ -104,6 +118,10 @@ export class OverlayController {
   updateBars(bars: number[]): void {
     this.pendingBars = bars;
     if (!this.loadReady || !this.window || this.window.isDestroyed()) return;
+    if (this.pendingMode === "pressed") {
+      this.pendingMode = "recording";
+      this.window.webContents.send("capsule:set-mode", "recording");
+    }
     this.window.webContents.send("capsule:update-bars", bars);
   }
 
@@ -243,7 +261,7 @@ export class OverlayController {
     }
   }
 
-  private tryUpdateMode(mode: "idle" | "recording" | "transcribing" | "done" | "error"): void {
+  private tryUpdateMode(mode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error"): void {
     if (!this.loadReady || !this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:set-mode", mode);
   }
@@ -293,12 +311,21 @@ export class OverlayController {
       if (this.pendingBars) this.updateBars(this.pendingBars);
     });
 
+    // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
+    this.window.webContents.once("did-finish-load", () => {
+      setTimeout(() => {
+        if (!this.loadReady && this.window && !this.window.isDestroyed()) {
+          this.loadReady = true;
+          if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
+          if (this.pendingBars) this.updateBars(this.pendingBars);
+        }
+      }, 200);
+    });
+
     if (typeof OVERLAY_WINDOW_VITE_DEV_SERVER_URL !== "undefined") {
       await this.window.loadURL(OVERLAY_WINDOW_VITE_DEV_SERVER_URL);
     } else {
       await this.window.loadFile(join(_dir, `../renderer/${OVERLAY_WINDOW_VITE_NAME}/index.html`));
     }
-
-    this.window.showInactive();
   }
 }

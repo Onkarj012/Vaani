@@ -7,6 +7,7 @@ import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
 import { HotkeyManager } from "./hotkeys";
 import { nativeBridge } from "./nativeBridge";
+import { RecorderWindowController } from "./recorderWindow";
 
 export function registerIpcHandlers(opts: {
   mainWindow: BrowserWindow | null;
@@ -14,10 +15,12 @@ export function registerIpcHandlers(opts: {
   history: HistoryStore;
   settings: SettingsStore;
   hotkeys: HotkeyManager;
+  recorder?: RecorderWindowController;
   onSettingsUpdated?: (settings: Settings, patch: Partial<Settings>) => void;
 }): void {
-  const { dictation, history, settings, hotkeys, onSettingsUpdated } = opts;
+  const { dictation, history, settings, hotkeys, recorder, onSettingsUpdated } = opts;
 
+  ipcMain.handle(IpcChannel.GetDictationState, () => dictation.getState());
   ipcMain.handle(IpcChannel.GetHistory,      ()            => history.getAll());
   ipcMain.handle(IpcChannel.UpdateHistoryEntry, (_e, id: string, cleanedText: string) => history.updateById(id, (entry) => ({
     ...entry,
@@ -45,7 +48,11 @@ export function registerIpcHandlers(opts: {
   ));
 
   ipcMain.handle(IpcChannel.SubmitAudioClip, (_e, payload: RecorderSubmission) => dictation.submitAudioClip(payload));
-  ipcMain.handle(IpcChannel.RecorderReady, () => dictation.reportRecorderReady());
+  ipcMain.handle(IpcChannel.RecorderReady, () => {
+    recorder?.markReady();
+    dictation.reportRecorderReady();
+  });
+  ipcMain.handle(IpcChannel.RecorderStarted, (_e, sessionId: string) => dictation.reportRecorderStarted(sessionId));
   ipcMain.handle(IpcChannel.ReportAudioFrame, (_e, frame: AudioVisualFrame) => dictation.updateAudioLevel(frame));
   ipcMain.handle(IpcChannel.RecorderFailure, (_e, payload: RecorderFailure) => dictation.handleRecorderFailure(payload));
   ipcMain.handle(IpcChannel.PrepareRecordingInput, () => nativeBridge.prepareRecordingInput?.() ?? null);

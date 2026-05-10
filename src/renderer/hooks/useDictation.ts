@@ -5,6 +5,7 @@ export function useDictation() {
   const [state, setState] = useState<DictationState>({ status: "idle" });
 
   useEffect(() => {
+    void window.vaani.getDictationState().then(setState);
     const unsub = window.vaani.onStateChange(setState);
     return unsub;
   }, []);

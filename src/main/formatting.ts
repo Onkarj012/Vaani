@@ -96,6 +96,11 @@ function looksSuspicious(rawText: string, formattedText: string): boolean {
     return true;
   }
 
+  if (!hasOrderedTokenPreservation(rawText, formattedText)) {
+    console.warn("[formatting] Rejecting: token order changed too much");
+    return true;
+  }
+
   // Word-level check: allow larger variation when cues are present (they reduce word count)
   const rawWords = rawText.trim().split(/\s+/);
   const formattedWords = formattedText.trim().split(/\s+/);
@@ -180,6 +185,29 @@ function hasLeadWordOverlap(rawText: string, formattedText: string): boolean {
   const formattedSample = new Set(formattedLead.slice(0, sampleSize));
   const overlap = rawLead.slice(0, sampleSize).filter((token) => formattedSample.has(token)).length;
   return overlap / sampleSize >= 0.5;
+}
+
+function hasOrderedTokenPreservation(rawText: string, formattedText: string): boolean {
+  const ignorable = new Set(["a", "an", "and", "or", "the"]);
+  const rawTokens = tokenizeOrdered(stripSpokenCues(rawText)).filter((token) => !ignorable.has(token));
+  const formattedTokens = tokenizeOrdered(formattedText).filter((token) => !/^\d+$/.test(token) && !ignorable.has(token));
+  if (rawTokens.length < 4) {
+    return true;
+  }
+
+  let formattedIndex = 0;
+  let matched = 0;
+  for (const rawToken of rawTokens) {
+    while (formattedIndex < formattedTokens.length && formattedTokens[formattedIndex] !== rawToken) {
+      formattedIndex += 1;
+    }
+    if (formattedIndex < formattedTokens.length) {
+      matched += 1;
+      formattedIndex += 1;
+    }
+  }
+
+  return matched / rawTokens.length >= 0.82;
 }
 
 async function requestFormatting(apiKey: string, text: string, prompt: string): Promise<string | null> {

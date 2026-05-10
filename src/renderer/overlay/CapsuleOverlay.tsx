@@ -83,7 +83,11 @@ export default function CapsuleOverlay() {
 
     bridge.onMode((m) => {
       switch (m) {
-        case 'recording':    setMode('recording'); break
+        case 'pressed':      setMode('pressed'); break
+        case 'recording':
+          setBars(Array(BAR_COUNT).fill(0.08))
+          setMode('recording')
+          break
         case 'transcribing': setMode('processing'); break
         case 'done':         setMode('done'); break
         case 'error':        setMode('error'); break
@@ -94,7 +98,11 @@ export default function CapsuleOverlay() {
       }
     })
 
-    bridge.onBars((data) => { if (Array.isArray(data) && data.length > 0) setBars(data) })
+    bridge.onBars((data) => {
+      if (Array.isArray(data) && data.length > 0) {
+        setBars(data.slice(0, BAR_COUNT))
+      }
+    })
     bridge.onAccent((color) => setAccentColor(color))
 
     bridge.onShowSnippet((data) => {
@@ -150,10 +158,10 @@ export default function CapsuleOverlay() {
       {isPill && (
         <motion.div
           key="pill"
-          initial={{ opacity: 0, y: 10, scale: 0.92 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 6, scale: 0.94 }}
-          transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+          initial={{ opacity: 0, scale: 0.88 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.92 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
           style={{ ...PILL_STYLE, borderRadius: 12 }}
           className="inline-flex items-center"
         >
@@ -164,13 +172,13 @@ export default function CapsuleOverlay() {
               <motion.div
                 key="pressed"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
-                className="flex items-center justify-center px-3 py-2"
+                transition={{ duration: 0.1 }}
+                className="flex items-center justify-center px-4 py-2"
               >
                 <motion.div
-                  animate={{ scale: [1, 1.3, 1] }}
-                  transition={{ duration: 0.5, repeat: Infinity }}
-                  style={{ width: 6, height: 6, borderRadius: '50%', background: accentColor }}
+                  animate={{ scale: [1, 1.4, 1] }}
+                  transition={{ duration: 0.6, repeat: Infinity }}
+                  style={{ width: 7, height: 7, borderRadius: '50%', background: accentColor }}
                 />
               </motion.div>
             )}

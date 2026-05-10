@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, session } from "electron";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -8,6 +8,7 @@ import { DictationService } from "./dictation";
 import { HotkeyManager } from "./hotkeys";
 import { registerIpcHandlers } from "./ipc";
 import { OverlayController } from "./overlay";
+import { RecorderWindowController } from "./recorderWindow";
 import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
 import { createTray, type TrayController } from "./tray";
@@ -21,6 +22,7 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 
 let mainWindow: BrowserWindow | null = null;
 let overlayController: OverlayController | null = null;
+let recorderController: RecorderWindowController | null = null;
 let hotkeyManager: HotkeyManager | null = null;
 let settingsStore: SettingsStore | null = null;
 let menuBarMode = true;   // start as "menu bar only" until window is explicitly shown
@@ -78,6 +80,8 @@ function syncAppPresentation(): void {
 function cleanupRuntimeResources(): void {
   hotkeyManager?.unregister();
   hotkeyManager = null;
+  recorderController?.destroy();
+  recorderController = null;
   overlayController?.destroy();
   overlayController = null;
   trayController.destroy();
@@ -142,6 +146,20 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
   return win;
 }
 
+function configureMediaPermissions(): void {
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    if (permission === "media") {
+      const mediaTypes = (details as { mediaTypes?: string[] }).mediaTypes ?? [];
+      const audioOnly = mediaTypes.length === 0 || mediaTypes.every((type) => type === "audio");
+      callback(audioOnly);
+      log("permission:media", { audioOnly, mediaTypes });
+      return;
+    }
+
+    callback(false);
+  });
+}
+
 async function loadWindowUrl(win: BrowserWindow): Promise<void> {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     await win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -166,9 +184,12 @@ async function bootstrap(): Promise<void> {
 
   let trayReady = false;
 
+  configureMediaPermissions();
+
   mainWindow = createMainWindow(() => trayReady);
 
   overlayController = new OverlayController();
+  recorderController = new RecorderWindowController();
   const initSettings = settings.get();
   overlayController.setTheme("aurora");
   overlayController.setColorMode(initSettings.colorMode ?? "light");
@@ -186,7 +207,8 @@ async function bootstrap(): Promise<void> {
     settings,
     history,
     (label) => trayController.updateStatus(label),
-    overlayController
+    overlayController,
+    { recorder: recorderController }
   );
 
   // Now create tray with the dictation callback
@@ -224,6 +246,7 @@ async function bootstrap(): Promise<void> {
     history,
     settings,
     hotkeys: hotkeyManager,
+    recorder: recorderController,
     onSettingsUpdated: (_updated, patch) => {
       if ("theme" in patch) {
         overlayController?.setTheme("aurora");
@@ -251,7 +274,9 @@ async function bootstrap(): Promise<void> {
   });
 
   await loadWindowUrl(mainWindow);
+  await recorderController.init();
   setTimeout(() => hotkeyManager?.register(), 300);
+  setTimeout(() => overlayController?.prewarm(), 1500);
 
   // Auto-updater (only in packaged builds)
   if (app.isPackaged) {

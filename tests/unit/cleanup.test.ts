@@ -52,6 +52,24 @@ describe("cleanupText", () => {
     expect(result).toBe("Hello world.");
   });
 
+  it("collapses accidental adjacent duplicate words", () => {
+    const result = cleanupText({
+      rawText: "github github should only appear once",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Github should only appear once.");
+  });
+
+  it("normalizes common LLM dictation artifacts", () => {
+    const result = cleanupText({
+      rawText: "send this to the llmn cleanup step",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Send this to the LLM cleanup step.");
+  });
+
   it("expands slash command snippets", () => {
     const result = cleanupText({
       rawText: "my email is /address",

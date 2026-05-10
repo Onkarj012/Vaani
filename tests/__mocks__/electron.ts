@@ -70,6 +70,12 @@ export const screen = {
   })
 };
 
+export const session = {
+  defaultSession: {
+    setPermissionRequestHandler: () => {}
+  }
+};
+
 export default {
   app,
   BrowserWindow,
@@ -78,5 +84,6 @@ export default {
   ipcMain,
   ipcRenderer,
   contextBridge,
-  screen
+  screen,
+  session
 };

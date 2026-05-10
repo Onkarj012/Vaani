@@ -10,6 +10,7 @@ function subscribe<T>(channel: IpcChannel, cb: (payload: T) => void): () => void
 }
 
 const api: VaaniAPI = {
+  getDictationState: () => ipcRenderer.invoke(IpcChannel.GetDictationState),
   onStateChange: (cb) => subscribe<DictationState>(IpcChannel.DictationState, cb),
   onAudioLevel: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, level: number, bars?: number[]) => cb(level, bars);

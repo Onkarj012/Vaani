@@ -1,103 +1,133 @@
-# Graph Report - .  (2026-04-20)
+# Graph Report - /Users/onkarj012/Projects/Alternatives/claude_vaani  (2026-05-10)
 
 ## Corpus Check
-- 95 files · ~55,654 words
+- 114 files · ~574,868 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 336 nodes · 499 edges · 64 communities detected
-- Extraction: 82% EXTRACTED · 18% INFERRED · 0% AMBIGUOUS · INFERRED: 89 edges (avg confidence: 0.81)
+- 450 nodes · 684 edges · 94 communities detected
+- Extraction: 81% EXTRACTED · 19% INFERRED · 0% AMBIGUOUS · INFERRED: 130 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Dictation & Injection Core|Dictation & Injection Core]]
-- [[_COMMUNITY_UI & Features Doc|UI & Features Doc]]
-- [[_COMMUNITY_Clipboard Text Injection|Clipboard Text Injection]]
-- [[_COMMUNITY_App Setup & Initialization|App Setup & Initialization]]
-- [[_COMMUNITY_Overlay UI Controller|Overlay UI Controller]]
-- [[_COMMUNITY_Renderer Hooks & State|Renderer Hooks & State]]
-- [[_COMMUNITY_Text Formatting Pipeline|Text Formatting Pipeline]]
-- [[_COMMUNITY_Accessibility Text Injection|Accessibility Text Injection]]
-- [[_COMMUNITY_History Storage|History Storage]]
-- [[_COMMUNITY_Text Cleanup Utilities|Text Cleanup Utilities]]
-- [[_COMMUNITY_Dictionary & Suggestions|Dictionary & Suggestions]]
-- [[_COMMUNITY_Hotkey Management|Hotkey Management]]
-- [[_COMMUNITY_Development Utilities|Development Utilities]]
-- [[_COMMUNITY_macOS Audio Session|macOS Audio Session]]
-- [[_COMMUNITY_Icon Creation Script|Icon Creation Script]]
-- [[_COMMUNITY_Hotkey Capture Component|Hotkey Capture Component]]
-- [[_COMMUNITY_Dictation Tests|Dictation Tests]]
-- [[_COMMUNITY_Architecture Docs|Architecture Docs]]
-- [[_COMMUNITY_TypeScript Configuration|TypeScript Configuration]]
-- [[_COMMUNITY_Dictionary Page (Theme Variants)|Dictionary Page (Theme Variants)]]
-- [[_COMMUNITY_Snippets Page (Theme Variants)|Snippets Page (Theme Variants)]]
-- [[_COMMUNITY_Native Build Pipeline|Native Build Pipeline]]
-- [[_COMMUNITY_Cleanup Unit Tests|Cleanup Unit Tests]]
-- [[_COMMUNITY_History Store Tests|History Store Tests]]
-- [[_COMMUNITY_UI Theme Context|UI Theme Context]]
-- [[_COMMUNITY_Badge UI Component|Badge UI Component]]
-- [[_COMMUNITY_Utility Functions|Utility Functions]]
-- [[_COMMUNITY_Monolithic Home Page|Monolithic Home Page]]
-- [[_COMMUNITY_Titanium Home Page|Titanium Home Page]]
-- [[_COMMUNITY_Aurora Home Page|Aurora Home Page]]
-- [[_COMMUNITY_IPC Preload Bridge|IPC Preload Bridge]]
-- [[_COMMUNITY_Forge Configuration|Forge Configuration]]
-- [[_COMMUNITY_Vite Main Config|Vite Main Config]]
-- [[_COMMUNITY_Vite Preload Config|Vite Preload Config]]
-- [[_COMMUNITY_Vitest Configuration|Vitest Configuration]]
-- [[_COMMUNITY_Vite Renderer Config|Vite Renderer Config]]
-- [[_COMMUNITY_Hotkey Unit Tests|Hotkey Unit Tests]]
-- [[_COMMUNITY_Dictionary Suggestions Tests|Dictionary Suggestions Tests]]
-- [[_COMMUNITY_Formatting Unit Tests|Formatting Unit Tests]]
-- [[_COMMUNITY_Text Injector Tests|Text Injector Tests]]
-- [[_COMMUNITY_Renderer Entry Point|Renderer Entry Point]]
-- [[_COMMUNITY_Slider UI Component|Slider UI Component]]
-- [[_COMMUNITY_Switch UI Component|Switch UI Component]]
-- [[_COMMUNITY_Separator UI Component|Separator UI Component]]
-- [[_COMMUNITY_Button UI Component|Button UI Component]]
-- [[_COMMUNITY_Monolithic Settings Page|Monolithic Settings Page]]
-- [[_COMMUNITY_Monolithic Layout|Monolithic Layout]]
-- [[_COMMUNITY_Monolithic Dashboard Page|Monolithic Dashboard Page]]
-- [[_COMMUNITY_Titanium Settings Page|Titanium Settings Page]]
-- [[_COMMUNITY_Titanium Layout|Titanium Layout]]
-- [[_COMMUNITY_Titanium Dashboard Page|Titanium Dashboard Page]]
-- [[_COMMUNITY_Aurora Settings Page|Aurora Settings Page]]
-- [[_COMMUNITY_Aurora Layout|Aurora Layout]]
-- [[_COMMUNITY_Aurora Dashboard Page|Aurora Dashboard Page]]
-- [[_COMMUNITY_Native Hotkey Monitor|Native Hotkey Monitor]]
-- [[_COMMUNITY_Native Accessibility Detector|Native Accessibility Detector]]
-- [[_COMMUNITY_Native Accessibility Injector|Native Accessibility Injector]]
-- [[_COMMUNITY_Defaults Configuration|Defaults Configuration]]
-- [[_COMMUNITY_Shared Types|Shared Types]]
-- [[_COMMUNITY_IPC Channels Definition|IPC Channels Definition]]
-- [[_COMMUNITY_Graphify Context Rules|Graphify Context Rules]]
-- [[_COMMUNITY_Build Artifacts Policy|Build Artifacts Policy]]
-- [[_COMMUNITY_Package Metadata|Package Metadata]]
-- [[_COMMUNITY_Vite Tool Config|Vite Tool Config]]
+- [[_COMMUNITY_Community 0|Community 0]]
+- [[_COMMUNITY_Community 1|Community 1]]
+- [[_COMMUNITY_Community 2|Community 2]]
+- [[_COMMUNITY_Community 3|Community 3]]
+- [[_COMMUNITY_Community 4|Community 4]]
+- [[_COMMUNITY_Community 5|Community 5]]
+- [[_COMMUNITY_Community 6|Community 6]]
+- [[_COMMUNITY_Community 7|Community 7]]
+- [[_COMMUNITY_Community 8|Community 8]]
+- [[_COMMUNITY_Community 9|Community 9]]
+- [[_COMMUNITY_Community 10|Community 10]]
+- [[_COMMUNITY_Community 11|Community 11]]
+- [[_COMMUNITY_Community 12|Community 12]]
+- [[_COMMUNITY_Community 13|Community 13]]
+- [[_COMMUNITY_Community 14|Community 14]]
+- [[_COMMUNITY_Community 15|Community 15]]
+- [[_COMMUNITY_Community 16|Community 16]]
+- [[_COMMUNITY_Community 17|Community 17]]
+- [[_COMMUNITY_Community 18|Community 18]]
+- [[_COMMUNITY_Community 19|Community 19]]
+- [[_COMMUNITY_Community 20|Community 20]]
+- [[_COMMUNITY_Community 21|Community 21]]
+- [[_COMMUNITY_Community 22|Community 22]]
+- [[_COMMUNITY_Community 23|Community 23]]
+- [[_COMMUNITY_Community 24|Community 24]]
+- [[_COMMUNITY_Community 25|Community 25]]
+- [[_COMMUNITY_Community 26|Community 26]]
+- [[_COMMUNITY_Community 27|Community 27]]
+- [[_COMMUNITY_Community 28|Community 28]]
+- [[_COMMUNITY_Community 29|Community 29]]
+- [[_COMMUNITY_Community 30|Community 30]]
+- [[_COMMUNITY_Community 31|Community 31]]
+- [[_COMMUNITY_Community 32|Community 32]]
+- [[_COMMUNITY_Community 33|Community 33]]
+- [[_COMMUNITY_Community 34|Community 34]]
+- [[_COMMUNITY_Community 35|Community 35]]
+- [[_COMMUNITY_Community 36|Community 36]]
+- [[_COMMUNITY_Community 37|Community 37]]
+- [[_COMMUNITY_Community 38|Community 38]]
+- [[_COMMUNITY_Community 39|Community 39]]
+- [[_COMMUNITY_Community 40|Community 40]]
+- [[_COMMUNITY_Community 41|Community 41]]
+- [[_COMMUNITY_Community 42|Community 42]]
+- [[_COMMUNITY_Community 43|Community 43]]
+- [[_COMMUNITY_Community 44|Community 44]]
+- [[_COMMUNITY_Community 45|Community 45]]
+- [[_COMMUNITY_Community 46|Community 46]]
+- [[_COMMUNITY_Community 47|Community 47]]
+- [[_COMMUNITY_Community 48|Community 48]]
+- [[_COMMUNITY_Community 49|Community 49]]
+- [[_COMMUNITY_Community 50|Community 50]]
+- [[_COMMUNITY_Community 51|Community 51]]
+- [[_COMMUNITY_Community 52|Community 52]]
+- [[_COMMUNITY_Community 53|Community 53]]
+- [[_COMMUNITY_Community 54|Community 54]]
+- [[_COMMUNITY_Community 55|Community 55]]
+- [[_COMMUNITY_Community 56|Community 56]]
+- [[_COMMUNITY_Community 57|Community 57]]
+- [[_COMMUNITY_Community 58|Community 58]]
+- [[_COMMUNITY_Community 59|Community 59]]
+- [[_COMMUNITY_Community 60|Community 60]]
+- [[_COMMUNITY_Community 61|Community 61]]
+- [[_COMMUNITY_Community 62|Community 62]]
+- [[_COMMUNITY_Community 63|Community 63]]
+- [[_COMMUNITY_Community 64|Community 64]]
+- [[_COMMUNITY_Community 65|Community 65]]
+- [[_COMMUNITY_Community 66|Community 66]]
+- [[_COMMUNITY_Community 67|Community 67]]
+- [[_COMMUNITY_Community 68|Community 68]]
+- [[_COMMUNITY_Community 69|Community 69]]
+- [[_COMMUNITY_Community 70|Community 70]]
+- [[_COMMUNITY_Community 71|Community 71]]
+- [[_COMMUNITY_Community 72|Community 72]]
+- [[_COMMUNITY_Community 73|Community 73]]
+- [[_COMMUNITY_Community 74|Community 74]]
+- [[_COMMUNITY_Community 75|Community 75]]
+- [[_COMMUNITY_Community 76|Community 76]]
+- [[_COMMUNITY_Community 77|Community 77]]
+- [[_COMMUNITY_Community 78|Community 78]]
+- [[_COMMUNITY_Community 79|Community 79]]
+- [[_COMMUNITY_Community 80|Community 80]]
+- [[_COMMUNITY_Community 81|Community 81]]
+- [[_COMMUNITY_Community 82|Community 82]]
+- [[_COMMUNITY_Community 83|Community 83]]
+- [[_COMMUNITY_Community 84|Community 84]]
+- [[_COMMUNITY_Community 85|Community 85]]
+- [[_COMMUNITY_Community 86|Community 86]]
+- [[_COMMUNITY_Community 87|Community 87]]
+- [[_COMMUNITY_Community 88|Community 88]]
+- [[_COMMUNITY_Community 89|Community 89]]
+- [[_COMMUNITY_Community 90|Community 90]]
+- [[_COMMUNITY_Community 91|Community 91]]
+- [[_COMMUNITY_Community 92|Community 92]]
+- [[_COMMUNITY_Community 93|Community 93]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `DictationService` - 25 edges
-2. `OverlayController` - 22 edges
-3. `log()` - 14 edges
-4. `bootstrap()` - 11 edges
-5. `delay()` - 10 edges
-6. `ensureTargetReady()` - 10 edges
-7. `cleanupText()` - 9 edges
-8. `HistoryStore` - 9 edges
-9. `Vaani - Premium macOS Voice Dictation` - 8 edges
-10. `HotkeyManager` - 7 edges
+1. `DictationService` - 30 edges
+2. `OverlayController` - 24 edges
+3. `bootstrap()` - 16 edges
+4. `isDestroyed()` - 15 edges
+5. `HotkeyManager` - 14 edges
+6. `log()` - 12 edges
+7. `cleanupText()` - 12 edges
+8. `ensureTargetReady()` - 10 edges
+9. `startRecording()` - 9 edges
+10. `RecorderWindowController` - 9 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Text Formatting Module` --conceptually_related_to--> `Smart Text Cleanup`  [INFERRED]
-  src/main/formatting.ts → README.md
-- `Vaani UI Screenshot` --conceptually_related_to--> `Beautiful UI with Signal & Obsidian Themes`  [INFERRED]
-  assets/screenshot.png → README.md
-- `Default Configuration Module` --conceptually_related_to--> `Path Aliases for Imports`  [INFERRED]
-  src/shared/defaults.ts → CLAUDE.md
-- `Shared Type Definitions` --conceptually_related_to--> `Path Aliases for Imports`  [INFERRED]
-  src/shared/types.ts → CLAUDE.md
-- `React Dependency` --conceptually_related_to--> `React Renderer Entry Point`  [INFERRED]
-  package.json → src/renderer/main.tsx
+- `Beautiful UI with Signal & Obsidian Themes` --conceptually_related_to--> `Vaani UI Screenshot`  [INFERRED]
+  README.md → assets/screenshot.png
+- `Groq API Key Configuration` --rationale_for--> `No Secrets in Source Code Policy`  [INFERRED]
+  README.md → CLAUDE.md
+- `Vaani Architecture Summary` --conceptually_related_to--> `Graph-Derived Architecture Summary`  [INFERRED]
+  CLAUDE.md → graphify-out/GRAPH_REPORT.md
+- `useTheme()` --calls--> `Navbar()`  [INFERRED]
+  /Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/contexts/ThemeContext.tsx → /Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/Navbar.tsx
+- `useTheme()` --calls--> `AnimatedBackground()`  [INFERRED]
+  /Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/contexts/ThemeContext.tsx → /Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/AnimatedBackground.tsx
 
 ## Hyperedges (group relationships)
 - **Text Injection Pipeline** — readme_multiple_injection_methods, readme_accessibility_apis, readme_clipboard_injection, readme_keystroke_simulation [EXTRACTED 1.00]
@@ -106,364 +136,530 @@
 
 ## Communities
 
-### Community 0 - "Dictation & Injection Core"
+### Community 0 - "Community 0"
+Cohesion: 0.07
+Nodes (19): bootstrap(), cleanupRuntimeResources(), configureMediaPermissions(), createMainWindow(), loadWindowUrl(), showMainWindow(), syncAppPresentation(), registerIpcHandlers() (+11 more)
+
+### Community 1 - "Community 1"
 Cohesion: 0.12
-Nodes (8): AppDetector, bundleIdToContext(), DictationService, isExternalTarget(), messageForInjectionFailure(), TextInjector, isValidClip(), trimSilence()
+Nodes (10): AppDetector, bundleIdToContext(), DictationService, isExternalTarget(), messageForInjectionFailure(), sameTarget(), log(), TextInjector (+2 more)
 
-### Community 1 - "UI & Features Doc"
-Cohesion: 0.08
-Nodes (27): No Secrets in Source Code Policy, Tailwind Utility-First Styling, Text Formatting Module, Global CSS Styles, Framer Motion Animation Library, Groq SDK Dependency, Radix UI Component Dependencies, React Dependency (+19 more)
-
-### Community 2 - "Clipboard Text Injection"
+### Community 2 - "Community 2"
 Cohesion: 0.19
-Nodes (18): ClipboardTextInjector, confirmInsertion(), delay(), ensureTargetReady(), logInjectionStep(), maybeRestoreCaretAfterInsertion(), modifierReleaseLines(), moveCaretToEndForBrowserTarget() (+10 more)
+Nodes (17): ClipboardTextInjector, confirmInsertion(), delay(), ensureTargetReady(), maybeRestoreCaretAfterInsertion(), modifierReleaseLines(), moveCaretToEndForBrowserTarget(), prefersSystemEventsPaste() (+9 more)
 
-### Community 3 - "App Setup & Initialization"
-Cohesion: 0.12
-Nodes (12): bootstrap(), createMainWindow(), loadWindowUrl(), log(), showMainWindow(), syncAppPresentation(), registerIpcHandlers(), candidatePaths() (+4 more)
+### Community 3 - "Community 3"
+Cohesion: 0.17
+Nodes (14): blobToClip(), calculateRmsFrames(), chooseMicDevice(), cleanup(), mixToMono(), preferredMimeType(), reportFailure(), resampleToTargetRate() (+6 more)
 
-### Community 4 - "Overlay UI Controller"
-Cohesion: 0.18
-Nodes (2): cleanupRuntimeResources(), OverlayController
+### Community 4 - "Community 4"
+Cohesion: 0.13
+Nodes (9): AppRoot(), blobToClip(), calculateRmsFrames(), mixToMono(), resampleToTargetRate(), useAudioRecorder(), useDictation(), useHistory() (+1 more)
 
-### Community 5 - "Renderer Hooks & State"
-Cohesion: 0.15
-Nodes (9): App(), blobToClip(), calculateRmsFrames(), mixToMono(), resampleToTargetRate(), useAudioRecorder(), useDictation(), useHistory() (+1 more)
-
-### Community 6 - "Text Formatting Pipeline"
+### Community 5 - "Community 5"
 Cohesion: 0.22
-Nodes (11): countMatches(), formatTranscript(), getClient(), looksSuspicious(), requestFormatting(), shouldFormatText(), stripSpokenCues(), tokenizeForComparison() (+3 more)
+Nodes (14): calculateFirstSentenceOverlap(), firstSentence(), formatTranscript(), getClient(), hasLeadWordOverlap(), hasOrderedTokenPreservation(), looksSuspicious(), requestFormatting() (+6 more)
 
-### Community 7 - "Accessibility Text Injection"
+### Community 6 - "Community 6"
+Cohesion: 0.12
+Nodes (18): No Secrets in Source Code Policy, Accessibility APIs, Beautiful UI with Signal & Obsidian Themes, Clipboard Injection, Custom Dictionary for Word Replacements, Default Hotkey Ctrl+Option+D, Global Hotkey Feature, Groq API Key Configuration (+10 more)
+
+### Community 7 - "Community 7"
+Cohesion: 0.25
+Nodes (3): HotkeyManager, isNativeOnlyAccelerator(), toElectronAccelerator()
+
+### Community 8 - "Community 8"
+Cohesion: 0.22
+Nodes (13): applyCorrections(), applySmartPunctuation(), applySnippets(), capitalizeSentences(), cleanupText(), collapseAdjacentDuplicateWords(), ensureLinePunctuation(), hasMultipleLines() (+5 more)
+
+### Community 9 - "Community 9"
 Cohesion: 0.26
 Nodes (10): AccessibilityTextInjector, delay(), normalizeFailureReason(), activateTargetApp(), buildActivateTargetScript(), escapeAS(), internalAppNames(), internalBundleIds() (+2 more)
 
-### Community 8 - "History Storage"
+### Community 10 - "Community 10"
 Cohesion: 0.24
 Nodes (3): writeJsonFile(), HistoryStore, normalizeHistory()
 
-### Community 9 - "Text Cleanup Utilities"
-Cohesion: 0.26
-Nodes (10): applyCorrections(), applySmartPunctuation(), capitalizeSentences(), cleanupText(), ensureLinePunctuation(), hasMultipleLines(), isListLine(), normalizeLineWhitespace() (+2 more)
+### Community 11 - "Community 11"
+Cohesion: 0.18
+Nodes (6): AnimatedBackground(), DevanagariIcon(), ThemeToggle(), Navbar(), ThemeProvider(), useTheme()
 
-### Community 10 - "Dictionary & Suggestions"
+### Community 12 - "Community 12"
 Cohesion: 0.31
-Nodes (7): dedupeSuggestions(), detectDictionarySuggestions(), suffixesMatch(), tokenize(), acceptSuggestions(), saveEdit(), startEditing()
+Nodes (1): SettingsStore
 
-### Community 11 - "Hotkey Management"
-Cohesion: 0.36
-Nodes (3): HotkeyManager, isNativeOnlyAccelerator(), toElectronAccelerator()
-
-### Community 12 - "Development Utilities"
+### Community 13 - "Community 13"
 Cohesion: 0.39
 Nodes (5): cleanupStaleProcesses(), listStalePids(), processExists(), sleep(), terminatePid()
 
-### Community 13 - "macOS Audio Session"
+### Community 14 - "Community 14"
+Cohesion: 0.25
+Nodes (2): resize(), createTray()
+
+### Community 15 - "Community 15"
 Cohesion: 0.52
 Nodes (6): configureMacOSAudioSession(), getCurrentAudioInputDevice(), hasSwitchAudioSource(), isBluetoothDeviceName(), listAudioInputDevices(), setAudioInputDevice()
 
-### Community 14 - "Icon Creation Script"
+### Community 16 - "Community 16"
+Cohesion: 0.4
+Nodes (3): handleAccept(), handleStart(), handleStop()
+
+### Community 17 - "Community 17"
 Cohesion: 0.8
 Nodes (5): build_iconset(), build_square_png(), main(), read_image_dimensions(), run()
 
-### Community 15 - "Hotkey Capture Component"
+### Community 18 - "Community 18"
+Cohesion: 0.5
+Nodes (2): handleAdd(), handleCopy()
+
+### Community 19 - "Community 19"
 Cohesion: 0.4
+Nodes (1): CustomTooltip()
+
+### Community 20 - "Community 20"
+Cohesion: 0.5
 Nodes (2): keyToLabel(), onKeyDown()
 
-### Community 16 - "Dictation Tests"
+### Community 21 - "Community 21"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 17 - "Architecture Docs"
+### Community 22 - "Community 22"
+Cohesion: 0.7
+Nodes (4): dedupeSuggestions(), detectDictionarySuggestions(), suffixesMatch(), tokenize()
+
+### Community 23 - "Community 23"
 Cohesion: 0.5
-Nodes (5): Vaani Architecture Summary, Business Logic in Main Process Services, Renderer Components for Presentation Only, Graph-Derived Architecture Summary, Electron Dependency
+Nodes (0): 
 
-### Community 18 - "TypeScript Configuration"
-Cohesion: 0.4
-Nodes (5): Path Aliases for Imports, TypeScript Strict Mode Code Style, Default Configuration Module, TypeScript Dependency, Shared Type Definitions
-
-### Community 19 - "Dictionary Page (Theme Variants)"
-Cohesion: 0.5
-Nodes (1): handleAdd()
-
-### Community 20 - "Snippets Page (Theme Variants)"
+### Community 24 - "Community 24"
 Cohesion: 0.5
 Nodes (1): handleAdd()
 
-### Community 21 - "Native Build Pipeline"
+### Community 25 - "Community 25"
+Cohesion: 0.67
+Nodes (2): handleEdit(), handleSave()
+
+### Community 26 - "Community 26"
 Cohesion: 0.5
-Nodes (4): Native Build Step Requirement, build:native npm Script, dev npm Script, Node Addon API for Native Modules
+Nodes (0): 
 
-### Community 22 - "Cleanup Unit Tests"
+### Community 27 - "Community 27"
+Cohesion: 0.83
+Nodes (3): candidatePaths(), getNativeBridge(), loadNativeAddon()
+
+### Community 28 - "Community 28"
+Cohesion: 0.67
+Nodes (4): Vaani Architecture Summary, Business Logic in Main Process Services, Renderer Components for Presentation Only, Graph-Derived Architecture Summary
+
+### Community 29 - "Community 29"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 23 - "History Store Tests"
+### Community 30 - "Community 30"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 24 - "UI Theme Context"
+### Community 31 - "Community 31"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 25 - "Badge UI Component"
+### Community 32 - "Community 32"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 26 - "Utility Functions"
+### Community 33 - "Community 33"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 27 - "Monolithic Home Page"
+### Community 34 - "Community 34"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 28 - "Titanium Home Page"
+### Community 35 - "Community 35"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 29 - "Aurora Home Page"
+### Community 36 - "Community 36"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 30 - "IPC Preload Bridge"
+### Community 37 - "Community 37"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 31 - "Forge Configuration"
+### Community 38 - "Community 38"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 32 - "Vite Main Config"
+### Community 39 - "Community 39"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 33 - "Vite Preload Config"
+### Community 40 - "Community 40"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 34 - "Vitest Configuration"
+### Community 41 - "Community 41"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 35 - "Vite Renderer Config"
+### Community 42 - "Community 42"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 36 - "Hotkey Unit Tests"
+### Community 43 - "Community 43"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 37 - "Dictionary Suggestions Tests"
+### Community 44 - "Community 44"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 38 - "Formatting Unit Tests"
+### Community 45 - "Community 45"
+Cohesion: 1.0
+Nodes (2): Path Aliases for Imports, TypeScript Strict Mode Code Style
+
+### Community 46 - "Community 46"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 39 - "Text Injector Tests"
+### Community 47 - "Community 47"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 40 - "Renderer Entry Point"
+### Community 48 - "Community 48"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 41 - "Slider UI Component"
+### Community 49 - "Community 49"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 42 - "Switch UI Component"
+### Community 50 - "Community 50"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 43 - "Separator UI Component"
+### Community 51 - "Community 51"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 44 - "Button UI Component"
+### Community 52 - "Community 52"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 45 - "Monolithic Settings Page"
+### Community 53 - "Community 53"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 46 - "Monolithic Layout"
+### Community 54 - "Community 54"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 47 - "Monolithic Dashboard Page"
+### Community 55 - "Community 55"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 48 - "Titanium Settings Page"
+### Community 56 - "Community 56"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 49 - "Titanium Layout"
+### Community 57 - "Community 57"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 50 - "Titanium Dashboard Page"
+### Community 58 - "Community 58"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 51 - "Aurora Settings Page"
+### Community 59 - "Community 59"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 52 - "Aurora Layout"
+### Community 60 - "Community 60"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 53 - "Aurora Dashboard Page"
+### Community 61 - "Community 61"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 54 - "Native Hotkey Monitor"
+### Community 62 - "Community 62"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 55 - "Native Accessibility Detector"
+### Community 63 - "Community 63"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 56 - "Native Accessibility Injector"
+### Community 64 - "Community 64"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 57 - "Defaults Configuration"
+### Community 65 - "Community 65"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 58 - "Shared Types"
+### Community 66 - "Community 66"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 59 - "IPC Channels Definition"
+### Community 67 - "Community 67"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 60 - "Graphify Context Rules"
+### Community 68 - "Community 68"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 69 - "Community 69"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 70 - "Community 70"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 71 - "Community 71"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 72 - "Community 72"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 73 - "Community 73"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 74 - "Community 74"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 75 - "Community 75"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 76 - "Community 76"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 77 - "Community 77"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 78 - "Community 78"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 79 - "Community 79"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 80 - "Community 80"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 81 - "Community 81"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 82 - "Community 82"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 83 - "Community 83"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 84 - "Community 84"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 85 - "Community 85"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 86 - "Community 86"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 87 - "Community 87"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 88 - "Community 88"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 89 - "Community 89"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 90 - "Community 90"
 Cohesion: 1.0
 Nodes (1): Graphify Context Rules
 
-### Community 61 - "Build Artifacts Policy"
+### Community 91 - "Community 91"
+Cohesion: 1.0
+Nodes (1): Tailwind Utility-First Styling
+
+### Community 92 - "Community 92"
+Cohesion: 1.0
+Nodes (1): Native Build Step Requirement
+
+### Community 93 - "Community 93"
 Cohesion: 1.0
 Nodes (1): Do Not Edit Generated Build Artifacts
 
-### Community 62 - "Package Metadata"
-Cohesion: 1.0
-Nodes (1): Vaani Project Metadata
-
-### Community 63 - "Vite Tool Config"
-Cohesion: 1.0
-Nodes (1): Vite Build Tool
-
 ## Knowledge Gaps
-- **25 isolated node(s):** `Accessibility APIs`, `Clipboard Injection`, `Keystroke Simulation`, `Custom Dictionary for Word Replacements`, `Privacy-First Design` (+20 more)
+- **17 isolated node(s):** `Smart Text Cleanup`, `Accessibility APIs`, `Clipboard Injection`, `Keystroke Simulation`, `Custom Dictionary for Word Replacements` (+12 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Cleanup Unit Tests`** (2 nodes): `createSettings()`, `cleanup.test.ts`
+- **Thin community `Community 29`** (2 nodes): `App.tsx`, `main.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `History Store Tests`** (2 nodes): `entry()`, `historyStore.test.ts`
+- **Thin community `Community 30`** (2 nodes): `LandingPage()`, `LandingPage.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `UI Theme Context`** (2 nodes): `vaani-ui.tsx`, `VaaniUiProvider()`
+- **Thin community `Community 31`** (2 nodes): `PageTransition()`, `PageTransition.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Badge UI Component`** (2 nodes): `Badge()`, `badge.tsx`
+- **Thin community `Community 32`** (2 nodes): `AnimatedNumber()`, `Stats.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Utility Functions`** (2 nodes): `utils.js`, `cn()`
+- **Thin community `Community 33`** (2 nodes): `SettingCard()`, `SettingsPage.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Monolithic Home Page`** (2 nodes): `MonolithicHomePage()`, `HomePage.tsx`
+- **Thin community `Community 34`** (2 nodes): `createSettings()`, `cleanup.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Titanium Home Page`** (2 nodes): `TitaniumHomePage()`, `HomePage.tsx`
+- **Thin community `Community 35`** (2 nodes): `createDictationService()`, `dictation.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Aurora Home Page`** (2 nodes): `AuroraHomePage()`, `HomePage.tsx`
+- **Thin community `Community 36`** (2 nodes): `vaani-ui.tsx`, `VaaniUiProvider()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `IPC Preload Bridge`** (2 nodes): `subscribe()`, `index.ts`
+- **Thin community `Community 37`** (2 nodes): `cn()`, `api-key-input.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Forge Configuration`** (1 nodes): `forge.config.ts`
+- **Thin community `Community 38`** (2 nodes): `cn()`, `Kbd.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Vite Main Config`** (1 nodes): `vite.main.config.ts`
+- **Thin community `Community 39`** (2 nodes): `Badge()`, `badge.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Vite Preload Config`** (1 nodes): `vite.preload.config.ts`
+- **Thin community `Community 40`** (2 nodes): `LiveWaveform()`, `live-waveform.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Vitest Configuration`** (1 nodes): `vitest.config.ts`
+- **Thin community `Community 41`** (2 nodes): `Skeleton()`, `Skeleton.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Vite Renderer Config`** (1 nodes): `vite.renderer.config.ts`
+- **Thin community `Community 42`** (2 nodes): `utils.js`, `cn()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Hotkey Unit Tests`** (1 nodes): `hotkeys.test.ts`
+- **Thin community `Community 43`** (2 nodes): `subscribe()`, `recorder.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Dictionary Suggestions Tests`** (1 nodes): `dictionarySuggestions.test.ts`
+- **Thin community `Community 44`** (2 nodes): `subscribe()`, `index.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Formatting Unit Tests`** (1 nodes): `formatting.test.ts`
+- **Thin community `Community 45`** (2 nodes): `Path Aliases for Imports`, `TypeScript Strict Mode Code Style`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Text Injector Tests`** (1 nodes): `textInjector.test.ts`
+- **Thin community `Community 46`** (1 nodes): `forge.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Renderer Entry Point`** (1 nodes): `main.tsx`
+- **Thin community `Community 47`** (1 nodes): `vite.recorder-preload.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Slider UI Component`** (1 nodes): `slider.tsx`
+- **Thin community `Community 48`** (1 nodes): `vite.overlay-preload.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Switch UI Component`** (1 nodes): `switch.tsx`
+- **Thin community `Community 49`** (1 nodes): `vite.main.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Separator UI Component`** (1 nodes): `separator.tsx`
+- **Thin community `Community 50`** (1 nodes): `vite.preload.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Button UI Component`** (1 nodes): `button.tsx`
+- **Thin community `Community 51`** (1 nodes): `vite.overlay.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Monolithic Settings Page`** (1 nodes): `SettingsPage.tsx`
+- **Thin community `Community 52`** (1 nodes): `vite.recorder.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Monolithic Layout`** (1 nodes): `MonolithicLayout.tsx`
+- **Thin community `Community 53`** (1 nodes): `vitest.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Monolithic Dashboard Page`** (1 nodes): `DashboardPage.tsx`
+- **Thin community `Community 54`** (1 nodes): `vite.renderer.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Titanium Settings Page`** (1 nodes): `SettingsPage.tsx`
+- **Thin community `Community 55`** (1 nodes): `electron.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Titanium Layout`** (1 nodes): `TitaniumLayout.tsx`
+- **Thin community `Community 56`** (1 nodes): `eslint.config.js`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Titanium Dashboard Page`** (1 nodes): `DashboardPage.tsx`
+- **Thin community `Community 57`** (1 nodes): `vite.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Aurora Settings Page`** (1 nodes): `SettingsPage.tsx`
+- **Thin community `Community 58`** (1 nodes): `CTASection.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Aurora Layout`** (1 nodes): `AuroraLayout.tsx`
+- **Thin community `Community 59`** (1 nodes): `Pricing.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Aurora Dashboard Page`** (1 nodes): `DashboardPage.tsx`
+- **Thin community `Community 60`** (1 nodes): `Features.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Native Hotkey Monitor`** (1 nodes): `hotkey_monitor.mm`
+- **Thin community `Community 61`** (1 nodes): `HowItWorks.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Native Accessibility Detector`** (1 nodes): `detector.mm`
+- **Thin community `Community 62`** (1 nodes): `Footer.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Native Accessibility Injector`** (1 nodes): `injector.mm`
+- **Thin community `Community 63`** (1 nodes): `DarkShowcase.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Defaults Configuration`** (1 nodes): `defaults.ts`
+- **Thin community `Community 64`** (1 nodes): `SettingsModal.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Shared Types`** (1 nodes): `types.ts`
+- **Thin community `Community 65`** (1 nodes): `Dashboard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `IPC Channels Definition`** (1 nodes): `ipc.ts`
+- **Thin community `Community 66`** (1 nodes): `electron.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Graphify Context Rules`** (1 nodes): `Graphify Context Rules`
+- **Thin community `Community 67`** (1 nodes): `hotkeys.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Build Artifacts Policy`** (1 nodes): `Do Not Edit Generated Build Artifacts`
+- **Thin community `Community 68`** (1 nodes): `dictionarySuggestions.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Package Metadata`** (1 nodes): `Vaani Project Metadata`
+- **Thin community `Community 69`** (1 nodes): `formatting.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Vite Tool Config`** (1 nodes): `Vite Build Tool`
+- **Thin community `Community 70`** (1 nodes): `dictation.fixture.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 71`** (1 nodes): `textInjector.test.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 72`** (1 nodes): `App.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 73`** (1 nodes): `SettingsModal.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 74`** (1 nodes): `card.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 75`** (1 nodes): `slider.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 76`** (1 nodes): `switch.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 77`** (1 nodes): `separator.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 78`** (1 nodes): `button.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 79`** (1 nodes): `dropdown-menu.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 80`** (1 nodes): `main.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 81`** (1 nodes): `CapsuleOverlay.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 82`** (1 nodes): `Dashboard.tsx`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 83`** (1 nodes): `hotkey_monitor.mm`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 84`** (1 nodes): `detector.mm`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 85`** (1 nodes): `injector.mm`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 86`** (1 nodes): `defaults.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 87`** (1 nodes): `types.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 88`** (1 nodes): `ipc.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 89`** (1 nodes): `overlay.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 90`** (1 nodes): `Graphify Context Rules`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 91`** (1 nodes): `Tailwind Utility-First Styling`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 92`** (1 nodes): `Native Build Step Requirement`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 93`** (1 nodes): `Do Not Edit Generated Build Artifacts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `log()` connect `App Setup & Initialization` to `Dictation & Injection Core`, `Clipboard Text Injection`, `Overlay UI Controller`, `Text Formatting Pipeline`, `Accessibility Text Injection`, `Hotkey Management`, `macOS Audio Session`?**
-  _High betweenness centrality (0.174) - this node is a cross-community bridge._
-- **Why does `maybeRestoreCaretAfterInsertion()` connect `Clipboard Text Injection` to `App Setup & Initialization`, `Accessibility Text Injection`?**
-  _High betweenness centrality (0.040) - this node is a cross-community bridge._
-- **Why does `cleanupText()` connect `Text Cleanup Utilities` to `Dictation & Injection Core`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
-- **Are the 12 inferred relationships involving `log()` (e.g. with `.register()` and `formatTranscript()`) actually correct?**
-  _`log()` has 12 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 7 inferred relationships involving `bootstrap()` (e.g. with `.init()` and `.get()`) actually correct?**
-  _`bootstrap()` has 7 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `Accessibility APIs`, `Clipboard Injection`, `Keystroke Simulation` to the rest of the system?**
-  _25 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Dictation & Injection Core` be split into smaller, more focused modules?**
-  _Cohesion score 0.12 - nodes in this community are weakly interconnected._
+- **Why does `log()` connect `Community 1` to `Community 0`, `Community 2`, `Community 5`, `Community 7`, `Community 9`, `Community 15`, `Community 27`?**
+  _High betweenness centrality (0.158) - this node is a cross-community bridge._
+- **Why does `bootstrap()` connect `Community 0` to `Community 1`, `Community 12`, `Community 14`?**
+  _High betweenness centrality (0.054) - this node is a cross-community bridge._
+- **Why does `maybeRestoreCaretAfterInsertion()` connect `Community 2` to `Community 1`, `Community 9`?**
+  _High betweenness centrality (0.048) - this node is a cross-community bridge._
+- **Are the 11 inferred relationships involving `bootstrap()` (e.g. with `.init()` and `.hide()`) actually correct?**
+  _`bootstrap()` has 11 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 14 inferred relationships involving `isDestroyed()` (e.g. with `showMainWindow()` and `.setAccentColor()`) actually correct?**
+  _`isDestroyed()` has 14 INFERRED edges - model-reasoned connections that need verification._
+- **What connects `Smart Text Cleanup`, `Accessibility APIs`, `Clipboard Injection` to the rest of the system?**
+  _17 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Community 0` be split into smaller, more focused modules?**
+  _Cohesion score 0.07 - nodes in this community are weakly interconnected._

@@ -16,20 +16,24 @@ const config: ForgeConfig = {
     executableName: "Vaani",
     appCopyright: "© 2025 Anthropic",
     darwinDarkModeSupport: true,
+    extendInfo: {
+      NSMicrophoneUsageDescription: "Vaani uses the microphone to record your speech for dictation.",
+    },
     // Copy native module to the packaged app
     extraResource: [
       join(__dirname, "build", "Release", "vaani_native.node"),
       join(__dirname, "assets", "iconset", "trayTemplate.png"),
       join(__dirname, "assets", "iconset", "trayTemplate@2x.png"),
     ],
-    // Code signing configuration - uncomment and fill in when ready
-    // osxSign: {
-    //   identity: 'Developer ID Application: YOUR_NAME (TEAM_ID)',
-    //   hardenedRuntime: true,
-    //   gatekeeperAssess: false,
-    //   entitlements: 'entitlements.plist',
-    //   entitlementsInherit: 'entitlements.plist'
-    // },
+    osxSign: {
+      identity: "-",
+      identityValidation: false,
+      preAutoEntitlements: false,
+      optionsForFile: () => ({
+        entitlements: "entitlements.plist",
+        hardenedRuntime: true
+      })
+    },
     // osxNotarize: {
     //   tool: 'notarytool',
     //   appleId: process.env.APPLE_ID || '',
@@ -56,11 +60,13 @@ new MakerDMG({
       build: [
         { entry: "src/main/index.ts", config: "vite.main.config.ts", target: "main" },
         { entry: "src/preload/index.ts", config: "vite.preload.config.ts", target: "preload" },
-        { entry: "src/preload/overlay.ts", config: "vite.overlay-preload.config.ts", target: "preload" }
+        { entry: "src/preload/overlay.ts", config: "vite.overlay-preload.config.ts", target: "preload" },
+        { entry: "src/preload/recorder.ts", config: "vite.recorder-preload.config.ts", target: "preload" }
       ],
       renderer: [
         { name: "main_window", config: "vite.renderer.config.ts" },
-        { name: "overlay_window", config: "vite.overlay.config.ts" }
+        { name: "overlay_window", config: "vite.overlay.config.ts" },
+        { name: "recorder_window", config: "vite.recorder.config.ts" }
       ]
     })
   ]

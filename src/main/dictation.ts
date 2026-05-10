@@ -24,11 +24,19 @@ import { TranscriptionService } from "./transcription";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
+const AUDIO_FRAME_TIMEOUT_MS = 1_600;
+
+interface RecorderCommands {
+  isReady: () => boolean;
+  startRecording: (sessionId: string) => boolean;
+  stopRecording: (sessionId: string) => boolean;
+}
 
 interface DictationServiceDeps {
   transcription?: Pick<TranscriptionService, "transcribe">;
   injector?: Pick<TextInjector, "inject">;
   appDetector?: Pick<AppDetector, "getContext">;
+  recorder?: RecorderCommands;
   createSessionId?: () => string;
 }
 
@@ -40,9 +48,12 @@ export class DictationService {
   private readonly createSessionId: () => string;
   private resetTimer: ReturnType<typeof setTimeout> | null = null;
   private finalizationTimer: ReturnType<typeof setTimeout> | null = null;
+  private audioFrameTimer: ReturnType<typeof setTimeout> | null = null;
   private activeSessionId: string | null = null;
   private activeTarget: AppContextResult | null = null;
   private activeSelection: SelectionRange | null = null;
+  private releaseRequestedDuringStart = false;
+  private readonly recorder: RecorderCommands | null;
 
   constructor(
     private readonly mainWindow: BrowserWindow | null,
@@ -55,6 +66,7 @@ export class DictationService {
     this.transcription = deps.transcription ?? new TranscriptionService(() => this.settings.get());
     this.injector = deps.injector ?? new TextInjector(() => this.settings.get());
     this.appDetector = deps.appDetector ?? new AppDetector();
+    this.recorder = deps.recorder ?? null;
     this.createSessionId = deps.createSessionId ?? (() => crypto.randomUUID());
   }
 
@@ -74,7 +86,18 @@ export class DictationService {
     this.activeSessionId = sessionId;
     this.activeTarget = this.appDetector.getContext();
     this.activeSelection = this.captureSelection(this.activeTarget);
-    this.setState({ status: "recording", sessionId });
+    this.releaseRequestedDuringStart = false;
+    this.setState({ status: "starting", sessionId });
+
+    if (!this.recorder?.isReady()) {
+      this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.");
+      return;
+    }
+
+    const started = this.recorder.startRecording(sessionId);
+    if (!started) {
+      this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.");
+    }
   }
 
   cancelSession(): void {
@@ -82,6 +105,11 @@ export class DictationService {
   }
 
   endHotkeySession(): void {
+    if (this.state.status === "starting") {
+      this.releaseRequestedDuringStart = true;
+      return;
+    }
+
     if (this.state.status !== "recording") {
       return;
     }
@@ -89,9 +117,34 @@ export class DictationService {
     const { sessionId } = this.state;
     this.setState({ status: "finalizing", sessionId });
     this.clearFinalizationTimer();
+    this.clearAudioFrameTimer();
+    if (!this.recorder?.stopRecording(sessionId)) {
+      this.failSession(sessionId, "Recording could not be finalized.");
+      return;
+    }
     this.finalizationTimer = setTimeout(() => {
       this.failSession(sessionId, "Recording did not finalize. Please try again.");
     }, FINALIZATION_TIMEOUT_MS);
+  }
+
+  reportRecorderStarted(sessionId: string): void {
+    if (!this.isCurrentSession(sessionId) || this.state.status !== "starting") {
+      return;
+    }
+
+    this.setState({ status: "recording", sessionId });
+    this.clearAudioFrameTimer();
+    this.audioFrameTimer = setTimeout(() => {
+      if (this.isCurrentSession(sessionId) && this.state.status === "recording") {
+        this.recorder?.stopRecording(sessionId);
+        this.failSession(sessionId, "Microphone opened, but no live audio frames arrived.");
+      }
+    }, AUDIO_FRAME_TIMEOUT_MS);
+
+    if (this.releaseRequestedDuringStart) {
+      this.releaseRequestedDuringStart = false;
+      this.endHotkeySession();
+    }
   }
 
   async submitAudioClip(payload: RecorderSubmission): Promise<void> {
@@ -127,10 +180,10 @@ export class DictationService {
         : transcription.rawText;
       const cleanedText = cleanupText({ rawText: textForCleanup, settings });
       const freshTarget = this.appDetector.getContext();
-      const target = isExternalTarget(freshTarget) ? freshTarget : (this.activeTarget ?? freshTarget);
+      const target = isExternalTarget(this.activeTarget) ? this.activeTarget : freshTarget;
       this.activeTarget = target;
       this.activeSelection = this.captureSelection(target);
-      const entry: DictationEntry = {
+      const entryBase: Omit<DictationEntry, "injectionStatus" | "injectionMethod"> = {
         id: crypto.randomUUID(),
         timestamp: new Date().toISOString(),
         rawText: transcription.rawText,
@@ -139,35 +192,48 @@ export class DictationService {
         durationSeconds: trimmedClip.durationSeconds,
         appBundleId: target.appBundleId,
         appName: target.appName,
-        injectionStatus: "saved",
-        injectionMethod: null,
         language: transcription.language
       };
 
-      await this.history.append(entry);
-      if (!this.isCurrentSession(payload.sessionId)) {
-        return;
-      }
-
-      const injection = await this.injector.inject(cleanedText, {
+      const injectionTarget = {
         appBundleId: target.appBundleId,
         appName: target.appName,
         selection: this.activeSelection
-      });
+      };
+
+      let injection = await this.injector.inject(cleanedText, injectionTarget);
+      if (!injection.success) {
+        const fallbackTarget = this.appDetector.getContext();
+        if (isExternalTarget(fallbackTarget) && !sameTarget(injectionTarget, fallbackTarget)) {
+          injection = await this.injector.inject(cleanedText, {
+            appBundleId: fallbackTarget.appBundleId,
+            appName: fallbackTarget.appName,
+            selection: this.captureSelection(fallbackTarget)
+          });
+          if (injection.success) {
+            this.activeTarget = fallbackTarget;
+          }
+        }
+      }
       if (!this.isCurrentSession(payload.sessionId)) {
         return;
       }
 
       if (injection.success) {
-        await this.history.updateById(entry.id, (current) => ({
-          ...current,
+        await this.history.append({
+          ...entryBase,
           injectionStatus: "injected",
           injectionMethod: injection.method
-        }));
+        });
         this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor");
         return;
       }
 
+      await this.history.append({
+        ...entryBase,
+        injectionStatus: "saved",
+        injectionMethod: null
+      });
       this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history");
     } catch (error) {
       if (!this.isCurrentSession(payload.sessionId)) {
@@ -205,6 +271,7 @@ export class DictationService {
       return;
     }
 
+    this.clearAudioFrameTimer();
     this.overlay.updateBars(frame.bars);
     // Send both level and bars to renderer for visualization
     this.mainWindow?.webContents.send(IpcChannel.AudioLevel, frame.level, frame.bars);
@@ -239,6 +306,10 @@ export class DictationService {
   }
 
   async pasteLatestEntry(): Promise<void> {
+    if (this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing" || this.state.status === "transcribing") {
+      return;
+    }
+
     const latest = await this.history.getLatest();
     if (!latest) {
       this.setState({ status: "error", sessionId: null, message: "No previous dictation is available yet." });
@@ -337,6 +408,7 @@ export class DictationService {
       return;
     }
 
+    this.clearAudioFrameTimer();
     this.setState({
       status: "completed",
       sessionId,
@@ -352,6 +424,8 @@ export class DictationService {
       return;
     }
 
+    this.clearAudioFrameTimer();
+    this.clearFinalizationTimer();
     this.setState({ status: "error", sessionId, message });
     this.scheduleReset(ERROR_RESET_MS);
   }
@@ -361,6 +435,7 @@ export class DictationService {
     this.activeSessionId = null;
     this.activeTarget = null;
     this.activeSelection = null;
+    this.releaseRequestedDuringStart = false;
     this.setState({ status: "idle" });
   }
 
@@ -374,6 +449,7 @@ export class DictationService {
   private clearTimers(): void {
     this.clearResetTimer();
     this.clearFinalizationTimer();
+    this.clearAudioFrameTimer();
   }
 
   private clearResetTimer(): void {
@@ -387,6 +463,13 @@ export class DictationService {
     if (this.finalizationTimer) {
       clearTimeout(this.finalizationTimer);
       this.finalizationTimer = null;
+    }
+  }
+
+  private clearAudioFrameTimer(): void {
+    if (this.audioFrameTimer) {
+      clearTimeout(this.audioFrameTimer);
+      this.audioFrameTimer = null;
     }
   }
 
@@ -427,6 +510,9 @@ export class DictationService {
     if (state.status === "idle") {
       this.updateTrayStatus("Ready");
       this.overlay.hide();
+    } else if (state.status === "starting") {
+      this.updateTrayStatus("Opening microphone…");
+      this.overlay.setPressed();
     } else if (state.status === "recording") {
       this.updateTrayStatus("Recording…");
       this.overlay.setRecording();
@@ -458,7 +544,7 @@ export class DictationService {
 
 function isExternalTarget(
   context: Pick<AppContextResult, "appBundleId" | "appName"> | null | undefined
-): boolean {
+): context is Pick<AppContextResult, "appBundleId" | "appName"> {
   if (!context) {
     return false;
   }
@@ -468,6 +554,21 @@ function isExternalTarget(
   const internalBundleIds = new Set(["com.claudevaani.app", "com.github.electron"]);
   const internalAppNames = new Set(["claude vaani", "electron"]);
   return !internalBundleIds.has(bundleId) && !internalAppNames.has(appName);
+}
+
+function sameTarget(
+  left: Pick<AppContextResult, "appBundleId" | "appName"> | null | undefined,
+  right: Pick<AppContextResult, "appBundleId" | "appName"> | null | undefined
+): boolean {
+  const leftBundleId = left?.appBundleId?.trim().toLowerCase() ?? "";
+  const rightBundleId = right?.appBundleId?.trim().toLowerCase() ?? "";
+  if (leftBundleId && rightBundleId) {
+    return leftBundleId === rightBundleId;
+  }
+
+  const leftAppName = left?.appName?.trim().toLowerCase() ?? "";
+  const rightAppName = right?.appName?.trim().toLowerCase() ?? "";
+  return !!leftAppName && leftAppName === rightAppName;
 }
 
 function messageForInjectionFailure(reason: InjectionFailureReason): string {
