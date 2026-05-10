@@ -27,6 +27,7 @@ let hotkeyManager: HotkeyManager | null = null;
 let settingsStore: SettingsStore | null = null;
 let menuBarMode = true;   // start as "menu bar only" until window is explicitly shown
 let windowHasLoaded = false;
+let rendererReady = false;
 let lastDockVisible: boolean | null = null;
 let trayController: TrayController = {
   updateStatus: () => undefined,
@@ -48,8 +49,11 @@ function showMainWindow(): void {
   }
 
   menuBarMode = false;
-  mainWindow.show();
-  mainWindow.focus();
+  // Only show if renderer is ready — if not, did-finish-load will pick it up
+  if (rendererReady) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
   syncAppPresentation();
 }
 
@@ -106,9 +110,13 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
     }
   });
 
+  win.webContents.on("did-start-loading", () => {
+    rendererReady = false;
+  });
+
   win.webContents.on("did-finish-load", () => {
     log("renderer:ready");
-    // Show the window with the new UI
+    rendererReady = true;
     if (!menuBarMode) {
       win.show();
       win.focus();

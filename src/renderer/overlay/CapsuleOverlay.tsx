@@ -16,6 +16,7 @@ declare global {
       sendReady: () => void
       sendSnippetResp: (accepted: boolean) => void
       sendDictResp: (accepted: boolean) => void
+      cleanup: () => void
     }
   }
 }
@@ -118,6 +119,8 @@ export default function CapsuleOverlay() {
     bridge.onHideExpanded(() => setMode('hidden'))
 
     bridge.sendReady()
+
+    return () => bridge.cleanup()
   }, [])
 
   // 8-second auto-dismiss for prompts

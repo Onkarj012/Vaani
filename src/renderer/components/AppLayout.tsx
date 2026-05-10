@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import SettingsModal from './SettingsModal'
+import devanagariDarkUrl from '../../../assets/iconset/devanagari/devanagari_dark.svg?url'
+import devanagariLightUrl from '../../../assets/iconset/devanagari/devanagari_light.svg?url'
 
 const navItems = [
   { path: '/app', label: 'Dashboard', icon: LayoutDashboard },
@@ -25,14 +27,14 @@ const navItems = [
   { path: '/app/insights', label: 'Insights', icon: BarChart3 },
 ]
 
-function DevanagariIcon({ className = '' }: { className?: string }) {
+function VaaniIcon({ className = '' }: { className?: string }) {
+  const { theme } = useTheme()
   return (
-    <svg viewBox="0 0 100 100" className={className} fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-      <path d="M20 25h60v6H52v14h26v6H52v24h-6V41H26v24h-6V25zm12 6h14v14H32V31z" />
-      <path d="M26 55c0 8 6 14 14 14s14-6 14-14h6c0 11-9 20-20 20s-20-9-20-20h6z" opacity="0.6" />
-      <circle cx="75" cy="35" r="4" />
-      <circle cx="75" cy="55" r="4" opacity="0.6" />
-    </svg>
+    <img
+      src={theme === 'dark' ? devanagariDarkUrl : devanagariLightUrl}
+      className={className}
+      alt="Vaani"
+    />
   )
 }
 
@@ -75,7 +77,7 @@ function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: ()
         <div className="p-6 border-b border-vaani-gray-200 dark:border-vaani-gray-800 shrink-0">
           <div className="flex items-center gap-3 group">
             <motion.div whileHover={{ rotate: 10, scale: 1.1 }} transition={{ type: 'spring', stiffness: 300 }}>
-              <DevanagariIcon className="w-10 h-10 text-vaani-black dark:text-white transition-colors" />
+              <VaaniIcon className="w-10 h-10 transition-colors" />
             </motion.div>
             <div>
               <span className="font-display text-2xl tracking-wide text-vaani-black dark:text-white transition-colors">VAANI</span>

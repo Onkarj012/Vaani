@@ -301,6 +301,10 @@ export class OverlayController {
       this.window.excludedFromShownWindowsMenu = true;
     }
 
+    // Reset ready state if the renderer reloads (HMR) or crashes
+    this.window.webContents.on("did-start-loading", () => { this.loadReady = false; });
+    this.window.webContents.on("render-process-gone", () => { this.loadReady = false; });
+
     // React sends capsule:ready once mounted — use that as the authoritative signal
     this.window.webContents.ipc.on("capsule:ready", () => {
       this.loadReady = true;

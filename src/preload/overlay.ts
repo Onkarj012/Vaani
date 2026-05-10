@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+const OVERLAY_CHANNELS = [
+  'capsule:set-mode',
+  'capsule:update-bars',
+  'capsule:set-accent',
+  'capsule:show-snippet',
+  'capsule:show-dictionary',
+  'capsule:hide-expanded',
+] as const
+
 contextBridge.exposeInMainWorld('capsuleBridge', {
   onMode: (cb: (mode: string) => void) => {
     ipcRenderer.on('capsule:set-mode', (_e, m: string) => cb(m))
@@ -22,4 +31,7 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   sendReady: () => ipcRenderer.send('capsule:ready'),
   sendSnippetResp: (accepted: boolean) => ipcRenderer.send('capsule:snippet-response', { accepted }),
   sendDictResp: (accepted: boolean) => ipcRenderer.send('capsule:dictionary-response', { accepted }),
+  cleanup: () => {
+    for (const ch of OVERLAY_CHANNELS) ipcRenderer.removeAllListeners(ch)
+  },
 })

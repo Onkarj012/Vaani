@@ -167,20 +167,26 @@ export function useAudioRecorder() {
       resetSmoothedBars();
       previousInputDeviceRef.current = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
-      // Electron can enumerate devices with labels without prior getUserMedia.
-      // Explicitly select the built-in mic to avoid capturing virtual/loopback
-      // devices (e.g. BlackHole, Loopback) that may be the system default.
+      // Use the built-in Mac mic to avoid virtual/loopback devices
+      // (BlackHole, Loopback, Aggregate, etc.) that capture system audio.
+      const VIRTUAL_PATTERNS = ["blackhole", "loopback", "multi-output", "virtual", "soundflower", "display audio", "aggregate"];
       let micDeviceId: ConstrainDOMString | undefined;
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const inputs = devices.filter(
           d => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications"
         );
-        const builtIn = inputs.find(d => {
+        const physicalMics = inputs.filter(d => {
+          const label = d.label.toLowerCase();
+          return !VIRTUAL_PATTERNS.some(p => label.includes(p));
+        });
+        // Built-in mic first — it won't pick up loopback audio from speakers
+        const builtInMic = physicalMics.find(d => {
           const label = d.label.toLowerCase();
           return label.includes("built-in") || label.includes("macbook") || label.includes("internal");
-        }) ?? inputs[0];
-        if (builtIn?.deviceId) micDeviceId = { exact: builtIn.deviceId };
+        });
+        const chosen = builtInMic ?? physicalMics[0];
+        if (chosen?.deviceId) micDeviceId = { exact: chosen.deviceId };
       } catch {
         // fall back to system default
       }
@@ -189,8 +195,9 @@ export function useAudioRecorder() {
         audio: {
           ...(micDeviceId ? { deviceId: micDeviceId } : {}),
           channelCount: 1,
-          echoCancellation: false,
-          noiseSuppression: false,
+          // Echo cancellation removes speaker bleed (e.g. background video audio)
+          echoCancellation: true,
+          noiseSuppression: true,
           autoGainControl: false,
         },
       });
