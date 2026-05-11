@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from "electron";
+import { app, BrowserWindow, ipcMain, session } from "electron";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -12,10 +12,12 @@ import { RecorderWindowController } from "./recorderWindow";
 import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
 import { createTray, type TrayController } from "./tray";
+import { IpcChannel } from "@shared/ipc";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
 const logPath = join(tmpdir(), "claude-vaani-startup.log");
+const MAIN_RENDERER_READY_TIMEOUT_MS = 5_000;
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -28,6 +30,8 @@ let settingsStore: SettingsStore | null = null;
 let menuBarMode = true;   // start as "menu bar only" until window is explicitly shown
 let windowHasLoaded = false;
 let rendererReady = false;
+let mainWindowOpenRequested = false;
+let mainWindowReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDockVisible: boolean | null = null;
 let trayController: TrayController = {
   updateStatus: () => undefined,
@@ -45,16 +49,52 @@ function log(label: string, data?: unknown): void {
 
 function showMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
+    log("window:show-missing");
     return;
   }
 
+  mainWindowOpenRequested = true;
   menuBarMode = false;
-  // Only show if renderer is ready — if not, did-finish-load will pick it up
-  if (rendererReady) {
-    mainWindow.show();
-    mainWindow.focus();
+  if (mainWindow.webContents.isCrashed()) {
+    rendererReady = false;
+    mainWindow.reload();
+    armMainWindowReadyTimeout(mainWindow);
+  } else if (!rendererReady && !mainWindow.webContents.isLoading()) {
+    mainWindow.reload();
+    armMainWindowReadyTimeout(mainWindow);
   }
+  log("window:show-requested", {
+    rendererReady,
+    crashed: mainWindow.webContents.isCrashed(),
+    visible: mainWindow.isVisible()
+  });
+  mainWindow.show();
+  mainWindow.focus();
   syncAppPresentation();
+}
+
+function clearMainWindowReadyTimeout(): void {
+  if (mainWindowReadyTimer) {
+    clearTimeout(mainWindowReadyTimer);
+    mainWindowReadyTimer = null;
+  }
+}
+
+function armMainWindowReadyTimeout(win: BrowserWindow): void {
+  clearMainWindowReadyTimeout();
+  mainWindowReadyTimer = setTimeout(() => {
+    if (mainWindow !== win || win.isDestroyed() || rendererReady) {
+      return;
+    }
+
+    log("renderer:ready-timeout", { loading: win.webContents.isLoading(), visible: win.isVisible() });
+    if (win.webContents.isCrashed()) {
+      win.reload();
+    } else if (!win.webContents.isLoading()) {
+      win.reload();
+    }
+    armMainWindowReadyTimeout(win);
+  }, MAIN_RENDERER_READY_TIMEOUT_MS);
 }
 
 function syncAppPresentation(): void {
@@ -82,6 +122,7 @@ function syncAppPresentation(): void {
 }
 
 function cleanupRuntimeResources(): void {
+  clearMainWindowReadyTimeout();
   hotkeyManager?.unregister();
   hotkeyManager = null;
   recorderController?.destroy();
@@ -112,19 +153,52 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
 
   win.webContents.on("did-start-loading", () => {
     rendererReady = false;
+    armMainWindowReadyTimeout(win);
   });
 
   win.webContents.on("did-finish-load", () => {
-    log("renderer:ready");
-    rendererReady = true;
-    if (!menuBarMode) {
-      win.show();
-      win.focus();
-    }
+    log("renderer:loaded");
+    armMainWindowReadyTimeout(win);
   });
 
   win.webContents.on("did-fail-load", (_event, code, desc) => {
     log("renderer:fail", { code, desc });
+    rendererReady = false;
+    clearMainWindowReadyTimeout();
+    if (mainWindowOpenRequested || !menuBarMode) {
+      setTimeout(() => {
+        if (!win.isDestroyed() && !rendererReady) {
+          win.reload();
+        }
+      }, 500);
+    }
+  });
+
+  win.webContents.on("render-process-gone", (_event, details) => {
+    log("renderer:gone", details);
+    rendererReady = false;
+    clearMainWindowReadyTimeout();
+    if (mainWindowOpenRequested || !menuBarMode) {
+      setTimeout(() => {
+        if (!win.isDestroyed()) {
+          win.reload();
+        }
+      }, 250);
+    }
+  });
+
+  win.on("unresponsive", () => {
+    log("window:unresponsive");
+    rendererReady = false;
+    clearMainWindowReadyTimeout();
+    if (mainWindowOpenRequested || !menuBarMode) {
+      win.webContents.forcefullyCrashRenderer();
+      setTimeout(() => {
+        if (!win.isDestroyed()) {
+          win.reload();
+        }
+      }, 250);
+    }
   });
 
   win.on("close", (event) => {
@@ -138,12 +212,15 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
     }
 
     event.preventDefault();
+    mainWindowOpenRequested = false;
     menuBarMode = true;
+    clearMainWindowReadyTimeout();
     win.hide();
     syncAppPresentation();
   });
 
   win.on("show", () => {
+    mainWindowOpenRequested = true;
     menuBarMode = false;
     windowHasLoaded = true;
     syncAppPresentation();
@@ -152,6 +229,39 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
   // transient windows should not affect the dock icon state.
 
   return win;
+}
+
+function configureRendererLifecycle(win: BrowserWindow): void {
+  ipcMain.on(IpcChannel.RendererReady, (event) => {
+    if (event.sender !== win.webContents) {
+      return;
+    }
+
+    log("renderer:ready");
+    rendererReady = true;
+    clearMainWindowReadyTimeout();
+    if (!menuBarMode) {
+      win.show();
+      win.focus();
+    }
+  });
+
+  ipcMain.on(IpcChannel.RendererError, (event, payload: { message?: string; stack?: string }) => {
+    if (event.sender !== win.webContents) {
+      return;
+    }
+
+    log("renderer:error", {
+      message: payload?.message ?? "Renderer error",
+      stack: payload?.stack
+    });
+  });
+
+  win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    if (level >= 2) {
+      log("renderer:console", { level, message, line, sourceId });
+    }
+  });
 }
 
 function configureMediaPermissions(): void {
@@ -195,6 +305,7 @@ async function bootstrap(): Promise<void> {
   configureMediaPermissions();
 
   mainWindow = createMainWindow(() => trayReady);
+  configureRendererLifecycle(mainWindow);
 
   overlayController = new OverlayController();
   recorderController = new RecorderWindowController();
@@ -294,6 +405,16 @@ async function bootstrap(): Promise<void> {
       error: (msg) => log("updater:error", msg),
       debug: (msg) => log("updater:debug", msg)
     };
+    autoUpdater.setFeedURL({
+      provider: "github",
+      owner: "Onkarj012",
+      repo: "Vaani"
+    });
+    autoUpdater.on("checking-for-update", () => log("updater:checking"));
+    autoUpdater.on("update-available", (info) => log("updater:available", { version: info.version }));
+    autoUpdater.on("update-not-available", (info) => log("updater:not-available", { version: info.version }));
+    autoUpdater.on("update-downloaded", (info) => log("updater:downloaded", { version: info.version }));
+    autoUpdater.on("error", (error) => log("updater:event-error", { message: error.message }));
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.checkForUpdatesAndNotify().catch((err) => {

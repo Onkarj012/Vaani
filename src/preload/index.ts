@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IpcChannel } from "@shared/ipc";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
-import type { AudioVisualFrame, DictationState, RecorderFailure, RecorderSubmission, VaaniAPI } from "@shared/types";
+import type { DictationState, VaaniAPI } from "@shared/types";
 
 function subscribe<T>(channel: IpcChannel, cb: (payload: T) => void): () => void {
   const listener = (_e: Electron.IpcRendererEvent, payload: T) => cb(payload);
@@ -26,17 +26,9 @@ const api: VaaniAPI = {
   updateSettings: (patch) => ipcRenderer.invoke(IpcChannel.UpdateSettings, patch),
   setHotkeyCapture: (active) => ipcRenderer.invoke(IpcChannel.SetHotkeyCapture, active),
   showDictionaryPrompt: (suggestions: DictionarySuggestion[]) => ipcRenderer.invoke(IpcChannel.ShowDictionaryPrompt, suggestions),
-  onNavigate: (cb) => subscribe<{ route: string }>(IpcChannel.Navigation, ({ route }) => cb(route))
-};
-
-const recorderApi = {
-  submitAudioClip: (payload: RecorderSubmission) => ipcRenderer.invoke(IpcChannel.SubmitAudioClip, payload),
-  reportRecorderReady: () => ipcRenderer.invoke(IpcChannel.RecorderReady),
-  reportAudioFrame: (frame: AudioVisualFrame) => ipcRenderer.invoke(IpcChannel.ReportAudioFrame, frame),
-  reportRecorderFailure: (payload: RecorderFailure) => ipcRenderer.invoke(IpcChannel.RecorderFailure, payload),
-  prepareRecordingInput: () => ipcRenderer.invoke(IpcChannel.PrepareRecordingInput),
-  restoreRecordingInput: (deviceId: number | null) => ipcRenderer.invoke(IpcChannel.RestoreRecordingInput, deviceId)
+  onNavigate: (cb) => subscribe<{ route: string }>(IpcChannel.Navigation, ({ route }) => cb(route)),
+  reportRendererReady: () => ipcRenderer.send(IpcChannel.RendererReady),
+  reportRendererError: (payload) => ipcRenderer.send(IpcChannel.RendererError, payload)
 };
 
 contextBridge.exposeInMainWorld("vaani", api);
-contextBridge.exposeInMainWorld("__VAANI_RECORDER__", recorderApi);

@@ -70,15 +70,19 @@ describe("DictationService", () => {
     expect(recorder.startRecording).toHaveBeenCalledTimes(1);
   });
 
-  it("does not enter recording when the recorder is not ready", () => {
+  it("queues recording while the recorder warms up and errors only after timeout", () => {
     const { service, overlay, recorder } = createDictationService();
     recorder.isReady.mockReturnValue(false);
 
     service.beginHotkeySession();
 
     expect(overlay.setPressed).toHaveBeenCalledTimes(1);
+    expect(recorder.startRecording).toHaveBeenCalledTimes(1);
+    expect(overlay.setError).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(5_000);
+
     expect(overlay.setError).toHaveBeenCalledTimes(1);
-    expect(recorder.startRecording).not.toHaveBeenCalled();
   });
 
   it("forwards audio bars while recording", () => {

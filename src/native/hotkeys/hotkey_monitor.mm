@@ -21,6 +21,8 @@ bool pasteLatestWatchesFunctionModifier = false;
 unsigned short pasteLatestKeyCode = USHRT_MAX;
 CGEventFlags pasteLatestModifiers = 0;
 Napi::ThreadSafeFunction pasteLatestCallback;
+int64_t lastPasteLatestEmitMs = 0;
+const int64_t PASTE_LATEST_DEBOUNCE_MS = 1200;
 
 // Fn key state tracking (CGEvent doesn't expose Fn as a modifier flag)
 bool isFnKeyPressed = false;
@@ -62,6 +64,12 @@ void EmitPasteLatest() {
   if (!pasteLatestCallback) {
     return;
   }
+
+  int64_t now = CurrentTimeMs();
+  if (now - lastPasteLatestEmitMs < PASTE_LATEST_DEBOUNCE_MS) {
+    return;
+  }
+  lastPasteLatestEmitMs = now;
 
   pasteLatestCallback.BlockingCall([](Napi::Env env, Napi::Function callback) {
     callback.Call({});
@@ -521,7 +529,8 @@ void StopEventTap() {
   pasteLatestWatchesFunctionModifier = false;
   pasteLatestKeyCode = USHRT_MAX;
   pasteLatestModifiers = 0;
-  
+  lastPasteLatestEmitMs = 0;
+
   if (pasteLatestCallback) {
     pasteLatestCallback.Release();
     pasteLatestCallback = {};
@@ -554,7 +563,21 @@ Napi::Boolean StartHotkeyMonitor(const Napi::CallbackInfo& info) {
 }
 
 Napi::Value StopHotkeyMonitor(const Napi::CallbackInfo& info) {
-  StopEventTap();
+  CancelPendingUp();
+  isHotkeyPressed = false;
+  pendingUp = false;
+  watchesFunctionModifier = false;
+  monitoredKeyCode = USHRT_MAX;
+  monitoredModifiers = 0;
+
+  if (hotkeyCallback) {
+    hotkeyCallback.Release();
+    hotkeyCallback = {};
+  }
+
+  if (!pasteLatestCallback) {
+    StopEventTap();
+  }
   return info.Env().Undefined();
 }
 
@@ -588,6 +611,7 @@ Napi::Value StopPasteLatestMonitor(const Napi::CallbackInfo& info) {
   pasteLatestWatchesFunctionModifier = false;
   pasteLatestKeyCode = USHRT_MAX;
   pasteLatestModifiers = 0;
+  lastPasteLatestEmitMs = 0;
 
   if (pasteLatestCallback) {
     pasteLatestCallback.Release();

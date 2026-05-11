@@ -140,6 +140,8 @@ export interface VaaniAPI {
   setHotkeyCapture: (active: boolean) => Promise<void>;
   showDictionaryPrompt: (suggestions: DictionarySuggestion[]) => Promise<void>;
   onNavigate: (cb: (route: string) => void) => () => void;
+  reportRendererReady: () => void;
+  reportRendererError: (payload: { message: string; stack?: string }) => void;
 }
 
 declare global {

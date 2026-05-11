@@ -25,6 +25,7 @@ import { TranscriptionService } from "./transcription";
 const FINALIZATION_TIMEOUT_MS = 4_000;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
+const RECORDER_START_TIMEOUT_MS = 5_000;
 
 interface RecorderCommands {
   isReady: () => boolean;
@@ -49,11 +50,13 @@ export class DictationService {
   private resetTimer: ReturnType<typeof setTimeout> | null = null;
   private finalizationTimer: ReturnType<typeof setTimeout> | null = null;
   private audioFrameTimer: ReturnType<typeof setTimeout> | null = null;
+  private recorderStartTimer: ReturnType<typeof setTimeout> | null = null;
   private activeSessionId: string | null = null;
   private activeTarget: AppContextResult | null = null;
   private activeSelection: SelectionRange | null = null;
   private releaseRequestedDuringStart = false;
   private readonly recorder: RecorderCommands | null;
+  private pasteLatestInProgress = false;
 
   constructor(
     private readonly mainWindow: BrowserWindow | null,
@@ -89,10 +92,17 @@ export class DictationService {
     this.releaseRequestedDuringStart = false;
     this.setState({ status: "starting", sessionId });
 
-    if (!this.recorder?.isReady()) {
+    if (!this.recorder) {
       this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.");
       return;
     }
+
+    this.clearRecorderStartTimer();
+    this.recorderStartTimer = setTimeout(() => {
+      if (this.isCurrentSession(sessionId) && this.state.status === "starting") {
+        this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.");
+      }
+    }, RECORDER_START_TIMEOUT_MS);
 
     const started = this.recorder.startRecording(sessionId);
     if (!started) {
@@ -132,6 +142,7 @@ export class DictationService {
       return;
     }
 
+    this.clearRecorderStartTimer();
     this.setState({ status: "recording", sessionId });
     this.clearAudioFrameTimer();
     this.audioFrameTimer = setTimeout(() => {
@@ -306,37 +317,43 @@ export class DictationService {
   }
 
   async pasteLatestEntry(): Promise<void> {
+    if (this.pasteLatestInProgress) return;
     if (this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing" || this.state.status === "transcribing") {
       return;
     }
 
-    const latest = await this.history.getLatest();
-    if (!latest) {
-      this.setState({ status: "error", sessionId: null, message: "No previous dictation is available yet." });
-      this.scheduleReset(ERROR_RESET_MS);
-      return;
-    }
+    this.pasteLatestInProgress = true;
+    try {
+      const latest = await this.history.getLatest();
+      if (!latest) {
+        this.setState({ status: "error", sessionId: null, message: "No previous dictation is available yet." });
+        this.scheduleReset(ERROR_RESET_MS);
+        return;
+      }
 
-    const result = await this.injector.inject(latest.cleanedText, this.currentInjectionTarget(latest));
-    if (!result.success) {
+      const result = await this.injector.inject(latest.cleanedText, this.currentInjectionTarget(latest));
+      if (!result.success) {
+        this.setState({
+          status: "error",
+          sessionId: null,
+          message: messageForInjectionFailure(result.reason)
+        });
+        this.scheduleReset(ERROR_RESET_MS);
+        return;
+      }
+
+      const sessionId = this.createSessionId();
       this.setState({
-        status: "error",
-        sessionId: null,
-        message: messageForInjectionFailure(result.reason)
+        status: "completed",
+        sessionId,
+        outcome: "injected",
+        text: latest.cleanedText,
+        message: "Inserted at cursor"
       });
-      this.scheduleReset(ERROR_RESET_MS);
-      return;
+      this.scheduleReset(SUCCESS_RESET_MS);
+    } finally {
+      this.pasteLatestInProgress = false;
     }
-
-    const sessionId = this.createSessionId();
-    this.setState({
-      status: "completed",
-      sessionId,
-      outcome: "injected",
-      text: latest.cleanedText,
-      message: "Inserted at cursor"
-    });
-    this.scheduleReset(SUCCESS_RESET_MS);
   }
 
   getState(): DictationState {
@@ -424,6 +441,7 @@ export class DictationService {
       return;
     }
 
+    this.clearRecorderStartTimer();
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
     this.setState({ status: "error", sessionId, message });
@@ -448,6 +466,7 @@ export class DictationService {
 
   private clearTimers(): void {
     this.clearResetTimer();
+    this.clearRecorderStartTimer();
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
   }
@@ -470,6 +489,13 @@ export class DictationService {
     if (this.audioFrameTimer) {
       clearTimeout(this.audioFrameTimer);
       this.audioFrameTimer = null;
+    }
+  }
+
+  private clearRecorderStartTimer(): void {
+    if (this.recorderStartTimer) {
+      clearTimeout(this.recorderStartTimer);
+      this.recorderStartTimer = null;
     }
   }
 
@@ -551,8 +577,15 @@ function isExternalTarget(
 
   const bundleId = context.appBundleId?.trim().toLowerCase() ?? "";
   const appName = context.appName?.trim().toLowerCase() ?? "";
-  const internalBundleIds = new Set(["com.claudevaani.app", "com.github.electron"]);
-  const internalAppNames = new Set(["claude vaani", "electron"]);
+  if (!bundleId && !appName) {
+    return false;
+  }
+
+  const internalBundleIds = new Set(["com.claudevaani.app"]);
+  const internalAppNames = new Set(["claude vaani", "vaani"]);
+  internalBundleIds.add("com.github.electron");
+  internalAppNames.add("electron");
+
   return !internalBundleIds.has(bundleId) && !internalAppNames.has(appName);
 }
 

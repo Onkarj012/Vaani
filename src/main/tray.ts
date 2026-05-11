@@ -131,6 +131,10 @@ export function createTray(
     onOpen();
   });
 
+  tray.on("mouse-up", () => {
+    onOpen();
+  });
+
   return {
     updateStatus: (label) => {
       currentStatus = label;

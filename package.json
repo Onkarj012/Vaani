@@ -15,9 +15,10 @@
   },
   "scripts": {
     "build:native": "npx node-gyp rebuild",
-    "dev": "npm run build:native && electron-forge start",
+    "dev": "npm run build:native && node scripts/dev.js",
     "build": "npm run build:native && electron-forge package",
     "make": "npm run build:native && electron-forge make",
+    "generate:update-metadata": "node scripts/generate-latest-mac-yml.js",
     "publish": "npm run build:native && electron-forge publish",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

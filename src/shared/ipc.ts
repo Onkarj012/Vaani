@@ -30,4 +30,8 @@ export const enum IpcChannel {
 
   // Dictionary
   ShowDictionaryPrompt = "dictionary:show-prompt",
+
+  // App lifecycle / diagnostics
+  RendererReady = "app:renderer-ready",
+  RendererError = "app:renderer-error",
 }

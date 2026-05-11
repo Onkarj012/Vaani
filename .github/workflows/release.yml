@@ -31,6 +31,9 @@ jobs:
       - name: Make distributables
         run: npm run make
 
+      - name: Generate update metadata
+        run: npm run generate:update-metadata
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -38,6 +41,7 @@ jobs:
           path: |
             out/make/**/*.dmg
             out/make/**/*.zip
+            out/make/**/latest-mac.yml
 
   publish:
     needs: build
@@ -59,3 +63,4 @@ jobs:
           files: |
             artifacts/**/*.dmg
             artifacts/**/*.zip
+            artifacts/**/latest-mac.yml

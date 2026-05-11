@@ -12,6 +12,7 @@ export class RecorderWindowController {
   private window: BrowserWindow | null = null;
   private ready = false;
   private pendingCommand: { channel: IpcChannel.StartRecording | IpcChannel.StopRecording; sessionId: string } | null = null;
+  private initPromise: Promise<void> | null = null;
 
   isReady(): boolean {
     return this.ready && !!this.window && !this.window.isDestroyed();
@@ -22,8 +23,19 @@ export class RecorderWindowController {
       return;
     }
 
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    this.initPromise = this.createWindow().finally(() => {
+      this.initPromise = null;
+    });
+    return this.initPromise;
+  }
+
+  private async createWindow(): Promise<void> {
     this.ready = false;
-    this.window = new BrowserWindow({
+    const win = new BrowserWindow({
       width: 320,
       height: 180,
       show: false,
@@ -36,17 +48,40 @@ export class RecorderWindowController {
         backgroundThrottling: false
       }
     });
+    this.window = win;
 
-    this.window.on("closed", () => {
-      this.window = null;
+    win.on("closed", () => {
+      if (this.window === win) {
+        this.window = null;
+      }
       this.ready = false;
       this.pendingCommand = null;
     });
 
+    win.on("unresponsive", () => {
+      this.ready = false;
+      win.webContents.forcefullyCrashRenderer();
+      this.recover();
+    });
+
+    win.webContents.on("did-start-loading", () => {
+      this.ready = false;
+    });
+
+    win.webContents.on("did-fail-load", () => {
+      this.ready = false;
+      this.recover();
+    });
+
+    win.webContents.on("render-process-gone", () => {
+      this.ready = false;
+      this.recover();
+    });
+
     if (typeof RECORDER_WINDOW_VITE_DEV_SERVER_URL !== "undefined") {
-      await this.window.loadURL(RECORDER_WINDOW_VITE_DEV_SERVER_URL);
+      await win.loadURL(RECORDER_WINDOW_VITE_DEV_SERVER_URL);
     } else {
-      await this.window.loadFile(join(currentDir, `../renderer/${RECORDER_WINDOW_VITE_NAME}/index.html`));
+      await win.loadFile(join(currentDir, `../renderer/${RECORDER_WINDOW_VITE_NAME}/index.html`));
     }
   }
 
@@ -79,7 +114,8 @@ export class RecorderWindowController {
   private sendOrQueue(channel: IpcChannel.StartRecording | IpcChannel.StopRecording, sessionId: string): boolean {
     if (!this.isReady()) {
       this.pendingCommand = { channel, sessionId };
-      return false;
+      void this.init();
+      return true;
     }
 
     this.send(channel, sessionId);
@@ -92,5 +128,20 @@ export class RecorderWindowController {
     }
 
     this.window.webContents.send(channel, { sessionId });
+  }
+
+  private recover(): void {
+    if (!this.window || this.window.isDestroyed()) {
+      void this.init();
+      return;
+    }
+
+    try {
+      this.window.reload();
+    } catch {
+      this.window.destroy();
+      this.window = null;
+      void this.init();
+    }
   }
 }

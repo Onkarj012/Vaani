@@ -1,9 +1,12 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, screen } from "electron";
+import type { Rectangle } from "electron";
 import { nativeBridge } from "./nativeBridge";
 import { execFile } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 
 const exec = promisify(execFile);
 
@@ -11,6 +14,7 @@ declare const OVERLAY_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const OVERLAY_WINDOW_VITE_NAME: string;
 
 const _dir = dirname(fileURLToPath(import.meta.url));
+const logPath = join(tmpdir(), "claude-vaani-startup.log");
 
 const CAPSULE_BOTTOM_MARGIN = 24;
 // Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)
@@ -19,10 +23,15 @@ const PILL_H = 52;
 // Prompt card: matches CapsuleOverlay.tsx prompt width (340px) + shadow clearance
 const PROMPT_W = 360;
 const PROMPT_H = 210;
+const OVERLAY_LOAD_TIMEOUT_MS = 2_000;
+const OVERLAY_SHOW_WATCHDOG_MS = 900;
 
 export class OverlayController {
   private window: BrowserWindow | null = null;
   private loadReady = false;
+  private creatingWindow: Promise<void> | null = null;
+  private loadTimeout: ReturnType<typeof setTimeout> | null = null;
+  private showWatchdog: ReturnType<typeof setTimeout> | null = null;
   private pendingMode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error" | null = null;
   private pendingBars: number[] | null = null;
   private promptActive = false;
@@ -58,21 +67,24 @@ export class OverlayController {
 
   prewarm(): void {
     if (this.window && !this.window.isDestroyed()) return;
-    this.loadReady = false;
-    void this.createWindow();
+    void this.ensureWindow();
   }
 
   show(): void {
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     if (this.window && !this.window.isDestroyed()) {
-      this.window.showInactive();
-      void this.restoreFocusIfNeeded(frontmostBefore);
+      if (this.window.webContents.isCrashed()) {
+        this.recoverWindow("crashed");
+      } else if (!this.loadReady && !this.window.webContents.isLoading()) {
+        this.recoverWindow("not-ready-not-loading");
+      }
+      log("overlay:show-existing", { loadReady: this.loadReady, visible: this.window.isVisible() });
+      void this.presentWindow(frontmostBefore);
       return;
     }
-    this.loadReady = false;
-    void this.createWindow().then(() => {
-      this.window?.showInactive();
-      void this.restoreFocusIfNeeded(frontmostBefore);
+    void this.ensureWindow().then(() => {
+      log("overlay:show-created", { loadReady: this.loadReady });
+      void this.presentWindow(frontmostBefore);
     });
   }
 
@@ -204,10 +216,13 @@ export class OverlayController {
   destroy(): void {
     this.clearPromptDismissTimer();
     this.promptActive = false;
+    this.clearLoadTimeout();
+    this.clearShowWatchdog();
     if (this.window && !this.window.isDestroyed()) {
       this.window.destroy();
       this.window = null;
     }
+    this.creatingWindow = null;
     this.loadReady = false;
     this.pendingMode = null;
     this.pendingBars = null;
@@ -235,8 +250,7 @@ export class OverlayController {
 
   private async resizeWindow(expanded: boolean): Promise<void> {
     if (!this.window || this.window.isDestroyed()) return;
-    const { screen } = await import("electron");
-    const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
+    const { x, y, width, height } = this.getTargetWorkArea();
     const targetW = expanded ? PROMPT_W : PILL_W;
     const targetH = expanded ? PROMPT_H : PILL_H;
     const targetX = Math.round(x + width  / 2 - targetW / 2);
@@ -261,22 +275,157 @@ export class OverlayController {
     }
   }
 
+  private clearLoadTimeout(): void {
+    if (this.loadTimeout) {
+      clearTimeout(this.loadTimeout);
+      this.loadTimeout = null;
+    }
+  }
+
+  private clearShowWatchdog(): void {
+    if (this.showWatchdog) {
+      clearTimeout(this.showWatchdog);
+      this.showWatchdog = null;
+    }
+  }
+
+  private armLoadTimeout(win: BrowserWindow): void {
+    this.clearLoadTimeout();
+    this.loadTimeout = setTimeout(() => {
+      if (this.window !== win || win.isDestroyed() || this.loadReady) {
+        return;
+      }
+
+      log("overlay:load-timeout", { loading: win.webContents.isLoading() });
+      this.recoverWindow("load-timeout");
+    }, OVERLAY_LOAD_TIMEOUT_MS);
+  }
+
+  private armShowWatchdog(win: BrowserWindow): void {
+    this.clearShowWatchdog();
+    this.showWatchdog = setTimeout(() => {
+      if (this.window !== win || win.isDestroyed()) {
+        return;
+      }
+
+      const unhealthy = win.webContents.isCrashed() || !this.loadReady || !win.isVisible();
+      log("overlay:show-watchdog", {
+        unhealthy,
+        loadReady: this.loadReady,
+        visible: win.isVisible(),
+        crashed: win.webContents.isCrashed(),
+        pendingMode: this.pendingMode
+      });
+
+      if (unhealthy && this.pendingMode) {
+        this.recoverWindow("show-watchdog");
+        return;
+      }
+
+      if (this.pendingMode) {
+        this.tryUpdateMode(this.pendingMode);
+      }
+      if (this.pendingBars) {
+        this.updateBars(this.pendingBars);
+      }
+    }, OVERLAY_SHOW_WATCHDOG_MS);
+  }
+
   private tryUpdateMode(mode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error"): void {
     if (!this.loadReady || !this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:set-mode", mode);
   }
 
+  private ensureWindow(): Promise<void> {
+    if (this.window && !this.window.isDestroyed()) {
+      return Promise.resolve();
+    }
+
+    if (!this.creatingWindow) {
+      this.loadReady = false;
+      this.creatingWindow = this.createWindow().finally(() => {
+        this.creatingWindow = null;
+      });
+    }
+
+    return this.creatingWindow;
+  }
+
+  private recoverWindow(reason: string): void {
+    log("overlay:recover", { reason, hasWindow: !!this.window });
+    const oldWindow = this.window;
+    this.window = null;
+    this.loadReady = false;
+    this.creatingWindow = null;
+    this.clearLoadTimeout();
+    this.clearShowWatchdog();
+
+    if (oldWindow && !oldWindow.isDestroyed()) {
+      oldWindow.destroy();
+    }
+
+    void this.ensureWindow().then(() => {
+      if (this.pendingMode && this.window && !this.window.isDestroyed()) {
+        void this.presentWindow(nativeBridge.getFrontmostApplication?.());
+      }
+    });
+  }
+
+  private getTargetWorkArea(): Rectangle {
+    const cursor = screen.getCursorScreenPoint();
+    return screen.getDisplayNearestPoint(cursor).workArea;
+  }
+
+  private async presentWindow(
+    originalFrontmost: { bundleId?: string; name?: string } | null | undefined
+  ): Promise<void> {
+    if (!this.window || this.window.isDestroyed()) {
+      return;
+    }
+
+    const { x, y, width, height } = this.getTargetWorkArea();
+    const targetW = this.promptActive ? PROMPT_W : PILL_W;
+    const targetH = this.promptActive ? PROMPT_H : PILL_H;
+    this.window.setBounds({
+      x: Math.round(x + width / 2 - targetW / 2),
+      y: Math.round(y + height - targetH - CAPSULE_BOTTOM_MARGIN),
+      width: targetW,
+      height: targetH
+    });
+    this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    this.window.setAlwaysOnTop(true, "screen-saver");
+    this.window.setIgnoreMouseEvents(!this.promptActive, { forward: true });
+
+    try {
+      this.window.showInactive();
+      this.window.moveTop();
+    } catch { /* best effort */ }
+
+    if (this.pendingMode) {
+      this.tryUpdateMode(this.pendingMode);
+      setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 100);
+      setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 300);
+    }
+    if (this.pendingBars) {
+      this.updateBars(this.pendingBars);
+    }
+
+    this.armShowWatchdog(this.window);
+    await this.restoreFocusIfNeeded(originalFrontmost);
+  }
+
   private async createWindow(): Promise<void> {
-    const { screen } = await import("electron");
+    log("overlay:create");
     const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
     const windowX = Math.round(x + width  / 2 - PILL_W / 2);
     const windowY = Math.round(y + height - PILL_H - CAPSULE_BOTTOM_MARGIN);
 
-    this.window = new BrowserWindow({
+    const win = new BrowserWindow({
       width:  PILL_W,
       height: PILL_H,
       x: windowX,
       y: windowY,
+      show: false,
       frame: false,
       transparent: true,
       alwaysOnTop: true,
@@ -292,21 +441,51 @@ export class OverlayController {
         backgroundThrottling: false,
       },
     });
+    this.window = win;
 
-    this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    this.window.setAlwaysOnTop(true, "screen-saver");
-    this.window.setIgnoreMouseEvents(true, { forward: true });
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    win.setAlwaysOnTop(true, "screen-saver");
+    win.setIgnoreMouseEvents(true, { forward: true });
 
     if (app.dock) {
-      this.window.excludedFromShownWindowsMenu = true;
+      win.excludedFromShownWindowsMenu = true;
     }
 
     // Reset ready state if the renderer reloads (HMR) or crashes
-    this.window.webContents.on("did-start-loading", () => { this.loadReady = false; });
-    this.window.webContents.on("render-process-gone", () => { this.loadReady = false; });
+    win.webContents.on("did-start-loading", () => {
+      log("overlay:loading");
+      this.loadReady = false;
+      this.armLoadTimeout(win);
+    });
+    win.webContents.on("did-fail-load", (_event, code, desc) => {
+      log("overlay:fail", { code, desc });
+      this.loadReady = false;
+      this.recoverWindow("load-failed");
+    });
+    win.webContents.on("render-process-gone", (_event, details) => {
+      log("overlay:gone", details);
+      this.loadReady = false;
+      this.recoverWindow("renderer-gone");
+    });
+    win.on("unresponsive", () => {
+      log("overlay:unresponsive");
+      this.loadReady = false;
+      win.webContents.forcefullyCrashRenderer();
+      this.recoverWindow("unresponsive");
+    });
+    win.on("closed", () => {
+      if (this.window === win) {
+        this.window = null;
+        this.loadReady = false;
+        this.clearLoadTimeout();
+        this.clearShowWatchdog();
+      }
+    });
 
     // React sends capsule:ready once mounted — use that as the authoritative signal
-    this.window.webContents.ipc.on("capsule:ready", () => {
+    win.webContents.ipc.on("capsule:ready", () => {
+      log("overlay:ready");
+      this.clearLoadTimeout();
       this.loadReady = true;
       if (this.accentColor !== "#FF006E") {
         this.window?.webContents.send("capsule:set-accent", this.accentColor);
@@ -316,9 +495,12 @@ export class OverlayController {
     });
 
     // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
-    this.window.webContents.once("did-finish-load", () => {
+    win.webContents.on("did-finish-load", () => {
+      log("overlay:loaded");
       setTimeout(() => {
         if (!this.loadReady && this.window && !this.window.isDestroyed()) {
+          log("overlay:ready-fallback");
+          this.clearLoadTimeout();
           this.loadReady = true;
           if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
           if (this.pendingBars) this.updateBars(this.pendingBars);
@@ -327,9 +509,18 @@ export class OverlayController {
     });
 
     if (typeof OVERLAY_WINDOW_VITE_DEV_SERVER_URL !== "undefined") {
-      await this.window.loadURL(OVERLAY_WINDOW_VITE_DEV_SERVER_URL);
+      await win.loadURL(OVERLAY_WINDOW_VITE_DEV_SERVER_URL);
     } else {
-      await this.window.loadFile(join(_dir, `../renderer/${OVERLAY_WINDOW_VITE_NAME}/index.html`));
+      await win.loadFile(join(_dir, `../renderer/${OVERLAY_WINDOW_VITE_NAME}/index.html`));
     }
+  }
+}
+
+function log(label: string, data?: unknown): void {
+  try {
+    const line = `[${new Date().toISOString()}] ${label}${data !== undefined ? ` ${JSON.stringify(data)}` : ""}\n`;
+    appendFileSync(logPath, line, "utf8");
+  } catch {
+    // best-effort logging
   }
 }
