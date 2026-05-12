@@ -27,8 +27,8 @@ let overlayController: OverlayController | null = null;
 let recorderController: RecorderWindowController | null = null;
 let hotkeyManager: HotkeyManager | null = null;
 let settingsStore: SettingsStore | null = null;
+let dictationService: DictationService | null = null;
 let menuBarMode = true;   // start as "menu bar only" until window is explicitly shown
-let windowHasLoaded = false;
 let rendererReady = false;
 let mainWindowOpenRequested = false;
 let mainWindowReadyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -100,27 +100,16 @@ function armMainWindowReadyTimeout(win: BrowserWindow): void {
 }
 
 function syncAppPresentation(): void {
-  // Dock icon shows only when:
-  // - showInDock setting is enabled, AND
-  // - the window has actually been shown, AND
-  // - user has not sent the window to the menu bar (X-button close)
-  //
-  // Pressing the global hotkey does NOT affect menuBarMode — only explicit
-  // window close/open actions do. This prevents the dock icon from blinking
-  // on and off during recording.
   const showInDock = settingsStore?.get().showInDock ?? true;
-  const mainWindowVisible = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
-  const shouldShowDock = showInDock && windowHasLoaded && !menuBarMode;
+  const windowIsVisible = !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
+  const shouldShowDock = showInDock && windowIsVisible;
 
-  log("syncAppPresentation", { showInDock, windowHasLoaded, menuBarMode, mainWindowVisible, shouldShowDock, lastDockVisible });
-
-  if (lastDockVisible === shouldShowDock) {
-    return;
-  }
-
+  // Always call dock.show() when the window is visible — macOS or the overlay
+  // can knock out the dock icon unexpectedly, so we can't trust cached state.
   if (shouldShowDock) {
     void app.dock?.show();
-  } else {
+  } else if (lastDockVisible !== false) {
+    // Only hide when transitioning to hidden (avoid repeated hide calls)
     app.dock?.hide();
   }
   lastDockVisible = shouldShowDock;
@@ -245,12 +234,12 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
     log("window:shown");
     mainWindowOpenRequested = true;
     menuBarMode = false;
-    windowHasLoaded = true;
     syncAppPresentation();
   });
 
   win.on("hide", () => {
     log("window:hidden", { menuBarMode, mainWindowOpenRequested });
+    syncAppPresentation();
   });
 
   win.on("blur", () => {
@@ -362,6 +351,7 @@ async function bootstrap(): Promise<void> {
     overlayController,
     { recorder: recorderController }
   );
+  dictationService = dictation;
 
   // Now create tray with the dictation callback
   try {
@@ -381,7 +371,12 @@ async function bootstrap(): Promise<void> {
 
   hotkeyManager = new HotkeyManager(
     () => settings.get(),
-    () => dictation.beginHotkeySession(),
+    () => {
+      dictation.beginHotkeySession();
+      // Restore dock icon after overlay appears — macOS can knock it out
+      setTimeout(syncAppPresentation, 50);
+      setTimeout(syncAppPresentation, 150);
+    },
     () => dictation.endHotkeySession(),
     () => dictation.cancelSession(),
     () => {
@@ -489,6 +484,13 @@ app.whenReady()
   });
 
 app.on("activate", () => {
+  // Don't steal focus from the user's target app during an active dictation session.
+  // The overlay triggers macOS app activation but the main window should stay put.
+  const dictationStatus = dictationService?.getState().status;
+  if (dictationStatus && dictationStatus !== "idle" && dictationStatus !== "completed" && dictationStatus !== "error") {
+    log("activate:suppressed", { dictationStatus });
+    return;
+  }
   showMainWindow();
 });
 

@@ -73,7 +73,7 @@ function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: ()
         )}
       </AnimatePresence>
 
-      <aside className={`fixed lg:fixed top-0 left-0 h-screen w-[280px] bg-white dark:bg-vaani-black border-r border-vaani-gray-200 dark:border-vaani-gray-800 z-50 flex flex-col transition-transform duration-300 ease-out lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed lg:fixed top-0 left-0 h-screen w-[280px] bg-white dark:bg-vaani-black border-r border-vaani-gray-200 dark:border-vaani-gray-800 z-50 flex flex-col transition-transform duration-300 ease-out lg:translate-x-0 pt-4 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 border-b border-vaani-gray-200 dark:border-vaani-gray-800 shrink-0">
           <div className="flex items-center gap-3 group">
             <motion.div whileHover={{ rotate: 10, scale: 1.1 }} transition={{ type: 'spring', stiffness: 300 }}>
@@ -157,8 +157,8 @@ export default function AppLayout() {
         onSettings={() => setIsSettingsOpen(true)}
       />
 
-      <div className="flex-1 flex flex-col min-h-screen overflow-hidden lg:ml-[280px] relative z-10">
-        <header className="h-14 flex items-center px-4 lg:hidden shrink-0">
+      <div className="flex-1 pt-4 flex flex-col min-h-screen overflow-hidden lg:ml-[280px] relative z-10">
+        <header className="h-14 flex items-center px-4 lg:hidden shrink-0 pt-2">
           <button
             onClick={() => setIsMobileMenuOpen(true)}
             className="p-2 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-800 rounded-xl transition-colors"
