@@ -1,14 +1,10 @@
 import { app, BrowserWindow, screen } from "electron";
 import type { Rectangle } from "electron";
 import { nativeBridge } from "./nativeBridge";
-import { execFile } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-
-const exec = promisify(execFile);
 
 declare const OVERLAY_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const OVERLAY_WINDOW_VITE_NAME: string;
@@ -233,21 +229,12 @@ export class OverlayController {
   // ── Private ──────────────────────────────────────────────────────────────
 
   private async restoreFocusIfNeeded(
-    originalFrontmost: { bundleId?: string; name?: string } | null | undefined
+    _originalFrontmost: { bundleId?: string; name?: string } | null | undefined
   ): Promise<void> {
-    if (!originalFrontmost) return;
-    await new Promise<void>((r) => setTimeout(r, 50));
-    const currentFrontmost = nativeBridge.getFrontmostApplication?.();
-    const currentBundleId  = currentFrontmost?.bundleId?.toLowerCase() ?? "";
-    const originalBundleId = originalFrontmost.bundleId?.toLowerCase() ?? "";
-    const ourBundleIds = ["com.claudevaani.app", "com.github.electron"];
-    const weAreFrontmost = ourBundleIds.some((id) => currentBundleId.includes(id.toLowerCase()));
-    if (weAreFrontmost && originalBundleId && !ourBundleIds.some((id) => originalBundleId.includes(id.toLowerCase()))) {
-      try {
-        const escapedId = originalBundleId.replace(/"/g, '\\"');
-        await exec("osascript", ["-e", `tell application id "${escapedId}" to activate`]);
-      } catch { /* best effort */ }
-    }
+    // Disabled: The overlay uses showInactive() and focusable: false, so it
+    // shouldn't steal focus. Actively restoring focus via osascript can cause
+    // the main dashboard window to disappear on macOS when focus moves away.
+    // The target app retains focus throughout the recording flow.
   }
 
   private async resizeWindow(expanded: boolean): Promise<void> {

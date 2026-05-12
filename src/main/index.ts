@@ -109,7 +109,10 @@ function syncAppPresentation(): void {
   // window close/open actions do. This prevents the dock icon from blinking
   // on and off during recording.
   const showInDock = settingsStore?.get().showInDock ?? true;
+  const mainWindowVisible = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
   const shouldShowDock = showInDock && windowHasLoaded && !menuBarMode;
+
+  log("syncAppPresentation", { showInDock, windowHasLoaded, menuBarMode, mainWindowVisible, shouldShowDock, lastDockVisible });
 
   if (lastDockVisible === shouldShowDock) {
     return;
