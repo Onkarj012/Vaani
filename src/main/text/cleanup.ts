@@ -33,7 +33,10 @@ function normalizeWhitespace(text: string): string {
 }
 
 function normalizeCommonDictationArtifacts(text: string): string {
-  return text.replace(/\bllmn\b/gi, "LLM");
+  let result = text.replace(/\bllmn\b/gi, "LLM");
+  // Remove trailing "Vaani" — Whisper sometimes mishears trailing noise/silence as the app name
+  result = result.replace(/[,.]?\s*\bvaani\b[.!?]?\s*$/i, "");
+  return result;
 }
 
 function collapseAdjacentDuplicateWords(text: string): string {

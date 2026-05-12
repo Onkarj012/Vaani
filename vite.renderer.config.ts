@@ -5,6 +5,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   root: resolve("src/renderer"),
+  cacheDir: resolve("node_modules/.vite/main"),
   build: {
     outDir: resolve(".vite/renderer/main_window"),
     emptyOutDir: false
@@ -15,6 +16,10 @@ export default defineConfig({
       "@shared": resolve("src/shared"),
       "@renderer": resolve("src/renderer")
     }
+  },
+  optimizeDeps: {
+    // Force pre-bundling at startup, not lazily
+    force: true
   },
   plugins: [react(), tailwindcss()]
 });

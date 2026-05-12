@@ -198,7 +198,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/contexts/ThemeContext.tsx",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_trial_src_contexts_themecontext_tsx",
-      "community": 12,
+      "community": 13,
       "norm_label": "themecontext.tsx"
     },
     {
@@ -207,7 +207,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/contexts/ThemeContext.tsx",
       "source_location": "L13",
       "id": "themecontext_themeprovider",
-      "community": 12,
+      "community": 13,
       "norm_label": "themeprovider()"
     },
     {
@@ -216,7 +216,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/contexts/ThemeContext.tsx",
       "source_location": "L41",
       "id": "themecontext_usetheme",
-      "community": 12,
+      "community": 13,
       "norm_label": "usetheme()"
     },
     {
@@ -225,7 +225,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/Hero.tsx",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_trial_src_components_hero_tsx",
-      "community": 13,
+      "community": 2,
       "norm_label": "hero.tsx"
     },
     {
@@ -234,7 +234,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/Hero.tsx",
       "source_location": "L15",
       "id": "hero_floatingsticker",
-      "community": 13,
+      "community": 2,
       "norm_label": "floatingsticker()"
     },
     {
@@ -243,7 +243,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/Hero.tsx",
       "source_location": "L56",
       "id": "hero_resize",
-      "community": 13,
+      "community": 2,
       "norm_label": "resize()"
     },
     {
@@ -252,7 +252,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/Hero.tsx",
       "source_location": "L65",
       "id": "hero_draw",
-      "community": 13,
+      "community": 2,
       "norm_label": "draw()"
     },
     {
@@ -261,7 +261,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/Hero.tsx",
       "source_location": "L119",
       "id": "hero_onmove",
-      "community": 13,
+      "community": 2,
       "norm_label": "onmove()"
     },
     {
@@ -270,7 +270,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/Hero.tsx",
       "source_location": "L123",
       "id": "hero_onleave",
-      "community": 13,
+      "community": 2,
       "norm_label": "onleave()"
     },
     {
@@ -279,7 +279,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/Navbar.tsx",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_trial_src_components_navbar_tsx",
-      "community": 12,
+      "community": 13,
       "norm_label": "navbar.tsx"
     },
     {
@@ -288,7 +288,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/Navbar.tsx",
       "source_location": "L7",
       "id": "navbar_navbar",
-      "community": 12,
+      "community": 13,
       "norm_label": "navbar()"
     },
     {
@@ -459,7 +459,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/AnimatedBackground.tsx",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_trial_src_components_animatedbackground_tsx",
-      "community": 12,
+      "community": 13,
       "norm_label": "animatedbackground.tsx"
     },
     {
@@ -468,7 +468,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/components/AnimatedBackground.tsx",
       "source_location": "L4",
       "id": "animatedbackground_animatedbackground",
-      "community": 12,
+      "community": 13,
       "norm_label": "animatedbackground()"
     },
     {
@@ -612,7 +612,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/pages/Showcase.tsx",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_trial_src_pages_showcase_tsx",
-      "community": 6,
+      "community": 5,
       "norm_label": "showcase.tsx"
     },
     {
@@ -621,7 +621,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/pages/Showcase.tsx",
       "source_location": "L75",
       "id": "showcase_start",
-      "community": 6,
+      "community": 5,
       "norm_label": "start()"
     },
     {
@@ -630,7 +630,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/trial/src/pages/Showcase.tsx",
       "source_location": "L83",
       "id": "showcase_dismiss",
-      "community": 6,
+      "community": 5,
       "norm_label": "dismiss()"
     },
     {
@@ -783,7 +783,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/tests/__mocks__/setup.ts",
       "source_location": "L24",
       "id": "setup_loadurl",
-      "community": 1,
+      "community": 7,
       "norm_label": "loadurl()"
     },
     {
@@ -792,7 +792,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/tests/__mocks__/setup.ts",
       "source_location": "L25",
       "id": "setup_loadfile",
-      "community": 1,
+      "community": 7,
       "norm_label": "loadfile()"
     },
     {
@@ -1071,7 +1071,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/main.tsx",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_main_tsx",
-      "community": 5,
+      "community": 4,
       "norm_label": "main.tsx"
     },
     {
@@ -1080,7 +1080,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/main.tsx",
       "source_location": "L28",
       "id": "main_renderererrorboundary",
-      "community": 5,
+      "community": 4,
       "norm_label": "renderererrorboundary"
     },
     {
@@ -1089,7 +1089,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/main.tsx",
       "source_location": "L31",
       "id": "main_renderererrorboundary_getderivedstatefromerror",
-      "community": 5,
+      "community": 4,
       "norm_label": ".getderivedstatefromerror()"
     },
     {
@@ -1098,7 +1098,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/main.tsx",
       "source_location": "L35",
       "id": "main_renderererrorboundary_componentdidcatch",
-      "community": 5,
+      "community": 4,
       "norm_label": ".componentdidcatch()"
     },
     {
@@ -1107,7 +1107,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/main.tsx",
       "source_location": "L42",
       "id": "main_renderererrorboundary_render",
-      "community": 5,
+      "community": 4,
       "norm_label": ".render()"
     },
     {
@@ -1116,8 +1116,17 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/main.tsx",
       "source_location": "L58",
       "id": "main_approot",
-      "community": 5,
+      "community": 4,
       "norm_label": "approot()"
+    },
+    {
+      "label": "reportRendererReady()",
+      "file_type": "code",
+      "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/main.tsx",
+      "source_location": "L105",
+      "id": "main_reportrendererready",
+      "community": 4,
+      "norm_label": "reportrendererready()"
     },
     {
       "label": "ThemeContext.tsx",
@@ -1125,7 +1134,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/contexts/ThemeContext.tsx",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_contexts_themecontext_tsx",
-      "community": 12,
+      "community": 13,
       "norm_label": "themecontext.tsx"
     },
     {
@@ -1197,7 +1206,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/components/AppLayout.tsx",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_components_applayout_tsx",
-      "community": 12,
+      "community": 13,
       "norm_label": "applayout.tsx"
     },
     {
@@ -1206,7 +1215,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/components/AppLayout.tsx",
       "source_location": "L30",
       "id": "applayout_vaaniicon",
-      "community": 12,
+      "community": 13,
       "norm_label": "vaaniicon()"
     },
     {
@@ -1215,7 +1224,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/components/AppLayout.tsx",
       "source_location": "L41",
       "id": "applayout_themetoggle",
-      "community": 12,
+      "community": 13,
       "norm_label": "themetoggle()"
     },
     {
@@ -1458,7 +1467,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useHistory.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_hooks_usehistory_ts",
-      "community": 5,
+      "community": 4,
       "norm_label": "usehistory.ts"
     },
     {
@@ -1467,7 +1476,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useHistory.ts",
       "source_location": "L4",
       "id": "usehistory_usehistory",
-      "community": 5,
+      "community": 4,
       "norm_label": "usehistory()"
     },
     {
@@ -1476,7 +1485,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useDictation.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_hooks_usedictation_ts",
-      "community": 5,
+      "community": 4,
       "norm_label": "usedictation.ts"
     },
     {
@@ -1485,7 +1494,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useDictation.ts",
       "source_location": "L4",
       "id": "usedictation_usedictation",
-      "community": 5,
+      "community": 4,
       "norm_label": "usedictation()"
     },
     {
@@ -1494,7 +1503,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_hooks_useaudiorecorder_ts",
-      "community": 5,
+      "community": 4,
       "norm_label": "useaudiorecorder.ts"
     },
     {
@@ -1503,7 +1512,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L15",
       "id": "useaudiorecorder_useaudiorecorder",
-      "community": 5,
+      "community": 4,
       "norm_label": "useaudiorecorder()"
     },
     {
@@ -1512,7 +1521,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L290",
       "id": "useaudiorecorder_preferredmimetype",
-      "community": 5,
+      "community": 4,
       "norm_label": "preferredmimetype()"
     },
     {
@@ -1521,7 +1530,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L306",
       "id": "useaudiorecorder_delay",
-      "community": 5,
+      "community": 4,
       "norm_label": "delay()"
     },
     {
@@ -1530,7 +1539,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L318",
       "id": "useaudiorecorder_resetsmoothedbars",
-      "community": 5,
+      "community": 4,
       "norm_label": "resetsmoothedbars()"
     },
     {
@@ -1539,7 +1548,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L322",
       "id": "useaudiorecorder_buildbarsfromsamples",
-      "community": 5,
+      "community": 4,
       "norm_label": "buildbarsfromsamples()"
     },
     {
@@ -1548,7 +1557,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L385",
       "id": "useaudiorecorder_blobtoclip",
-      "community": 5,
+      "community": 4,
       "norm_label": "blobtoclip()"
     },
     {
@@ -1557,7 +1566,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L406",
       "id": "useaudiorecorder_mixtomono",
-      "community": 5,
+      "community": 4,
       "norm_label": "mixtomono()"
     },
     {
@@ -1566,7 +1575,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L421",
       "id": "useaudiorecorder_resampletotargetrate",
-      "community": 5,
+      "community": 4,
       "norm_label": "resampletotargetrate()"
     },
     {
@@ -1575,7 +1584,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useAudioRecorder.ts",
       "source_location": "L441",
       "id": "useaudiorecorder_calculatermsframes",
-      "community": 5,
+      "community": 4,
       "norm_label": "calculatermsframes()"
     },
     {
@@ -1584,7 +1593,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useSettings.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_hooks_usesettings_ts",
-      "community": 5,
+      "community": 4,
       "norm_label": "usesettings.ts"
     },
     {
@@ -1593,7 +1602,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/hooks/useSettings.ts",
       "source_location": "L5",
       "id": "usesettings_usesettings",
-      "community": 5,
+      "community": 4,
       "norm_label": "usesettings()"
     },
     {
@@ -1620,7 +1629,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_recorder_main_ts",
-      "community": 6,
+      "community": 5,
       "norm_label": "main.ts"
     },
     {
@@ -1629,7 +1638,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L48",
       "id": "main_startrecording",
-      "community": 6,
+      "community": 5,
       "norm_label": "startrecording()"
     },
     {
@@ -1638,7 +1647,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L88",
       "id": "main_stoprecording",
-      "community": 6,
+      "community": 5,
       "norm_label": "stoprecording()"
     },
     {
@@ -1647,7 +1656,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L154",
       "id": "main_reportfailure",
-      "community": 6,
+      "community": 5,
       "norm_label": "reportfailure()"
     },
     {
@@ -1656,7 +1665,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L158",
       "id": "main_choosemicdevice",
-      "community": 6,
+      "community": 5,
       "norm_label": "choosemicdevice()"
     },
     {
@@ -1665,7 +1674,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L174",
       "id": "main_startwebaudiovisualizer",
-      "community": 6,
+      "community": 5,
       "norm_label": "startwebaudiovisualizer()"
     },
     {
@@ -1674,7 +1683,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L210",
       "id": "main_publishbars",
-      "community": 6,
+      "community": 5,
       "norm_label": "publishbars()"
     },
     {
@@ -1683,7 +1692,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L221",
       "id": "main_cleanup",
-      "community": 6,
+      "community": 5,
       "norm_label": "cleanup()"
     },
     {
@@ -1692,7 +1701,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L248",
       "id": "main_resetvisualizer",
-      "community": 6,
+      "community": 5,
       "norm_label": "resetvisualizer()"
     },
     {
@@ -1701,7 +1710,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L264",
       "id": "main_preferredmimetype",
-      "community": 6,
+      "community": 5,
       "norm_label": "preferredmimetype()"
     },
     {
@@ -1710,7 +1719,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L280",
       "id": "main_resetsmoothedbars",
-      "community": 6,
+      "community": 5,
       "norm_label": "resetsmoothedbars()"
     },
     {
@@ -1719,7 +1728,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L284",
       "id": "main_buildbarsfromsamples",
-      "community": 6,
+      "community": 5,
       "norm_label": "buildbarsfromsamples()"
     },
     {
@@ -1728,7 +1737,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L326",
       "id": "main_blobtoclip",
-      "community": 6,
+      "community": 5,
       "norm_label": "blobtoclip()"
     },
     {
@@ -1737,7 +1746,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L347",
       "id": "main_mixtomono",
-      "community": 6,
+      "community": 5,
       "norm_label": "mixtomono()"
     },
     {
@@ -1746,7 +1755,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L362",
       "id": "main_resampletotargetrate",
-      "community": 6,
+      "community": 5,
       "norm_label": "resampletotargetrate()"
     },
     {
@@ -1755,7 +1764,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L382",
       "id": "main_calculatermsframes",
-      "community": 6,
+      "community": 5,
       "norm_label": "calculatermsframes()"
     },
     {
@@ -1764,7 +1773,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/recorder/main.ts",
       "source_location": "L401",
       "id": "main_delay",
-      "community": 6,
+      "community": 5,
       "norm_label": "delay()"
     },
     {
@@ -2088,7 +2097,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_formatting_ts",
-      "community": 7,
+      "community": 6,
       "norm_label": "formatting.ts"
     },
     {
@@ -2097,7 +2106,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L45",
       "id": "formatting_getclient",
-      "community": 7,
+      "community": 6,
       "norm_label": "getclient()"
     },
     {
@@ -2106,7 +2115,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L60",
       "id": "formatting_stripspokencues",
-      "community": 7,
+      "community": 6,
       "norm_label": "stripspokencues()"
     },
     {
@@ -2115,7 +2124,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L64",
       "id": "formatting_lookssuspicious",
-      "community": 7,
+      "community": 6,
       "norm_label": "lookssuspicious()"
     },
     {
@@ -2124,7 +2133,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L141",
       "id": "formatting_tokenizeforcomparison",
-      "community": 7,
+      "community": 6,
       "norm_label": "tokenizeforcomparison()"
     },
     {
@@ -2133,7 +2142,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L151",
       "id": "formatting_tokenizeordered",
-      "community": 7,
+      "community": 6,
       "norm_label": "tokenizeordered()"
     },
     {
@@ -2142,7 +2151,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L159",
       "id": "formatting_firstsentence",
-      "community": 7,
+      "community": 6,
       "norm_label": "firstsentence()"
     },
     {
@@ -2151,7 +2160,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L165",
       "id": "formatting_calculatefirstsentenceoverlap",
-      "community": 7,
+      "community": 6,
       "norm_label": "calculatefirstsentenceoverlap()"
     },
     {
@@ -2160,7 +2169,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L177",
       "id": "formatting_hasleadwordoverlap",
-      "community": 7,
+      "community": 6,
       "norm_label": "hasleadwordoverlap()"
     },
     {
@@ -2169,7 +2178,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L190",
       "id": "formatting_hasorderedtokenpreservation",
-      "community": 7,
+      "community": 6,
       "norm_label": "hasorderedtokenpreservation()"
     },
     {
@@ -2178,7 +2187,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L213",
       "id": "formatting_requestformatting",
-      "community": 7,
+      "community": 6,
       "norm_label": "requestformatting()"
     },
     {
@@ -2187,7 +2196,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/formatting.ts",
       "source_location": "L227",
       "id": "formatting_formattranscript",
-      "community": 7,
+      "community": 6,
       "norm_label": "formattranscript()"
     },
     {
@@ -2196,7 +2205,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/ipc.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_ipc_ts",
-      "community": 1,
+      "community": 2,
       "norm_label": "ipc.ts"
     },
     {
@@ -2205,7 +2214,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/ipc.ts",
       "source_location": "L12",
       "id": "ipc_registeripchandlers",
-      "community": 1,
+      "community": 2,
       "norm_label": "registeripchandlers()"
     },
     {
@@ -2214,7 +2223,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
-      "community": 1,
+      "community": 2,
       "norm_label": "index.ts"
     },
     {
@@ -2223,7 +2232,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
       "source_location": "L41",
       "id": "index_log",
-      "community": 1,
+      "community": 2,
       "norm_label": "log()"
     },
     {
@@ -2232,88 +2241,88 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
       "source_location": "L50",
       "id": "index_showmainwindow",
-      "community": 1,
+      "community": 2,
       "norm_label": "showmainwindow()"
     },
     {
       "label": "clearMainWindowReadyTimeout()",
       "file_type": "code",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L76",
+      "source_location": "L75",
       "id": "index_clearmainwindowreadytimeout",
-      "community": 1,
+      "community": 2,
       "norm_label": "clearmainwindowreadytimeout()"
     },
     {
       "label": "armMainWindowReadyTimeout()",
       "file_type": "code",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L83",
+      "source_location": "L82",
       "id": "index_armmainwindowreadytimeout",
-      "community": 1,
+      "community": 2,
       "norm_label": "armmainwindowreadytimeout()"
     },
     {
       "label": "syncAppPresentation()",
       "file_type": "code",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L100",
+      "source_location": "L102",
       "id": "index_syncapppresentation",
-      "community": 1,
+      "community": 2,
       "norm_label": "syncapppresentation()"
     },
     {
       "label": "cleanupRuntimeResources()",
       "file_type": "code",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L124",
+      "source_location": "L126",
       "id": "index_cleanupruntimeresources",
-      "community": 1,
+      "community": 2,
       "norm_label": "cleanupruntimeresources()"
     },
     {
       "label": "createMainWindow()",
       "file_type": "code",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L136",
+      "source_location": "L138",
       "id": "index_createmainwindow",
-      "community": 1,
+      "community": 2,
       "norm_label": "createmainwindow()"
     },
     {
       "label": "configureRendererLifecycle()",
       "file_type": "code",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L234",
+      "source_location": "L242",
       "id": "index_configurerendererlifecycle",
-      "community": 1,
+      "community": 2,
       "norm_label": "configurerendererlifecycle()"
     },
     {
       "label": "configureMediaPermissions()",
       "file_type": "code",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L267",
+      "source_location": "L275",
       "id": "index_configuremediapermissions",
-      "community": 1,
+      "community": 2,
       "norm_label": "configuremediapermissions()"
     },
     {
       "label": "loadWindowUrl()",
       "file_type": "code",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L281",
+      "source_location": "L289",
       "id": "index_loadwindowurl",
-      "community": 1,
+      "community": 7,
       "norm_label": "loadwindowurl()"
     },
     {
       "label": "bootstrap()",
       "file_type": "code",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L290",
+      "source_location": "L298",
       "id": "index_bootstrap",
-      "community": 1,
+      "community": 2,
       "norm_label": "bootstrap()"
     },
     {
@@ -2322,7 +2331,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/tray.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_tray_ts",
-      "community": 13,
+      "community": 2,
       "norm_label": "tray.ts"
     },
     {
@@ -2331,7 +2340,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/tray.ts",
       "source_location": "L13",
       "id": "tray_createtray",
-      "community": 13,
+      "community": 2,
       "norm_label": "createtray()"
     },
     {
@@ -2340,7 +2349,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/nativeBridge.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_nativebridge_ts",
-      "community": 1,
+      "community": 7,
       "norm_label": "nativebridge.ts"
     },
     {
@@ -2349,7 +2358,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/nativeBridge.ts",
       "source_location": "L35",
       "id": "nativebridge_candidatepaths",
-      "community": 1,
+      "community": 7,
       "norm_label": "candidatepaths()"
     },
     {
@@ -2358,7 +2367,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/nativeBridge.ts",
       "source_location": "L48",
       "id": "nativebridge_loadnativeaddon",
-      "community": 1,
+      "community": 7,
       "norm_label": "loadnativeaddon()"
     },
     {
@@ -2367,7 +2376,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/nativeBridge.ts",
       "source_location": "L66",
       "id": "nativebridge_getnativebridge",
-      "community": 1,
+      "community": 7,
       "norm_label": "getnativebridge()"
     },
     {
@@ -2376,7 +2385,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_dictation_ts",
-      "community": 2,
+      "community": 1,
       "norm_label": "dictation.ts"
     },
     {
@@ -2385,7 +2394,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L44",
       "id": "dictation_dictationservice",
-      "community": 2,
+      "community": 1,
       "norm_label": "dictationservice"
     },
     {
@@ -2394,7 +2403,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L61",
       "id": "dictation_dictationservice_constructor",
-      "community": 2,
+      "community": 1,
       "norm_label": ".constructor()"
     },
     {
@@ -2412,7 +2421,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L113",
       "id": "dictation_dictationservice_cancelsession",
-      "community": 2,
+      "community": 1,
       "norm_label": ".cancelsession()"
     },
     {
@@ -2421,7 +2430,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L117",
       "id": "dictation_dictationservice_endhotkeysession",
-      "community": 2,
+      "community": 1,
       "norm_label": ".endhotkeysession()"
     },
     {
@@ -2430,7 +2439,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L140",
       "id": "dictation_dictationservice_reportrecorderstarted",
-      "community": 2,
+      "community": 1,
       "norm_label": ".reportrecorderstarted()"
     },
     {
@@ -2439,7 +2448,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L161",
       "id": "dictation_dictationservice_submitaudioclip",
-      "community": 2,
+      "community": 1,
       "norm_label": ".submitaudioclip()"
     },
     {
@@ -2448,7 +2457,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L259",
       "id": "dictation_dictationservice_reportrecorderready",
-      "community": 2,
+      "community": 1,
       "norm_label": ".reportrecorderready()"
     },
     {
@@ -2457,7 +2466,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L263",
       "id": "dictation_dictationservice_handlerecorderfailure",
-      "community": 2,
+      "community": 1,
       "norm_label": ".handlerecorderfailure()"
     },
     {
@@ -2466,7 +2475,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L271",
       "id": "dictation_dictationservice_reporthotkeyunavailable",
-      "community": 2,
+      "community": 1,
       "norm_label": ".reporthotkeyunavailable()"
     },
     {
@@ -2475,7 +2484,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L280",
       "id": "dictation_dictationservice_updateaudiolevel",
-      "community": 0,
+      "community": 1,
       "norm_label": ".updateaudiolevel()"
     },
     {
@@ -2484,7 +2493,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L291",
       "id": "dictation_dictationservice_reinjectentry",
-      "community": 2,
+      "community": 1,
       "norm_label": ".reinjectentry()"
     },
     {
@@ -2493,7 +2502,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L319",
       "id": "dictation_dictationservice_pastelatestentry",
-      "community": 2,
+      "community": 1,
       "norm_label": ".pastelatestentry()"
     },
     {
@@ -2502,7 +2511,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L359",
       "id": "dictation_dictationservice_getstate",
-      "community": 2,
+      "community": 1,
       "norm_label": ".getstate()"
     },
     {
@@ -2511,7 +2520,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L363",
       "id": "dictation_dictationservice_getbyid",
-      "community": 2,
+      "community": 1,
       "norm_label": ".getbyid()"
     },
     {
@@ -2520,7 +2529,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L367",
       "id": "dictation_dictationservice_showdictionarysuggestions",
-      "community": 4,
+      "community": 2,
       "norm_label": ".showdictionarysuggestions()"
     },
     {
@@ -2529,7 +2538,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L379",
       "id": "dictation_dictationservice_currentinjectiontarget",
-      "community": 2,
+      "community": 1,
       "norm_label": ".currentinjectiontarget()"
     },
     {
@@ -2547,7 +2556,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L403",
       "id": "dictation_dictationservice_applydictionarysuggestion",
-      "community": 4,
+      "community": 2,
       "norm_label": ".applydictionarysuggestion()"
     },
     {
@@ -2556,7 +2565,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L418",
       "id": "dictation_dictationservice_completesession",
-      "community": 2,
+      "community": 1,
       "norm_label": ".completesession()"
     },
     {
@@ -2565,7 +2574,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L439",
       "id": "dictation_dictationservice_failsession",
-      "community": 2,
+      "community": 1,
       "norm_label": ".failsession()"
     },
     {
@@ -2574,7 +2583,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L451",
       "id": "dictation_dictationservice_resettoidle",
-      "community": 2,
+      "community": 1,
       "norm_label": ".resettoidle()"
     },
     {
@@ -2583,7 +2592,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L460",
       "id": "dictation_dictationservice_schedulereset",
-      "community": 2,
+      "community": 1,
       "norm_label": ".schedulereset()"
     },
     {
@@ -2592,7 +2601,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L467",
       "id": "dictation_dictationservice_cleartimers",
-      "community": 2,
+      "community": 1,
       "norm_label": ".cleartimers()"
     },
     {
@@ -2601,7 +2610,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L474",
       "id": "dictation_dictationservice_clearresettimer",
-      "community": 2,
+      "community": 1,
       "norm_label": ".clearresettimer()"
     },
     {
@@ -2610,7 +2619,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L481",
       "id": "dictation_dictationservice_clearfinalizationtimer",
-      "community": 2,
+      "community": 1,
       "norm_label": ".clearfinalizationtimer()"
     },
     {
@@ -2619,7 +2628,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L488",
       "id": "dictation_dictationservice_clearaudioframetimer",
-      "community": 2,
+      "community": 1,
       "norm_label": ".clearaudioframetimer()"
     },
     {
@@ -2628,7 +2637,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L495",
       "id": "dictation_dictationservice_clearrecorderstarttimer",
-      "community": 2,
+      "community": 1,
       "norm_label": ".clearrecorderstarttimer()"
     },
     {
@@ -2637,7 +2646,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L502",
       "id": "dictation_dictationservice_iscurrentsession",
-      "community": 2,
+      "community": 1,
       "norm_label": ".iscurrentsession()"
     },
     {
@@ -2646,7 +2655,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L510",
       "id": "dictation_dictationservice_captureselection",
-      "community": 2,
+      "community": 1,
       "norm_label": ".captureselection()"
     },
     {
@@ -2655,7 +2664,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L533",
       "id": "dictation_dictationservice_setstate",
-      "community": 0,
+      "community": 1,
       "norm_label": ".setstate()"
     },
     {
@@ -2664,7 +2673,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L571",
       "id": "dictation_isexternaltarget",
-      "community": 2,
+      "community": 1,
       "norm_label": "isexternaltarget()"
     },
     {
@@ -2673,7 +2682,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L592",
       "id": "dictation_sametarget",
-      "community": 2,
+      "community": 1,
       "norm_label": "sametarget()"
     },
     {
@@ -2682,7 +2691,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/dictation.ts",
       "source_location": "L607",
       "id": "dictation_messageforinjectionfailure",
-      "community": 2,
+      "community": 1,
       "norm_label": "messageforinjectionfailure()"
     },
     {
@@ -2691,7 +2700,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/transcription.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_transcription_ts",
-      "community": 7,
+      "community": 6,
       "norm_label": "transcription.ts"
     },
     {
@@ -2700,7 +2709,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/transcription.ts",
       "source_location": "L17",
       "id": "transcription_transcriptionservice",
-      "community": 7,
+      "community": 6,
       "norm_label": "transcriptionservice"
     },
     {
@@ -2709,7 +2718,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/transcription.ts",
       "source_location": "L18",
       "id": "transcription_transcriptionservice_constructor",
-      "community": 7,
+      "community": 6,
       "norm_label": ".constructor()"
     },
     {
@@ -2718,7 +2727,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/transcription.ts",
       "source_location": "L20",
       "id": "transcription_transcriptionservice_transcribe",
-      "community": 7,
+      "community": 6,
       "norm_label": ".transcribe()"
     },
     {
@@ -2727,7 +2736,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/transcription.ts",
       "source_location": "L82",
       "id": "transcription_createwavbuffer",
-      "community": 7,
+      "community": 6,
       "norm_label": "createwavbuffer()"
     },
     {
@@ -2736,7 +2745,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/transcription.ts",
       "source_location": "L105",
       "id": "transcription_delay",
-      "community": 7,
+      "community": 6,
       "norm_label": "delay()"
     },
     {
@@ -2763,7 +2772,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L43",
       "id": "overlay_overlaycontroller_setcolormode",
-      "community": 1,
+      "community": 2,
       "norm_label": ".setcolormode()"
     },
     {
@@ -2781,7 +2790,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L54",
       "id": "overlay_overlaycontroller_setcapsulestyle",
-      "community": 1,
+      "community": 2,
       "norm_label": ".setcapsulestyle()"
     },
     {
@@ -2790,7 +2799,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L58",
       "id": "overlay_overlaycontroller_setcapsuledesign",
-      "community": 1,
+      "community": 2,
       "norm_label": ".setcapsuledesign()"
     },
     {
@@ -2799,7 +2808,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L62",
       "id": "overlay_overlaycontroller_settheme",
-      "community": 1,
+      "community": 2,
       "norm_label": ".settheme()"
     },
     {
@@ -3060,7 +3069,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_recorderwindow_ts",
-      "community": 1,
+      "community": 7,
       "norm_label": "recorderwindow.ts"
     },
     {
@@ -3069,7 +3078,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L11",
       "id": "recorderwindow_recorderwindowcontroller",
-      "community": 1,
+      "community": 7,
       "norm_label": "recorderwindowcontroller"
     },
     {
@@ -3078,7 +3087,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L17",
       "id": "recorderwindow_recorderwindowcontroller_isready",
-      "community": 1,
+      "community": 7,
       "norm_label": ".isready()"
     },
     {
@@ -3087,7 +3096,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L21",
       "id": "recorderwindow_recorderwindowcontroller_init",
-      "community": 1,
+      "community": 7,
       "norm_label": ".init()"
     },
     {
@@ -3096,7 +3105,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L36",
       "id": "recorderwindow_recorderwindowcontroller_createwindow",
-      "community": 1,
+      "community": 7,
       "norm_label": ".createwindow()"
     },
     {
@@ -3105,7 +3114,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L88",
       "id": "recorderwindow_recorderwindowcontroller_markready",
-      "community": 1,
+      "community": 7,
       "norm_label": ".markready()"
     },
     {
@@ -3114,7 +3123,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L97",
       "id": "recorderwindow_recorderwindowcontroller_startrecording",
-      "community": 1,
+      "community": 7,
       "norm_label": ".startrecording()"
     },
     {
@@ -3123,7 +3132,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L101",
       "id": "recorderwindow_recorderwindowcontroller_stoprecording",
-      "community": 1,
+      "community": 7,
       "norm_label": ".stoprecording()"
     },
     {
@@ -3132,7 +3141,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L105",
       "id": "recorderwindow_recorderwindowcontroller_destroy",
-      "community": 1,
+      "community": 7,
       "norm_label": ".destroy()"
     },
     {
@@ -3141,7 +3150,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L114",
       "id": "recorderwindow_recorderwindowcontroller_sendorqueue",
-      "community": 1,
+      "community": 7,
       "norm_label": ".sendorqueue()"
     },
     {
@@ -3159,7 +3168,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/recorderWindow.ts",
       "source_location": "L133",
       "id": "recorderwindow_recorderwindowcontroller_recover",
-      "community": 1,
+      "community": 7,
       "norm_label": ".recover()"
     },
     {
@@ -3168,7 +3177,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/context/appDetector.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_context_appdetector_ts",
-      "community": 2,
+      "community": 1,
       "norm_label": "appdetector.ts"
     },
     {
@@ -3177,7 +3186,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/context/appDetector.ts",
       "source_location": "L25",
       "id": "appdetector_bundleidtocontext",
-      "community": 2,
+      "community": 1,
       "norm_label": "bundleidtocontext()"
     },
     {
@@ -3186,7 +3195,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/context/appDetector.ts",
       "source_location": "L33",
       "id": "appdetector_appdetector",
-      "community": 2,
+      "community": 1,
       "norm_label": "appdetector"
     },
     {
@@ -3195,7 +3204,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/context/appDetector.ts",
       "source_location": "L34",
       "id": "appdetector_appdetector_getcontext",
-      "community": 2,
+      "community": 1,
       "norm_label": ".getcontext()"
     },
     {
@@ -3267,7 +3276,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/audio/vad.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_audio_vad_ts",
-      "community": 2,
+      "community": 1,
       "norm_label": "vad.ts"
     },
     {
@@ -3276,7 +3285,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/audio/vad.ts",
       "source_location": "L6",
       "id": "vad_trimsilence",
-      "community": 2,
+      "community": 1,
       "norm_label": "trimsilence()"
     },
     {
@@ -3285,7 +3294,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/audio/vad.ts",
       "source_location": "L29",
       "id": "vad_isvalidclip",
-      "community": 2,
+      "community": 1,
       "norm_label": "isvalidclip()"
     },
     {
@@ -3465,7 +3474,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/accessibility.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_injection_accessibility_ts",
-      "community": 11,
+      "community": 12,
       "norm_label": "accessibility.ts"
     },
     {
@@ -3474,7 +3483,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/accessibility.ts",
       "source_location": "L6",
       "id": "accessibility_accessibilitytextinjector",
-      "community": 11,
+      "community": 12,
       "norm_label": "accessibilitytextinjector"
     },
     {
@@ -3483,7 +3492,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/accessibility.ts",
       "source_location": "L7",
       "id": "accessibility_accessibilitytextinjector_istrusted",
-      "community": 11,
+      "community": 12,
       "norm_label": ".istrusted()"
     },
     {
@@ -3492,7 +3501,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/accessibility.ts",
       "source_location": "L11",
       "id": "accessibility_accessibilitytextinjector_inject",
-      "community": 11,
+      "community": 12,
       "norm_label": ".inject()"
     },
     {
@@ -3501,7 +3510,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/accessibility.ts",
       "source_location": "L89",
       "id": "accessibility_normalizefailurereason",
-      "community": 11,
+      "community": 12,
       "norm_label": "normalizefailurereason()"
     },
     {
@@ -3510,7 +3519,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/accessibility.ts",
       "source_location": "L97",
       "id": "accessibility_delay",
-      "community": 11,
+      "community": 12,
       "norm_label": "delay()"
     },
     {
@@ -3519,7 +3528,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/target.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_injection_target_ts",
-      "community": 11,
+      "community": 12,
       "norm_label": "target.ts"
     },
     {
@@ -3528,7 +3537,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/target.ts",
       "source_location": "L9",
       "id": "target_internalbundleids",
-      "community": 11,
+      "community": 12,
       "norm_label": "internalbundleids()"
     },
     {
@@ -3537,7 +3546,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/target.ts",
       "source_location": "L17",
       "id": "target_internalappnames",
-      "community": 11,
+      "community": 12,
       "norm_label": "internalappnames()"
     },
     {
@@ -3546,7 +3555,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/target.ts",
       "source_location": "L29",
       "id": "target_isexternaltarget",
-      "community": 11,
+      "community": 12,
       "norm_label": "isexternaltarget()"
     },
     {
@@ -3555,7 +3564,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/target.ts",
       "source_location": "L37",
       "id": "target_buildactivatetargetscript",
-      "community": 11,
+      "community": 12,
       "norm_label": "buildactivatetargetscript()"
     },
     {
@@ -3564,7 +3573,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/target.ts",
       "source_location": "L58",
       "id": "target_istargetfrontmost",
-      "community": 11,
+      "community": 12,
       "norm_label": "istargetfrontmost()"
     },
     {
@@ -3573,7 +3582,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/target.ts",
       "source_location": "L80",
       "id": "target_activatetargetapp",
-      "community": 11,
+      "community": 12,
       "norm_label": "activatetargetapp()"
     },
     {
@@ -3582,7 +3591,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/target.ts",
       "source_location": "L96",
       "id": "target_escapeas",
-      "community": 11,
+      "community": 12,
       "norm_label": "escapeas()"
     },
     {
@@ -3645,7 +3654,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/index.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_injection_index_ts",
-      "community": 3,
+      "community": 1,
       "norm_label": "index.ts"
     },
     {
@@ -3654,7 +3663,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/index.ts",
       "source_location": "L15",
       "id": "index_textinjector",
-      "community": 3,
+      "community": 1,
       "norm_label": "textinjector"
     },
     {
@@ -3663,7 +3672,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/index.ts",
       "source_location": "L19",
       "id": "index_textinjector_constructor",
-      "community": 3,
+      "community": 1,
       "norm_label": ".constructor()"
     },
     {
@@ -3672,7 +3681,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/index.ts",
       "source_location": "L21",
       "id": "index_textinjector_inject",
-      "community": 3,
+      "community": 1,
       "norm_label": ".inject()"
     },
     {
@@ -3825,7 +3834,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_store_history_ts",
-      "community": 4,
+      "community": 11,
       "norm_label": "history.ts"
     },
     {
@@ -3834,7 +3843,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L7",
       "id": "history_historystore",
-      "community": 4,
+      "community": 11,
       "norm_label": "historystore"
     },
     {
@@ -3843,7 +3852,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L10",
       "id": "history_historystore_constructor",
-      "community": 4,
+      "community": 11,
       "norm_label": ".constructor()"
     },
     {
@@ -3852,7 +3861,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L14",
       "id": "history_historystore_getall",
-      "community": 4,
+      "community": 11,
       "norm_label": ".getall()"
     },
     {
@@ -3861,7 +3870,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L19",
       "id": "history_historystore_append",
-      "community": 4,
+      "community": 11,
       "norm_label": ".append()"
     },
     {
@@ -3870,7 +3879,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L25",
       "id": "history_historystore_delete",
-      "community": 4,
+      "community": 11,
       "norm_label": ".delete()"
     },
     {
@@ -3879,7 +3888,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L30",
       "id": "history_historystore_clear",
-      "community": 4,
+      "community": 11,
       "norm_label": ".clear()"
     },
     {
@@ -3888,7 +3897,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L34",
       "id": "history_historystore_getbyid",
-      "community": 4,
+      "community": 11,
       "norm_label": ".getbyid()"
     },
     {
@@ -3897,7 +3906,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L39",
       "id": "history_historystore_getlatest",
-      "community": 4,
+      "community": 11,
       "norm_label": ".getlatest()"
     },
     {
@@ -3906,7 +3915,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L44",
       "id": "history_historystore_updatebyid",
-      "community": 4,
+      "community": 11,
       "norm_label": ".updatebyid()"
     },
     {
@@ -3915,7 +3924,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts",
       "source_location": "L66",
       "id": "history_normalizehistory",
-      "community": 4,
+      "community": 11,
       "norm_label": "normalizehistory()"
     },
     {
@@ -3924,7 +3933,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/base.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_store_base_ts",
-      "community": 4,
+      "community": 11,
       "norm_label": "base.ts"
     },
     {
@@ -3933,7 +3942,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/base.ts",
       "source_location": "L4",
       "id": "base_readjsonfile",
-      "community": 4,
+      "community": 11,
       "norm_label": "readjsonfile()"
     },
     {
@@ -3942,7 +3951,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/base.ts",
       "source_location": "L13",
       "id": "base_writejsonfile",
-      "community": 4,
+      "community": 11,
       "norm_label": "writejsonfile()"
     },
     {
@@ -3951,7 +3960,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/settings.ts",
       "source_location": "L1",
       "id": "users_onkarj012_projects_alternatives_claude_vaani_src_main_store_settings_ts",
-      "community": 4,
+      "community": 2,
       "norm_label": "settings.ts"
     },
     {
@@ -3960,7 +3969,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/settings.ts",
       "source_location": "L7",
       "id": "settings_settingsstore",
-      "community": 4,
+      "community": 2,
       "norm_label": "settingsstore"
     },
     {
@@ -3969,7 +3978,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/settings.ts",
       "source_location": "L11",
       "id": "settings_settingsstore_constructor",
-      "community": 4,
+      "community": 2,
       "norm_label": ".constructor()"
     },
     {
@@ -3978,7 +3987,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/settings.ts",
       "source_location": "L15",
       "id": "settings_settingsstore_get",
-      "community": 4,
+      "community": 2,
       "norm_label": ".get()"
     },
     {
@@ -3987,7 +3996,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/settings.ts",
       "source_location": "L20",
       "id": "settings_settingsstore_load",
-      "community": 4,
+      "community": 2,
       "norm_label": ".load()"
     },
     {
@@ -3996,7 +4005,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/settings.ts",
       "source_location": "L26",
       "id": "settings_settingsstore_update",
-      "community": 4,
+      "community": 2,
       "norm_label": ".update()"
     },
     {
@@ -4005,7 +4014,7 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/settings.ts",
       "source_location": "L33",
       "id": "settings_settingsstore_init",
-      "community": 4,
+      "community": 2,
       "norm_label": ".init()"
     },
     {
@@ -5362,8 +5371,8 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L382",
       "weight": 1.0,
-      "_src": "overlay_overlaycontroller_presentwindow",
-      "_tgt": "setup_isdestroyed",
+      "_src": "setup_isdestroyed",
+      "_tgt": "overlay_overlaycontroller_presentwindow",
       "source": "setup_isdestroyed",
       "target": "overlay_overlaycontroller_presentwindow"
     },
@@ -5434,8 +5443,8 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L400",
       "weight": 1.0,
-      "_src": "overlay_overlaycontroller_presentwindow",
-      "_tgt": "setup_showinactive",
+      "_src": "setup_showinactive",
+      "_tgt": "overlay_overlaycontroller_presentwindow",
       "source": "setup_showinactive",
       "target": "overlay_overlaycontroller_presentwindow"
     },
@@ -5602,8 +5611,8 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L389",
       "weight": 1.0,
-      "_src": "overlay_overlaycontroller_presentwindow",
-      "_tgt": "setup_setbounds",
+      "_src": "setup_setbounds",
+      "_tgt": "overlay_overlaycontroller_presentwindow",
       "source": "setup_setbounds",
       "target": "overlay_overlaycontroller_presentwindow"
     },
@@ -5614,8 +5623,8 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L395",
       "weight": 1.0,
-      "_src": "overlay_overlaycontroller_presentwindow",
-      "_tgt": "setup_setvisibleonallworkspaces",
+      "_src": "setup_setvisibleonallworkspaces",
+      "_tgt": "overlay_overlaycontroller_presentwindow",
       "source": "setup_setvisibleonallworkspaces",
       "target": "overlay_overlaycontroller_presentwindow"
     },
@@ -5638,8 +5647,8 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L396",
       "weight": 1.0,
-      "_src": "overlay_overlaycontroller_presentwindow",
-      "_tgt": "setup_setalwaysontop",
+      "_src": "setup_setalwaysontop",
+      "_tgt": "overlay_overlaycontroller_presentwindow",
       "source": "setup_setalwaysontop",
       "target": "overlay_overlaycontroller_presentwindow"
     },
@@ -5674,8 +5683,8 @@
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts",
       "source_location": "L397",
       "weight": 1.0,
-      "_src": "overlay_overlaycontroller_presentwindow",
-      "_tgt": "setup_setignoremouseevents",
+      "_src": "setup_setignoremouseevents",
+      "_tgt": "overlay_overlaycontroller_presentwindow",
       "source": "setup_setignoremouseevents",
       "target": "overlay_overlaycontroller_presentwindow"
     },
@@ -6037,6 +6046,18 @@
       "_tgt": "main_approot",
       "source": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_main_tsx",
       "target": "main_approot",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/renderer/main.tsx",
+      "source_location": "L105",
+      "weight": 1.0,
+      "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_main_tsx",
+      "_tgt": "main_reportrendererready",
+      "source": "users_onkarj012_projects_alternatives_claude_vaani_src_renderer_main_tsx",
+      "target": "main_reportrendererready",
       "confidence_score": 1.0
     },
     {
@@ -7831,7 +7852,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L76",
+      "source_location": "L75",
       "weight": 1.0,
       "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
       "_tgt": "index_clearmainwindowreadytimeout",
@@ -7843,7 +7864,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L83",
+      "source_location": "L82",
       "weight": 1.0,
       "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
       "_tgt": "index_armmainwindowreadytimeout",
@@ -7855,7 +7876,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L100",
+      "source_location": "L102",
       "weight": 1.0,
       "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
       "_tgt": "index_syncapppresentation",
@@ -7867,7 +7888,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L124",
+      "source_location": "L126",
       "weight": 1.0,
       "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
       "_tgt": "index_cleanupruntimeresources",
@@ -7879,7 +7900,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L136",
+      "source_location": "L138",
       "weight": 1.0,
       "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
       "_tgt": "index_createmainwindow",
@@ -7891,7 +7912,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L234",
+      "source_location": "L242",
       "weight": 1.0,
       "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
       "_tgt": "index_configurerendererlifecycle",
@@ -7903,7 +7924,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L267",
+      "source_location": "L275",
       "weight": 1.0,
       "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
       "_tgt": "index_configuremediapermissions",
@@ -7915,7 +7936,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L281",
+      "source_location": "L289",
       "weight": 1.0,
       "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
       "_tgt": "index_loadwindowurl",
@@ -7927,7 +7948,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L290",
+      "source_location": "L298",
       "weight": 1.0,
       "_src": "users_onkarj012_projects_alternatives_claude_vaani_src_main_index_ts",
       "_tgt": "index_bootstrap",
@@ -7951,7 +7972,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L291",
+      "source_location": "L299",
       "weight": 1.0,
       "_src": "index_bootstrap",
       "_tgt": "index_log",
@@ -8071,7 +8092,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L73",
+      "source_location": "L72",
       "weight": 1.0,
       "_src": "index_showmainwindow",
       "_tgt": "index_syncapppresentation",
@@ -8095,7 +8116,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L84",
+      "source_location": "L83",
       "weight": 1.0,
       "_src": "index_armmainwindowreadytimeout",
       "_tgt": "index_clearmainwindowreadytimeout",
@@ -8107,7 +8128,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L125",
+      "source_location": "L127",
       "weight": 1.0,
       "_src": "index_cleanupruntimeresources",
       "_tgt": "index_clearmainwindowreadytimeout",
@@ -8179,7 +8200,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L307",
+      "source_location": "L315",
       "weight": 1.0,
       "_src": "index_bootstrap",
       "_tgt": "index_createmainwindow",
@@ -8191,7 +8212,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L308",
+      "source_location": "L316",
       "weight": 1.0,
       "_src": "index_bootstrap",
       "_tgt": "index_configurerendererlifecycle",
@@ -8203,7 +8224,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L305",
+      "source_location": "L313",
       "weight": 1.0,
       "_src": "index_bootstrap",
       "_tgt": "index_configuremediapermissions",
@@ -8215,7 +8236,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/index.ts",
-      "source_location": "L395",
+      "source_location": "L403",
       "weight": 1.0,
       "_src": "index_bootstrap",
       "_tgt": "index_loadwindowurl",

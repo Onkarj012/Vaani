@@ -59,8 +59,7 @@ function showMainWindow(): void {
     rendererReady = false;
     mainWindow.reload();
     armMainWindowReadyTimeout(mainWindow);
-  } else if (!rendererReady && !mainWindow.webContents.isLoading()) {
-    mainWindow.reload();
+  } else if (!rendererReady) {
     armMainWindowReadyTimeout(mainWindow);
   }
   log("window:show-requested", {
@@ -88,6 +87,9 @@ function armMainWindowReadyTimeout(win: BrowserWindow): void {
     }
 
     log("renderer:ready-timeout", { loading: win.webContents.isLoading(), visible: win.isVisible() });
+    if (!mainWindowOpenRequested && menuBarMode && !win.isVisible()) {
+      return;
+    }
     if (win.webContents.isCrashed()) {
       win.reload();
     } else if (!win.webContents.isLoading()) {
@@ -153,12 +155,29 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
 
   win.webContents.on("did-start-loading", () => {
     rendererReady = false;
-    armMainWindowReadyTimeout(win);
+    if (mainWindowOpenRequested || !menuBarMode || win.isVisible()) {
+      armMainWindowReadyTimeout(win);
+    }
   });
 
   win.webContents.on("did-finish-load", () => {
-    log("renderer:loaded");
-    armMainWindowReadyTimeout(win);
+    log("renderer:loaded", {
+      url: win.webContents.getURL(),
+      partition: win.webContents.session.storagePath
+    });
+    if (mainWindowOpenRequested || !menuBarMode || win.isVisible()) {
+      armMainWindowReadyTimeout(win);
+    } else {
+      clearMainWindowReadyTimeout();
+    }
+    // Fallback: if renderer:ready never fires (HMR timing), activate after a short delay
+    setTimeout(() => {
+      if (!rendererReady && mainWindow === win && !win.isDestroyed()) {
+        log("renderer:ready-fallback");
+        rendererReady = true;
+        clearMainWindowReadyTimeout();
+      }
+    }, 400);
   });
 
   win.webContents.on("did-fail-load", (_event, code, desc) => {
@@ -220,10 +239,19 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
   });
 
   win.on("show", () => {
+    log("window:shown");
     mainWindowOpenRequested = true;
     menuBarMode = false;
     windowHasLoaded = true;
     syncAppPresentation();
+  });
+
+  win.on("hide", () => {
+    log("window:hidden", { menuBarMode, mainWindowOpenRequested });
+  });
+
+  win.on("blur", () => {
+    log("window:blur");
   });
   // Do NOT call syncAppPresentation on hide — the overlay window or other
   // transient windows should not affect the dock icon state.
@@ -258,9 +286,8 @@ function configureRendererLifecycle(win: BrowserWindow): void {
   });
 
   win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    if (level >= 2) {
-      log("renderer:console", { level, message, line, sourceId });
-    }
+    // Log all console messages during debugging (level 0=debug, 1=info, 2=warn, 3=error)
+    log("renderer:console", { level, message: message.slice(0, 500), line, sourceId });
   });
 }
 
@@ -280,11 +307,14 @@ function configureMediaPermissions(): void {
 
 async function loadWindowUrl(win: BrowserWindow): Promise<void> {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    log("main:loading-url", { url: MAIN_WINDOW_VITE_DEV_SERVER_URL });
     await win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     return;
   }
 
-  await win.loadFile(join(currentDir, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
+  const filePath = join(currentDir, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+  log("main:loading-file", { path: filePath });
+  await win.loadFile(filePath);
 }
 
 async function bootstrap(): Promise<void> {

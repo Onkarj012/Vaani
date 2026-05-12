@@ -12,6 +12,8 @@ const exec = promisify(execFile);
 
 declare const OVERLAY_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const OVERLAY_WINDOW_VITE_NAME: string;
+declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
+declare const MAIN_WINDOW_VITE_NAME: string;
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 const logPath = join(tmpdir(), "claude-vaani-startup.log");
@@ -438,7 +440,7 @@ export class OverlayController {
         preload: join(_dir, "overlay-preload.js"),
         contextIsolation: true,
         nodeIntegration: false,
-        backgroundThrottling: false,
+        backgroundThrottling: false
       },
     });
     this.window = win;
@@ -490,13 +492,18 @@ export class OverlayController {
       if (this.accentColor !== "#FF006E") {
         this.window?.webContents.send("capsule:set-accent", this.accentColor);
       }
-      if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
+      // Retry mode update multiple times to ensure it arrives after HMR listener setup
+      if (this.pendingMode) {
+        this.tryUpdateMode(this.pendingMode);
+        setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 50);
+        setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 150);
+      }
       if (this.pendingBars) this.updateBars(this.pendingBars);
     });
 
     // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
     win.webContents.on("did-finish-load", () => {
-      log("overlay:loaded");
+      log("overlay:loaded", { url: win.webContents.getURL() });
       setTimeout(() => {
         if (!this.loadReady && this.window && !this.window.isDestroyed()) {
           log("overlay:ready-fallback");
@@ -508,10 +515,20 @@ export class OverlayController {
       }, 200);
     });
 
-    if (typeof OVERLAY_WINDOW_VITE_DEV_SERVER_URL !== "undefined") {
-      await win.loadURL(OVERLAY_WINDOW_VITE_DEV_SERVER_URL);
+    // Log all console messages from overlay for debugging
+    win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+      log("overlay:console", { level, message: message.slice(0, 300), line, sourceId });
+    });
+
+    // Use main window's Vite server with overlay mode param to share React instance
+    if (typeof MAIN_WINDOW_VITE_DEV_SERVER_URL !== "undefined") {
+      const overlayUrl = `${MAIN_WINDOW_VITE_DEV_SERVER_URL}?mode=overlay`;
+      log("overlay:loading-url", { url: overlayUrl });
+      await win.loadURL(overlayUrl);
     } else {
-      await win.loadFile(join(_dir, `../renderer/${OVERLAY_WINDOW_VITE_NAME}/index.html`));
+      const filePath = join(_dir, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+      log("overlay:loading-file", { path: filePath });
+      await win.loadFile(filePath);
     }
   }
 }

@@ -118,7 +118,10 @@ export default function CapsuleOverlay() {
 
     bridge.onHideExpanded(() => setMode('hidden'))
 
+    // Send ready signal multiple times to handle HMR timing issues
     bridge.sendReady()
+    setTimeout(() => bridge.sendReady(), 50)
+    setTimeout(() => bridge.sendReady(), 150)
 
     return () => bridge.cleanup()
   }, [])

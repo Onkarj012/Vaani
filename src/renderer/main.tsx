@@ -1,29 +1,47 @@
+console.log("[main] main.tsx loading...");
+
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import { useEffect, useState } from "react";
-import "./styles/globals.css";
-import App from "./App";
+// Check if this is being loaded as overlay mode
+const isOverlayMode = new URLSearchParams(window.location.search).get("mode") === "overlay";
+
+// Load appropriate CSS based on mode
+if (isOverlayMode) {
+  import("./overlay/overlay.css");
+} else {
+  import("./styles/globals.css");
+}
+
+console.log("[main] imports complete");
+
+// Lazy imports based on mode
+const App = isOverlayMode ? null : React.lazy(() => import("./App"));
+const CapsuleOverlay = isOverlayMode ? React.lazy(() => import("./overlay/CapsuleOverlay")) : null;
 
 import { VaaniUiProvider } from "./context/vaani-ui";
 import { useDictation } from "./hooks/useDictation";
 import { useHistory } from "./hooks/useHistory";
 import { useSettings } from "./hooks/useSettings";
 
-window.addEventListener("error", (event) => {
-  window.vaani.reportRendererError({
-    message: event.message || "Renderer error",
-    stack: event.error instanceof Error ? event.error.stack : undefined
+// Only set up error handlers in main mode (not overlay)
+if (!isOverlayMode && typeof window.vaani !== "undefined") {
+  window.addEventListener("error", (event) => {
+    window.vaani.reportRendererError({
+      message: event.message || "Renderer error",
+      stack: event.error instanceof Error ? event.error.stack : undefined
+    });
   });
-});
 
-window.addEventListener("unhandledrejection", (event) => {
-  const reason = event.reason;
-  window.vaani.reportRendererError({
-    message: reason instanceof Error ? reason.message : String(reason),
-    stack: reason instanceof Error ? reason.stack : undefined
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    window.vaani.reportRendererError({
+      message: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined
+    });
   });
-});
+}
 
 class RendererErrorBoundary extends React.Component<React.PropsWithChildren, { message: string | null }> {
   state = { message: null };
@@ -84,24 +102,54 @@ function AppRoot() {
       updateSettings={updateSettings}
       history={history}
     >
-      <App />
+      {App && <App />}
     </VaaniUiProvider>
   );
 }
 
+console.log("[main] attempting to mount React, overlay mode:", isOverlayMode);
 const root = document.getElementById("root");
-if (!root) throw new Error("Root element not found");
+if (!root) {
+  console.error("[main] #root element not found");
+  throw new Error("Root element not found");
+}
 
-createRoot(root).render(
-  <React.StrictMode>
-    <HashRouter>
-      <RendererErrorBoundary>
-        <AppRoot />
-      </RendererErrorBoundary>
-    </HashRouter>
-  </React.StrictMode>
-);
+console.log("[main] mounting to #root");
+if (isOverlayMode && CapsuleOverlay) {
+  // Overlay mode - render just the capsule, no providers needed
+  createRoot(root).render(
+    <React.StrictMode>
+      <React.Suspense fallback={null}>
+        <CapsuleOverlay />
+      </React.Suspense>
+    </React.StrictMode>
+  );
+  console.log("[main] CapsuleOverlay mounted");
+} else if (App) {
+  // Normal dashboard mode
+  createRoot(root).render(
+    <React.StrictMode>
+      <HashRouter>
+        <RendererErrorBoundary>
+          <React.Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-background" />}>
+            <AppRoot />
+          </React.Suspense>
+        </RendererErrorBoundary>
+      </HashRouter>
+    </React.StrictMode>
+  );
+  console.log("[main] React mounted");
+}
 
-requestAnimationFrame(() => {
-  window.vaani.reportRendererReady();
-});
+
+// Only report ready in main mode (overlay uses capsuleBridge.sendReady)
+if (!isOverlayMode && typeof window.vaani !== "undefined") {
+  function reportRendererReady(): void {
+    window.vaani.reportRendererReady();
+  }
+
+  queueMicrotask(reportRendererReady);
+  setTimeout(reportRendererReady, 0);
+  setTimeout(reportRendererReady, 150);
+  setTimeout(reportRendererReady, 350);
+}

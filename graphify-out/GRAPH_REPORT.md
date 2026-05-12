@@ -1,11 +1,11 @@
 # Graph Report - /Users/onkarj012/Projects/Alternatives/claude_vaani  (2026-05-11)
 
 ## Corpus Check
-- 115 files · ~576,400 words
+- 115 files · ~576,433 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 473 nodes · 752 edges · 95 communities detected
+- 474 nodes · 753 edges · 95 communities detected
 - Extraction: 81% EXTRACTED · 19% INFERRED · 0% AMBIGUOUS · INFERRED: 144 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
@@ -142,32 +142,32 @@ Cohesion: 0.11
 Nodes (9): log(), OverlayController, focus(), isDestroyed(), setAlwaysOnTop(), setBounds(), setIgnoreMouseEvents(), setVisibleOnAllWorkspaces() (+1 more)
 
 ### Community 1 - "Community 1"
-Cohesion: 0.1
-Nodes (18): armMainWindowReadyTimeout(), bootstrap(), cleanupRuntimeResources(), clearMainWindowReadyTimeout(), configureMediaPermissions(), configureRendererLifecycle(), createMainWindow(), loadWindowUrl() (+10 more)
+Cohesion: 0.12
+Nodes (9): AppDetector, bundleIdToContext(), DictationService, isExternalTarget(), messageForInjectionFailure(), sameTarget(), TextInjector, isValidClip() (+1 more)
 
 ### Community 2 - "Community 2"
-Cohesion: 0.13
-Nodes (8): AppDetector, bundleIdToContext(), DictationService, isExternalTarget(), messageForInjectionFailure(), sameTarget(), isValidClip(), trimSilence()
+Cohesion: 0.08
+Nodes (14): resize(), armMainWindowReadyTimeout(), bootstrap(), cleanupRuntimeResources(), clearMainWindowReadyTimeout(), configureMediaPermissions(), configureRendererLifecycle(), createMainWindow() (+6 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.16
-Nodes (18): ClipboardTextInjector, confirmInsertion(), delay(), ensureTargetReady(), maybeRestoreCaretAfterInsertion(), modifierReleaseLines(), moveCaretToEndForBrowserTarget(), prefersSystemEventsPaste() (+10 more)
+Cohesion: 0.19
+Nodes (17): ClipboardTextInjector, confirmInsertion(), delay(), ensureTargetReady(), maybeRestoreCaretAfterInsertion(), modifierReleaseLines(), moveCaretToEndForBrowserTarget(), prefersSystemEventsPaste() (+9 more)
 
 ### Community 4 - "Community 4"
-Cohesion: 0.13
-Nodes (4): writeJsonFile(), HistoryStore, normalizeHistory(), SettingsStore
-
-### Community 5 - "Community 5"
 Cohesion: 0.1
 Nodes (10): AppRoot(), RendererErrorBoundary, blobToClip(), calculateRmsFrames(), mixToMono(), resampleToTargetRate(), useAudioRecorder(), useDictation() (+2 more)
 
-### Community 6 - "Community 6"
+### Community 5 - "Community 5"
 Cohesion: 0.17
 Nodes (14): blobToClip(), calculateRmsFrames(), chooseMicDevice(), cleanup(), mixToMono(), preferredMimeType(), reportFailure(), resampleToTargetRate() (+6 more)
 
-### Community 7 - "Community 7"
+### Community 6 - "Community 6"
 Cohesion: 0.22
 Nodes (14): calculateFirstSentenceOverlap(), firstSentence(), formatTranscript(), getClient(), hasLeadWordOverlap(), hasOrderedTokenPreservation(), looksSuspicious(), requestFormatting() (+6 more)
+
+### Community 7 - "Community 7"
+Cohesion: 0.19
+Nodes (7): loadWindowUrl(), candidatePaths(), getNativeBridge(), loadNativeAddon(), RecorderWindowController, loadFile(), loadURL()
 
 ### Community 8 - "Community 8"
 Cohesion: 0.12
@@ -182,16 +182,16 @@ Cohesion: 0.22
 Nodes (13): applyCorrections(), applySmartPunctuation(), applySnippets(), capitalizeSentences(), cleanupText(), collapseAdjacentDuplicateWords(), ensureLinePunctuation(), hasMultipleLines() (+5 more)
 
 ### Community 11 - "Community 11"
+Cohesion: 0.24
+Nodes (3): writeJsonFile(), HistoryStore, normalizeHistory()
+
+### Community 12 - "Community 12"
 Cohesion: 0.26
 Nodes (10): AccessibilityTextInjector, delay(), normalizeFailureReason(), activateTargetApp(), buildActivateTargetScript(), escapeAS(), internalAppNames(), internalBundleIds() (+2 more)
 
-### Community 12 - "Community 12"
+### Community 13 - "Community 13"
 Cohesion: 0.22
 Nodes (6): AnimatedBackground(), ThemeToggle(), VaaniIcon(), Navbar(), ThemeProvider(), useTheme()
-
-### Community 13 - "Community 13"
-Cohesion: 0.25
-Nodes (2): resize(), createTray()
 
 ### Community 14 - "Community 14"
 Cohesion: 0.39
@@ -658,11 +658,11 @@ Nodes (1): Do Not Edit Generated Build Artifacts
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `log()` connect `Community 1` to `Community 0`, `Community 2`, `Community 3`, `Community 7`, `Community 9`, `Community 11`, `Community 15`?**
+- **Why does `log()` connect `Community 2` to `Community 0`, `Community 1`, `Community 3`, `Community 6`, `Community 7`, `Community 9`, `Community 12`, `Community 15`?**
   _High betweenness centrality (0.162) - this node is a cross-community bridge._
-- **Why does `bootstrap()` connect `Community 1` to `Community 0`, `Community 4`, `Community 13`?**
+- **Why does `bootstrap()` connect `Community 2` to `Community 0`, `Community 7`?**
   _High betweenness centrality (0.051) - this node is a cross-community bridge._
-- **Why does `maybeRestoreCaretAfterInsertion()` connect `Community 3` to `Community 1`, `Community 11`?**
+- **Why does `maybeRestoreCaretAfterInsertion()` connect `Community 3` to `Community 2`, `Community 12`?**
   _High betweenness centrality (0.048) - this node is a cross-community bridge._
 - **Are the 19 inferred relationships involving `isDestroyed()` (e.g. with `showMainWindow()` and `.setAccentColor()`) actually correct?**
   _`isDestroyed()` has 19 INFERRED edges - model-reasoned connections that need verification._
