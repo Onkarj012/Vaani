@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { Kbd, KbdGroup } from "@/components/ui/Kbd";
 
 interface HotkeyCaptureProps {
@@ -114,29 +115,28 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); beginCapture(); }
         }}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 border-2 outline-none transition-colors"
-        style={{
-          borderColor: capturing ? "var(--accent)" : "var(--border-light)",
-          background: capturing ? "var(--bg-2)" : "var(--bg)",
-          borderRadius: 0,
-          cursor: disabled ? "not-allowed" : "pointer",
-          opacity: disabled ? 0.4 : 1,
-        }}
+        className={cn(
+          "inline-flex items-center gap-1.5 px-3 py-2.5 border-2 outline-none transition-all rounded-xl",
+          capturing
+            ? "bg-vaani-gray-50 dark:bg-vaani-gray-800 border-vaani-pink"
+            : "bg-vaani-gray-50 dark:bg-vaani-gray-800 border-vaani-gray-200 dark:border-vaani-gray-700 hover:border-vaani-gray-300 dark:hover:border-vaani-gray-600",
+          disabled && "cursor-not-allowed opacity-40"
+        )}
         title={capturing ? "Press any key combination…" : "Click to change hotkey"}
       >
         {capturing && preview.length === 0 ? (
-          <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: "var(--accent)" }}>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-vaani-pink">
             Press any key…
           </span>
         ) : (
           <KbdGroup>
             {displayParts.map((k, i) => (
               <span key={i} className="inline-flex items-center gap-1">
-                <Kbd className={capturing ? "text-[var(--accent)] border-[var(--accent)]" : undefined}>
+                <Kbd className={cn(capturing && "border-vaani-pink text-vaani-pink bg-vaani-pink/10 dark:bg-vaani-pink/20")}>
                   {MOD_SYMBOL[k] ?? k}
                 </Kbd>
                 {i < displayParts.length - 1 && (
-                  <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>+</span>
+                  <span className="text-[11px] text-vaani-gray-500 dark:text-vaani-gray-400">+</span>
                 )}
               </span>
             ))}
@@ -148,13 +148,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
         <button
           type="button"
           onClick={() => { onChange("Fn"); stopCapture(); }}
-          className="self-start text-[9px] font-bold uppercase tracking-widest border px-2 py-0.5 cursor-pointer"
-          style={{
-            borderColor: "var(--border-light)",
-            background: "var(--bg)",
-            borderRadius: 0,
-            color: "var(--text-muted)",
-          }}
+          className="self-start text-[9px] font-bold uppercase tracking-widest border px-2 py-0.5 cursor-pointer rounded-md bg-white dark:bg-vaani-gray-900 border-vaani-gray-200 dark:border-vaani-gray-700 text-vaani-gray-500 dark:text-vaani-gray-400 hover:bg-vaani-gray-50 dark:hover:bg-vaani-gray-800 transition-colors"
         >
           Use Fn key
         </button>

@@ -212,6 +212,21 @@ export default function Snippets() {
           ))
         )}
       </motion.div>
+
+      <motion.div
+        variants={itemVariants}
+        className="bg-vaani-lime/5 dark:bg-vaani-lime/10 border border-vaani-lime/20 dark:border-vaani-lime/30 rounded-2xl p-5"
+      >
+        <div className="flex items-start gap-3">
+          <Zap size={18} className="text-vaani-lime mt-0.5 shrink-0" />
+          <div>
+            <div className="text-sm font-semibold text-vaani-black dark:text-white mb-1">What are Snippets?</div>
+            <p className="text-sm text-vaani-gray-600 dark:text-vaani-gray-400 leading-relaxed">
+              Create slash-commands that expand into longer text. Perfect for repetitive content like email signatures, addresses, phone numbers, or boilerplate text you often dictate.
+            </p>
+          </div>
+        </div>
+      </motion.div>
     </motion.div>
   )
 }

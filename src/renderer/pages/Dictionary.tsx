@@ -215,9 +215,9 @@ export default function Dictionary() {
         <div className="flex items-start gap-3">
           <Wand2 size={18} className="text-vaani-purple mt-0.5 shrink-0" />
           <div>
-            <div className="text-sm font-semibold text-vaani-black dark:text-white mb-1">How it works</div>
+            <div className="text-sm font-semibold text-vaani-black dark:text-white mb-1">What is Dictionary?</div>
             <p className="text-sm text-vaani-gray-600 dark:text-vaani-gray-400 leading-relaxed">
-              When Vaani transcribes your speech, it automatically replaces trigger words with your custom replacements. Leave the replacement empty to remove filler words like &quot;um&quot; and &quot;uh&quot;.
+              Add custom words that Whisper may not recognize, like technical terms, brand names, or words specific to your profession. For example, add &quot;GitHub&quot;, &quot;Vercel&quot;, or industry jargon so Vaani transcribes them correctly based on context.
             </p>
           </div>
         </div>

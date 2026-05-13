@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Key,
@@ -20,7 +20,9 @@ import {
   AlertTriangle,
   X,
   Database,
+  Pencil,
 } from 'lucide-react'
+import { cn } from '../lib/utils'
 import { useTheme } from '../contexts/ThemeContext'
 import { useVaaniUi } from '../context/vaani-ui'
 import { HotkeyCapture } from './HotkeyCapture'
@@ -37,6 +39,18 @@ const sidebarItems = [
   { id: 'data', label: 'Data', icon: Database },
 ]
 
+const sectionDescriptions: Record<string, string> = {
+  api: 'Your Groq API key for transcription',
+  language: 'Spoken language for transcription',
+  microphone: 'Input device and audio settings',
+  hotkey: 'Global shortcuts for dictation',
+  injection: 'How text is entered into apps',
+  appearance: 'Theme and accent colors',
+  system: 'Dock, startup, and behavior',
+  audio: 'Silence detection and noise gate',
+  data: 'Export, clear history, and reset settings',
+}
+
 const languages = [
   { value: 'auto', label: 'Auto-detect' },
   { value: 'en', label: 'English' },
@@ -52,13 +66,6 @@ const injectionModes = [
   { id: 'clipboard', label: 'Clipboard', description: 'Pastes text via the clipboard' },
 ]
 
-const capsuleStyles = [
-  { id: 'pill', label: 'Pill', description: 'Rounded capsule' },
-  { id: 'bar', label: 'Bar', description: 'Horizontal bar' },
-  { id: 'dot', label: 'Dot', description: 'Minimal dot' },
-  { id: 'rule', label: 'Rule', description: 'Thin line' },
-]
-
 const accentColors = [
   { id: '#FF006E', label: 'Pink', color: 'bg-[#FF006E]' },
   { id: '#ADFF02', label: 'Lime', color: 'bg-[#ADFF02]' },
@@ -66,6 +73,9 @@ const accentColors = [
   { id: '#9D4EDD', label: 'Purple', color: 'bg-[#9D4EDD]' },
   { id: '#FFE600', label: 'Yellow', color: 'bg-[#FFE600]' },
   { id: '#FF6B35', label: 'Orange', color: 'bg-[#FF6B35]' },
+  { id: '#FFFFFF', label: 'White', color: 'bg-white border-2 border-vaani-gray-200 dark:border-vaani-gray-600' },
+  { id: '#000000', label: 'Black', color: 'bg-black border-2 border-vaani-gray-700 dark:border-vaani-gray-500' },
+  { id: '#9CA3AF', label: 'Monochrome', color: 'bg-[#9CA3AF]' },
 ]
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -141,51 +151,84 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { theme, toggleTheme } = useTheme()
-  const { settings, updateSettings, resetSettings, clearHistory } = useVaaniUi()
+  const { settings, updateSettings, resetSettings, clearHistory, historyEntries } = useVaaniUi()
   const [activeSection, setActiveSection] = useState('api')
   const [showApiKey, setShowApiKey] = useState(false)
+  const [isEditingApiKey, setIsEditingApiKey] = useState(false)
+  const [customHex, setCustomHex] = useState(settings.accentColor)
+
+  useEffect(() => {
+    setCustomHex(settings.accentColor)
+  }, [settings.accentColor])
 
   if (!isOpen) return null
+
+  const handleExportData = () => {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      settings,
+      history: historyEntries,
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `vaani-export-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const sectionContent = (
     <div className="space-y-6">
       {activeSection === 'api' && (
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-vaani-black dark:text-white">API Key</h3>
-          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-            Your Groq API key for transcription
-          </p>
           <div className="relative">
             <input
               type={showApiKey ? 'text' : 'password'}
               value={settings.groqApiKey}
               onChange={(e) => updateSettings({ groqApiKey: e.target.value })}
               placeholder="gsk_..."
-              className="w-full pl-4 pr-12 py-3 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all font-mono text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
-            />
-            <button
-              onClick={() => setShowApiKey(!showApiKey)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-600 rounded transition-colors"
-            >
-              {showApiKey ? (
-                <EyeOff size={16} className="text-vaani-gray-500" />
-              ) : (
-                <Eye size={16} className="text-vaani-gray-500" />
+              readOnly={!isEditingApiKey}
+              className={cn(
+                "w-full pl-4 pr-24 py-3 rounded-xl text-sm outline-none transition-all font-mono placeholder:text-vaani-gray-400",
+                isEditingApiKey
+                  ? "bg-vaani-gray-50 dark:bg-vaani-gray-800 border-2 border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20"
+                  : "bg-vaani-gray-100 dark:bg-vaani-gray-700 border border-vaani-gray-300 dark:border-vaani-gray-600 text-vaani-black dark:text-white cursor-not-allowed opacity-75"
               )}
-            </button>
+            />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+              <button
+                onClick={() => setIsEditingApiKey(!isEditingApiKey)}
+                className={cn(
+                  "p-2 rounded-lg transition-all",
+                  isEditingApiKey
+                    ? "bg-vaani-pink/10 hover:bg-vaani-pink/20"
+                    : "bg-vaani-gray-200 dark:bg-vaani-gray-600 hover:bg-vaani-gray-300 dark:hover:bg-vaani-gray-500"
+                )}
+                title={isEditingApiKey ? 'Lock editing' : 'Enable editing'}
+              >
+                <Pencil size={16} className={isEditingApiKey ? 'text-vaani-pink' : 'text-vaani-gray-600 dark:text-vaani-gray-300'} />
+              </button>
+              <button
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="p-2 bg-vaani-gray-200 dark:bg-vaani-gray-600 hover:bg-vaani-gray-300 dark:hover:bg-vaani-gray-500 rounded-lg transition-colors"
+              >
+                {showApiKey ? (
+                  <EyeOff size={16} className="text-vaani-gray-600 dark:text-vaani-gray-300" />
+                ) : (
+                  <Eye size={16} className="text-vaani-gray-600 dark:text-vaani-gray-300" />
+                )}
+              </button>
+            </div>
           </div>
           <p className="text-xs text-vaani-gray-500 dark:text-vaani-gray-400">
-            Your API key is stored securely in the macOS keychain.
+            Click the edit icon to enable editing. Your API key is stored securely in the macOS keychain.
           </p>
         </div>
       )}
 
       {activeSection === 'language' && (
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-vaani-black dark:text-white">Language</h3>
-          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-            Spoken language for transcription
-          </p>
           <Select
             value={settings.language}
             onChange={(v) => updateSettings({ language: v })}
@@ -210,10 +253,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       {activeSection === 'microphone' && (
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-vaani-black dark:text-white">Microphone</h3>
-          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-            Input device and audio settings
-          </p>
           <div className="flex items-center justify-between p-3 bg-vaani-gray-50 dark:bg-vaani-gray-800 rounded-xl">
             <div className="flex items-center gap-3">
               <Mic size={16} className="text-vaani-gray-500" />
@@ -243,10 +282,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       {activeSection === 'hotkey' && (
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-vaani-black dark:text-white">Hotkey</h3>
-          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-            Global shortcuts for dictation
-          </p>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">
@@ -272,10 +307,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       {activeSection === 'injection' && (
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-vaani-black dark:text-white">Injection Mode</h3>
-          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-            How text is entered into apps
-          </p>
           <div className="space-y-2">
             {injectionModes.map((mode) => (
               <button
@@ -322,11 +353,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       {activeSection === 'appearance' && (
         <div className="space-y-6">
-          <h3 className="text-lg font-bold text-vaani-black dark:text-white">Appearance</h3>
-          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-            Capsule style, theme, and colors
-          </p>
-
           <div>
             <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">
               Theme
@@ -359,35 +385,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
           <div>
             <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">
-              Capsule Style
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {capsuleStyles.map((style) => (
-                <button
-                  key={style.id}
-                  onClick={() => updateSettings({ capsuleDesign: style.id as typeof settings.capsuleDesign })}
-                  className={`p-3 rounded-xl border text-center transition-all ${
-                    settings.capsuleDesign === style.id
-                      ? 'border-vaani-pink bg-vaani-pink/5 dark:bg-vaani-pink/10'
-                      : 'border-vaani-gray-200 dark:border-vaani-gray-700 hover:border-vaani-gray-300 dark:hover:border-vaani-gray-500'
-                  }`}
-                >
-                  <div className="text-sm font-medium text-vaani-black dark:text-white mb-0.5">
-                    {style.label}
-                  </div>
-                  <div className="text-xs text-vaani-gray-500 dark:text-vaani-gray-400">
-                    {style.description}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">
               Accent Color
             </label>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               {accentColors.map((color) => (
                 <button
                   key={color.id}
@@ -401,16 +401,33 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 />
               ))}
             </div>
+            <div className="mt-3 flex items-center gap-3">
+              <input
+                type="text"
+                value={customHex}
+                onChange={(e) => setCustomHex(e.target.value)}
+                onBlur={(e) => {
+                  const val = e.target.value
+                  if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+                    updateSettings({ accentColor: val })
+                  } else {
+                    setCustomHex(settings.accentColor)
+                  }
+                }}
+                placeholder="#7C3AED"
+                className="w-32 pl-3 pr-3 py-2 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all font-mono text-vaani-black dark:text-white placeholder:text-vaani-gray-400 uppercase"
+              />
+              <div
+                className="w-8 h-8 rounded-lg border border-vaani-gray-200 dark:border-vaani-gray-600"
+                style={{ backgroundColor: settings.accentColor }}
+              />
+            </div>
           </div>
         </div>
       )}
 
       {activeSection === 'system' && (
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-vaani-black dark:text-white">System</h3>
-          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-            Dock, startup, and behavior
-          </p>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -441,10 +458,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       {activeSection === 'audio' && (
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-vaani-black dark:text-white">Audio</h3>
-          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-            Silence detection and noise gate
-          </p>
           <div className="space-y-5">
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -471,14 +484,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       {activeSection === 'data' && (
         <div className="space-y-6">
-          <h3 className="text-lg font-bold text-vaani-black dark:text-white">Data</h3>
-          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-            Export, clear history, and reset settings
-          </p>
           <div className="space-y-4">
-            <h4 className="text-sm font-bold text-vaani-black dark:text-white">Data Management</h4>
             <div className="flex flex-col sm:flex-row gap-3">
-              <button className="flex items-center justify-center gap-2 px-4 py-2.5 bg-vaani-gray-100 dark:bg-vaani-gray-800 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-700 rounded-xl text-sm font-medium text-vaani-black dark:text-white transition-colors">
+              <button
+                onClick={handleExportData}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-vaani-gray-100 dark:bg-vaani-gray-800 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-700 rounded-xl text-sm font-medium text-vaani-black dark:text-white transition-colors"
+              >
                 <Download size={14} />
                 Export Data
               </button>
@@ -564,9 +575,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
             <div className="flex-1 flex flex-col min-w-0">
               <div className="flex items-center justify-between p-6 border-b border-vaani-gray-200 dark:border-vaani-gray-700">
-                <h3 className="text-lg font-bold text-vaani-black dark:text-white">
-                  {sidebarItems.find((s) => s.id === activeSection)?.label}
-                </h3>
+                <div>
+                  <h3 className="text-xl font-bold text-vaani-black dark:text-white">
+                    {sidebarItems.find((s) => s.id === activeSection)?.label}
+                  </h3>
+                  <p className="text-xs text-vaani-gray-500 dark:text-vaani-gray-400 mt-1">
+                    {sectionDescriptions[activeSection]}
+                  </p>
+                </div>
                 <button
                   onClick={onClose}
                   className="p-2 hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-700 rounded-xl transition-colors"
