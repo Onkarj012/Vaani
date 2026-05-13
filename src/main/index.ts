@@ -169,8 +169,14 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
   });
 
   win.webContents.on("did-start-loading", () => {
-    log("renderer:start-loading");
-    rendererReady = false;
+    log("renderer:start-loading", { rendererReady });
+    // If the renderer was already ready, this is an in-page navigation event
+    // (Electron fires did-start-loading for hash/pushState navigation in dev mode).
+    // Don't reset readiness — resetting would arm the 5s timeout and force a reload
+    // on every page switch. Only reset when the renderer is genuinely unloaded.
+    if (rendererReady) {
+      return;
+    }
     if (mainWindowOpenRequested || !menuBarMode || win.isVisible()) {
       armMainWindowReadyTimeout(win);
     }
@@ -183,12 +189,6 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
     });
     rendererReady = true;
     clearMainWindowReadyTimeout();
-    if (mainWindowOpenRequested || !menuBarMode || win.isVisible()) {
-      if (!shouldSuppressDashboardActivation()) {
-        win.show();
-        win.focus();
-      }
-    }
   });
 
   win.webContents.on("did-fail-load", (_event, code, desc) => {
