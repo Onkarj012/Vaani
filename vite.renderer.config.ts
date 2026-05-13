@@ -5,6 +5,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   root: resolve("src/renderer"),
+  cacheDir: resolve("node_modules/.vite/main"),
   build: {
     outDir: resolve(".vite/renderer/main_window"),
     emptyOutDir: false

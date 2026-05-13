@@ -1,46 +1,97 @@
+console.log("[main] main.tsx loading...");
+
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { useEffect, useRef } from "react";
-import "./styles/globals.css";
+import { HashRouter } from "react-router-dom";
+import { useEffect, useState } from "react";
+// Check if this is being loaded as overlay mode
+const isOverlayMode = new URLSearchParams(window.location.search).get("mode") === "overlay";
 
-import { ThemeProvider } from "./components/ThemeProvider";
+// Load appropriate CSS based on mode
+if (isOverlayMode) {
+  import("./overlay/overlay.css");
+} else {
+  import("./styles/globals.css");
+}
 
-document.documentElement.setAttribute("data-theme", "aurora");
+console.log("[main] imports complete");
 
-// Headless audio logic is inlined below (no App component needed)
+// Lazy imports based on mode
+const App = isOverlayMode ? null : React.lazy(() => import("./App"));
+const CapsuleOverlay = isOverlayMode ? React.lazy(() => import("./overlay/CapsuleOverlay")) : null;
 
-// Context
 import { VaaniUiProvider } from "./context/vaani-ui";
 import { useDictation } from "./hooks/useDictation";
 import { useHistory } from "./hooks/useHistory";
 import { useSettings } from "./hooks/useSettings";
-import { useAudioRecorder } from "./hooks/useAudioRecorder";
 
-// Pages
-import Layout from "./pages/Layout";
-import HomePage from "./pages/HomePage";
-import DashboardPage from "./pages/DashboardPage";
-import HistoryPage from "./pages/HistoryPage";
-import SnippetsPage from "./pages/SnippetsPage";
-import DictionaryPage from "./pages/DictionaryPage";
-import SettingsPage from "./pages/SettingsPage";
+// Only set up error handlers in main mode (not overlay)
+if (!isOverlayMode && typeof window.vaani !== "undefined") {
+  window.addEventListener("error", (event) => {
+    window.vaani.reportRendererError({
+      message: event.message || "Renderer error",
+      stack: event.error instanceof Error ? event.error.stack : undefined
+    });
+  });
 
-function ThemeRouter() {
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    window.vaani.reportRendererError({
+      message: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined
+    });
+  });
+}
+
+class RendererErrorBoundary extends React.Component<React.PropsWithChildren, { message: string | null }> {
+  state = { message: null };
+
+  static getDerivedStateFromError(error: Error): { message: string } {
+    return { message: error.message || "The window could not render." };
+  }
+
+  componentDidCatch(error: Error): void {
+    window.vaani.reportRendererError({
+      message: error.message || "Renderer error",
+      stack: error.stack
+    });
+  }
+
+  render(): React.ReactNode {
+    if (this.state.message) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background px-6 text-center text-foreground">
+          <div>
+            <h1 className="text-base font-semibold">Vaani could not open this window.</h1>
+            <p className="mt-2 max-w-sm text-sm text-muted-foreground">{this.state.message}</p>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function AppRoot() {
   const dictation = useDictation();
   const history = useHistory();
   const { settings, loading: settingsLoading, updateSettings } = useSettings();
-  const { bars, startRecording, stopRecording } = useAudioRecorder();
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  const defaultRoute = "/4";
+  const [bars, setBars] = useState<number[]>(new Array(9).fill(0));
 
   useEffect(() => {
-    return window.vaani.onNavigate((route) => {
-      navigate(route);
+    return window.vaani.onAudioLevel((_level, nextBars) => {
+      if (nextBars?.length) {
+        setBars(nextBars);
+      }
     });
-  }, [navigate]);
+  }, []);
+
+  useEffect(() => {
+    if (dictation.status === "completed") {
+      void history.reload();
+    }
+  }, [dictation.status, history.reload]);
 
   return (
     <VaaniUiProvider
@@ -51,142 +102,54 @@ function ThemeRouter() {
       updateSettings={updateSettings}
       history={history}
     >
-      <ThemeProvider
-        attribute="data-mode"
-        forcedTheme={settingsLoading ? undefined : (settings.colorMode ?? "light")}
-        enableSystem={false}
-        disableTransitionOnChange
-      >
-        <div 
-          className="w-full min-h-screen transition-colors duration-500"
-          style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}
-        >
-          <AppAudio
-            dictation={dictation}
-            history={history}
-            startRecording={startRecording}
-            stopRecording={stopRecording}
-          />
-
-          <Routes location={location}>
-            <Route path="/" element={<Navigate to={defaultRoute} replace />} />
-
-            {/* Vaani theme — /4 */}
-            <Route path="/4" element={<Layout />}>
-              <Route index element={<HomePage />} />
-              <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="history" element={<HistoryPage />} />
-              <Route path="snippets" element={<SnippetsPage />} />
-              <Route path="dictionary" element={<DictionaryPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-            </Route>
-
-            <Route path="*" element={<Navigate to={defaultRoute} replace />} />
-          </Routes>
-        </div>
-      </ThemeProvider>
+      {App && <App />}
     </VaaniUiProvider>
   );
 }
 
-// Headless audio recording component (keeps App.tsx logic inline)
-import type { DictationState } from "@shared/types";
-
-const START_TIMEOUT_MS = 3_000;
-
-function AppAudio({
-  dictation,
-  history,
-  startRecording,
-  stopRecording,
-}: {
-  dictation: DictationState;
-  history: ReturnType<typeof useHistory>;
-  startRecording: ReturnType<typeof useAudioRecorder>["startRecording"];
-  stopRecording: ReturnType<typeof useAudioRecorder>["stopRecording"];
-}) {
-  const prevStateRef = useRef(dictation);
-  const startPromiseRef = useRef<Promise<boolean> | null>(null);
-
-  useEffect(() => {
-    void window.__VAANI_RECORDER__.reportRecorderReady();
-  }, []);
-
-  useEffect(() => {
-    const prev = prevStateRef.current;
-    prevStateRef.current = dictation;
-
-    if (dictation.status === "recording" && prev.status !== "recording") {
-      const sessionId = (dictation as { sessionId: string }).sessionId;
-      startPromiseRef.current = startRecording();
-      startPromiseRef.current.then((started) => {
-        if (!started) {
-          void window.__VAANI_RECORDER__.reportRecorderFailure({
-            sessionId,
-            message: "Microphone recording could not start.",
-          });
-        }
-      });
-    }
-
-    if (prev.status === "recording" && dictation.status !== "recording") {
-      if (dictation.status === "finalizing") {
-        void handleStopRecording(
-          startPromiseRef.current ?? Promise.resolve(false),
-        );
-        startPromiseRef.current = null;
-      } else {
-        startPromiseRef.current = null;
-        void stopRecording();
-      }
-    }
-
-    async function handleStopRecording(startPromise: Promise<boolean>) {
-      const started = await Promise.race([
-        startPromise,
-        new Promise<boolean>((r) => setTimeout(() => r(false), START_TIMEOUT_MS)),
-      ]);
-
-      if (!started) {
-        void stopRecording();
-        await window.__VAANI_RECORDER__.reportRecorderFailure({
-          sessionId: (dictation as { sessionId: string }).sessionId,
-          message: "Recording could not be finalized.",
-        });
-        return;
-      }
-
-      const result = await stopRecording();
-      if (result) {
-        await window.__VAANI_RECORDER__.submitAudioClip({
-          sessionId: (dictation as { sessionId: string }).sessionId,
-          clip: result.clip,
-        });
-        return;
-      }
-      await window.__VAANI_RECORDER__.reportRecorderFailure({
-        sessionId: (dictation as { sessionId: string }).sessionId,
-        message: "Recording could not be finalized.",
-      });
-    }
-  }, [dictation, startRecording, stopRecording]);
-
-  useEffect(() => {
-    if (dictation.status === "completed") {
-      void history.reload();
-    }
-  }, [dictation.status, history.reload]);
-
-  return null;
+console.log("[main] attempting to mount React, overlay mode:", isOverlayMode);
+const root = document.getElementById("root");
+if (!root) {
+  console.error("[main] #root element not found");
+  throw new Error("Root element not found");
 }
 
-const root = document.getElementById("root");
-if (!root) throw new Error("Root element not found");
+console.log("[main] mounting to #root");
+if (isOverlayMode && CapsuleOverlay) {
+  // Overlay mode - render just the capsule, no providers needed
+  createRoot(root).render(
+    <React.StrictMode>
+      <React.Suspense fallback={null}>
+        <CapsuleOverlay />
+      </React.Suspense>
+    </React.StrictMode>
+  );
+  console.log("[main] CapsuleOverlay mounted");
+} else if (App) {
+  // Normal dashboard mode
+  createRoot(root).render(
+    <React.StrictMode>
+      <HashRouter>
+        <RendererErrorBoundary>
+          <React.Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-background" />}>
+            <AppRoot />
+          </React.Suspense>
+        </RendererErrorBoundary>
+      </HashRouter>
+    </React.StrictMode>
+  );
+  console.log("[main] React mounted");
+}
 
-createRoot(root).render(
-  <React.StrictMode>
-    <HashRouter>
-      <ThemeRouter />
-    </HashRouter>
-  </React.StrictMode>
-);
+
+// Only report ready in main mode (overlay uses capsuleBridge.sendReady)
+if (!isOverlayMode && typeof window.vaani !== "undefined") {
+  function reportRendererReady(): void {
+    window.vaani.reportRendererReady();
+  }
+
+  queueMicrotask(reportRendererReady);
+  setTimeout(reportRendererReady, 0);
+  setTimeout(reportRendererReady, 150);
+  setTimeout(reportRendererReady, 350);
+}

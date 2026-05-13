@@ -1,7 +1,7 @@
 import type { AudioClip } from "@shared/types";
 
 const LEADING_PAD_FRAMES = 12;
-const TRAILING_PAD_FRAMES = 12;
+const TRAILING_PAD_FRAMES = 35;
 
 export function trimSilence(clip: AudioClip, threshold: number): AudioClip {
   const startIndex = clip.rmsFrames.findIndex(v => v >= threshold);

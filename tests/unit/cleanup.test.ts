@@ -52,6 +52,41 @@ describe("cleanupText", () => {
     expect(result).toBe("Hello world.");
   });
 
+  it("collapses accidental adjacent duplicate words", () => {
+    const result = cleanupText({
+      rawText: "github github should only appear once",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Github should only appear once.");
+  });
+
+  it("normalizes common LLM dictation artifacts", () => {
+    const result = cleanupText({
+      rawText: "send this to the llmn cleanup step",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Send this to the LLM cleanup step.");
+  });
+
+  it("removes trailing Vaani from transcription", () => {
+    expect(cleanupText({
+      rawText: "hello world Vaani",
+      settings: createSettings()
+    })).toBe("Hello world.");
+
+    expect(cleanupText({
+      rawText: "testing this, vaani.",
+      settings: createSettings()
+    })).toBe("Testing this.");
+
+    expect(cleanupText({
+      rawText: "send the message vaani",
+      settings: createSettings()
+    })).toBe("Send the message.");
+  });
+
   it("expands slash command snippets", () => {
     const result = cleanupText({
       rawText: "my email is /address",

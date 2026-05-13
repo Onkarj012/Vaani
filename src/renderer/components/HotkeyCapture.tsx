@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { Kbd, KbdGroup } from "@/components/ui/Kbd";
 
 interface HotkeyCaptureProps {
@@ -105,7 +106,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
   const displayParts = preview.length > 0 ? preview : parseCombo(value);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div className="flex flex-col gap-1.5">
       <button
         ref={btnRef}
         disabled={disabled}
@@ -114,63 +115,28 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); beginCapture(); }
         }}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "6px 10px",
-          border: `2px solid ${capturing ? "var(--accent)" : "var(--border-light)"}`,
-          background: capturing ? "var(--bg-2)" : "var(--bg)",
-          borderRadius: 0,
-          outline: "none",
-          cursor: disabled ? "not-allowed" : "pointer",
-          opacity: disabled ? 0.4 : 1,
-          transition: "border-color 0.1s, background 0.1s",
-        }}
-        onMouseEnter={(e) => {
-          if (!capturing) (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
-        }}
-        onMouseLeave={(e) => {
-          if (!capturing) (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-light)";
-        }}
+        className={cn(
+          "w-fit inline-flex items-center gap-1.5 px-3 py-2.5 border-2 outline-none transition-all rounded-xl",
+          capturing
+            ? "bg-vaani-gray-50 dark:bg-vaani-gray-800 border-vaani-pink"
+            : "bg-vaani-gray-50 dark:bg-vaani-gray-800 border-vaani-gray-200 dark:border-vaani-gray-700 hover:border-vaani-gray-300 dark:hover:border-vaani-gray-600",
+          disabled && "cursor-not-allowed opacity-40"
+        )}
         title={capturing ? "Press any key combination…" : "Click to change hotkey"}
       >
         {capturing && preview.length === 0 ? (
-          <span
-            style={{
-              fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: "0.10em",
-              textTransform: "uppercase",
-              color: "var(--accent)",
-            }}
-          >
+          <span className="text-[11px] font-bold uppercase tracking-widest text-vaani-pink">
             Press any key…
           </span>
         ) : (
           <KbdGroup>
             {displayParts.map((k, i) => (
-              <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <Kbd
-                  className={
-                    capturing
-                      ? "text-[var(--accent)] border-[var(--accent)]"
-                      : undefined
-                  }
-                >
+              <span key={i} className="inline-flex items-center gap-1">
+                <Kbd className={cn(capturing && "border-vaani-pink text-vaani-pink bg-vaani-pink/10 dark:bg-vaani-pink/20")}>
                   {MOD_SYMBOL[k] ?? k}
                 </Kbd>
                 {i < displayParts.length - 1 && (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: "var(--text-muted)",
-                      userSelect: "none",
-                    }}
-                  >
-                    +
-                  </span>
+                  <span className="text-[11px] text-vaani-gray-500 dark:text-vaani-gray-400">+</span>
                 )}
               </span>
             ))}
@@ -182,21 +148,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
         <button
           type="button"
           onClick={() => { onChange("Fn"); stopCapture(); }}
-          style={{
-            alignSelf: "flex-start",
-            fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
-            fontSize: 9,
-            fontWeight: 700,
-            letterSpacing: "0.10em",
-            textTransform: "uppercase",
-            border: "1px solid var(--border-light)",
-            padding: "2px 8px",
-            background: "var(--bg)",
-            cursor: "pointer",
-            borderRadius: 0,
-            color: "var(--text-muted)",
-            outline: "none",
-          }}
+          className="self-start text-[9px] font-bold uppercase tracking-widest border px-2 py-0.5 cursor-pointer rounded-md bg-white dark:bg-vaani-gray-900 border-vaani-gray-200 dark:border-vaani-gray-700 text-vaani-gray-500 dark:text-vaani-gray-400 hover:bg-vaani-gray-50 dark:hover:bg-vaani-gray-800 transition-colors"
         >
           Use Fn key
         </button>

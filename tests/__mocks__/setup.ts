@@ -34,5 +34,6 @@ vi.mock("electron", () => ({
   ipcMain: { handle: () => {}, on: () => {}, removeHandler: () => {} },
   ipcRenderer: { invoke: () => Promise.resolve(), send: () => {}, on: () => {}, removeListener: () => {} },
   contextBridge: { exposeInMainWorld: () => {} },
-  screen: { getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) }
+  screen: { getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) },
+  session: { defaultSession: { setPermissionRequestHandler: () => {} } }
 }), { virtual: true });

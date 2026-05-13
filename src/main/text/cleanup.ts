@@ -32,6 +32,26 @@ function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim();
 }
 
+function normalizeCommonDictationArtifacts(text: string): string {
+  let result = text.replace(/\bllmn\b/gi, "LLM");
+  // Remove trailing "Vaani" — Whisper sometimes mishears trailing noise/silence as the app name
+  result = result.replace(/[,.]?\s*\bvaani\b[.!?]?\s*$/i, "");
+  return result;
+}
+
+function collapseAdjacentDuplicateWords(text: string): string {
+  const preserveRepeats = new Set(["ha", "no", "ok", "okay", "really", "so", "very", "yes"]);
+  return text.replace(
+    /\b([\p{L}\p{N}][\p{L}\p{N}'-]{2,})([,.!?;:]?)(\s+)\1\b/giu,
+    (match, word: string, punctuation: string, spacing: string) => {
+      if (preserveRepeats.has(word.toLowerCase())) {
+        return match;
+      }
+      return `${word}${punctuation}${spacing}`.trimEnd();
+    }
+  );
+}
+
 function normalizeLineWhitespace(text: string): string {
   return text
     .split(/\r?\n/)
@@ -84,15 +104,19 @@ function applySnippets(text: string, snippets: Array<{ trigger: string; content:
 }
 
 export function cleanupText({ rawText, settings }: TextCleanupInput): string {
+  const artifactNormalized = normalizeCommonDictationArtifacts(rawText);
+
   if (!settings.cleanupEnabled) {
-    return hasMultipleLines(rawText) ? normalizeLineWhitespace(rawText) : normalizeWhitespace(rawText);
+    const deduped = collapseAdjacentDuplicateWords(artifactNormalized);
+    return hasMultipleLines(deduped) ? normalizeLineWhitespace(deduped) : normalizeWhitespace(deduped);
   }
 
-  const fillered = removeFillers(rawText, settings.fillerWords);
+  const fillered = removeFillers(artifactNormalized, settings.fillerWords);
   const corrected = applyCorrections(fillered, settings.customCorrections ?? []);
   const snippeted = applySnippets(corrected, settings.snippets ?? []);
-  if (hasMultipleLines(snippeted)) {
-    const lines = snippeted
+  const deduped = collapseAdjacentDuplicateWords(snippeted);
+  if (hasMultipleLines(deduped)) {
+    const lines = deduped
       .split(/\r?\n/)
       .map(line => normalizeWhitespace(line))
       .filter((line, index, lines) => line.length > 0 || (index > 0 && index < lines.length - 1))
@@ -103,7 +127,7 @@ export function cleanupText({ rawText, settings }: TextCleanupInput): string {
     return lines.join("\n");
   }
 
-  const capitalized = capitalizeSentences(snippeted);
+  const capitalized = capitalizeSentences(deduped);
   const punctuated = settings.smartPunctuation ? applySmartPunctuation(capitalized) : capitalized;
   const ensurePunctuation = /[.?!]$/.test(punctuated) ? punctuated : `${punctuated}.`;
 

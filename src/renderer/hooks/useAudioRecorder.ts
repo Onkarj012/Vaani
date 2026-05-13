@@ -10,6 +10,7 @@ const TARGET_SAMPLE_RATE = 16_000;
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const FFT_SIZE = 2048;  // Larger buffer for better time-based visualization
+const STOP_TAIL_CAPTURE_MS = 180;
 
 export function useAudioRecorder() {
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -58,27 +59,6 @@ export function useAudioRecorder() {
     setBars(new Array(VISUAL_BAR_COUNT).fill(0));
   }, []);
 
-  // Fallback visualizer using sine wave (used only if Web Audio API fails)
-  const startFallbackVisualizer = useCallback(() => {
-    console.warn("[recorder] Using fallback sine wave visualizer");
-    const sessionId = monitorSessionRef.current;
-    const tick = () => {
-      if (monitorSessionRef.current !== sessionId) {
-        return;
-      }
-
-      const t = performance.now() / 240;
-      const nextBars = Array.from({ length: VISUAL_BAR_COUNT }, (_, index) => {
-        const wave = Math.sin(t + index * 0.8) * 0.5 + 0.5;
-        return 0.18 + wave * 0.52;
-      });
-      publishBars(nextBars);
-      visualizerFrameRef.current = requestAnimationFrame(tick);
-    };
-
-    visualizerFrameRef.current = requestAnimationFrame(tick);
-  }, [publishBars]);
-
   // Primary visualizer using Web Audio API (AudioContext + AnalyserNode)
   const startWebAudioVisualizer = useCallback(async (stream: MediaStream): Promise<boolean> => {
     try {
@@ -107,6 +87,9 @@ export function useAudioRecorder() {
       if (audioCtx.state !== "running") {
         await audioCtx.resume();
       }
+      if (audioCtx.state !== "running") {
+        return false;
+      }
       
       // Use time-domain data (waveform)
       const bufferLength = analyser.fftSize;
@@ -118,11 +101,6 @@ export function useAudioRecorder() {
         }
         
         visualizerFrameRef.current = requestAnimationFrame(tick);
-        
-        const now = performance.now();
-        if (now - lastReportedAtRef.current < FRAME_REPORT_INTERVAL_MS) {
-          return;
-        }
         
         // Get time-domain data (waveform samples)
         analyser.getFloatTimeDomainData(dataArray);
@@ -145,10 +123,9 @@ export function useAudioRecorder() {
     monitorSessionRef.current += 1;
     const success = await startWebAudioVisualizer(stream);
     if (!success) {
-      console.warn("[recorder] Web Audio visualizer failed, using fallback");
-      startFallbackVisualizer();
+      console.warn("[recorder] Web Audio visualizer failed");
     }
-  }, [startWebAudioVisualizer, startFallbackVisualizer]);
+  }, [startWebAudioVisualizer]);
 
   const cleanup = useCallback(async () => {
     resetVisualizer();
@@ -190,20 +167,26 @@ export function useAudioRecorder() {
       resetSmoothedBars();
       previousInputDeviceRef.current = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
-      // Electron can enumerate devices with labels without prior getUserMedia.
-      // Explicitly select the built-in mic to avoid capturing virtual/loopback
-      // devices (e.g. BlackHole, Loopback) that may be the system default.
+      // Use the built-in Mac mic to avoid virtual/loopback devices
+      // (BlackHole, Loopback, Aggregate, etc.) that capture system audio.
+      const VIRTUAL_PATTERNS = ["blackhole", "loopback", "multi-output", "virtual", "soundflower", "display audio", "aggregate"];
       let micDeviceId: ConstrainDOMString | undefined;
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const inputs = devices.filter(
           d => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications"
         );
-        const builtIn = inputs.find(d => {
+        const physicalMics = inputs.filter(d => {
+          const label = d.label.toLowerCase();
+          return !VIRTUAL_PATTERNS.some(p => label.includes(p));
+        });
+        // Built-in mic first — it won't pick up loopback audio from speakers
+        const builtInMic = physicalMics.find(d => {
           const label = d.label.toLowerCase();
           return label.includes("built-in") || label.includes("macbook") || label.includes("internal");
-        }) ?? inputs[0];
-        if (builtIn?.deviceId) micDeviceId = { exact: builtIn.deviceId };
+        });
+        const chosen = builtInMic ?? physicalMics[0];
+        if (chosen?.deviceId) micDeviceId = { exact: chosen.deviceId };
       } catch {
         // fall back to system default
       }
@@ -212,8 +195,9 @@ export function useAudioRecorder() {
         audio: {
           ...(micDeviceId ? { deviceId: micDeviceId } : {}),
           channelCount: 1,
-          echoCancellation: false,
-          noiseSuppression: false,
+          // Echo cancellation removes speaker bleed (e.g. background video audio)
+          echoCancellation: true,
+          noiseSuppression: true,
           autoGainControl: false,
         },
       });
@@ -278,13 +262,18 @@ export function useAudioRecorder() {
       }, { once: true });
 
       if (recorder.state !== "inactive") {
-        // Request final data before stopping
-        try {
-          recorder.requestData();
-        } catch {
-          // ignore if not supported
-        }
-        recorder.stop();
+        void (async () => {
+          await delay(STOP_TAIL_CAPTURE_MS);
+          if (recorder.state === "inactive") {
+            return;
+          }
+          try {
+            recorder.requestData();
+          } catch {
+            // ignore if not supported
+          }
+          recorder.stop();
+        })();
       } else {
         void finalize();
       }
@@ -312,6 +301,10 @@ function preferredMimeType(): string | null {
   }
 
   return null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 
