@@ -33,6 +33,7 @@ let rendererReady = false;
 let mainWindowOpenRequested = false;
 let mainWindowReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDockVisible: boolean | null = null;
+let dockRestoreTimers: ReturnType<typeof setTimeout>[] = [];
 let trayController: TrayController = {
   updateStatus: () => undefined,
   destroy: () => undefined
@@ -109,14 +110,32 @@ function syncAppPresentation(): void {
   if (shouldShowDock) {
     void app.dock?.show();
   } else if (lastDockVisible !== false) {
-    // Only hide when transitioning to hidden (avoid repeated hide calls)
     app.dock?.hide();
   }
   lastDockVisible = shouldShowDock;
 }
 
+function restoreDockForVisibleMainWindow(): void {
+  syncAppPresentation();
+
+  clearDockRestoreTimers();
+  dockRestoreTimers = [50, 250, 750].map((delay) => {
+    const timer = setTimeout(() => {
+      syncAppPresentation();
+      dockRestoreTimers = dockRestoreTimers.filter((activeTimer) => activeTimer !== timer);
+    }, delay);
+    return timer;
+  });
+}
+
+function clearDockRestoreTimers(): void {
+  dockRestoreTimers.forEach((timer) => clearTimeout(timer));
+  dockRestoreTimers = [];
+}
+
 function cleanupRuntimeResources(): void {
   clearMainWindowReadyTimeout();
+  clearDockRestoreTimers();
   hotkeyManager?.unregister();
   hotkeyManager = null;
   recorderController?.destroy();
@@ -330,6 +349,13 @@ async function bootstrap(): Promise<void> {
   configureRendererLifecycle(mainWindow);
 
   overlayController = new OverlayController();
+  overlayController.setOnPresent(() => {
+    // macOS hides the dock icon when the overlay is shown (activation-policy side effect).
+    // Restore it immediately if the main window is still on screen.
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+      void app.dock?.show();
+    }
+  });
   recorderController = new RecorderWindowController();
   const initSettings = settings.get();
   overlayController.setTheme("aurora");
@@ -371,12 +397,7 @@ async function bootstrap(): Promise<void> {
 
   hotkeyManager = new HotkeyManager(
     () => settings.get(),
-    () => {
-      dictation.beginHotkeySession();
-      // Restore dock icon after overlay appears — macOS can knock it out
-      setTimeout(syncAppPresentation, 50);
-      setTimeout(syncAppPresentation, 150);
-    },
+    () => dictation.beginHotkeySession(),
     () => dictation.endHotkeySession(),
     () => dictation.cancelSession(),
     () => {
@@ -489,6 +510,7 @@ app.on("activate", () => {
   const dictationStatus = dictationService?.getState().status;
   if (dictationStatus && dictationStatus !== "idle" && dictationStatus !== "completed" && dictationStatus !== "error") {
     log("activate:suppressed", { dictationStatus });
+    restoreDockForVisibleMainWindow();
     return;
   }
   showMainWindow();

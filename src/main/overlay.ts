@@ -35,6 +35,11 @@ export class OverlayController {
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
   private accentColor = "#FF006E";
+  private onPresentCallback: (() => void) | null = null;
+
+  setOnPresent(cb: () => void): void {
+    this.onPresentCallback = cb;
+  }
 
   // ── Public setters ────────────────────────────────────────────────────────
 
@@ -382,12 +387,14 @@ export class OverlayController {
       height: targetH
     });
     this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    this.window.setAlwaysOnTop(true, "screen-saver");
+    this.window.setAlwaysOnTop(true, "floating");
     this.window.setIgnoreMouseEvents(!this.promptActive, { forward: true });
 
     try {
       this.window.showInactive();
-      this.window.moveTop();
+      // Showing the overlay can cause macOS to hide the main app's dock icon
+      // (via internal activation-policy changes). Notify the caller to restore it.
+      this.onPresentCallback?.();
     } catch { /* best effort */ }
 
     if (this.pendingMode) {
@@ -433,7 +440,7 @@ export class OverlayController {
     this.window = win;
 
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    win.setAlwaysOnTop(true, "screen-saver");
+    win.setAlwaysOnTop(true, "floating");
     win.setIgnoreMouseEvents(true, { forward: true });
 
     if (app.dock) {

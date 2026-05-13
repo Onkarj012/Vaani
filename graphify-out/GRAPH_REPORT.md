@@ -1,12 +1,12 @@
-# Graph Report - /Users/onkarj012/Projects/Alternatives/claude_vaani  (2026-05-11)
+# Graph Report - /Users/onkarj012/Projects/Alternatives/claude_vaani  (2026-05-13)
 
 ## Corpus Check
-- 115 files · ~576,433 words
+- 115 files · ~577,073 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 474 nodes · 753 edges · 95 communities detected
-- Extraction: 81% EXTRACTED · 19% INFERRED · 0% AMBIGUOUS · INFERRED: 144 edges (avg confidence: 0.8)
+- 477 nodes · 761 edges · 95 communities detected
+- Extraction: 81% EXTRACTED · 19% INFERRED · 0% AMBIGUOUS · INFERRED: 145 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
@@ -107,12 +107,12 @@
 - [[_COMMUNITY_Community 94|Community 94]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `OverlayController` - 33 edges
+1. `OverlayController` - 34 edges
 2. `DictationService` - 31 edges
-3. `isDestroyed()` - 20 edges
+3. `isDestroyed()` - 21 edges
 4. `bootstrap()` - 17 edges
 5. `HotkeyManager` - 14 edges
-6. `log()` - 13 edges
+6. `log()` - 14 edges
 7. `cleanupText()` - 12 edges
 8. `RecorderWindowController` - 11 edges
 9. `ensureTargetReady()` - 10 edges
@@ -147,7 +147,7 @@ Nodes (9): AppDetector, bundleIdToContext(), DictationService, isExternalTarget(
 
 ### Community 2 - "Community 2"
 Cohesion: 0.08
-Nodes (14): resize(), armMainWindowReadyTimeout(), bootstrap(), cleanupRuntimeResources(), clearMainWindowReadyTimeout(), configureMediaPermissions(), configureRendererLifecycle(), createMainWindow() (+6 more)
+Nodes (16): resize(), armMainWindowReadyTimeout(), bootstrap(), cleanupRuntimeResources(), clearDockRestoreTimers(), clearMainWindowReadyTimeout(), configureMediaPermissions(), configureRendererLifecycle() (+8 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.19
@@ -182,12 +182,12 @@ Cohesion: 0.22
 Nodes (13): applyCorrections(), applySmartPunctuation(), applySnippets(), capitalizeSentences(), cleanupText(), collapseAdjacentDuplicateWords(), ensureLinePunctuation(), hasMultipleLines() (+5 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.24
-Nodes (3): writeJsonFile(), HistoryStore, normalizeHistory()
-
-### Community 12 - "Community 12"
 Cohesion: 0.26
 Nodes (10): AccessibilityTextInjector, delay(), normalizeFailureReason(), activateTargetApp(), buildActivateTargetScript(), escapeAS(), internalAppNames(), internalBundleIds() (+2 more)
+
+### Community 12 - "Community 12"
+Cohesion: 0.24
+Nodes (3): writeJsonFile(), HistoryStore, normalizeHistory()
 
 ### Community 13 - "Community 13"
 Cohesion: 0.22
@@ -658,14 +658,14 @@ Nodes (1): Do Not Edit Generated Build Artifacts
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `log()` connect `Community 2` to `Community 0`, `Community 1`, `Community 3`, `Community 6`, `Community 7`, `Community 9`, `Community 12`, `Community 15`?**
-  _High betweenness centrality (0.162) - this node is a cross-community bridge._
-- **Why does `bootstrap()` connect `Community 2` to `Community 0`, `Community 7`?**
-  _High betweenness centrality (0.051) - this node is a cross-community bridge._
-- **Why does `maybeRestoreCaretAfterInsertion()` connect `Community 3` to `Community 2`, `Community 12`?**
+- **Why does `log()` connect `Community 2` to `Community 0`, `Community 1`, `Community 3`, `Community 6`, `Community 7`, `Community 9`, `Community 11`, `Community 15`?**
+  _High betweenness centrality (0.165) - this node is a cross-community bridge._
+- **Why does `maybeRestoreCaretAfterInsertion()` connect `Community 3` to `Community 2`, `Community 11`?**
   _High betweenness centrality (0.048) - this node is a cross-community bridge._
-- **Are the 19 inferred relationships involving `isDestroyed()` (e.g. with `showMainWindow()` and `.setAccentColor()`) actually correct?**
-  _`isDestroyed()` has 19 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `bootstrap()` connect `Community 2` to `Community 0`, `Community 7`?**
+  _High betweenness centrality (0.047) - this node is a cross-community bridge._
+- **Are the 20 inferred relationships involving `isDestroyed()` (e.g. with `showMainWindow()` and `syncAppPresentation()`) actually correct?**
+  _`isDestroyed()` has 20 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 11 inferred relationships involving `bootstrap()` (e.g. with `.init()` and `.hide()`) actually correct?**
   _`bootstrap()` has 11 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `Smart Text Cleanup`, `Accessibility APIs`, `Clipboard Injection` to the rest of the system?**
