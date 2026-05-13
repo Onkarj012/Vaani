@@ -352,11 +352,14 @@ function deriveStats(entries: DictationEntry[]): StatsView {
   const totalWords = entries.reduce((sum, entry) => sum + countWords(entry.cleanedText), 0);
   const todayEntries = entries.filter((entry) => isSameDay(new Date(entry.timestamp), now));
 
+  const successfulInjections = entries.filter((entry) => entry.injectionStatus === "injected").length;
+  const accuracy = entries.length > 0 ? Math.round((successfulInjections / entries.length) * 100) : 0;
+
   return {
     wordsToday: todayEntries.reduce((sum, entry) => sum + countWords(entry.cleanedText), 0),
     sessionsToday: todayEntries.length,
     streak: deriveStreak(entries),
-    accuracy: 98.2,
+    accuracy,
     totalWords,
     totalSessions: entries.length
   };

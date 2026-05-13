@@ -116,7 +116,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); beginCapture(); }
         }}
         className={cn(
-          "inline-flex items-center gap-1.5 px-3 py-2.5 border-2 outline-none transition-all rounded-xl",
+          "w-fit inline-flex items-center gap-1.5 px-3 py-2.5 border-2 outline-none transition-all rounded-xl",
           capturing
             ? "bg-vaani-gray-50 dark:bg-vaani-gray-800 border-vaani-pink"
             : "bg-vaani-gray-50 dark:bg-vaani-gray-800 border-vaani-gray-200 dark:border-vaani-gray-700 hover:border-vaani-gray-300 dark:hover:border-vaani-gray-600",
