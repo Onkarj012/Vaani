@@ -19,6 +19,7 @@ export const enum IpcChannel {
   ReinjectEntry = "history:reinject",
   DeleteEntry = "history:delete",
   ClearHistory = "history:clear",
+  CopyText = "clipboard:copy-text",
 
   // Settings
   GetSettings = "settings:get",

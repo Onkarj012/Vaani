@@ -142,7 +142,7 @@ export function VaaniUiProvider({
   }, [updateSettings]);
 
   const copyHistoryEntry = useCallback(async (text: string) => {
-    await navigator.clipboard.writeText(text);
+    await window.vaani.copyText(text);
   }, []);
 
   const addDictionaryWord = useCallback(async ({

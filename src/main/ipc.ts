@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, clipboard, ipcMain } from "electron";
 import { IpcChannel } from "@shared/ipc";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type { AudioVisualFrame, RecorderFailure, RecorderSubmission, Settings } from "@shared/types";
@@ -29,6 +29,10 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.ReinjectEntry,   (_e, id: string) => dictation.reinjectEntry(id));
   ipcMain.handle(IpcChannel.DeleteEntry,     (_e, id: string) => history.delete(id));
   ipcMain.handle(IpcChannel.ClearHistory,    ()            => history.clear());
+  ipcMain.handle(IpcChannel.CopyText, (_e, text: string) => {
+    clipboard.writeText(text);
+    return true;
+  });
   ipcMain.handle(IpcChannel.GetSettings,     ()            => settings.get());
 
   ipcMain.handle(IpcChannel.UpdateSettings,  (_e, patch) => {

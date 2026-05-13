@@ -22,6 +22,7 @@ const api: VaaniAPI = {
   deleteEntry: (id) => ipcRenderer.invoke(IpcChannel.DeleteEntry, id),
   reinjectEntry: (id) => ipcRenderer.invoke(IpcChannel.ReinjectEntry, id),
   clearHistory: () => ipcRenderer.invoke(IpcChannel.ClearHistory),
+  copyText: (text) => ipcRenderer.invoke(IpcChannel.CopyText, text),
   getSettings: () => ipcRenderer.invoke(IpcChannel.GetSettings),
   updateSettings: (patch) => ipcRenderer.invoke(IpcChannel.UpdateSettings, patch),
   setHotkeyCapture: (active) => ipcRenderer.invoke(IpcChannel.SetHotkeyCapture, active),

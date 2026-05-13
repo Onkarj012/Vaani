@@ -33,7 +33,7 @@ let rendererReady = false;
 let mainWindowOpenRequested = false;
 let mainWindowReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDockVisible: boolean | null = null;
-let dockRestoreTimers: ReturnType<typeof setTimeout>[] = [];
+let suppressDashboardActivationUntil = 0;
 let trayController: TrayController = {
   updateStatus: () => undefined,
   destroy: () => undefined
@@ -73,6 +73,20 @@ function showMainWindow(): void {
   syncAppPresentation();
 }
 
+function isDictationActive(): boolean {
+  const status = dictationService?.getState().status;
+  return !!status && status !== "idle" && status !== "completed" && status !== "error";
+}
+
+function suppressDashboardActivation(reason: string, durationMs = 2_500): void {
+  suppressDashboardActivationUntil = Math.max(suppressDashboardActivationUntil, Date.now() + durationMs);
+  log("activate:suppress-window", { reason, until: suppressDashboardActivationUntil });
+}
+
+function shouldSuppressDashboardActivation(): boolean {
+  return isDictationActive() || Date.now() < suppressDashboardActivationUntil;
+}
+
 function clearMainWindowReadyTimeout(): void {
   if (mainWindowReadyTimer) {
     clearTimeout(mainWindowReadyTimer);
@@ -91,6 +105,11 @@ function armMainWindowReadyTimeout(win: BrowserWindow): void {
     if (!mainWindowOpenRequested && menuBarMode && !win.isVisible()) {
       return;
     }
+    if (shouldSuppressDashboardActivation()) {
+      log("renderer:ready-timeout-suppressed");
+      armMainWindowReadyTimeout(win);
+      return;
+    }
     if (win.webContents.isCrashed()) {
       win.reload();
     } else if (!win.webContents.isLoading()) {
@@ -102,12 +121,16 @@ function armMainWindowReadyTimeout(win: BrowserWindow): void {
 
 function syncAppPresentation(): void {
   const showInDock = settingsStore?.get().showInDock ?? true;
-  const windowIsVisible = !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
-  const shouldShowDock = showInDock && windowIsVisible;
+  const mainWindowExists = !!mainWindow && !mainWindow.isDestroyed();
+  const dashboardOpenRequested = mainWindowExists && mainWindowOpenRequested && !menuBarMode;
+  const shouldShowDock = showInDock && dashboardOpenRequested;
 
-  // Always call dock.show() when the window is visible — macOS or the overlay
-  // can knock out the dock icon unexpectedly, so we can't trust cached state.
+  // Dock visibility follows the user's dashboard-open intent, not transient
+  // BrowserWindow visibility. macOS can briefly report the dashboard hidden
+  // while the dictation overlay is shown, and hiding the Dock icon there causes
+  // a distracting disappear/reappear flash.
   if (shouldShowDock) {
+    app.setActivationPolicy?.("regular");
     void app.dock?.show();
   } else if (lastDockVisible !== false) {
     app.dock?.hide();
@@ -115,27 +138,8 @@ function syncAppPresentation(): void {
   lastDockVisible = shouldShowDock;
 }
 
-function restoreDockForVisibleMainWindow(): void {
-  syncAppPresentation();
-
-  clearDockRestoreTimers();
-  dockRestoreTimers = [50, 250, 750].map((delay) => {
-    const timer = setTimeout(() => {
-      syncAppPresentation();
-      dockRestoreTimers = dockRestoreTimers.filter((activeTimer) => activeTimer !== timer);
-    }, delay);
-    return timer;
-  });
-}
-
-function clearDockRestoreTimers(): void {
-  dockRestoreTimers.forEach((timer) => clearTimeout(timer));
-  dockRestoreTimers = [];
-}
-
 function cleanupRuntimeResources(): void {
   clearMainWindowReadyTimeout();
-  clearDockRestoreTimers();
   hotkeyManager?.unregister();
   hotkeyManager = null;
   recorderController?.destroy();
@@ -279,9 +283,12 @@ function configureRendererLifecycle(win: BrowserWindow): void {
     log("renderer:ready");
     rendererReady = true;
     clearMainWindowReadyTimeout();
-    if (!menuBarMode) {
+    if (!menuBarMode && !shouldSuppressDashboardActivation()) {
       win.show();
       win.focus();
+    } else if (!menuBarMode) {
+      log("renderer:ready-focus-suppressed");
+      syncAppPresentation();
     }
   });
 
@@ -351,10 +358,10 @@ async function bootstrap(): Promise<void> {
   overlayController = new OverlayController();
   overlayController.setOnPresent(() => {
     // macOS hides the dock icon when the overlay is shown (activation-policy side effect).
-    // Restore it immediately if the main window is still on screen.
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
-      void app.dock?.show();
-    }
+    // Reassert the user's dashboard-open presentation state without reacting
+    // to transient BrowserWindow visibility.
+    suppressDashboardActivation("overlay");
+    syncAppPresentation();
   });
   recorderController = new RecorderWindowController();
   const initSettings = settings.get();
@@ -397,7 +404,11 @@ async function bootstrap(): Promise<void> {
 
   hotkeyManager = new HotkeyManager(
     () => settings.get(),
-    () => dictation.beginHotkeySession(),
+    () => {
+      suppressDashboardActivation("hotkey");
+      syncAppPresentation();
+      dictation.beginHotkeySession();
+    },
     () => dictation.endHotkeySession(),
     () => dictation.cancelSession(),
     () => {
@@ -507,10 +518,9 @@ app.whenReady()
 app.on("activate", () => {
   // Don't steal focus from the user's target app during an active dictation session.
   // The overlay triggers macOS app activation but the main window should stay put.
-  const dictationStatus = dictationService?.getState().status;
-  if (dictationStatus && dictationStatus !== "idle" && dictationStatus !== "completed" && dictationStatus !== "error") {
-    log("activate:suppressed", { dictationStatus });
-    restoreDockForVisibleMainWindow();
+  if (shouldSuppressDashboardActivation()) {
+    log("activate:suppressed", { dictationStatus: dictationService?.getState().status });
+    syncAppPresentation();
     return;
   }
   showMainWindow();

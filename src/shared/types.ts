@@ -135,6 +135,7 @@ export interface VaaniAPI {
   deleteEntry: (id: string) => Promise<void>;
   reinjectEntry: (id: string) => Promise<void>;
   clearHistory: () => Promise<void>;
+  copyText: (text: string) => Promise<boolean>;
   getSettings: () => Promise<Settings>;
   updateSettings: (patch: Partial<Settings>) => Promise<Settings>;
   setHotkeyCapture: (active: boolean) => Promise<void>;
