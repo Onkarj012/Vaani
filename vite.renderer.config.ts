@@ -17,9 +17,5 @@ export default defineConfig({
       "@renderer": resolve("src/renderer")
     }
   },
-  optimizeDeps: {
-    // Force pre-bundling at startup, not lazily
-    force: true
-  },
   plugins: [react(), tailwindcss()]
 });

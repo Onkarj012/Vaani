@@ -30,8 +30,21 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
 }
 
+function StatSkeleton() {
+  return (
+    <div className="bg-white dark:bg-vaani-gray-900/80 rounded-2xl p-6 border border-vaani-gray-200 dark:border-vaani-gray-800 animate-pulse">
+      <div className="flex items-center justify-between mb-4">
+        <div className="w-10 h-10 bg-vaani-gray-200 dark:bg-vaani-gray-700 rounded-xl" />
+        <div className="w-16 h-6 bg-vaani-gray-200 dark:bg-vaani-gray-700 rounded-full" />
+      </div>
+      <div className="w-20 h-7 bg-vaani-gray-200 dark:bg-vaani-gray-700 rounded mb-2" />
+      <div className="w-28 h-4 bg-vaani-gray-100 dark:bg-vaani-gray-800 rounded" />
+    </div>
+  )
+}
+
 export default function Dashboard() {
-  const { stats, weeklyActivity, historyItems, copyHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry } = useVaaniUi()
+  const { stats, weeklyActivity, historyItems, historyLoading, copyHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry } = useVaaniUi()
 
   const maxAmount = Math.max(...weeklyActivity.map((d) => d.words), 1)
 
@@ -55,15 +68,15 @@ export default function Dashboard() {
     {
       label: 'Current Streak',
       value: `${stats.streak} day${stats.streak === 1 ? '' : 's'}`,
-      change: 'Keep it going',
+      change: stats.streak > 0 ? 'Keep it going' : 'Start today',
       icon: Flame,
       color: 'bg-vaani-orange',
       textColor: 'text-vaani-orange',
     },
     {
-      label: 'Accuracy',
-      value: `${stats.accuracy}%`,
-      change: 'Estimated',
+      label: 'Injection Rate',
+      value: stats.totalSessions > 0 ? `${stats.accuracy}%` : '—',
+      change: stats.totalSessions > 0 ? 'Successful injections' : 'No sessions yet',
       icon: Clock,
       color: 'bg-vaani-cyan',
       textColor: 'text-vaani-cyan',
@@ -95,27 +108,29 @@ export default function Dashboard() {
       </motion.div>
 
       <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map((stat, index) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: index * 0.1 }}
-            whileHover={{ y: -4, scale: 1.02 }}
-            className="bg-white dark:bg-vaani-gray-900/80 backdrop-blur-sm rounded-2xl p-6 border border-vaani-gray-200 dark:border-vaani-gray-800 hover:shadow-lg dark:hover:shadow-vaani-pink/10 transition-all duration-300"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className={`w-10 h-10 ${stat.color} rounded-xl flex items-center justify-center`}>
-                <stat.icon size={18} className="text-vaani-black" />
+        {historyLoading
+          ? Array.from({ length: 4 }).map((_, i) => <StatSkeleton key={i} />)
+          : statCards.map((stat, index) => (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: index * 0.1 }}
+              whileHover={{ y: -4, scale: 1.02 }}
+              className="bg-white dark:bg-vaani-gray-900/80 backdrop-blur-sm rounded-2xl p-6 border border-vaani-gray-200 dark:border-vaani-gray-800 hover:shadow-lg dark:hover:shadow-vaani-pink/10 transition-all duration-300"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className={`w-10 h-10 ${stat.color} rounded-xl flex items-center justify-center`}>
+                  <stat.icon size={18} className="text-vaani-black" />
+                </div>
+                <span className="text-xs font-bold text-vaani-gray-400 dark:text-vaani-gray-500 bg-vaani-gray-100 dark:bg-vaani-gray-800 px-2 py-1 rounded-full">
+                  {stat.change}
+                </span>
               </div>
-              <span className="text-xs font-bold text-vaani-gray-400 dark:text-vaani-gray-500 bg-vaani-gray-100 dark:bg-vaani-gray-800 px-2 py-1 rounded-full">
-                {stat.change}
-              </span>
-            </div>
-            <div className="text-2xl font-bold text-vaani-black dark:text-white mb-1">{stat.value}</div>
-            <div className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">{stat.label}</div>
-          </motion.div>
-        ))}
+              <div className="text-2xl font-bold text-vaani-black dark:text-white mb-1">{stat.value}</div>
+              <div className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">{stat.label}</div>
+            </motion.div>
+          ))}
       </motion.div>
 
       <div className="grid lg:grid-cols-3 gap-6">

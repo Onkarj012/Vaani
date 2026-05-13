@@ -115,7 +115,7 @@ function armMainWindowReadyTimeout(win: BrowserWindow): void {
     } else if (!win.webContents.isLoading()) {
       win.reload();
     }
-    armMainWindowReadyTimeout(win);
+    // did-start-loading fires after reload and re-arms the timeout; no need to do it here.
   }, MAIN_RENDERER_READY_TIMEOUT_MS);
 }
 
