@@ -29,7 +29,7 @@ export const DEFAULT_SETTINGS: Settings = {
   capsuleDesign: "pill",
 };
 
-export const HISTORY_LIMIT = 200;
+export const HISTORY_LIMIT = 2000;
 export const SUCCESS_RESET_MS = 900;
 export const ERROR_RESET_MS = 1_800;
 export const HOTKEY_DOUBLE_PRESS_WINDOW_MS = 350;

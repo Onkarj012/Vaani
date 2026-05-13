@@ -1,4 +1,6 @@
 import { motion } from 'framer-motion'
+import { useMemo } from 'react'
+import type { DictationEntry } from '@shared/types'
 import {
   BarChart,
   Bar,
@@ -58,6 +60,59 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   return null
 }
 
+const colorPalette = ['#FF006E', '#ADFF02', '#00F5FF', '#FFE600', '#9D4EDD', '#FF6B35', '#845EC2', '#D65DB1'];
+
+function computeAppUsageData(entries: DictationEntry[]) {
+  const appCounts = new Map<string, number>();
+  for (const entry of entries) {
+    const app = entry.appName?.trim() || 'Unknown';
+    appCounts.set(app, (appCounts.get(app) ?? 0) + 1);
+  }
+
+  const sorted = Array.from(appCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 7);
+
+  const total = sorted.reduce((sum, [_, count]) => sum + count, 0);
+  const otherCount = entries.length - total;
+
+  const data = sorted.map(([app, count], index) => ({
+    name: app,
+    value: count,
+    color: colorPalette[index % colorPalette.length],
+  }));
+
+  if (otherCount > 0) {
+    data.push({
+      name: 'Other',
+      value: otherCount,
+      color: colorPalette[data.length % colorPalette.length],
+    });
+  }
+
+  return data;
+}
+
+function computeHourlyData(entries: DictationEntry[]) {
+  const hourCounts = new Map<number, number>();
+
+  for (const entry of entries) {
+    const hour = new Date(entry.timestamp).getHours();
+    const words = entry.cleanedText.split(/\s+/).filter(Boolean).length;
+    hourCounts.set(hour, (hourCounts.get(hour) ?? 0) + words);
+  }
+
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  return hours.map((hour) => {
+    const period = hour < 12 ? 'AM' : 'PM';
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return {
+      hour: `${displayHour}${period}`,
+      words: hourCounts.get(hour) ?? 0,
+    };
+  });
+}
+
 export default function Insights() {
   const { stats, weeklyActivity, historyEntries } = useVaaniUi()
 
@@ -92,24 +147,8 @@ export default function Insights() {
     },
   ]
 
-  const appUsageData = [
-    { name: 'VS Code', value: 35, color: '#FF006E' },
-    { name: 'Notion', value: 25, color: '#ADFF02' },
-    { name: 'Slack', value: 15, color: '#00F5FF' },
-    { name: 'Chrome', value: 12, color: '#FFE600' },
-    { name: 'Other', value: 13, color: '#9D4EDD' },
-  ]
-
-  const hourlyData = [
-    { hour: '6AM', words: 120 },
-    { hour: '8AM', words: 450 },
-    { hour: '10AM', words: 890 },
-    { hour: '12PM', words: 720 },
-    { hour: '2PM', words: 950 },
-    { hour: '4PM', words: 680 },
-    { hour: '6PM', words: 340 },
-    { hour: '8PM', words: 180 },
-  ]
+  const appUsageData = useMemo(() => computeAppUsageData(historyEntries), [historyEntries])
+  const hourlyData = useMemo(() => computeHourlyData(historyEntries), [historyEntries])
 
   return (
     <motion.div

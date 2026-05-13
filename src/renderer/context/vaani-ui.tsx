@@ -350,7 +350,11 @@ function mapUserDictionary(corrections: Array<{ spoken: string; written: string 
 function deriveStats(entries: DictationEntry[]): StatsView {
   const now = new Date();
   const totalWords = entries.reduce((sum, entry) => sum + countWords(entry.cleanedText), 0);
-  const todayEntries = entries.filter((entry) => isSameDay(new Date(entry.timestamp), now));
+  const todayEntries = entries.filter((entry) => {
+    const utcDate = new Date(entry.timestamp);
+    const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+    return isSameDay(localDate, now);
+  });
 
   const successfulInjections = entries.filter((entry) => entry.injectionStatus === "injected").length;
   const accuracy = entries.length > 0 ? Math.round((successfulInjections / entries.length) * 100) : 0;
@@ -376,13 +380,21 @@ function deriveWeeklyActivity(entries: DictationEntry[]): WeeklyActivityView[] {
   return days.map((date) => ({
     day: date.toLocaleDateString("en-US", { weekday: "short" }),
     words: entries
-      .filter((entry) => isSameDay(new Date(entry.timestamp), date))
+      .filter((entry) => {
+        const utcDate = new Date(entry.timestamp);
+        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+        return isSameDay(localDate, date);
+      })
       .reduce((sum, entry) => sum + countWords(entry.cleanedText), 0)
   }));
 }
 
 function deriveStreak(entries: DictationEntry[]): number {
-  const uniqueDays = Array.from(new Set(entries.map((entry) => startOfDay(new Date(entry.timestamp)).toISOString()))).sort().reverse();
+  const uniqueDays = Array.from(new Set(entries.map((entry) => {
+    const utcDate = new Date(entry.timestamp);
+    const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+    return startOfDay(localDate).toISOString();
+  }))).sort().reverse();
   let streak = 0;
   let cursor = startOfDay(new Date());
 

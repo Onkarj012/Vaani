@@ -169,6 +169,7 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
   });
 
   win.webContents.on("did-start-loading", () => {
+    log("renderer:start-loading");
     rendererReady = false;
     if (mainWindowOpenRequested || !menuBarMode || win.isVisible()) {
       armMainWindowReadyTimeout(win);
@@ -180,19 +181,14 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
       url: win.webContents.getURL(),
       partition: win.webContents.session.storagePath
     });
+    rendererReady = true;
+    clearMainWindowReadyTimeout();
     if (mainWindowOpenRequested || !menuBarMode || win.isVisible()) {
-      armMainWindowReadyTimeout(win);
-    } else {
-      clearMainWindowReadyTimeout();
-    }
-    // Fallback: if renderer:ready never fires (HMR timing), activate after a short delay
-    setTimeout(() => {
-      if (!rendererReady && mainWindow === win && !win.isDestroyed()) {
-        log("renderer:ready-fallback");
-        rendererReady = true;
-        clearMainWindowReadyTimeout();
+      if (!shouldSuppressDashboardActivation()) {
+        win.show();
+        win.focus();
       }
-    }, 400);
+    }
   });
 
   win.webContents.on("did-fail-load", (_event, code, desc) => {
