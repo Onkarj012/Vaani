@@ -17,10 +17,5 @@ export default defineConfig({
       "@renderer": resolve("src/renderer")
     }
   },
-  optimizeDeps: {
-    // Completely disable dep optimization - load everything as ESM
-    noDiscovery: true,
-    include: []
-  },
   plugins: [react(), tailwindcss()]
 });

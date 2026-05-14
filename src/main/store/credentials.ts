@@ -30,11 +30,10 @@ export class CredentialsStore {
   }
 
   migrateFromSettings(settings: Settings): Partial<Settings> {
-    const patch: Partial<Settings> = {};
-
+    // Load keys from settings into in-memory cache.
+    // Keys are NOT cleared from disk — settings.json is the persistence layer.
     if (settings.groqApiKey && !this.cache.has("groq")) {
       this.set("groq", settings.groqApiKey);
-      patch.groqApiKey = "";
     }
 
     for (const pk of settings.providerApiKeys ?? []) {
@@ -43,11 +42,7 @@ export class CredentialsStore {
       }
     }
 
-    if ((settings.providerApiKeys ?? []).length > 0) {
-      patch.providerApiKeys = [];
-    }
-
-    return patch;
+    return {};
   }
 
   getApiKey(providerId: string, legacySettingsKey?: string): string | null {

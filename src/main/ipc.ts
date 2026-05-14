@@ -73,6 +73,13 @@ export function registerIpcHandlers(opts: {
     if ("primaryHotkey" in patch || "pasteLatestHotkey" in patch) {
       hotkeys.reregister();
     }
+    // Keep in-memory credentials cache in sync with saved API keys
+    if (credentials) {
+      for (const pk of patch.providerApiKeys ?? []) {
+        if (pk.providerId && pk.key) credentials.set(pk.providerId, pk.key);
+      }
+      if (patch.groqApiKey) credentials.set("groq", patch.groqApiKey);
+    }
     // Update provider registry when provider or key settings change
     if ("transcriptionProvider" in patch) {
       getProviderRegistry().setActiveTranscription(updated.transcriptionProvider);
