@@ -216,8 +216,8 @@ export default function OnboardingModal({
         initial={{ opacity: 0, scale: 0.92, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 28 }}
-        className="relative w-full max-w-[640px] rounded-3xl border border-vaani-gray-200 bg-white shadow-2xl dark:border-vaani-gray-800 dark:bg-vaani-gray-900 overflow-hidden flex flex-col"
-        style={{ height: 560 }}
+        className="relative w-full max-w-[720px] rounded-3xl border border-vaani-gray-200 bg-white shadow-2xl dark:border-vaani-gray-800 dark:bg-vaani-gray-900 overflow-hidden flex flex-col"
+        style={{ height: 620 }}
       >
         {/* Skip button */}
         <button
@@ -236,7 +236,7 @@ export default function OnboardingModal({
         </div>
 
         {/* Slide content */}
-        <div className="relative flex flex-1 flex-col items-center justify-center px-8 pt-14 pb-8 overflow-hidden">
+          <div className="relative flex flex-1 flex-col items-center justify-center px-8 pt-14 pb-8 overflow-y-auto">
           <AnimatePresence mode="wait" custom={direction}>
             <motion.div
               key={slide}
