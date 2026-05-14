@@ -78,8 +78,11 @@ export class OverlayController {
     if (this.window && !this.window.isDestroyed()) {
       if (this.window.webContents.isCrashed()) {
         this.recoverWindow("crashed");
-      } else if (!this.loadReady && !this.window.webContents.isLoading()) {
+        return;
+      }
+      if (!this.loadReady && !this.window.webContents.isLoading()) {
         this.recoverWindow("not-ready-not-loading");
+        return;
       }
       log("overlay:show-existing", { loadReady: this.loadReady, visible: this.window.isVisible() });
       void this.presentWindow(frontmostBefore);
@@ -392,6 +395,15 @@ export class OverlayController {
 
     try {
       this.window.showInactive();
+      this.window.moveTop();
+      // On macOS, showInactive can fail to bring the window above other apps'
+      // windows. moveTop() forces it to the top of the z-order. A second
+      // moveTop after a microtask ensures it stays there.
+      setTimeout(() => {
+        if (this.window && !this.window.isDestroyed()) {
+          this.window.moveTop();
+        }
+      }, 100);
       // Showing the overlay can cause macOS to hide the main app's dock icon
       // (via internal activation-policy changes). Notify the caller to restore it.
       this.onPresentCallback?.();

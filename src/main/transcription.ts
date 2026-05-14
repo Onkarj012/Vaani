@@ -66,7 +66,7 @@ export class TranscriptionService {
     if (provider.requiresApiKey && !apiKey) return rawText;
 
     try {
-      return await provider.format(rawText, { apiKey: apiKey ?? "" });
+      return await provider.format(rawText, { apiKey: apiKey ?? "", model: settings.formattingModel });
     } catch {
       return rawText;
     }
