@@ -50,13 +50,16 @@ export class AccessibilityTextInjector {
         return { success: false, reason: "activation_failed" };
       }
 
-      // AX setValue replaces the entire field content — never use AX when
-      // there's existing text, or the field has formatting (newlines).
-      // Always fall back to clipboard paste which inserts at cursor without
-      // destroying surrounding content.
+      // Use paste-fallback for multiline text — AX setValue flattens formatting
+      if (text.includes("\n") || text.includes("\r")) {
+        return { success: false, reason: "insertion_failed" };
+      }
+
+      // Protect existing multiline content in the field — clipboard paste
+      // preserves structure while AX would destroy it.
       if (nativeBridge.getFocusedValue) {
         const existingValue = nativeBridge.getFocusedValue();
-        if (existingValue && existingValue.trim().length > 0) {
+        if (existingValue && (existingValue.includes("\n") || existingValue.includes("\r"))) {
           return { success: false, reason: "insertion_failed" };
         }
       }

@@ -76,18 +76,11 @@ export class OverlayController {
   show(): void {
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     if (this.window && !this.window.isDestroyed()) {
-      if (this.window.webContents.isCrashed()) {
-        this.recoverWindow("crashed");
-        return;
-      }
-      if (!this.loadReady && !this.window.webContents.isLoading()) {
-        this.recoverWindow("not-ready-not-loading");
-        return;
-      }
       log("overlay:show-existing", { loadReady: this.loadReady, visible: this.window.isVisible() });
       void this.presentWindow(frontmostBefore);
       return;
     }
+    this.loadReady = false;
     void this.ensureWindow().then(() => {
       log("overlay:show-created", { loadReady: this.loadReady });
       void this.presentWindow(frontmostBefore);
