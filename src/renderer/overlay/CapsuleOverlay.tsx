@@ -118,7 +118,11 @@ export default function CapsuleOverlay() {
 
     bridge.onHideExpanded(() => setMode('hidden'))
 
-    // Send ready signal multiple times to handle HMR timing issues
+    // Send ready signal multiple times to handle HMR timing issues.
+    // After sending, the main process may immediately send pending mode
+    // updates that race with our listener registration. The triple send
+    // with staggered retries ensures the main process receives at least
+    // one ready signal after all listeners are wired.
     bridge.sendReady()
     setTimeout(() => bridge.sendReady(), 50)
     setTimeout(() => bridge.sendReady(), 150)

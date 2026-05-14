@@ -390,7 +390,7 @@ export class OverlayController {
       height: targetH
     });
     this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    this.window.setAlwaysOnTop(true, "floating");
+    this.window.setAlwaysOnTop(true, "screen-saver");
     this.window.setIgnoreMouseEvents(!this.promptActive, { forward: true });
 
     try {
@@ -452,7 +452,7 @@ export class OverlayController {
     this.window = win;
 
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    win.setAlwaysOnTop(true, "floating");
+    win.setAlwaysOnTop(true, "screen-saver");
     win.setIgnoreMouseEvents(true, { forward: true });
 
     if (app.dock) {
@@ -535,6 +535,10 @@ export class OverlayController {
       log("overlay:loading-file", { path: filePath });
       await win.loadFile(filePath);
     }
+
+    // Show immediately so that when React mounts and sets mode, the pill
+    // is already visible. transparent background means empty window is invisible.
+    win.showInactive();
   }
 }
 
