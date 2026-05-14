@@ -1,13 +1,46 @@
-import { BrowserWindow, clipboard, ipcMain } from "electron";
+import { BrowserWindow, clipboard, ipcMain, shell, systemPreferences } from "electron";
 import { IpcChannel } from "@shared/ipc";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
-import type { AudioVisualFrame, RecorderFailure, RecorderSubmission, Settings } from "@shared/types";
+import type {
+  AudioVisualFrame,
+  MacOSPermissionState,
+  PermissionStatus,
+  RecorderFailure,
+  RecorderSubmission,
+  Settings
+} from "@shared/types";
 import { DictationService } from "./dictation";
 import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
+import { CredentialsStore } from "./store/credentials";
 import { HotkeyManager } from "./hotkeys";
 import { nativeBridge } from "./nativeBridge";
 import { RecorderWindowController } from "./recorderWindow";
+import { getProviderRegistry } from "./providers";
+
+function normalizeMediaStatus(status: string): MacOSPermissionState {
+  switch (status) {
+    case "not-determined":
+    case "granted":
+    case "denied":
+    case "restricted":
+      return status;
+    default:
+      return "unknown";
+  }
+}
+
+function getPermissionStatus(): PermissionStatus {
+  return {
+    microphone: normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone")),
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false) ? "granted" : "denied"
+  };
+}
+
+async function openPermissionSettings(permission: keyof PermissionStatus): Promise<void> {
+  const pane = permission === "microphone" ? "Privacy_Microphone" : "Privacy_Accessibility";
+  await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`);
+}
 
 export function registerIpcHandlers(opts: {
   mainWindow: BrowserWindow | null;
@@ -16,30 +49,36 @@ export function registerIpcHandlers(opts: {
   settings: SettingsStore;
   hotkeys: HotkeyManager;
   recorder?: RecorderWindowController;
+  credentials?: CredentialsStore;
   onSettingsUpdated?: (settings: Settings, patch: Partial<Settings>) => void;
 }): void {
-  const { dictation, history, settings, hotkeys, recorder, onSettingsUpdated } = opts;
+  const { dictation, history, settings, hotkeys, recorder, credentials, onSettingsUpdated } = opts;
 
   ipcMain.handle(IpcChannel.GetDictationState, () => dictation.getState());
-  ipcMain.handle(IpcChannel.GetHistory,      ()            => history.getAll());
+  ipcMain.handle(IpcChannel.GetHistory, () => history.getAll());
   ipcMain.handle(IpcChannel.UpdateHistoryEntry, (_e, id: string, cleanedText: string) => history.updateById(id, (entry) => ({
-    ...entry,
-    cleanedText
+    ...entry, cleanedText
   })));
-  ipcMain.handle(IpcChannel.ReinjectEntry,   (_e, id: string) => dictation.reinjectEntry(id));
-  ipcMain.handle(IpcChannel.DeleteEntry,     (_e, id: string) => history.delete(id));
-  ipcMain.handle(IpcChannel.ClearHistory,    ()            => history.clear());
+  ipcMain.handle(IpcChannel.ReinjectEntry, (_e, id: string) => dictation.reinjectEntry(id));
+  ipcMain.handle(IpcChannel.DeleteEntry, (_e, id: string) => history.delete(id));
+  ipcMain.handle(IpcChannel.ClearHistory, () => history.clear());
   ipcMain.handle(IpcChannel.CopyText, (_e, text: string) => {
     clipboard.writeText(text);
     return true;
   });
-  ipcMain.handle(IpcChannel.GetSettings,     ()            => settings.get());
+  ipcMain.handle(IpcChannel.GetSettings, () => settings.get());
 
-  ipcMain.handle(IpcChannel.UpdateSettings,  (_e, patch) => {
+  ipcMain.handle(IpcChannel.UpdateSettings, (_e, patch) => {
     const updated = settings.update(patch);
-    // Re-register hotkeys if combo changed
     if ("primaryHotkey" in patch || "pasteLatestHotkey" in patch) {
       hotkeys.reregister();
+    }
+    // Update provider registry when provider or key settings change
+    if ("transcriptionProvider" in patch) {
+      getProviderRegistry().setActiveTranscription(updated.transcriptionProvider);
+    }
+    if ("formattingProvider" in patch) {
+      getProviderRegistry().setActiveFormatting(updated.formattingProvider);
     }
     onSettingsUpdated?.(updated, patch);
     return updated;
@@ -49,6 +88,18 @@ export function registerIpcHandlers(opts: {
   });
   ipcMain.handle(IpcChannel.ShowDictionaryPrompt, (_e, suggestions: DictionarySuggestion[]) => (
     dictation.showDictionarySuggestions(suggestions)
+  ));
+  ipcMain.handle(IpcChannel.GetPermissionStatus, () => getPermissionStatus());
+  ipcMain.handle(IpcChannel.RequestMicrophonePermission, async () => {
+    await systemPreferences.askForMediaAccess("microphone");
+    return normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone"));
+  });
+  ipcMain.handle(IpcChannel.RequestAccessibilityPermission, () => {
+    const trusted = systemPreferences.isTrustedAccessibilityClient(true);
+    return trusted ? "granted" : "denied";
+  });
+  ipcMain.handle(IpcChannel.OpenPermissionSettings, (_e, permission: keyof PermissionStatus) => (
+    openPermissionSettings(permission)
   ));
 
   ipcMain.handle(IpcChannel.SubmitAudioClip, (_e, payload: RecorderSubmission) => dictation.submitAudioClip(payload));
@@ -61,9 +112,43 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.RecorderFailure, (_e, payload: RecorderFailure) => dictation.handleRecorderFailure(payload));
   ipcMain.handle(IpcChannel.PrepareRecordingInput, () => nativeBridge.prepareRecordingInput?.() ?? null);
   ipcMain.handle(IpcChannel.RestoreRecordingInput, (_e, deviceId: number | null) => {
-    if (typeof deviceId !== "number" || !Number.isFinite(deviceId)) {
-      return false;
-    }
+    if (typeof deviceId !== "number" || !Number.isFinite(deviceId)) return false;
     return nativeBridge.restoreRecordingInput?.(deviceId) ?? false;
+  });
+
+  // Phase 1: Provider API key testing
+  ipcMain.handle(IpcChannel.TestApiKey, async (_e, providerId: string, apiKey: string) => {
+    try {
+      const registry = getProviderRegistry();
+      const provider = registry.getTranscription(providerId) || registry.getFormatting(providerId);
+      if (!provider) return { valid: false, message: `Provider "${providerId}" not found.` };
+
+      // Store in credentials if provided
+      if (apiKey && credentials) {
+        credentials.set(providerId, apiKey);
+      }
+
+      const available = await provider.isAvailable();
+      return { valid: available, message: available ? `${provider.name} is available.` : `${provider.name} is not available.` };
+    } catch (error) {
+      return { valid: false, message: error instanceof Error ? error.message : "Test failed." };
+    }
+  });
+
+  ipcMain.handle(IpcChannel.GetProviderStatus, async () => {
+    const registry = getProviderRegistry();
+    const statuses = await registry.getProviderStatus();
+    const currentSettings = settings.get();
+    const providerApiKeys = currentSettings.providerApiKeys ?? [];
+
+    return statuses.map(s => ({
+      id: s.id,
+      name: s.name,
+      available: s.available,
+      configured: providerApiKeys.some(pk => pk.providerId === s.id && pk.key)
+        || (s.id === "groq" && !!currentSettings.groqApiKey)
+        || (credentials ? !!credentials.get(s.id) : false),
+      type: s.type,
+    }));
   });
 }

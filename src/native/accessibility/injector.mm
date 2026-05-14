@@ -542,11 +542,13 @@ Napi::Object InitAccessibility(Napi::Env env, Napi::Object exports) {
 
 Napi::Object InitDetector(Napi::Env env, Napi::Object exports);
 Napi::Object InitHotkeyMonitor(Napi::Env env, Napi::Object exports);
+Napi::Object InitWhisper(Napi::Env env, Napi::Object exports);
 
 Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
   InitAccessibility(env, exports);
   InitDetector(env, exports);
   InitHotkeyMonitor(env, exports);
+  InitWhisper(env, exports);
   return exports;
 }
 

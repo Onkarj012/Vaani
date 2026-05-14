@@ -7,6 +7,7 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 
 export interface TrayController {
   updateStatus: (label: string) => void;
+  setOfflineMode: (offline: boolean) => void;
   destroy: () => void;
 }
 
@@ -17,10 +18,9 @@ export function createTray(
   onPasteLatest?: () => void
 ): TrayController {
   let icon: Electron.NativeImage;
+  let isOffline = false;
   const candidatePaths = [
-    // packaged app: extraResource copies to Contents/Resources/ (flat)
     join(process.resourcesPath ?? "", "trayTemplate@2x.png"),
-    // dev
     join(currentDir, "../../assets/iconset/trayTemplate@2x.png"),
     join(currentDir, "../../../assets/iconset/trayTemplate@2x.png"),
   ];
@@ -41,8 +41,6 @@ export function createTray(
   }
 
   if (!loaded) {
-    // Fallback: minimal inline SVG — use white bars so template rendering works
-    // 20x20 size for better visibility in menu bar
     icon = nativeImage.createFromDataURL(
       `data:image/svg+xml;utf8,${encodeURIComponent(
         '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">' +
@@ -62,21 +60,19 @@ export function createTray(
   let currentStatus = "Ready";
 
   const buildMenu = (status: string) => {
+    const offlineIndicator = isOffline ? " [Offline]" : "";
     const statusIcon =
       status === "Recording…" ? "🔴" :
       status === "Transcribing…" || status === "Processing…" ? "🔵" :
       status === "Done" || status === "Saved" ? "✅" :
-      status === "Error" ? "⚠️" : "⚪";
+      status === "Error" ? "⚠️" : isOffline ? "🔸" : "⚪";
 
     return Menu.buildFromTemplate([
-      // Status row — non-interactive
       {
-        label: `${statusIcon}  ${status}`,
+        label: `${statusIcon}  ${status}${offlineIndicator}`,
         enabled: false,
       },
       { type: "separator" },
-
-      // Primary actions
       { label: "Open Vaani", accelerator: "Cmd+Shift+V", click: onOpen },
       ...(onStartDictation
         ? [{ label: "Start Dictation", click: onStartDictation }]
@@ -84,24 +80,12 @@ export function createTray(
       ...(onPasteLatest
         ? [{ label: "Paste Latest", click: onPasteLatest }]
         : []),
-
       { type: "separator" },
-
-      // Preferences
       {
         label: "Preferences…",
-        click: () => {
-          onOpen();
-          // Give the window a moment to open, then navigate to settings
-          setTimeout(() => {
-            // Navigation handled by main window routing
-          }, 200);
-        },
+        click: () => { onOpen(); },
       },
-
       { type: "separator" },
-
-      // About
       {
         label: "About Vaani",
         click: () => {
@@ -114,31 +98,23 @@ export function createTray(
           app.showAboutPanel();
         },
       },
-
       { type: "separator" },
-
       { label: "Quit Vaani", accelerator: "Cmd+Q", click: onQuit },
     ]);
   };
 
-  // macOS tray behavior: left-click opens window, right-click shows menu
-  // Don't set a permanent context menu to avoid flickering issues
   tray.on("right-click", (_event, bounds) => {
     tray.popUpContextMenu(buildMenu(currentStatus), bounds);
   });
-  
-  tray.on("click", () => {
-    onOpen();
-  });
 
-  tray.on("mouse-up", () => {
-    onOpen();
-  });
+  tray.on("click", () => { onOpen(); });
+  tray.on("mouse-up", () => { onOpen(); });
 
   return {
-    updateStatus: (label) => {
-      currentStatus = label;
-      // Menu is built fresh each time it's shown
+    updateStatus: (label) => { currentStatus = label; },
+    setOfflineMode: (offline: boolean) => {
+      isOffline = offline;
+      tray.setToolTip(offline ? "Vaani — Voice Dictation [Offline]" : "Vaani — Voice Dictation");
     },
     destroy: () => tray.destroy(),
   };

@@ -1,4 +1,4 @@
-import ReactDOM from 'react-dom/client'
+import { createRoot } from 'react-dom/client'
 import CapsuleOverlay from './CapsuleOverlay'
 import './overlay.css'
 
@@ -10,7 +10,7 @@ try {
     console.error('[overlay] #root element not found')
   } else {
     console.log('[overlay] mounting React to #root')
-    ReactDOM.createRoot(root).render(<CapsuleOverlay />)
+    createRoot(root).render(<CapsuleOverlay />)
     console.log('[overlay] React mounted')
   }
 } catch (err) {

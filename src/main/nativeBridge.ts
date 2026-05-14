@@ -28,6 +28,11 @@ interface NativeBridge {
   stopPasteLatestMonitor?: () => void;
   prepareRecordingInput?: () => number | null;
   restoreRecordingInput?: (deviceId: number) => boolean;
+  whisperLoadModel?: (modelPath: string) => boolean;
+  whisperTranscribe?: (pcmData: Float32Array, sampleRate: number) => string;
+  whisperIsModelLoaded?: () => boolean;
+  whisperFreeModel?: () => void;
+  whisperListModels?: (modelsDir: string) => string[];
 }
 
 let cachedBridge: NativeBridge | null = null;

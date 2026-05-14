@@ -514,13 +514,12 @@ export class OverlayController {
       log("overlay:console", { level, message: message.slice(0, 300), line, sourceId });
     });
 
-    // Use main window's Vite server with overlay mode param to share React instance
-    if (typeof MAIN_WINDOW_VITE_DEV_SERVER_URL !== "undefined") {
-      const overlayUrl = `${MAIN_WINDOW_VITE_DEV_SERVER_URL}?mode=overlay`;
+    if (typeof OVERLAY_WINDOW_VITE_DEV_SERVER_URL !== "undefined") {
+      const overlayUrl = OVERLAY_WINDOW_VITE_DEV_SERVER_URL;
       log("overlay:loading-url", { url: overlayUrl });
       await win.loadURL(overlayUrl);
     } else {
-      const filePath = join(_dir, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+      const filePath = join(_dir, `../renderer/${OVERLAY_WINDOW_VITE_NAME}/index.html`);
       log("overlay:loading-file", { path: filePath });
       await win.loadFile(filePath);
     }

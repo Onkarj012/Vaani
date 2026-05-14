@@ -32,7 +32,17 @@ export const enum IpcChannel {
   // Dictionary
   ShowDictionaryPrompt = "dictionary:show-prompt",
 
+  // macOS permissions
+  GetPermissionStatus = "permissions:get-status",
+  RequestMicrophonePermission = "permissions:request-microphone",
+  RequestAccessibilityPermission = "permissions:request-accessibility",
+  OpenPermissionSettings = "permissions:open-settings",
+
   // App lifecycle / diagnostics
   RendererReady = "app:renderer-ready",
   RendererError = "app:renderer-error",
+
+  // Phase 1: Providers
+  TestApiKey = "providers:test-api-key",
+  GetProviderStatus = "providers:get-status",
 }

@@ -11,8 +11,10 @@ import { OverlayController } from "./overlay";
 import { RecorderWindowController } from "./recorderWindow";
 import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
+import { CredentialsStore } from "./store/credentials";
 import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
+import { getProviderRegistry } from "./providers";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
@@ -27,8 +29,9 @@ let overlayController: OverlayController | null = null;
 let recorderController: RecorderWindowController | null = null;
 let hotkeyManager: HotkeyManager | null = null;
 let settingsStore: SettingsStore | null = null;
+let credentialsStore: CredentialsStore | null = null;
 let dictationService: DictationService | null = null;
-let menuBarMode = true;   // start as "menu bar only" until window is explicitly shown
+let menuBarMode = true;
 let rendererReady = false;
 let mainWindowOpenRequested = false;
 let mainWindowReadyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -36,6 +39,7 @@ let lastDockVisible: boolean | null = null;
 let suppressDashboardActivationUntil = 0;
 let trayController: TrayController = {
   updateStatus: () => undefined,
+  setOfflineMode: () => undefined,
   destroy: () => undefined
 };
 
@@ -70,6 +74,9 @@ function showMainWindow(): void {
   });
   mainWindow.show();
   mainWindow.focus();
+  app.focus({ steal: true });
+  // Ensure the window stays on top — sometimes focus is stolen back by the OS
+  setTimeout(() => mainWindow?.focus(), 200);
   syncAppPresentation();
 }
 
@@ -97,25 +104,16 @@ function clearMainWindowReadyTimeout(): void {
 function armMainWindowReadyTimeout(win: BrowserWindow): void {
   clearMainWindowReadyTimeout();
   mainWindowReadyTimer = setTimeout(() => {
-    if (mainWindow !== win || win.isDestroyed() || rendererReady) {
-      return;
-    }
-
+    if (mainWindow !== win || win.isDestroyed() || rendererReady) return;
     log("renderer:ready-timeout", { loading: win.webContents.isLoading(), visible: win.isVisible() });
-    if (!mainWindowOpenRequested && menuBarMode && !win.isVisible()) {
-      return;
-    }
+    if (!mainWindowOpenRequested && menuBarMode && !win.isVisible()) return;
     if (shouldSuppressDashboardActivation()) {
       log("renderer:ready-timeout-suppressed");
       armMainWindowReadyTimeout(win);
       return;
     }
-    if (win.webContents.isCrashed()) {
-      win.reload();
-    } else if (!win.webContents.isLoading()) {
-      win.reload();
-    }
-    // did-start-loading fires after reload and re-arms the timeout; no need to do it here.
+    if (win.webContents.isCrashed()) { win.reload(); }
+    else if (!win.webContents.isLoading()) { win.reload(); }
   }, MAIN_RENDERER_READY_TIMEOUT_MS);
 }
 
@@ -125,10 +123,6 @@ function syncAppPresentation(): void {
   const dashboardOpenRequested = mainWindowExists && mainWindowOpenRequested && !menuBarMode;
   const shouldShowDock = showInDock && dashboardOpenRequested;
 
-  // Dock visibility follows the user's dashboard-open intent, not transient
-  // BrowserWindow visibility. macOS can briefly report the dashboard hidden
-  // while the dictation overlay is shown, and hiding the Dock icon there causes
-  // a distracting disappear/reappear flash.
   if (shouldShowDock) {
     app.setActivationPolicy?.("regular");
     void app.dock?.show();
@@ -147,7 +141,7 @@ function cleanupRuntimeResources(): void {
   overlayController?.destroy();
   overlayController = null;
   trayController.destroy();
-  trayController = { updateStatus: () => undefined, destroy: () => undefined };
+  trayController = { updateStatus: () => undefined, setOfflineMode: () => undefined, destroy: () => undefined };
 }
 
 function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
@@ -170,23 +164,14 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
 
   win.webContents.on("did-start-loading", () => {
     log("renderer:start-loading", { rendererReady });
-    // If the renderer was already ready, this is an in-page navigation event
-    // (Electron fires did-start-loading for hash/pushState navigation in dev mode).
-    // Don't reset readiness — resetting would arm the 5s timeout and force a reload
-    // on every page switch. Only reset when the renderer is genuinely unloaded.
-    if (rendererReady) {
-      return;
-    }
+    if (rendererReady) return;
     if (mainWindowOpenRequested || !menuBarMode || win.isVisible()) {
       armMainWindowReadyTimeout(win);
     }
   });
 
   win.webContents.on("did-finish-load", () => {
-    log("renderer:loaded", {
-      url: win.webContents.getURL(),
-      partition: win.webContents.session.storagePath
-    });
+    log("renderer:loaded", { url: win.webContents.getURL() });
     rendererReady = true;
     clearMainWindowReadyTimeout();
   });
@@ -196,11 +181,7 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
     rendererReady = false;
     clearMainWindowReadyTimeout();
     if (mainWindowOpenRequested || !menuBarMode) {
-      setTimeout(() => {
-        if (!win.isDestroyed() && !rendererReady) {
-          win.reload();
-        }
-      }, 500);
+      setTimeout(() => { if (!win.isDestroyed() && !rendererReady) win.reload(); }, 500);
     }
   });
 
@@ -209,11 +190,7 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
     rendererReady = false;
     clearMainWindowReadyTimeout();
     if (mainWindowOpenRequested || !menuBarMode) {
-      setTimeout(() => {
-        if (!win.isDestroyed()) {
-          win.reload();
-        }
-      }, 250);
+      setTimeout(() => { if (!win.isDestroyed()) win.reload(); }, 250);
     }
   });
 
@@ -223,24 +200,13 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
     clearMainWindowReadyTimeout();
     if (mainWindowOpenRequested || !menuBarMode) {
       win.webContents.forcefullyCrashRenderer();
-      setTimeout(() => {
-        if (!win.isDestroyed()) {
-          win.reload();
-        }
-      }, 250);
+      setTimeout(() => { if (!win.isDestroyed()) win.reload(); }, 250);
     }
   });
 
   win.on("close", (event) => {
-    if (mutableApp.isQuitting) {
-      return;
-    }
-
-    if (!trayEnabled()) {
-      mutableApp.isQuitting = true;
-      return;
-    }
-
+    if (mutableApp.isQuitting) return;
+    if (!trayEnabled()) { mutableApp.isQuitting = true; return; }
     event.preventDefault();
     mainWindowOpenRequested = false;
     menuBarMode = true;
@@ -261,21 +227,14 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
     syncAppPresentation();
   });
 
-  win.on("blur", () => {
-    log("window:blur");
-  });
-  // Do NOT call syncAppPresentation on hide — the overlay window or other
-  // transient windows should not affect the dock icon state.
+  win.on("blur", () => { log("window:blur"); });
 
   return win;
 }
 
 function configureRendererLifecycle(win: BrowserWindow): void {
   ipcMain.on(IpcChannel.RendererReady, (event) => {
-    if (event.sender !== win.webContents) {
-      return;
-    }
-
+    if (event.sender !== win.webContents) return;
     log("renderer:ready");
     rendererReady = true;
     clearMainWindowReadyTimeout();
@@ -289,18 +248,11 @@ function configureRendererLifecycle(win: BrowserWindow): void {
   });
 
   ipcMain.on(IpcChannel.RendererError, (event, payload: { message?: string; stack?: string }) => {
-    if (event.sender !== win.webContents) {
-      return;
-    }
-
-    log("renderer:error", {
-      message: payload?.message ?? "Renderer error",
-      stack: payload?.stack
-    });
+    if (event.sender !== win.webContents) return;
+    log("renderer:error", { message: payload?.message ?? "Renderer error", stack: payload?.stack });
   });
 
   win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    // Log all console messages during debugging (level 0=debug, 1=info, 2=warn, 3=error)
     log("renderer:console", { level, message: message.slice(0, 500), line, sourceId });
   });
 }
@@ -314,7 +266,6 @@ function configureMediaPermissions(): void {
       log("permission:media", { audioOnly, mediaTypes });
       return;
     }
-
     callback(false);
   });
 }
@@ -325,7 +276,6 @@ async function loadWindowUrl(win: BrowserWindow): Promise<void> {
     await win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     return;
   }
-
   const filePath = join(currentDir, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
   log("main:loading-file", { path: filePath });
   await win.loadFile(filePath);
@@ -338,14 +288,27 @@ async function bootstrap(): Promise<void> {
   settingsStore = settings;
   const history = new HistoryStore();
   await settings.init();
-  
-  // Start hidden from dock — main window isn't visible yet. The dock icon
-  // will appear when the window is shown (via syncAppPresentation()).
-  app.dock?.hide();
-  lastDockVisible = false;
+
+  // Initialize credentials store and migrate legacy API keys
+  credentialsStore = new CredentialsStore();
+  const initSettings = settings.get();
+  const migrationPatch = credentialsStore.migrateFromSettings(initSettings);
+  if (Object.keys(migrationPatch).length > 0) {
+    settings.update(migrationPatch);
+    log("credentials:migrated");
+  }
+
+  // Initialize provider registry with active providers from settings
+  const registry = getProviderRegistry();
+  registry.setActiveTranscription(initSettings.transcriptionProvider || "groq");
+  registry.setActiveFormatting(initSettings.formattingProvider || "groq-llm");
+
+  // Don't hide dock immediately — let syncAppPresentation() manage it once
+  // the window decides whether to show. Prevents window from appearing then
+  // being sent to background.
+  lastDockVisible = null;
 
   let trayReady = false;
-
   configureMediaPermissions();
 
   mainWindow = createMainWindow(() => trayReady);
@@ -353,43 +316,34 @@ async function bootstrap(): Promise<void> {
 
   overlayController = new OverlayController();
   overlayController.setOnPresent(() => {
-    // macOS hides the dock icon when the overlay is shown (activation-policy side effect).
-    // Reassert the user's dashboard-open presentation state without reacting
-    // to transient BrowserWindow visibility.
     suppressDashboardActivation("overlay");
     syncAppPresentation();
   });
   recorderController = new RecorderWindowController();
-  const initSettings = settings.get();
   overlayController.setTheme("aurora");
   overlayController.setColorMode(initSettings.colorMode ?? "light");
   if (initSettings.accentColor) overlayController.setAccentColor(initSettings.accentColor);
   overlayController.setCapsuleStyle({
-    borderWidth:  initSettings.capsuleBorderWidth,
-    barRadius:    initSettings.capsuleBarRadius,
+    borderWidth: initSettings.capsuleBorderWidth,
+    barRadius: initSettings.capsuleBarRadius,
     cornerRadius: initSettings.capsuleCornerRadius,
   });
   if (initSettings.capsuleDesign) overlayController.setCapsuleDesign(initSettings.capsuleDesign);
 
-  // Create dictation service first so it can be passed to tray
   const dictation = new DictationService(
     mainWindow,
     settings,
     history,
     (label) => trayController.updateStatus(label),
     overlayController,
-    { recorder: recorderController }
+    { recorder: recorderController, credentials: credentialsStore }
   );
   dictationService = dictation;
 
-  // Now create tray with the dictation callback
   try {
     trayController = createTray(
       () => showMainWindow(),
-      () => {
-        mutableApp.isQuitting = true;
-        app.quit();
-      },
+      () => { mutableApp.isQuitting = true; app.quit(); },
       () => dictation.beginHotkeySession(),
       () => { void dictation.pasteLatestEntry(); }
     );
@@ -407,11 +361,7 @@ async function bootstrap(): Promise<void> {
     },
     () => dictation.endHotkeySession(),
     () => dictation.cancelSession(),
-    () => {
-      dictation.pasteLatestEntry().catch((err) => {
-        console.error("[vaani] paste latest failed:", err);
-      });
-    },
+    () => { dictation.pasteLatestEntry().catch((err) => { console.error("[vaani] paste latest failed:", err); }); },
     (message) => dictation.reportHotkeyUnavailable(message)
   );
 
@@ -422,33 +372,25 @@ async function bootstrap(): Promise<void> {
     settings,
     hotkeys: hotkeyManager,
     recorder: recorderController,
+    credentials: credentialsStore,
     onSettingsUpdated: (_updated, patch) => {
-      if ("theme" in patch) {
-        overlayController?.setTheme("aurora");
-      }
-      if ("colorMode" in patch && patch.colorMode) {
-        overlayController?.setColorMode(patch.colorMode);
-      }
-      if ("accentColor" in patch && patch.accentColor) {
-        overlayController?.setAccentColor(patch.accentColor);
-      }
+      if ("theme" in patch) overlayController?.setTheme("aurora");
+      if ("colorMode" in patch && patch.colorMode) overlayController?.setColorMode(patch.colorMode);
+      if ("accentColor" in patch && patch.accentColor) overlayController?.setAccentColor(patch.accentColor);
       if ("capsuleBorderWidth" in patch || "capsuleBarRadius" in patch || "capsuleCornerRadius" in patch) {
         overlayController?.setCapsuleStyle({
-          borderWidth:  patch.capsuleBorderWidth,
-          barRadius:    patch.capsuleBarRadius,
+          borderWidth: patch.capsuleBorderWidth,
+          barRadius: patch.capsuleBarRadius,
           cornerRadius: patch.capsuleCornerRadius,
         });
       }
-      if ("capsuleDesign" in patch && patch.capsuleDesign) {
-        overlayController?.setCapsuleDesign(patch.capsuleDesign);
-      }
-      if ("showInDock" in patch) {
-        syncAppPresentation();
-      }
+      if ("capsuleDesign" in patch && patch.capsuleDesign) overlayController?.setCapsuleDesign(patch.capsuleDesign);
+      if ("showInDock" in patch) syncAppPresentation();
     }
   });
 
   await loadWindowUrl(mainWindow);
+  setTimeout(() => showMainWindow(), 100);
   await recorderController.init();
   setTimeout(() => hotkeyManager?.register(), 300);
   setTimeout(() => overlayController?.prewarm(), 1500);
@@ -461,11 +403,7 @@ async function bootstrap(): Promise<void> {
       error: (msg) => log("updater:error", msg),
       debug: (msg) => log("updater:debug", msg)
     };
-    autoUpdater.setFeedURL({
-      provider: "github",
-      owner: "Onkarj012",
-      repo: "Vaani"
-    });
+    autoUpdater.setFeedURL({ provider: "github", owner: "Onkarj012", repo: "Vaani" });
     autoUpdater.on("checking-for-update", () => log("updater:checking"));
     autoUpdater.on("update-available", (info) => log("updater:available", { version: info.version }));
     autoUpdater.on("update-not-available", (info) => log("updater:not-available", { version: info.version }));
@@ -490,20 +428,11 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const hasLock = app.requestSingleInstanceLock();
-if (!hasLock) {
-  log("second-instance:exit");
-  app.quit();
-}
+if (!hasLock) { log("second-instance:exit"); app.quit(); }
 
-app.on("second-instance", () => {
-  log("second-instance:focus");
-  showMainWindow();
-});
+app.on("second-instance", () => { log("second-instance:focus"); showMainWindow(); });
 
-app.on("before-quit", () => {
-  mutableApp.isQuitting = true;
-  cleanupRuntimeResources();
-});
+app.on("before-quit", () => { mutableApp.isQuitting = true; cleanupRuntimeResources(); });
 
 app.whenReady()
   .then(() => bootstrap())
@@ -512,8 +441,6 @@ app.whenReady()
   });
 
 app.on("activate", () => {
-  // Don't steal focus from the user's target app during an active dictation session.
-  // The overlay triggers macOS app activation but the main window should stay put.
   if (shouldSuppressDashboardActivation()) {
     log("activate:suppressed", { dictationStatus: dictationService?.getState().status });
     syncAppPresentation();
@@ -523,7 +450,5 @@ app.on("activate", () => {
 });
 
 app.on("window-all-closed", () => {
-  if (mutableApp.isQuitting) {
-    app.quit();
-  }
+  if (mutableApp.isQuitting) app.quit();
 });

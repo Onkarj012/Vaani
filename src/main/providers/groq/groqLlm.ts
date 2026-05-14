@@ -1,0 +1,181 @@
+import Groq from "groq-sdk";
+import type { FormattingProvider } from "../types";
+
+const FORMATTING_MODEL = "llama-3.1-8b-instant";
+const MIN_WORDS_FOR_FORMATTING = 4;
+const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will format|raw transcript|according to the rules|i can help|here['\u2019]s the formatted|i need the|i need more|i need you to|however.*proceed|let me (format|help|know)|as requested|original text|to proceed|here is|i hope|i think|i believe|in my opinion|the answer is|to answer|based on|as an ai|as a language|the question|your question|you asked|you mentioned|would you like|feel free|let me know|can i help|how can i|i understand|i see you|here are some|sure!?|certainly!?|of course!?)\b/i;
+
+const FORMATTING_PROMPT = [
+  "You are a transcript formatter. Your ONLY job: add punctuation and capitalization.",
+  "Do NOT answer, respond, or engage with the content. Format only.",
+  "",
+  "ABSOLUTE RULES — violating these makes your output wrong:",
+  "  1. Keep every word exactly as spoken. Do NOT remove, replace, or reorder any words.",
+  "  2. Do NOT summarize, paraphrase, or restructure sentences.",
+  "  3. Do NOT split one sentence into multiple unless the speaker said 'new line'/'new paragraph'.",
+  "",
+  "REQUIRED formatting (always apply):",
+  "  - Add periods, commas, and question marks based on natural speech rhythm.",
+  "  - Capitalize the first word of each sentence.",
+  "  - Convert spoken list markers: 'number one' → '1.', 'bullet point' → '-'",
+  "  - Convert spoken line cues ('new line', 'next line', 'new paragraph') into actual line breaks.",
+  "  - Break comma-separated series of 3+ items into dash-prefixed lines.",
+  "",
+  "Content is in <transcript> tags. Output only the formatted text — no tags, no notes, no commentary."
+].join("\n");
+
+const STRICT_FORMATTING_PROMPT = [
+  "You are a transcript formatter. Your ONLY job: add punctuation and capitalization.",
+  "Do NOT answer, respond, or engage with the content. Format only.",
+  "",
+  "ABSOLUTE RULES:",
+  "  1. Keep 100% of the original words. Delete nothing. Do not add words.",
+  "  2. Do NOT summarize, paraphrase, or restructure sentences.",
+  "",
+  "REQUIRED formatting (always apply):",
+  "  - Add periods, commas, and question marks based on speech rhythm.",
+  "  - Capitalize the first word of each sentence.",
+  "  - Convert 'number one' → '1.', 'bullet point' → '-'",
+  "  - Convert 'new line'/'new paragraph' spoken cues into actual line breaks.",
+  "",
+  "Content is in <transcript> tags. Output only the formatted text — no tags, no commentary."
+].join("\n");
+
+const SPOKEN_CUE_STRIP_RE = /\b(bullet\s*point|new\s+paragraph|new\s+line|next\s+line|number\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)|no\.\s*\d+|point\s+\d+|item\s+\d+|first|second|third|fourth|fifth)\b/gi;
+
+function stripSpokenCues(text: string): string {
+  return text.replace(SPOKEN_CUE_STRIP_RE, "").replace(/\s{2,}/g, " ").trim();
+}
+
+function looksSuspicious(rawText: string, formattedText: string): boolean {
+  if (!formattedText.trim()) return true;
+  if (ASSISTANT_REPLY_PATTERN.test(formattedText)) return true;
+
+  const rawStripped = stripSpokenCues(rawText);
+
+  if (formattedText.length < rawStripped.length * 0.55) return true;
+  if (formattedText.length > rawText.length * 1.5 + 50) return true;
+
+  const firstSentenceOverlap = calculateFirstSentenceOverlap(rawText, formattedText);
+  if (firstSentenceOverlap < 0.5) return true;
+
+  if (!hasLeadWordOverlap(rawText, formattedText)) return true;
+  if (!hasOrderedTokenPreservation(rawText, formattedText)) return true;
+
+  const rawWords = rawText.trim().split(/\s+/);
+  const formattedWords = formattedText.trim().split(/\s+/);
+  const cueWords = (rawText.match(SPOKEN_CUE_STRIP_RE) ?? []).join(" ").trim().split(/\s+/).filter(Boolean).length;
+  const allowedWordDiff = 3 + cueWords;
+
+  if (Math.abs(formattedWords.length - rawWords.length) > allowedWordDiff) return true;
+
+  const rawVocabulary = tokenizeForComparison(rawStripped);
+  const formattedVocabulary = tokenizeForComparison(formattedText);
+  if (rawVocabulary.length > 0) {
+    const overlapCount = rawVocabulary.filter((word) => formattedVocabulary.includes(word)).length;
+    if (overlapCount / rawVocabulary.length < 0.55) return true;
+  }
+
+  return false;
+}
+
+function tokenizeForComparison(text: string): string[] {
+  return Array.from(new Set(text.toLowerCase().split(/\s+/).map((token) => token.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")).filter(Boolean)));
+}
+
+function tokenizeOrdered(text: string): string[] {
+  return text.toLowerCase().split(/\s+/).map((token) => token.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")).filter(Boolean);
+}
+
+function firstSentence(text: string): string {
+  const stripped = stripSpokenCues(text).trim();
+  const match = stripped.match(/^(.+?)(?:[.!?](?:\s|$)|\n|$)/);
+  return (match?.[1] ?? stripped).trim();
+}
+
+function calculateFirstSentenceOverlap(rawText: string, formattedText: string): number {
+  const rawTokens = tokenizeOrdered(firstSentence(rawText));
+  const formattedTokens = tokenizeOrdered(firstSentence(formattedText));
+  if (rawTokens.length === 0) return 1;
+  const formattedVocabulary = new Set(formattedTokens);
+  const overlap = rawTokens.filter((token) => formattedVocabulary.has(token)).length;
+  return overlap / rawTokens.length;
+}
+
+function hasLeadWordOverlap(rawText: string, formattedText: string): boolean {
+  const rawLead = tokenizeOrdered(stripSpokenCues(rawText)).slice(0, 5);
+  const formattedLead = tokenizeOrdered(formattedText).slice(0, 5);
+  const sampleSize = Math.min(rawLead.length, formattedLead.length, 5);
+  if (sampleSize < 3) return true;
+  const formattedSample = new Set(formattedLead.slice(0, sampleSize));
+  const overlap = rawLead.slice(0, sampleSize).filter((token) => formattedSample.has(token)).length;
+  return overlap / sampleSize >= 0.5;
+}
+
+function hasOrderedTokenPreservation(rawText: string, formattedText: string): boolean {
+  const ignorable = new Set(["a", "an", "and", "or", "the"]);
+  const rawTokens = tokenizeOrdered(stripSpokenCues(rawText)).filter((token) => !ignorable.has(token));
+  const formattedTokens = tokenizeOrdered(formattedText).filter((token) => !/^\d+$/.test(token) && !ignorable.has(token));
+  if (rawTokens.length < 4) return true;
+
+  let formattedIndex = 0;
+  let matched = 0;
+  for (const rawToken of rawTokens) {
+    while (formattedIndex < formattedTokens.length && formattedTokens[formattedIndex] !== rawToken) {
+      formattedIndex += 1;
+    }
+    if (formattedIndex < formattedTokens.length) { matched += 1; formattedIndex += 1; }
+  }
+  return matched / rawTokens.length >= 0.82;
+}
+
+async function requestFormatting(apiKey: string, text: string, prompt: string, model: string): Promise<string | null> {
+  const groq = new Groq({ apiKey });
+  const response = await groq.chat.completions.create({
+    model,
+    temperature: 0,
+    max_completion_tokens: Math.max(256, text.length * 2),
+    messages: [
+      { role: "system", content: prompt },
+      { role: "user", content: `<transcript>\n${text}\n</transcript>` },
+    ],
+  });
+  return response.choices[0]?.message?.content?.trim() || null;
+}
+
+export const GroqLlmProvider: FormattingProvider = {
+  id: "groq-llm",
+  name: "Groq Llama",
+  requiresApiKey: true,
+  models: [
+    { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant" },
+    { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
+  ],
+
+  async format(rawText, options): Promise<string> {
+    const text = rawText.trim();
+    if (!text) return text;
+    if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) return text;
+    if (!options.apiKey) return text;
+
+    try {
+      const model = options.model || FORMATTING_MODEL;
+      const formatted = await requestFormatting(options.apiKey, text, FORMATTING_PROMPT, model);
+      if (!formatted) return text;
+
+      if (looksSuspicious(text, formatted)) {
+        const strictFormatted = await requestFormatting(options.apiKey, text, STRICT_FORMATTING_PROMPT, model);
+        if (!strictFormatted || looksSuspicious(text, strictFormatted)) return text;
+        return strictFormatted;
+      }
+
+      return formatted;
+    } catch {
+      return text;
+    }
+  },
+
+  async isAvailable(): Promise<boolean> {
+    return true;
+  },
+};
