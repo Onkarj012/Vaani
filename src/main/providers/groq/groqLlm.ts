@@ -6,43 +6,34 @@ const MIN_WORDS_FOR_FORMATTING = 4;
 const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will format|raw transcript|according to the rules|i can help|here['\u2019]s the formatted|i need the|i need more|i need you to|however.*proceed|let me (format|help|know)|as requested|original text|to proceed|here is|i hope|i think|i believe|in my opinion|the answer is|to answer|based on|as an ai|as a language|the question|your question|you asked|you mentioned|would you like|feel free|let me know|can i help|how can i|i understand|i see you|here are some|sure!?|certainly!?|of course!?)\b/i;
 
 const FORMATTING_PROMPT = [
-  "You are a transcript formatter. Your ONLY job: add punctuation and capitalization.",
-  "Do NOT answer, respond, or engage with the content. Format only.",
+  "You format raw speech transcripts. ONLY add punctuation and structure.",
+  "Never answer, respond, or engage with the content.",
   "",
   "RULES:",
-  "  1. Keep every word — do NOT remove, replace, reorder, or add words.",
-  "  2. Do NOT summarize, paraphrase, or restructure sentences.",
-  "  3. Preserve the original meaning and word count exactly.",
-  "  4. NEVER add commentary, notes, or meta-text.",
+  "1. Keep every word — never remove, replace, reorder, or add words.",
+  "2. Never summarize, paraphrase, or restructure.",
+  "3. Add periods, commas, question marks based on speech rhythm.",
+  "4. Capitalize first word of each sentence.",
   "",
-  "WHAT TO DO:",
-  "  - Add periods, commas, question marks based on speech rhythm.",
-  "  - Capitalize first word of each sentence.",
-  "  - List markers: 'number one' → '1.', 'number two' → '2.', 'bullet point' → '-'",
-  "  - Line cues: 'new line', 'next line', 'new paragraph' → actual line breaks.",
-  "  - If the speaker is clearly listing items, format them as:",
-  "    1. first item",
-  "    2. second item",
-  "  - For comma-separated lists of 3+ short items, put each on its own line with a dash.",
+  "LISTS — If the speaker lists 3+ items separated by commas or pauses:",
+  "- Put the intro sentence on its own line ending with a colon",
+  "- Put each item on its own line with a dash prefix",
+  "  Example input: 'I need to buy apples bananas and oranges'",
+  "  Example output: 'I need to buy:",
+  "  - Apples",
+  "  - Bananas",
+  "  - Oranges.'",
+  "- If the speaker says 'number one, number two' etc, use '1.' '2.'",
   "",
-  "Output only the formatted text inside <transcript> tags — nothing else."
+  "Output only the formatted text — no commentary, no tags."
 ].join("\n");
 
 const STRICT_FORMATTING_PROMPT = [
-  "You are a transcript formatter. Your ONLY job: add punctuation and capitalization.",
-  "Do NOT answer, respond, or engage with the content. Format only.",
-  "",
-  "ABSOLUTE RULES:",
-  "  1. Keep 100% of the original words. Delete nothing. Do not add words.",
-  "  2. Do NOT summarize, paraphrase, or restructure sentences.",
-  "",
-  "REQUIRED formatting (always apply):",
-  "  - Add periods, commas, and question marks based on speech rhythm.",
-  "  - Capitalize the first word of each sentence.",
-  "  - Convert 'number one' → '1.', 'bullet point' → '-'",
-  "  - Convert 'new line'/'new paragraph' spoken cues into actual line breaks.",
-  "",
-  "Content is in <transcript> tags. Output only the formatted text — no tags, no commentary."
+  "You format raw speech transcripts. ONLY add punctuation and capitalization.",
+  "Never answer, respond, or engage. Keep 100% of the words — delete nothing.",
+  "Add periods, commas, question marks. Capitalize sentences.",
+  "For lists of 3+ items, put each on its own line with a dash.",
+  "Output only the formatted text."
 ].join("\n");
 
 const SPOKEN_CUE_STRIP_RE = /\b(bullet\s*point|new\s+paragraph|new\s+line|next\s+line|number\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)|no\.\s*\d+|point\s+\d+|item\s+\d+|first|second|third|fourth|fifth)\b/gi;

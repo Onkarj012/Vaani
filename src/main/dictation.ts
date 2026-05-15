@@ -24,6 +24,7 @@ import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { cleanupText } from "./text/cleanup";
+import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { TranscriptionService } from "./transcription";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
@@ -159,7 +160,14 @@ export class DictationService {
 
     if (this.releaseRequestedDuringStart) {
       this.releaseRequestedDuringStart = false;
-      this.endHotkeySession();
+      // User released the hotkey before the mic was ready. Delay the stop so the
+      // clip meets minClipDuration — otherwise the 0-length clip hits VAD rejection.
+      const minRecordMs = Math.max(this.settings.get().minClipDuration * 1000 + 250, 750);
+      setTimeout(() => {
+        if (this.isCurrentSession(sessionId) && this.state.status === "recording") {
+          this.endHotkeySession();
+        }
+      }, minRecordMs);
     }
   }
 
@@ -242,6 +250,9 @@ export class DictationService {
       if (injection.success) {
         await this.history.append({ ...entryBase, injectionStatus: "injected", injectionMethod: injection.method });
         this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor");
+
+        // Fire dictionary/snippet prompts after injection completes (non-blocking)
+        this.detectAndPrompt(transcription.rawText, cleanedText);
       } else {
         await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
         this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history");
@@ -336,6 +347,39 @@ export class DictationService {
     this.mainWindow?.show();
     this.mainWindow?.focus();
     this.mainWindow?.webContents.send(IpcChannel.Navigation, { route });
+  }
+
+  private detectAndPrompt(rawText: string, cleanedText: string): void {
+    // Dictionary suggestions: detect word replacements
+    try {
+      const suggestions = detectDictionarySuggestions(rawText, cleanedText);
+      if (suggestions.length > 0) {
+        void this.showDictionarySuggestions(suggestions);
+      }
+    } catch { /* best-effort */ }
+
+    // Snippet detection: check for slash-commands in raw text
+    try {
+      const snippetMatch = rawText.match(/\/(\w[\w-]*)/);
+      if (snippetMatch?.[1]) {
+        const trigger = snippetMatch[1];
+        const settings = this.settings.get();
+        const existingSnippets = settings.snippets ?? [];
+        const isNew = !existingSnippets.some(s => s.trigger.toLowerCase() === trigger.toLowerCase());
+        if (isNew) {
+          const accepted = new Promise<boolean>((resolve) => {
+            this.overlay.showSnippetPrompt(trigger, resolve);
+          });
+          void accepted.then((yes) => {
+            if (yes) {
+              const snippetContent = cleanedText.replace(new RegExp(`/?${trigger}\\s*`, 'i'), '').trim();
+              const current = settings.snippets ?? [];
+              void this.settings.update({ snippets: [...current, { trigger, content: snippetContent }] });
+            }
+          });
+        }
+      }
+    } catch { /* best-effort */ }
   }
 
   private saveRecordingToDisk(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): void {

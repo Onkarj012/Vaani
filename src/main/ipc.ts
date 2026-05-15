@@ -17,6 +17,7 @@ import { HotkeyManager } from "./hotkeys";
 import { nativeBridge } from "./nativeBridge";
 import { RecorderWindowController } from "./recorderWindow";
 import { getProviderRegistry } from "./providers";
+import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 
 function normalizeMediaStatus(status: string): MacOSPermissionState {
   switch (status) {
@@ -56,9 +57,20 @@ export function registerIpcHandlers(opts: {
 
   ipcMain.handle(IpcChannel.GetDictationState, () => dictation.getState());
   ipcMain.handle(IpcChannel.GetHistory, () => history.getAll());
-  ipcMain.handle(IpcChannel.UpdateHistoryEntry, (_e, id: string, cleanedText: string) => history.updateById(id, (entry) => ({
-    ...entry, cleanedText
-  })));
+  ipcMain.handle(IpcChannel.UpdateHistoryEntry, async (_e, id: string, cleanedText: string) => {
+    const entry = await history.getById(id);
+    const updated = await history.updateById(id, (entry) => ({ ...entry, cleanedText }));
+    
+    // Detect if the user made manual word corrections and prompt to save as dictionary rule
+    if (entry && updated) {
+      const suggestions = detectDictionarySuggestions(entry.cleanedText, updated.cleanedText);
+      if (suggestions.length > 0) {
+        void dictation.showDictionarySuggestions(suggestions);
+      }
+    }
+    
+    return updated;
+  });
   ipcMain.handle(IpcChannel.ReinjectEntry, (_e, id: string) => dictation.reinjectEntry(id));
   ipcMain.handle(IpcChannel.DeleteEntry, (_e, id: string) => history.delete(id));
   ipcMain.handle(IpcChannel.ClearHistory, () => history.clear());

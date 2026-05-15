@@ -14,6 +14,7 @@ import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
+import type { DictationState } from "@shared/types";
 import { getProviderRegistry } from "./providers";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -405,9 +406,27 @@ async function bootstrap(): Promise<void> {
     };
     autoUpdater.setFeedURL({ provider: "github", owner: "Onkarj012", repo: "Vaani" });
     autoUpdater.on("checking-for-update", () => log("updater:checking"));
-    autoUpdater.on("update-available", (info) => log("updater:available", { version: info.version }));
+    autoUpdater.on("update-available", (info) => {
+      log("updater:available", { version: info.version });
+      mainWindow?.webContents.send(IpcChannel.DictationState, {
+        status: "completed",
+        sessionId: "update",
+        outcome: "saved",
+        text: "",
+        message: `Update ${info.version} downloading…`,
+      } as unknown as DictationState);
+    });
     autoUpdater.on("update-not-available", (info) => log("updater:not-available", { version: info.version }));
-    autoUpdater.on("update-downloaded", (info) => log("updater:downloaded", { version: info.version }));
+    autoUpdater.on("update-downloaded", (info) => {
+      log("updater:downloaded", { version: info.version });
+      mainWindow?.webContents.send(IpcChannel.DictationState, {
+        status: "completed",
+        sessionId: "update",
+        outcome: "saved",
+        text: "",
+        message: `Vaani ${info.version} ready — restart to update`,
+      } as unknown as DictationState);
+    });
     autoUpdater.on("error", (error) => log("updater:event-error", { message: error.message }));
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;

@@ -44,9 +44,7 @@ function StatSkeleton() {
 }
 
 export default function Dashboard() {
-  const { stats, weeklyActivity, historyItems, historyLoading, copyHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry } = useVaaniUi()
-
-  const maxAmount = Math.max(...weeklyActivity.map((d) => d.words), 1)
+  const { stats, historyItems, historyLoading, copyHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry } = useVaaniUi()
 
   const statCards = [
     {
@@ -142,34 +140,28 @@ export default function Dashboard() {
             <div>
               <h2 className="text-lg font-bold text-vaani-black dark:text-white mb-1">Activity</h2>
               <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-                Words dictated over the last 7 days
+                Your dictation summary
               </p>
             </div>
             <div className="flex items-center gap-2 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
               <TrendingUp size={14} className="text-vaani-lime" />
               <span className="font-medium text-vaani-black dark:text-white">
-                {stats.wordsToday > 0 ? '+' : ''}{stats.wordsToday.toLocaleString()}
+                {stats.wordsToday > 0 ? '+' : ''}{stats.wordsToday.toLocaleString()} today
               </span>
             </div>
           </div>
 
-          <div className="flex items-end gap-3 h-48">
-            {weeklyActivity.map((day, index) => (
-              <div key={day.day} className="flex-1 flex flex-col items-center gap-2">
-                <motion.div
-                  initial={{ height: 0 }}
-                  animate={{ height: `${(day.words / maxAmount) * 100}%` }}
-                  transition={{ duration: 0.8, delay: 0.3 + index * 0.1 }}
-                  className="w-full bg-vaani-gray-100 dark:bg-vaani-gray-800 rounded-t-lg relative overflow-hidden group"
-                >
-                  <div
-                    className="absolute bottom-0 left-0 right-0 bg-vaani-pink rounded-t-lg transition-all duration-300 group-hover:bg-vaani-pink/80"
-                    style={{ height: '100%' }}
-                  />
-                </motion.div>
-                <span className="text-xs text-vaani-gray-500 dark:text-vaani-gray-400 font-medium">
-                  {day.day}
-                </span>
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { label: 'Sessions today', value: stats.sessionsToday, icon: Activity },
+              { label: 'Words today', value: stats.wordsToday, icon: Type },
+              { label: 'Streak', value: `${stats.streak}d`, icon: Flame },
+            ].map((item) => (
+              <div key={item.label}
+                className="flex flex-col items-center justify-center p-4 rounded-xl bg-vaani-gray-50 dark:bg-vaani-gray-800/50 border border-vaani-gray-100 dark:border-vaani-gray-800">
+                <item.icon size={18} className="text-vaani-pink mb-2" />
+                <span className="text-2xl font-bold text-vaani-black dark:text-white">{item.value}</span>
+                <span className="text-xs text-vaani-gray-400 mt-1">{item.label}</span>
               </div>
             ))}
           </div>

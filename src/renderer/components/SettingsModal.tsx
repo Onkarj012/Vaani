@@ -58,6 +58,21 @@ const languages = [
   { value: 'hinglish', label: 'Hinglish' },
   { value: 'ta', label: 'Tamil' },
   { value: 'pa', label: 'Punjabi' },
+  { value: 'mr', label: 'Marathi' },
+  { value: 'bn', label: 'Bengali' },
+  { value: 'gu', label: 'Gujarati' },
+  { value: 'te', label: 'Telugu' },
+  { value: 'kn', label: 'Kannada' },
+  { value: 'ml', label: 'Malayalam' },
+  { value: 'es', label: 'Spanish' },
+  { value: 'fr', label: 'French' },
+  { value: 'de', label: 'German' },
+  { value: 'ja', label: 'Japanese' },
+  { value: 'zh', label: 'Chinese' },
+  { value: 'ko', label: 'Korean' },
+  { value: 'ar', label: 'Arabic' },
+  { value: 'pt', label: 'Portuguese' },
+  { value: 'ru', label: 'Russian' },
 ]
 
 const dictationModes = [
