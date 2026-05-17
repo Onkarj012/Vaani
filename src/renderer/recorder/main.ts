@@ -4,7 +4,7 @@ const TARGET_SAMPLE_RATE = 16_000;
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const FFT_SIZE = 2048;
-const STOP_TAIL_CAPTURE_MS = 180;
+const STOP_TAIL_CAPTURE_MS = 400;
 
 declare global {
   interface Window {
@@ -57,8 +57,8 @@ async function startRecording(sessionId: string): Promise<void> {
       audio: {
         ...(micDeviceId ? { deviceId: micDeviceId } : {}),
         channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
+        echoCancellation: true,
+        noiseSuppression: true,
         autoGainControl: false
       }
     });
@@ -120,9 +120,10 @@ async function stopRecording(sessionId: string): Promise<void> {
     };
 
     currentRecorder.addEventListener("stop", () => {
+      // Small delay to let any pending ondataavailable from stop() fire first
       setTimeout(() => {
         void finalize();
-      }, 0);
+      }, 50);
     }, { once: true });
 
     if (currentRecorder.state !== "inactive") {

@@ -23,7 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   launchAtLogin: false,
   showInDock: true,
   minClipDuration: 0.5,
-  silenceThreshold: 0.01,
+  silenceThreshold: 0.005,
   capsuleBorderWidth: 1,
   capsuleBarRadius: 2,
   capsuleCornerRadius: 20,
@@ -44,7 +44,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const HISTORY_LIMIT = 2000;
-export const SUCCESS_RESET_MS = 900;
+export const SUCCESS_RESET_MS = 600;
 export const ERROR_RESET_MS = 1_800;
 export const HOTKEY_DOUBLE_PRESS_WINDOW_MS = 350;
 export const APP_DATA_DIR = ".claude_vaani";

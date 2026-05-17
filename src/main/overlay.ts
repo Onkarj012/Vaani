@@ -14,7 +14,7 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 const _dir = dirname(fileURLToPath(import.meta.url));
 const logPath = join(tmpdir(), "claude-vaani-startup.log");
 
-const CAPSULE_BOTTOM_MARGIN = 24;
+const CAPSULE_BOTTOM_MARGIN = 16;
 // Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)
 const PILL_W = 120;
 const PILL_H = 52;
@@ -91,7 +91,14 @@ export class OverlayController {
     if (this.promptActive) return;
     if (this.window && !this.window.isDestroyed()) {
       this.tryUpdateMode("idle");
-      this.window.hide();
+      // Delay window.hide() to let the React exit animation complete
+      // (spring transition ~200ms). Immediate hide causes visual jump.
+      const w = this.window;
+      setTimeout(() => {
+        if (w && !w.isDestroyed() && this.window === w) {
+          w.hide();
+        }
+      }, 250);
     }
     this.pendingMode = null;
     this.pendingBars = null;
@@ -417,9 +424,11 @@ export class OverlayController {
 
   private async createWindow(): Promise<void> {
     log("overlay:create");
-    const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
-    const windowX = Math.round(x + width  / 2 - PILL_W / 2);
-    const windowY = Math.round(y + height - PILL_H - CAPSULE_BOTTOM_MARGIN);
+    // Use cursor display (same as presentWindow) to avoid position mismatch.
+    // createWindow sets initial bounds that match where the capsule will appear.
+    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+    const windowX = Math.round(area.x + area.width / 2 - PILL_W / 2);
+    const windowY = Math.round(area.y + area.height - PILL_H - CAPSULE_BOTTOM_MARGIN);
 
     const win = new BrowserWindow({
       width:  PILL_W,

@@ -163,7 +163,7 @@ export class HotkeyManager {
       return;
     }
 
-    // Simple toggle mode: each press starts recording
+    // Toggle mode: press to start, release to stop (with double-press window for very quick taps)
     if (mode === "toggle") {
       if (this.pendingReleaseTimer) {
         this.clearPendingRelease();

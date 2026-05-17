@@ -170,4 +170,12 @@ export function registerIpcHandlers(opts: {
       type: s.type,
     }));
   });
+
+  // Capsule overlay: open last history entry for editing
+  ipcMain.on("capsule:open-last-entry", async () => {
+    const latest = await history.getLatest();
+    if (latest) {
+      dictation.navigateToHistoryEntry(latest.id);
+    }
+  });
 }

@@ -63,6 +63,7 @@ export class DictationService {
   private releaseRequestedDuringStart = false;
   private readonly recorder: RecorderCommands | null;
   private pasteLatestInProgress = false;
+  private lastInjectedText: string | null = null;
 
   constructor(
     private readonly mainWindow: BrowserWindow | null,
@@ -91,6 +92,23 @@ export class DictationService {
     }
 
     this.clearTimers();
+
+    // Before starting a new dictation, check if the user manually edited
+    // the last injected text in the target app (e.g. fixed a typo in their
+    // browser). If so, detect word diffs and prompt to add to dictionary.
+    if (this.lastInjectedText && this.activeTarget) {
+      try {
+        const currentValue = nativeBridge.getFocusedValue?.();
+        if (currentValue && currentValue !== this.lastInjectedText) {
+          const suggestions = detectDictionarySuggestions(this.lastInjectedText, currentValue);
+          if (suggestions.length > 0) {
+            void this.showDictionarySuggestions(suggestions);
+          }
+        }
+      } catch { /* best-effort */ }
+    }
+    this.lastInjectedText = null;
+
     const sessionId = this.createSessionId();
     this.activeSessionId = sessionId;
     this.activeTarget = this.appDetector.getContext();
@@ -180,12 +198,15 @@ export class DictationService {
     const settings = this.settings.get();
     const trimmedClip = trimSilence(payload.clip, settings.silenceThreshold);
 
+    console.log(`[vaani] submitAudioClip: raw=${payload.clip.durationSeconds.toFixed(2)}s, trimmed=${trimmedClip.durationSeconds.toFixed(2)}s, minClip=${settings.minClipDuration}s`);
+
     // Save recording to disk if enabled
     if (settings.saveRecordings) {
       this.saveRecordingToDisk(clippedCopy(payload.clip));
     }
 
     if (!isValidClip(trimmedClip, settings.minClipDuration)) {
+      console.log(`[vaani] submitAudioClip: clip rejected (too short or empty)`);
       this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.");
       return;
     }
@@ -251,8 +272,9 @@ export class DictationService {
         await this.history.append({ ...entryBase, injectionStatus: "injected", injectionMethod: injection.method });
         this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor");
 
-        // Fire dictionary/snippet prompts after injection completes (non-blocking)
-        this.detectAndPrompt(transcription.rawText, cleanedText);
+        // Remember injected text so the next dictation can detect if the user
+        // manually corrected typos in the target app before dictating again.
+        this.lastInjectedText = cleanedText;
       } else {
         await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
         this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history");
@@ -347,39 +369,6 @@ export class DictationService {
     this.mainWindow?.show();
     this.mainWindow?.focus();
     this.mainWindow?.webContents.send(IpcChannel.Navigation, { route });
-  }
-
-  private detectAndPrompt(rawText: string, cleanedText: string): void {
-    // Dictionary suggestions: detect word replacements
-    try {
-      const suggestions = detectDictionarySuggestions(rawText, cleanedText);
-      if (suggestions.length > 0) {
-        void this.showDictionarySuggestions(suggestions);
-      }
-    } catch { /* best-effort */ }
-
-    // Snippet detection: check for slash-commands in raw text
-    try {
-      const snippetMatch = rawText.match(/\/(\w[\w-]*)/);
-      if (snippetMatch?.[1]) {
-        const trigger = snippetMatch[1];
-        const settings = this.settings.get();
-        const existingSnippets = settings.snippets ?? [];
-        const isNew = !existingSnippets.some(s => s.trigger.toLowerCase() === trigger.toLowerCase());
-        if (isNew) {
-          const accepted = new Promise<boolean>((resolve) => {
-            this.overlay.showSnippetPrompt(trigger, resolve);
-          });
-          void accepted.then((yes) => {
-            if (yes) {
-              const snippetContent = cleanedText.replace(new RegExp(`/?${trigger}\\s*`, 'i'), '').trim();
-              const current = settings.snippets ?? [];
-              void this.settings.update({ snippets: [...current, { trigger, content: snippetContent }] });
-            }
-          });
-        }
-      }
-    } catch { /* best-effort */ }
   }
 
   private saveRecordingToDisk(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): void {

@@ -1,13 +1,30 @@
 import type { AudioClip } from "@shared/types";
 
 const LEADING_PAD_FRAMES = 12;
-const TRAILING_PAD_FRAMES = 35;
+const TRAILING_PAD_FRAMES = 50;
 
 export function trimSilence(clip: AudioClip, threshold: number): AudioClip {
-  const startIndex = clip.rmsFrames.findIndex(v => v >= threshold);
-  const endIndex = clip.rmsFrames.findLastIndex(v => v >= threshold);
+  const maxRms = clip.rmsFrames.length > 0 ? Math.max(...clip.rmsFrames) : 0;
+  const avgRms = clip.rmsFrames.length > 0 ? clip.rmsFrames.reduce((a, b) => a + b, 0) / clip.rmsFrames.length : 0;
+
+  let effectiveThreshold = threshold;
+  let startIndex = clip.rmsFrames.findIndex(v => v >= effectiveThreshold);
+  let endIndex = clip.rmsFrames.findLastIndex(v => v >= effectiveThreshold);
+
+  // If no frames pass the threshold but there IS audio data, use adaptive threshold
+  // This handles quiet microphones or low-gain audio
+  if ((startIndex === -1 || endIndex === -1) && maxRms > 0.001 && clip.pcmData.length > 0) {
+    // Use 30% of max RMS as threshold, with a floor of 0.002
+    effectiveThreshold = Math.max(0.002, maxRms * 0.3);
+    startIndex = clip.rmsFrames.findIndex(v => v >= effectiveThreshold);
+    endIndex = clip.rmsFrames.findLastIndex(v => v >= effectiveThreshold);
+    console.log(`[vaani:vad] Adaptive threshold: ${effectiveThreshold.toFixed(4)} (original ${threshold.toFixed(4)} too high)`);
+  }
+
+  console.log(`[vaani:vad] trimSilence: threshold=${effectiveThreshold.toFixed(4)}, maxRms=${maxRms.toFixed(4)}, avgRms=${avgRms.toFixed(4)}, frames=${clip.rmsFrames.length}, startIdx=${startIndex}, endIdx=${endIndex}`);
 
   if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    console.log(`[vaani:vad] ALL frames below threshold! Clip treated as silence.`);
     return { ...clip, pcmData: [], durationSeconds: 0, rmsFrames: [] };
   }
 

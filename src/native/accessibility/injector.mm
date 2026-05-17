@@ -510,6 +510,28 @@ Napi::Value PrepareRecordingInput(const Napi::CallbackInfo& info) {
     return env.Null();
   }
 
+  // Only switch to built-in mic for Bluetooth devices. Bluetooth SCO forces
+  // both input and output to 8–16 kHz when the mic is active, so switching to
+  // the built-in mic keeps the headphone output in high-quality A2DP mode.
+  // For wired/USB audio adapters, switching the system-wide default input
+  // broadcasts a CoreAudio notification that can cause media players to
+  // re-route their output back to the built-in speakers, making the mic pick
+  // up the speaker audio — which is exactly the background-noise bug.
+  UInt32 transportType = 0;
+  UInt32 transportSize = sizeof(transportType);
+  AudioObjectPropertyAddress transportAddress = {
+      kAudioDevicePropertyTransportType,
+      kAudioObjectPropertyScopeGlobal,
+      kAudioObjectPropertyElementMain};
+  if (AudioObjectGetPropertyData(currentDevice, &transportAddress, 0, nullptr, &transportSize, &transportType) != noErr) {
+    return env.Null();
+  }
+  bool isBluetooth = (transportType == kAudioDeviceTransportTypeBluetooth ||
+                      transportType == kAudioDeviceTransportTypeBluetoothLE);
+  if (!isBluetooth) {
+    return env.Null();
+  }
+
   if (!SetDefaultInputDeviceID(builtInDevice)) {
     return env.Null();
   }

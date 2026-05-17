@@ -45,9 +45,16 @@ export const GroqSttProvider: TranscriptionProvider = {
   models: [{ id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" }],
 
   async transcribe(clip, options): Promise<TranscriptionResult> {
-    if (!options.apiKey) throw new Error("Groq API key not configured.");
+    console.log(`[vaani:groq] transcribe called: apiKey=${options.apiKey ? `${options.apiKey.slice(0, 8)}...` : "MISSING"}, clipDuration=${clip.durationSeconds.toFixed(2)}s, samples=${clip.pcmData.length}`);
+
+    if (!options.apiKey) {
+      console.error("[vaani:groq] No API key provided!");
+      throw new Error("Groq API key not configured. Go to Settings → API & Providers and enter your Groq API key.");
+    }
 
     const wavBuffer = createWavBuffer(clip);
+    console.log(`[vaani:groq] WAV buffer created: ${wavBuffer.length} bytes`);
+
     const arrayBuffer = wavBuffer.buffer.slice(wavBuffer.byteOffset, wavBuffer.byteOffset + wavBuffer.byteLength) as ArrayBuffer;
     const file = new File([arrayBuffer], "recording.wav", { type: "audio/wav" });
 
@@ -60,6 +67,7 @@ export const GroqSttProvider: TranscriptionProvider = {
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
+        console.log(`[vaani:groq] Attempt ${attempt + 1}/${MAX_RETRIES}: calling Groq API...`);
         const groq = new Groq({ apiKey: options.apiKey });
         const response = await groq.audio.transcriptions.create({
           file,
@@ -70,6 +78,8 @@ export const GroqSttProvider: TranscriptionProvider = {
         });
 
         const rawText = (response.text ?? "").trim();
+        console.log(`[vaani:groq] Success! Got ${rawText.length} chars: "${rawText.slice(0, 50)}${rawText.length > 50 ? '...' : ''}"`);
+
         if (!rawText) throw new Error("No speech detected in the recording.");
 
         return {
@@ -79,6 +89,7 @@ export const GroqSttProvider: TranscriptionProvider = {
         };
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        console.error(`[vaani:groq] Attempt ${attempt + 1} failed:`, lastError.message);
         if (attempt < MAX_RETRIES - 1) await delay(RETRY_DELAY);
       }
     }

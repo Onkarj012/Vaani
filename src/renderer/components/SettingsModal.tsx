@@ -76,9 +76,9 @@ const languages = [
 ]
 
 const dictationModes = [
-  { id: 'toggle', label: 'Toggle', description: 'Press once to start, once to stop' },
-  { id: 'push-to-talk', label: 'Push to Talk', description: 'Hold to record, release to stop' },
-  { id: 'toggle-double', label: 'Double Press', description: 'Double-press to toggle continuous recording' },
+  { id: 'toggle', label: 'Toggle', description: 'Hold to record; release stops (default)' },
+  { id: 'push-to-talk', label: 'Push to Talk', description: 'Hold to record, release stops immediately' },
+  { id: 'toggle-double', label: 'Smart Toggle', description: 'Hold for push-to-talk; double-press to lock recording on' },
 ]
 
 const injectionModes = [

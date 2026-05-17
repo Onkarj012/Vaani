@@ -394,7 +394,13 @@ async function bootstrap(): Promise<void> {
   setTimeout(() => showMainWindow(), 100);
   await recorderController.init();
   setTimeout(() => hotkeyManager?.register(), 300);
-  setTimeout(() => overlayController?.prewarm(), 1500);
+  setTimeout(() => {
+    overlayController?.prewarm();
+    // Showing a panel-type BrowserWindow (the overlay) can cause macOS to flip
+    // the app to "accessory" activation policy, which hides the dock icon.
+    // Re-sync after a short delay to restore it while the main window is open.
+    setTimeout(() => syncAppPresentation(), 300);
+  }, 1500);
 
   // Auto-updater (only in packaged builds)
   if (app.isPackaged) {

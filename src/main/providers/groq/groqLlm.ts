@@ -15,7 +15,16 @@ const FORMATTING_PROMPT = [
   "3. Add periods, commas, question marks based on speech rhythm.",
   "4. Capitalize first word of each sentence.",
   "",
-  "LISTS — If the speaker lists 3+ items separated by commas or pauses:",
+  "NUMBERED LISTS — If the speaker uses number cues (one/two/three, first/second/third, number one/two, 1/2/3) before each item:",
+  "- Format as a numbered list: '1.' '2.' '3.' — one item per line",
+  "- Remove the spoken number cue word and replace with the digit marker",
+  "  Example input: 'one change the provider two for example double click three and all that'",
+  "  Example output:",
+  "  1. Change the provider.",
+  "  2. For example, double click.",
+  "  3. And all that.",
+  "",
+  "BULLET LISTS — If the speaker lists 3+ items separated by commas or pauses (no number cues):",
   "- Put the intro sentence on its own line ending with a colon",
   "- Put each item on its own line with a dash prefix",
   "  Example input: 'I need to buy apples bananas and oranges'",
@@ -23,7 +32,6 @@ const FORMATTING_PROMPT = [
   "  - Apples",
   "  - Bananas",
   "  - Oranges.'",
-  "- If the speaker says 'number one, number two' etc, use '1.' '2.'",
   "",
   "Output only the formatted text — no commentary, no tags."
 ].join("\n");
@@ -36,7 +44,10 @@ const STRICT_FORMATTING_PROMPT = [
   "Output only the formatted text."
 ].join("\n");
 
-const SPOKEN_CUE_STRIP_RE = /\b(bullet\s*point|new\s+paragraph|new\s+line|next\s+line|number\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)|no\.\s*\d+|point\s+\d+|item\s+\d+|first|second|third|fourth|fifth)\b/gi;
+// Matches spoken list cues that the LLM converts to structured markers (1., 2., -).
+// The bare number words (one–ten) are included so that "one do X, two do Y"
+// doesn't cause false rejection when the LLM converts them to "1. Do X\n2. Do Y".
+const SPOKEN_CUE_STRIP_RE = /\b(bullet\s*point|new\s+paragraph|new\s+line|next\s+line|number\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)|no\.\s*\d+|point\s+\d+|item\s+\d+|first|second|third|fourth|fifth|one|two|three|four|five|six|seven|eight|nine|ten)\b/gi;
 
 function stripSpokenCues(text: string): string {
   return text.replace(SPOKEN_CUE_STRIP_RE, "").replace(/\s{2,}/g, " ").trim();
@@ -121,7 +132,7 @@ function hasOrderedTokenPreservation(rawText: string, formattedText: string): bo
     }
     if (formattedIndex < formattedTokens.length) { matched += 1; formattedIndex += 1; }
   }
-  return matched / rawTokens.length >= 0.82;
+  return matched / rawTokens.length >= 0.78;
 }
 
 async function requestFormatting(apiKey: string, text: string, prompt: string, model: string): Promise<string | null> {

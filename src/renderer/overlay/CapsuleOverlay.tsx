@@ -4,7 +4,7 @@ import { Check, Loader2, BookOpen, Layers, X, ChevronRight } from 'lucide-react'
 
 const BAR_COUNT = 9
 
-declare global {
+  declare global {
   interface Window {
     capsuleBridge: {
       onMode: (cb: (mode: string) => void) => void
@@ -16,6 +16,7 @@ declare global {
       sendReady: () => void
       sendSnippetResp: (accepted: boolean) => void
       sendDictResp: (accepted: boolean) => void
+      sendOpenLastEntry: () => void
       cleanup: () => void
     }
   }
@@ -268,7 +269,7 @@ export default function CapsuleOverlay() {
           key="prompt"
           initial={{ opacity: 0, scale: 0.92, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.94, y: 6 }}
+          exit={{ opacity: 0, scale: 0.94 }}
           transition={{ type: 'spring', stiffness: 300, damping: 28 }}
           style={{ ...PROMPT_STYLE, borderRadius: 16, width: 340 }}
         >
