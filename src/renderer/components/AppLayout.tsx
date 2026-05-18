@@ -15,7 +15,9 @@ import {
   BarChart3,
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
+import { useVaaniUi } from '../context/vaani-ui'
 import SettingsModal from './SettingsModal'
+import OnboardingModal from './OnboardingModal'
 import devanagariDarkUrl from '../../../assets/iconset/devanagari/devanagari_dark.svg?url'
 import devanagariLightUrl from '../../../assets/iconset/devanagari/devanagari_light.svg?url'
 
@@ -148,6 +150,7 @@ function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: ()
 export default function AppLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const { settings, settingsLoading, updateSettings } = useVaaniUi()
 
   return (
     <div className="min-h-screen bg-vaani-gray-100 dark:bg-vaani-black flex relative">
@@ -173,6 +176,13 @@ export default function AppLayout() {
       </div>
 
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      {!settingsLoading && !settings.onboardingCompleted && (
+        <OnboardingModal
+          settings={settings}
+          updateSettings={updateSettings}
+          onComplete={() => updateSettings({ onboardingCompleted: true })}
+        />
+      )}
     </div>
   )
 }

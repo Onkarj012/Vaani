@@ -27,9 +27,15 @@ const api: VaaniAPI = {
   updateSettings: (patch) => ipcRenderer.invoke(IpcChannel.UpdateSettings, patch),
   setHotkeyCapture: (active) => ipcRenderer.invoke(IpcChannel.SetHotkeyCapture, active),
   showDictionaryPrompt: (suggestions: DictionarySuggestion[]) => ipcRenderer.invoke(IpcChannel.ShowDictionaryPrompt, suggestions),
+  getPermissionStatus: () => ipcRenderer.invoke(IpcChannel.GetPermissionStatus),
+  requestMicrophonePermission: () => ipcRenderer.invoke(IpcChannel.RequestMicrophonePermission),
+  requestAccessibilityPermission: () => ipcRenderer.invoke(IpcChannel.RequestAccessibilityPermission),
+  openPermissionSettings: (permission) => ipcRenderer.invoke(IpcChannel.OpenPermissionSettings, permission),
   onNavigate: (cb) => subscribe<{ route: string }>(IpcChannel.Navigation, ({ route }) => cb(route)),
   reportRendererReady: () => ipcRenderer.send(IpcChannel.RendererReady),
-  reportRendererError: (payload) => ipcRenderer.send(IpcChannel.RendererError, payload)
+  reportRendererError: (payload) => ipcRenderer.send(IpcChannel.RendererError, payload),
+  testApiKey: (providerId, apiKey) => ipcRenderer.invoke(IpcChannel.TestApiKey, providerId, apiKey),
+  getProviderStatus: () => ipcRenderer.invoke(IpcChannel.GetProviderStatus),
 };
 
 contextBridge.exposeInMainWorld("vaani", api);

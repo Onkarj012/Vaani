@@ -14,7 +14,7 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 const _dir = dirname(fileURLToPath(import.meta.url));
 const logPath = join(tmpdir(), "claude-vaani-startup.log");
 
-const CAPSULE_BOTTOM_MARGIN = 24;
+const CAPSULE_BOTTOM_MARGIN = 16;
 // Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)
 const PILL_W = 120;
 const PILL_H = 52;
@@ -34,6 +34,7 @@ export class OverlayController {
   private pendingBars: number[] | null = null;
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
+  private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private accentColor = "#FF006E";
   private onPresentCallback: (() => void) | null = null;
 
@@ -74,17 +75,14 @@ export class OverlayController {
   }
 
   show(): void {
+    this.clearHideTimer();
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     if (this.window && !this.window.isDestroyed()) {
-      if (this.window.webContents.isCrashed()) {
-        this.recoverWindow("crashed");
-      } else if (!this.loadReady && !this.window.webContents.isLoading()) {
-        this.recoverWindow("not-ready-not-loading");
-      }
       log("overlay:show-existing", { loadReady: this.loadReady, visible: this.window.isVisible() });
       void this.presentWindow(frontmostBefore);
       return;
     }
+    this.loadReady = false;
     void this.ensureWindow().then(() => {
       log("overlay:show-created", { loadReady: this.loadReady });
       void this.presentWindow(frontmostBefore);
@@ -95,7 +93,16 @@ export class OverlayController {
     if (this.promptActive) return;
     if (this.window && !this.window.isDestroyed()) {
       this.tryUpdateMode("idle");
-      this.window.hide();
+      // Delay window.hide() to let the React exit animation complete
+      // (spring transition ~200ms). Immediate hide causes visual jump.
+      this.clearHideTimer();
+      const w = this.window;
+      this.hideTimer = setTimeout(() => {
+        if (w && !w.isDestroyed() && this.window === w) {
+          w.hide();
+        }
+        this.hideTimer = null;
+      }, 250);
     }
     this.pendingMode = null;
     this.pendingBars = null;
@@ -217,6 +224,7 @@ export class OverlayController {
   }
 
   destroy(): void {
+    this.clearHideTimer();
     this.clearPromptDismissTimer();
     this.promptActive = false;
     this.clearLoadTimeout();
@@ -260,6 +268,13 @@ export class OverlayController {
     this.window.setFocusable(false);
     void this.resizeWindow(false);
     setTimeout(() => this.hide(), 400);
+  }
+
+  private clearHideTimer(): void {
+    if (this.hideTimer) {
+      clearTimeout(this.hideTimer);
+      this.hideTimer = null;
+    }
   }
 
   private clearPromptDismissTimer(): void {
@@ -387,11 +402,30 @@ export class OverlayController {
       height: targetH
     });
     this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    this.window.setAlwaysOnTop(true, "floating");
+    this.window.setAlwaysOnTop(true, "screen-saver");
     this.window.setIgnoreMouseEvents(!this.promptActive, { forward: true });
 
     try {
       this.window.showInactive();
+      this.window.moveTop();
+      // On macOS, showInactive can fail to bring the window above other apps'
+      // windows. moveTop() forces it to the top of the z-order. A second
+      // moveTop after a microtask ensures it stays there.
+      setTimeout(() => {
+        if (this.window && !this.window.isDestroyed()) {
+          this.window.moveTop();
+        }
+      }, 100);
+      // Visibility fallback: if showInactive didn't make the window visible,
+      // try again after a short delay. This handles the intermittent capsule
+      // non-appearance (window focus/visibility race on macOS).
+      setTimeout(() => {
+        if (this.window && !this.window.isDestroyed() && !this.window.isVisible()) {
+          log("overlay:show-retry", { visible: this.window.isVisible() });
+          try { this.window.showInactive(); } catch { /* best effort */ }
+          try { this.window.moveTop(); } catch { /* best effort */ }
+        }
+      }, 200);
       // Showing the overlay can cause macOS to hide the main app's dock icon
       // (via internal activation-policy changes). Notify the caller to restore it.
       this.onPresentCallback?.();
@@ -412,9 +446,11 @@ export class OverlayController {
 
   private async createWindow(): Promise<void> {
     log("overlay:create");
-    const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
-    const windowX = Math.round(x + width  / 2 - PILL_W / 2);
-    const windowY = Math.round(y + height - PILL_H - CAPSULE_BOTTOM_MARGIN);
+    // Use cursor display (same as presentWindow) to avoid position mismatch.
+    // createWindow sets initial bounds that match where the capsule will appear.
+    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+    const windowX = Math.round(area.x + area.width / 2 - PILL_W / 2);
+    const windowY = Math.round(area.y + area.height - PILL_H - CAPSULE_BOTTOM_MARGIN);
 
     const win = new BrowserWindow({
       width:  PILL_W,
@@ -440,7 +476,7 @@ export class OverlayController {
     this.window = win;
 
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    win.setAlwaysOnTop(true, "floating");
+    win.setAlwaysOnTop(true, "screen-saver");
     win.setIgnoreMouseEvents(true, { forward: true });
 
     if (app.dock) {
@@ -514,16 +550,19 @@ export class OverlayController {
       log("overlay:console", { level, message: message.slice(0, 300), line, sourceId });
     });
 
-    // Use main window's Vite server with overlay mode param to share React instance
-    if (typeof MAIN_WINDOW_VITE_DEV_SERVER_URL !== "undefined") {
-      const overlayUrl = `${MAIN_WINDOW_VITE_DEV_SERVER_URL}?mode=overlay`;
+    if (typeof OVERLAY_WINDOW_VITE_DEV_SERVER_URL !== "undefined") {
+      const overlayUrl = OVERLAY_WINDOW_VITE_DEV_SERVER_URL;
       log("overlay:loading-url", { url: overlayUrl });
       await win.loadURL(overlayUrl);
     } else {
-      const filePath = join(_dir, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+      const filePath = join(_dir, `../renderer/${OVERLAY_WINDOW_VITE_NAME}/index.html`);
       log("overlay:loading-file", { path: filePath });
       await win.loadFile(filePath);
     }
+
+    // Show immediately so that when React mounts and sets mode, the pill
+    // is already visible. transparent background means empty window is invisible.
+    win.showInactive();
   }
 }
 

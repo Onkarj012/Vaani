@@ -50,15 +50,13 @@ export class AccessibilityTextInjector {
         return { success: false, reason: "activation_failed" };
       }
 
-      // Use paste-fallback for multiline text to preserve structural formatting
-      // AX is notoriously flaky with newlines in non-native apps.
+      // Use paste-fallback for multiline text — AX setValue flattens formatting
       if (text.includes("\n") || text.includes("\r")) {
         return { success: false, reason: "insertion_failed" };
       }
 
-      // Protect existing multiline content in the field.
-      // AX string read/write flattens rich text and loses line breaks.
-      // When the field already has formatting, use clipboard to avoid destroying it.
+      // Protect existing multiline content in the field — clipboard paste
+      // preserves structure while AX would destroy it.
       if (nativeBridge.getFocusedValue) {
         const existingValue = nativeBridge.getFocusedValue();
         if (existingValue && (existingValue.includes("\n") || existingValue.includes("\r"))) {
@@ -72,10 +70,15 @@ export class AccessibilityTextInjector {
       }
 
       if (typeof result === "boolean") {
-        return result ? { success: true, method: "ax" } : { success: false, reason: "insertion_failed" };
+        if (result) {
+          moveCursorToEndOfText(text);
+          return { success: true, method: "ax" };
+        }
+        return { success: false, reason: "insertion_failed" };
       }
 
       if (result.success) {
+        moveCursorToEndOfText(text);
         return { success: true, method: "ax" };
       }
 
@@ -90,8 +93,23 @@ function normalizeFailureReason(reason: string | undefined): InjectionFailureRea
   if (reason === "permission_missing" || reason === "no_editable_target") {
     return reason;
   }
-
   return "insertion_failed";
+}
+
+function moveCursorToEndOfText(text: string): void {
+  if (!nativeBridge.setFocusedSelection || !nativeBridge.getFocusedValue) return;
+  try {
+    const fullValue = nativeBridge.getFocusedValue();
+    if (fullValue != null) {
+      const endPos = fullValue.length;
+      nativeBridge.setFocusedSelection(endPos, 0);
+    } else {
+      // Fallback: just move to the end of what we inserted
+      nativeBridge.setFocusedSelection(text.length, 0);
+    }
+  } catch {
+    // Best-effort cursor positioning
+  }
 }
 
 function delay(ms: number): Promise<void> {

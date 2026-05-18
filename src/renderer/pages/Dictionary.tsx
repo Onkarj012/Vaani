@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
   Trash2,
-  Search,
   X,
   Type,
   Replace,
@@ -139,13 +138,12 @@ export default function Dictionary() {
 
       <motion.div variants={itemVariants}>
         <div className="relative">
-          <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-vaani-gray-400" />
           <input
             type="text"
             placeholder="Search rules..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-11 pr-4 py-3 bg-white dark:bg-vaani-gray-900/80 backdrop-blur-sm border border-vaani-gray-200 dark:border-vaani-gray-800 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
+            className="w-full pl-4 pr-4 py-3 bg-white dark:bg-vaani-gray-900/80 backdrop-blur-sm border border-vaani-gray-200 dark:border-vaani-gray-800 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
           />
         </div>
       </motion.div>

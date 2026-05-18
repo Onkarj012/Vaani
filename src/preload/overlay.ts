@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   sendReady: () => ipcRenderer.send('capsule:ready'),
   sendSnippetResp: (accepted: boolean) => ipcRenderer.send('capsule:snippet-response', { accepted }),
   sendDictResp: (accepted: boolean) => ipcRenderer.send('capsule:dictionary-response', { accepted }),
+  sendOpenLastEntry: () => ipcRenderer.send('capsule:open-last-entry'),
   cleanup: () => {
     for (const ch of OVERLAY_CHANNELS) ipcRenderer.removeAllListeners(ch)
   },

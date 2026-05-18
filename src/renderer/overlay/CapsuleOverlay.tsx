@@ -4,7 +4,7 @@ import { Check, Loader2, BookOpen, Layers, X, ChevronRight } from 'lucide-react'
 
 const BAR_COUNT = 9
 
-declare global {
+  declare global {
   interface Window {
     capsuleBridge: {
       onMode: (cb: (mode: string) => void) => void
@@ -16,6 +16,7 @@ declare global {
       sendReady: () => void
       sendSnippetResp: (accepted: boolean) => void
       sendDictResp: (accepted: boolean) => void
+      sendOpenLastEntry: () => void
       cleanup: () => void
     }
   }
@@ -118,7 +119,11 @@ export default function CapsuleOverlay() {
 
     bridge.onHideExpanded(() => setMode('hidden'))
 
-    // Send ready signal multiple times to handle HMR timing issues
+    // Send ready signal multiple times to handle HMR timing issues.
+    // After sending, the main process may immediately send pending mode
+    // updates that race with our listener registration. The triple send
+    // with staggered retries ensures the main process receives at least
+    // one ready signal after all listeners are wired.
     bridge.sendReady()
     setTimeout(() => bridge.sendReady(), 50)
     setTimeout(() => bridge.sendReady(), 150)
@@ -264,7 +269,7 @@ export default function CapsuleOverlay() {
           key="prompt"
           initial={{ opacity: 0, scale: 0.92, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.94, y: 6 }}
+          exit={{ opacity: 0, scale: 0.94 }}
           transition={{ type: 'spring', stiffness: 300, damping: 28 }}
           style={{ ...PROMPT_STYLE, borderRadius: 16, width: 340 }}
         >

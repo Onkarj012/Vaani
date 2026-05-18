@@ -1,107 +1,116 @@
-import Groq from "groq-sdk";
 import type { Settings, AudioClip, TranscriptionResult } from "@shared/types";
-import { formatTranscript } from "./formatting";
-
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 2000;
-// Whisper's `prompt` parameter is treated as a continuation hint / vocabulary
-// sample — NOT as instructions. Putting instructive sentences here causes
-// Whisper to hallucinate, paraphrase, or drop content. Keep it short and
-// stylistic so the model just biases towards the right vocabulary/casing.
-const TRANSCRIPTION_PROMPT: Record<string, string> = {
-  default: "",
-  hi: "नमस्ते। यह हिंदी में लिखा गया प्रतिलेख है।",
-  hinglish: "Namaste. Yeh Hinglish mein likha gaya transcript hai."
-};
+import { getProviderRegistry } from "./providers";
+import type { TranscriptionProvider } from "./providers/types";
+import { CredentialsStore } from "./store/credentials";
+import { debug, warn } from "@main/log";
 
 export class TranscriptionService {
-  constructor(private readonly settingsProvider: () => Settings) {}
+  constructor(
+    private readonly settingsProvider: () => Settings,
+    private readonly credentials?: CredentialsStore
+  ) {}
 
   async transcribe(clip: AudioClip): Promise<TranscriptionResult> {
     const settings = this.settingsProvider();
+    const registry = getProviderRegistry();
+    const primaryId = settings.transcriptionProvider || "groq";
 
-    if (!settings.groqApiKey) {
-      throw new Error("Groq API key not configured. Add it in Settings.");
+    const chain = this.buildSttChain(settings, primaryId, registry);
+    if (chain.length === 0) {
+      throw new Error(`Transcription provider "${primaryId}" is not available or has no API key configured. Check Settings → API & Providers.`);
     }
 
-    const wavBuffer = createWavBuffer(clip);
-    const arrayBuffer = wavBuffer.buffer.slice(wavBuffer.byteOffset, wavBuffer.byteOffset + wavBuffer.byteLength) as ArrayBuffer;
-    const file = new File([arrayBuffer], "recording.wav", { type: "audio/wav" });
+    debug("transcription", `Chain: ${chain.map(c => c.id).join(" → ")}`);
 
-    let lastError: Error | null = null;
-    
-    // Determine language and prompt
-    const isHinglish = settings.language === "hinglish";
-    const languageCode = isHinglish ? undefined : settings.language === "auto" ? undefined : settings.language;
-    const whisperLang = settings.language === "hinglish" ? "hi" : languageCode; // Hinglish uses Hindi model
-    
-    const prompt = TRANSCRIPTION_PROMPT[settings.language as keyof typeof TRANSCRIPTION_PROMPT] || TRANSCRIPTION_PROMPT.default;
-
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    let lastError: Error = new Error("All transcription providers failed.");
+    for (const { id, provider, apiKey } of chain) {
       try {
-        const groq = new Groq({ apiKey: settings.groqApiKey });
-        
-        // Whisper prompt: vocabulary/style hint only. We append user
-        // dictionary terms (just the written forms) as a comma-separated
-        // sample so Whisper biases toward correct spelling, without
-        // instructing it to do anything.
-        const dictionaryWritten = (settings.customCorrections ?? [])
-          .slice(0, 20)
-          .map(c => c.written)
-          .filter(Boolean)
-          .join(", ");
-        const enhancedPrompt = [prompt, dictionaryWritten].filter(Boolean).join(" ").trim();
-
-        const response = await groq.audio.transcriptions.create({
-          file,
-          model: "whisper-large-v3-turbo",
-          language: whisperLang,
-          temperature: 0,
-          ...(enhancedPrompt ? { prompt: enhancedPrompt } : {})
-        });
-
-        const rawText = (response.text ?? "").trim();
-        if (!rawText) throw new Error("No speech detected in the recording.");
-        const formattedText = await formatTranscript(settings.groqApiKey, rawText);
-
-        return {
-          rawText,
-          formattedText,
-          language: settings.language === "auto" ? "en" : settings.language
-        };
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        if (attempt < MAX_RETRIES - 1) await delay(RETRY_DELAY);
+        return await provider.transcribe(clip, { apiKey, language: settings.language, temperature: 0 });
+      } catch (error) {
+        if (isAuthError(error)) {
+          throw error;
+        }
+        lastError = error instanceof Error ? error : new Error(String(error));
+        warn("transcription", `Provider "${id}" failed: ${lastError.message}`);
+        if (!settings.failoverEnabled || chain.length === 1) throw lastError;
       }
     }
 
-    throw new Error(`Transcription failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
+    throw lastError;
+  }
+
+  private buildSttChain(
+    settings: Settings,
+    primaryId: string,
+    registry: ReturnType<typeof getProviderRegistry>
+  ): { id: string; provider: TranscriptionProvider; apiKey: string }[] {
+    const chain: { id: string; provider: TranscriptionProvider; apiKey: string }[] = [];
+
+    const tryAdd = (id: string) => {
+      if (chain.some(e => e.id === id)) return;
+      const provider = registry.getTranscription(id);
+      if (!provider) {
+        return;
+      }
+      const apiKey = this.resolveApiKey(settings, id);
+      if (provider.requiresApiKey && !apiKey) {
+        return;
+      }
+      chain.push({ id, provider, apiKey: apiKey ?? "" });
+    };
+
+    tryAdd(primaryId);
+
+    if (settings.failoverEnabled) {
+      for (const fallbackId of ["groq", "openai", "deepgram"]) {
+        if (fallbackId !== primaryId) tryAdd(fallbackId);
+      }
+    }
+
+    return chain;
+  }
+
+  async formatTranscript(rawText: string): Promise<string> {
+    const settings = this.settingsProvider();
+    const registry = getProviderRegistry();
+
+    const llmId = settings.formattingProvider || "groq-llm";
+    const provider = registry.getFormatting(llmId);
+
+    if (!provider) return rawText;
+
+    const apiKey = this.resolveApiKey(settings, llmId);
+    if (provider.requiresApiKey && !apiKey) return rawText;
+
+    try {
+      return await provider.format(rawText, { apiKey: apiKey ?? "", model: settings.formattingModel });
+    } catch {
+      return rawText;
+    }
+  }
+
+  private resolveApiKey(settings: Settings, providerId: string): string | null {
+    if (this.credentials) {
+      const key = this.credentials.get(providerId);
+      if (key) return key;
+    }
+
+    if ((providerId === "groq" || providerId === "groq-llm") && settings.groqApiKey) {
+      return settings.groqApiKey;
+    }
+
+    const pk = settings.providerApiKeys?.find(p => p.providerId === providerId);
+    if (pk?.key) return pk.key;
+
+    return null;
   }
 }
 
-function createWavBuffer(audio: AudioClip): Buffer {
-  const dataSize = audio.pcmData.length * 2;
-  const buf = Buffer.alloc(44 + dataSize);
-  buf.write("RIFF", 0);
-  buf.writeUInt32LE(36 + dataSize, 4);
-  buf.write("WAVE", 8);
-  buf.write("fmt ", 12);
-  buf.writeUInt32LE(16, 16);
-  buf.writeUInt16LE(1, 20);
-  buf.writeUInt16LE(1, 22);
-  buf.writeUInt32LE(audio.sampleRate, 24);
-  buf.writeUInt32LE(audio.sampleRate * 2, 28);
-  buf.writeUInt16LE(2, 32);
-  buf.writeUInt16LE(16, 34);
-  buf.write("data", 36);
-  buf.writeUInt32LE(dataSize, 40);
-  for (let i = 0; i < audio.pcmData.length; i++) {
-    const s = Math.max(-1, Math.min(1, audio.pcmData[i] ?? 0));
-    buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
-  }
-  return buf;
+function isAuthError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return msg.includes("401") || msg.includes("403") || msg.includes("unauthorized") || msg.includes("authentication") || msg.includes("invalid api key") || msg.includes("incorrect api key");
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
-}
+// Re-export for backward compatibility
+export { formatTranscript } from "./formatting";

@@ -19,8 +19,25 @@ export class SettingsStore {
 
   private async load(): Promise<Settings> {
     const stored = await readJsonFile<Partial<Settings>>(this.filePath, {});
-    this.cached = { ...DEFAULT_SETTINGS, ...stored, theme: "aurora" };
+    const migrated = await this.migrateSettings(stored);
+    this.cached = { ...DEFAULT_SETTINGS, ...migrated, theme: "aurora" };
     return this.cached;
+  }
+
+  private async migrateSettings(stored: Partial<Settings>): Promise<Partial<Settings>> {
+    let changed = false;
+    const next = { ...stored };
+
+    // silenceThreshold 0.02 → 0.005 (pre-v1.0.4 users had broken audio)
+    if (next.silenceThreshold !== undefined && next.silenceThreshold > 0.01 && next.silenceThreshold <= 0.025) {
+      next.silenceThreshold = DEFAULT_SETTINGS.silenceThreshold;
+      changed = true;
+    }
+
+    if (changed) {
+      await writeJsonFile(this.filePath, next);
+    }
+    return next;
   }
 
   update(patch: Partial<Settings>): Settings {

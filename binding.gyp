@@ -5,7 +5,8 @@
       "sources": [
         "src/native/accessibility/injector.mm",
         "src/native/accessibility/detector.mm",
-        "src/native/hotkeys/hotkey_monitor.mm"
+        "src/native/hotkeys/hotkey_monitor.mm",
+        "src/native/whisper/whisper_engine.mm"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")"

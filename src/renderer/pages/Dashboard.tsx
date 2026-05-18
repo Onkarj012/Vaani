@@ -8,7 +8,6 @@ import {
   RotateCcw,
   Trash2,
   Zap,
-  TrendingUp,
   Calendar,
   BookOpen,
   Activity,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useVaaniUi } from '../context/vaani-ui'
+import { useMemo } from 'react'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -44,9 +44,23 @@ function StatSkeleton() {
 }
 
 export default function Dashboard() {
-  const { stats, weeklyActivity, historyItems, historyLoading, copyHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry } = useVaaniUi()
+  const { stats, historyEntries, historyItems, historyLoading, copyHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry } = useVaaniUi()
 
-  const maxAmount = Math.max(...weeklyActivity.map((d) => d.words), 1)
+  const appBreakdown = useMemo(() => {
+    const counts = new Map<string, { words: number; sessions: number }>()
+    for (const entry of historyEntries) {
+      const app = entry.appName?.trim() || 'Unknown'
+      const existing = counts.get(app) ?? { words: 0, sessions: 0 }
+      const wordCount = entry.cleanedText?.split(/\s+/).filter(Boolean).length ?? 0
+      counts.set(app, { words: existing.words + wordCount, sessions: existing.sessions + 1 })
+    }
+    return Array.from(counts.entries())
+      .map(([app, data]) => ({ app, ...data }))
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 5)
+  }, [historyEntries])
+
+  const maxAppSessions = Math.max(...appBreakdown.map(a => a.sessions), 1)
 
   const statCards = [
     {
@@ -140,38 +154,45 @@ export default function Dashboard() {
         >
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-lg font-bold text-vaani-black dark:text-white mb-1">Activity</h2>
+              <h2 className="text-lg font-bold text-vaani-black dark:text-white mb-1">Where you dictate</h2>
               <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-                Words dictated over the last 7 days
+                Apps used most with Vaani
               </p>
             </div>
             <div className="flex items-center gap-2 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-              <TrendingUp size={14} className="text-vaani-lime" />
+              <Activity size={14} className="text-vaani-pink" />
               <span className="font-medium text-vaani-black dark:text-white">
-                {stats.wordsToday > 0 ? '+' : ''}{stats.wordsToday.toLocaleString()}
+                {appBreakdown.length} apps
               </span>
             </div>
           </div>
 
-          <div className="flex items-end gap-3 h-48">
-            {weeklyActivity.map((day, index) => (
-              <div key={day.day} className="flex-1 flex flex-col items-center gap-2">
-                <motion.div
-                  initial={{ height: 0 }}
-                  animate={{ height: `${(day.words / maxAmount) * 100}%` }}
-                  transition={{ duration: 0.8, delay: 0.3 + index * 0.1 }}
-                  className="w-full bg-vaani-gray-100 dark:bg-vaani-gray-800 rounded-t-lg relative overflow-hidden group"
-                >
-                  <div
-                    className="absolute bottom-0 left-0 right-0 bg-vaani-pink rounded-t-lg transition-all duration-300 group-hover:bg-vaani-pink/80"
-                    style={{ height: '100%' }}
-                  />
-                </motion.div>
-                <span className="text-xs text-vaani-gray-500 dark:text-vaani-gray-400 font-medium">
-                  {day.day}
-                </span>
-              </div>
-            ))}
+          <div className="space-y-3">
+            {appBreakdown.length === 0 ? (
+              <p className="text-sm text-vaani-gray-400 text-center py-6">
+                Start dictating to see your app usage here
+              </p>
+            ) : (
+              appBreakdown.map((item) => (
+                <div key={item.app} className="flex items-center gap-3">
+                  <span className="w-24 text-xs font-medium text-vaani-gray-600 dark:text-vaani-gray-400 truncate text-right">
+                    {item.app}
+                  </span>
+                  <div className="flex-1 h-5 bg-vaani-gray-100 dark:bg-vaani-gray-800 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(item.sessions / maxAppSessions) * 100}%` }}
+                      transition={{ duration: 0.6, delay: 0.1 }}
+                      className="h-full rounded-full"
+                      style={{ background: 'var(--accent, #FF006E)' }}
+                    />
+                  </div>
+                  <span className="w-10 text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 text-right">
+                    {item.sessions}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </motion.div>
 

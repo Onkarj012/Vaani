@@ -6,6 +6,7 @@ export type DictationStatus = "idle" | "starting" | "recording" | "finalizing" |
 export type DictationCompletionOutcome = "injected" | "saved";
 export type InjectionMethod = "ax" | "clipboard";
 export type InjectionFailureReason = "permission_missing" | "no_editable_target" | "insertion_failed" | "activation_failed";
+export type DictationMode = "toggle" | "push-to-talk" | "toggle-double";
 
 export interface SelectionRange {
   location: number;
@@ -64,16 +65,33 @@ export interface DictationEntry {
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 export interface CustomCorrection {
-  spoken: string;   // what the user says (as transcribed)
-  written: string;  // what should actually be inserted
+  spoken: string;
+  written: string;
 }
 
 export interface Snippet {
-  trigger: string;  // slash command without the leading slash, e.g. "address"
-  content: string;  // text to insert when triggered
+  trigger: string;
+  content: string;
+}
+
+export interface AppProfile {
+  id: string;
+  name: string;
+  appBundleIds: string[];
+  transcriptionProvider?: string;
+  formattingProvider?: string;
+  language?: string;
+  autoSubmit?: boolean;
+  customPrompt?: string;
+}
+
+export interface ProviderApiKey {
+  providerId: string;
+  key: string;
 }
 
 export interface Settings {
+  onboardingCompleted: boolean;
   groqApiKey: string;
   primaryHotkey: string;
   pasteLatestHotkey: string;
@@ -96,6 +114,26 @@ export interface Settings {
   capsuleBarRadius: number;
   capsuleCornerRadius: number;
   capsuleDesign: "dot" | "bar" | "rule" | "pill";
+  // Phase 0: New settings
+  dictationMode: DictationMode;
+  saveRecordings: boolean;
+  recordingsPath: string;
+  // Phase 1: Provider settings
+  transcriptionProvider: string;
+  formattingProvider: string;
+  formattingModel: string;
+  providerApiKeys: ProviderApiKey[];
+  failoverEnabled: boolean;
+  // Phase 2: Local model settings
+  localWhisperModel: string;
+  offlineMode: "auto" | "always-offline" | "always-online";
+}
+
+export type MacOSPermissionState = "not-determined" | "granted" | "denied" | "restricted" | "unknown";
+
+export interface PermissionStatus {
+  microphone: MacOSPermissionState;
+  accessibility: MacOSPermissionState;
 }
 
 // ─── Transcription ───────────────────────────────────────────────────────────
@@ -104,6 +142,20 @@ export interface TranscriptionResult {
   rawText: string;
   formattedText: string;
   language: string | null;
+}
+
+export interface TranscriptionOptions {
+  model?: string;
+  language?: string;
+  prompt?: string;
+  temperature?: number;
+  streaming?: boolean;
+}
+
+export interface FormattingOptions {
+  model?: string;
+  style?: "default" | "strict" | "casual";
+  systemPrompt?: string;
 }
 
 export type InjectionResult =
@@ -140,9 +192,15 @@ export interface VaaniAPI {
   updateSettings: (patch: Partial<Settings>) => Promise<Settings>;
   setHotkeyCapture: (active: boolean) => Promise<void>;
   showDictionaryPrompt: (suggestions: DictionarySuggestion[]) => Promise<void>;
+  getPermissionStatus: () => Promise<PermissionStatus>;
+  requestMicrophonePermission: () => Promise<MacOSPermissionState>;
+  requestAccessibilityPermission: () => Promise<MacOSPermissionState>;
+  openPermissionSettings: (permission: keyof PermissionStatus) => Promise<void>;
   onNavigate: (cb: (route: string) => void) => () => void;
   reportRendererReady: () => void;
   reportRendererError: (payload: { message: string; stack?: string }) => void;
+  testApiKey: (providerId: string, apiKey: string) => Promise<{ valid: boolean; message: string }>;
+  getProviderStatus: () => Promise<{ id: string; name: string; available: boolean; configured: boolean }[]>;
 }
 
 declare global {

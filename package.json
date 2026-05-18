@@ -1,7 +1,7 @@
 {
   "name": "vaani",
   "productName": "Vaani",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "Premium macOS voice dictation powered by Groq Whisper.",
   "main": ".vite/build/main.js",
   "gypfile": true,
@@ -62,6 +62,7 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.8.1",
     "@electron-forge/plugin-vite": "^7.8.1",
     "@electron-forge/publisher-github": "^7.8.1",
+    "@electron/notarize": "^3.1.1",
     "@tailwindcss/vite": "^4.1.3",
     "@types/node": "^22.15.3",
     "@types/react": "^19.1.2",

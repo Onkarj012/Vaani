@@ -13,4 +13,10 @@ body,
   justify-content: center;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  -webkit-app-region: no-drag;
+}
+
+/* Ensure the root is always at least taking full space even when empty */
+#root:empty {
+  min-height: 100%;
 }
