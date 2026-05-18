@@ -42,7 +42,7 @@ export const AnthropicLlmProvider: FormattingProvider = {
         }),
       });
 
-      if (!response.ok) throw new Error(`Anthropic API error ${response.status}`);
+      if (!response.ok) throw new Error(`Anthropic API is temporarily unavailable. Please try again.`);
       const data = await response.json() as { content: { type: string; text: string }[] };
       const content = data.content?.find(c => c.type === "text");
       return content?.text?.trim() || text;

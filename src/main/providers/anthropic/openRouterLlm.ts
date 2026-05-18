@@ -47,7 +47,7 @@ export const OpenRouterLlmProvider: FormattingProvider = {
         }),
       });
 
-      if (!response.ok) throw new Error(`OpenRouter API error ${response.status}`);
+      if (!response.ok) throw new Error(`OpenRouter API is temporarily unavailable. Please try again.`);
       const data = await response.json() as { choices: { message: { content: string } }[] };
       return data.choices[0]?.message?.content?.trim() || text;
     } catch {

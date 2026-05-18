@@ -46,7 +46,7 @@ export const OpenAILlmProvider: FormattingProvider = {
         }),
       });
 
-      if (!response.ok) throw new Error(`OpenAI API error ${response.status}`);
+      if (!response.ok) throw new Error(`OpenAI API is temporarily unavailable. Please try again.`);
       const data = await response.json() as { choices: { message: { content: string } }[] };
       const formatted = data.choices[0]?.message?.content?.trim();
       if (!formatted) return text;

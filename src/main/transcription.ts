@@ -2,6 +2,7 @@ import type { Settings, AudioClip, TranscriptionResult } from "@shared/types";
 import { getProviderRegistry } from "./providers";
 import type { TranscriptionProvider } from "./providers/types";
 import { CredentialsStore } from "./store/credentials";
+import { debug, warn } from "@main/log";
 
 export class TranscriptionService {
   constructor(
@@ -16,13 +17,10 @@ export class TranscriptionService {
 
     const chain = this.buildSttChain(settings, primaryId, registry);
     if (chain.length === 0) {
-      const hasKey = this.resolveApiKey(settings, primaryId);
-      const provider = registry.getTranscription(primaryId);
-      console.error(`[vaani] No providers in chain. primary=${primaryId}, providerExists=${!!provider}, hasKey=${!!hasKey}`);
       throw new Error(`Transcription provider "${primaryId}" is not available or has no API key configured. Check Settings → API & Providers.`);
     }
 
-    console.log(`[vaani] Transcription chain: ${chain.map(c => c.id).join(" → ")}`);
+    debug("transcription", `Chain: ${chain.map(c => c.id).join(" → ")}`);
 
     let lastError: Error = new Error("All transcription providers failed.");
     for (const { id, provider, apiKey } of chain) {
@@ -30,11 +28,10 @@ export class TranscriptionService {
         return await provider.transcribe(clip, { apiKey, language: settings.language, temperature: 0 });
       } catch (error) {
         if (isAuthError(error)) {
-          console.error(`[vaani] Auth error from "${id}":`, error);
           throw error;
         }
         lastError = error instanceof Error ? error : new Error(String(error));
-        console.warn(`[vaani] STT provider "${id}" failed:`, lastError.message);
+        warn("transcription", `Provider "${id}" failed: ${lastError.message}`);
         if (!settings.failoverEnabled || chain.length === 1) throw lastError;
       }
     }
@@ -53,12 +50,10 @@ export class TranscriptionService {
       if (chain.some(e => e.id === id)) return;
       const provider = registry.getTranscription(id);
       if (!provider) {
-        console.log(`[vaani] buildSttChain: provider "${id}" not found in registry`);
         return;
       }
       const apiKey = this.resolveApiKey(settings, id);
       if (provider.requiresApiKey && !apiKey) {
-        console.log(`[vaani] buildSttChain: provider "${id}" requires API key but none found`);
         return;
       }
       chain.push({ id, provider, apiKey: apiKey ?? "" });
@@ -95,29 +90,18 @@ export class TranscriptionService {
   }
 
   private resolveApiKey(settings: Settings, providerId: string): string | null {
-    // Check credentials store first
     if (this.credentials) {
       const key = this.credentials.get(providerId);
-      if (key) {
-        console.log(`[vaani] resolveApiKey("${providerId}"): found in credentials store`);
-        return key;
-      }
+      if (key) return key;
     }
 
-    // Legacy: groqApiKey field
     if (providerId === "groq" && settings.groqApiKey) {
-      console.log(`[vaani] resolveApiKey("${providerId}"): found in settings.groqApiKey`);
       return settings.groqApiKey;
     }
 
-    // Check providerApiKeys array
     const pk = settings.providerApiKeys?.find(p => p.providerId === providerId);
-    if (pk?.key) {
-      console.log(`[vaani] resolveApiKey("${providerId}"): found in providerApiKeys`);
-      return pk.key;
-    }
+    if (pk?.key) return pk.key;
 
-    console.log(`[vaani] resolveApiKey("${providerId}"): NOT FOUND (credentials=${!!this.credentials}, groqApiKey=${!!settings.groqApiKey}, providerApiKeys=${JSON.stringify(settings.providerApiKeys?.map(p => p.providerId))})`);
     return null;
   }
 }

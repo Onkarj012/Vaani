@@ -34,7 +34,7 @@ export const DeepgramSttProvider: TranscriptionProvider = {
   ],
 
   async transcribe(clip, options): Promise<TranscriptionResult> {
-    if (!options.apiKey) throw new Error("Deepgram API key not configured.");
+    if (!options.apiKey) throw new Error("Deepgram API key not configured. Go to Settings → API & Providers.");
 
     const wavBuffer = createWavBuffer(clip);
     const model = options.model || "nova-3";
@@ -53,8 +53,7 @@ export const DeepgramSttProvider: TranscriptionProvider = {
     });
 
     if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Deepgram API error ${response.status}: ${body}`);
+      throw new Error(`Deepgram API is temporarily unavailable. Please try again.`);
     }
 
     const data = await response.json() as {

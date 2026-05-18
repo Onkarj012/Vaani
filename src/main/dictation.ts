@@ -19,6 +19,7 @@ import { trimSilence, isValidClip } from "./audio/vad";
 import { AppDetector, type AppContextResult } from "./context/appDetector";
 import { TextInjector } from "./injection";
 import { nativeBridge } from "./nativeBridge";
+import { debug } from "@main/log";
 import { OverlayController } from "./overlay";
 import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
@@ -31,6 +32,8 @@ const FINALIZATION_TIMEOUT_MS = 4_000;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
+const STALE_SESSION_TIMEOUT_MS = 60_000;
+const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 
 interface RecorderCommands {
   isReady: () => boolean;
@@ -57,6 +60,8 @@ export class DictationService {
   private finalizationTimer: ReturnType<typeof setTimeout> | null = null;
   private audioFrameTimer: ReturnType<typeof setTimeout> | null = null;
   private recorderStartTimer: ReturnType<typeof setTimeout> | null = null;
+  private staleSessionTimer: ReturnType<typeof setTimeout> | null = null;
+  private uptimeLogTimer: ReturnType<typeof setTimeout> | null = null;
   private activeSessionId: string | null = null;
   private activeTarget: AppContextResult | null = null;
   private activeSelection: SelectionRange | null = null;
@@ -78,6 +83,24 @@ export class DictationService {
     this.appDetector = deps.appDetector ?? new AppDetector();
     this.recorder = deps.recorder ?? null;
     this.createSessionId = deps.createSessionId ?? (() => crypto.randomUUID());
+    this.startUptimeLogging();
+  }
+
+  private startUptimeLogging(): void {
+    this.uptimeLogTimer = setInterval(() => {
+      const uptimeHrs = Math.round(process.uptime() / 3600);
+      debug("dictation", `uptime checkpoint: ${uptimeHrs}h, state=${this.state.status}, session=${this.activeSessionId ?? "none"}`);
+    }, UPTIME_LOG_INTERVAL_MS);
+  }
+
+  private armStaleSessionGuard(sessionId: string): void {
+    this.clearStaleSessionTimer();
+    this.staleSessionTimer = setTimeout(() => {
+      if (this.isCurrentSession(sessionId) && this.state.status !== "idle") {
+        debug("dictation", `stale session guard fired: status=${this.state.status}, forcing reset`);
+        this.resetToIdle();
+      }
+    }, STALE_SESSION_TIMEOUT_MS);
   }
 
   beginHotkeySession(): void {
@@ -115,6 +138,7 @@ export class DictationService {
     this.activeSelection = this.captureSelection(this.activeTarget);
     this.releaseRequestedDuringStart = false;
     this.setState({ status: "starting", sessionId });
+    this.armStaleSessionGuard(sessionId);
 
     if (!this.recorder) {
       this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.");
@@ -198,7 +222,7 @@ export class DictationService {
     const settings = this.settings.get();
     const trimmedClip = trimSilence(payload.clip, settings.silenceThreshold);
 
-    console.log(`[vaani] submitAudioClip: raw=${payload.clip.durationSeconds.toFixed(2)}s, trimmed=${trimmedClip.durationSeconds.toFixed(2)}s, minClip=${settings.minClipDuration}s`);
+    debug("dictation", `submitAudioClip: raw=${payload.clip.durationSeconds.toFixed(2)}s, trimmed=${trimmedClip.durationSeconds.toFixed(2)}s, minClip=${settings.minClipDuration}s`);
 
     // Save recording to disk if enabled
     if (settings.saveRecordings) {
@@ -206,7 +230,7 @@ export class DictationService {
     }
 
     if (!isValidClip(trimmedClip, settings.minClipDuration)) {
-      console.log(`[vaani] submitAudioClip: clip rejected (too short or empty)`);
+      debug("dictation", "submitAudioClip: clip rejected (too short or empty)");
       this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.");
       return;
     }
@@ -351,6 +375,11 @@ export class DictationService {
 
   getState(): DictationState { return this.state; }
 
+  destroy(): void {
+    this.clearTimers();
+    this.clearUptimeLogging();
+  }
+
   async getById(id: string): Promise<DictationEntry | undefined> {
     return this.history.getById(id);
   }
@@ -461,12 +490,21 @@ export class DictationService {
     this.clearRecorderStartTimer();
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
+    this.clearStaleSessionTimer();
   }
 
   private clearResetTimer(): void { if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = null; } }
   private clearFinalizationTimer(): void { if (this.finalizationTimer) { clearTimeout(this.finalizationTimer); this.finalizationTimer = null; } }
   private clearAudioFrameTimer(): void { if (this.audioFrameTimer) { clearTimeout(this.audioFrameTimer); this.audioFrameTimer = null; } }
   private clearRecorderStartTimer(): void { if (this.recorderStartTimer) { clearTimeout(this.recorderStartTimer); this.recorderStartTimer = null; } }
+  private clearStaleSessionTimer(): void { if (this.staleSessionTimer) { clearTimeout(this.staleSessionTimer); this.staleSessionTimer = null; } }
+
+  clearUptimeLogging(): void {
+    if (this.uptimeLogTimer) {
+      clearInterval(this.uptimeLogTimer);
+      this.uptimeLogTimer = null;
+    }
+  }
 
   private isCurrentSession(sessionId: string): boolean { return this.activeSessionId === sessionId; }
 

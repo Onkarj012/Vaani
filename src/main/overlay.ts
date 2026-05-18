@@ -404,6 +404,16 @@ export class OverlayController {
           this.window.moveTop();
         }
       }, 100);
+      // Visibility fallback: if showInactive didn't make the window visible,
+      // try again after a short delay. This handles the intermittent capsule
+      // non-appearance (window focus/visibility race on macOS).
+      setTimeout(() => {
+        if (this.window && !this.window.isDestroyed() && !this.window.isVisible()) {
+          log("overlay:show-retry", { visible: this.window.isVisible() });
+          try { this.window.showInactive(); } catch { /* best effort */ }
+          try { this.window.moveTop(); } catch { /* best effort */ }
+        }
+      }, 200);
       // Showing the overlay can cause macOS to hide the main app's dock icon
       // (via internal activation-policy changes). Notify the caller to restore it.
       this.onPresentCallback?.();

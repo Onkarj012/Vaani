@@ -1,7 +1,7 @@
 # Vaani Improvement Plan — Beyond TypeWhisper
 
 **Goal:** Make Vaani on par with or better than any macOS dictation alternative.  
-**Current:** v1.0.3 — Groq-only dictation, Electron + React, excellent injection system.  
+**Current:** v1.0.4 — Multi-provider STT/LLM, local whisper.cpp, push-to-talk, excellent injection system.
 **Target:** Multi-provider voice AI platform with plugin ecosystem, offline capability, and developer API.
 
 ---
@@ -19,7 +19,7 @@
 
 ---
 
-## Phase 0: Foundation Hardening (1-2 weeks)
+## Phase 0: Foundation Hardening (1-2 weeks) ✅ Completed in v1.0.4
 
 These are low-risk, high-impact improvements that don't require architectural changes.
 
@@ -82,7 +82,7 @@ These are low-risk, high-impact improvements that don't require architectural ch
 
 ---
 
-## Phase 1: Multi-Provider Engine (2-3 weeks)
+## Phase 1: Multi-Provider Engine (2-3 weeks) ✅ Completed in v1.0.4
 
 This is the single biggest leap — Vaani's biggest limitation is being Groq-only.
 
@@ -213,7 +213,7 @@ export class ProviderRegistry {
 
 ---
 
-## Phase 2: Offline & Local (3-4 weeks)
+## Phase 2: Offline & Local (3-4 weeks) ✅ Completed — whisper.cpp integrated in v1.0.4
 
 ### 2.1 — whisper.cpp integration
 
@@ -810,16 +810,16 @@ package.json                 # New dependencies
 
 ## Release Roadmap
 
-| Version | Phase | Feature Highlights |
-|---------|-------|-------------------|
-| **1.1** | Phase 0 | Recording to disk, push-to-talk, Keychain, Fn key improvements |
-| **1.2** | Phase 1a | Provider abstraction, OpenAI STT + LLM, Settings UI |
-| **1.3** | Phase 1b | Deepgram, Anthropic, auto-failover |
-| **1.4** | Phase 2 | whisper.cpp offline STT, offline mode indicator |
-| **2.0** | Phase 3 | Per-app profiles, workflows, prompt actions, streaming transcription |
-| **2.2** | Phase 4 | Plugin system, HTTP API, CLI tool |
-| **2.3** | Phase 5a | Memory, dictation recovery, translation, export |
-| **3.0** | Phase 5b | System audio capture, notarization, release channels |
+| Version | Phase | Feature Highlights | Status |
+|---------|-------|-------------------|--------|
+| **1.0.4** | Phases 0-2 | Multi-provider STT (Groq, OpenAI, Deepgram, Local), multi-provider LLM (Groq, OpenAI, Anthropic, OpenRouter), push-to-talk, local whisper.cpp offline, notarization config | ✅ Released |
+| **1.1** | Phase 3a | Recording to disk, Keychain storage, Fn key improvements | Planned |
+| **1.2** | Phase 3b | Per-app profiles, provider settings UI polish, auto-failover | Planned |
+| **1.3** | Phase 3c-3e | Snippet placeholders, per-recording language switching, workflow/prompt actions | Planned |
+| **2.0** | Phase 3-4 | System audio capture, streaming transcription, developer platform | Planned |
+| **2.2** | Phase 4 | Plugin system, HTTP API, CLI tool | Planned |
+| **2.3** | Phase 5a | Memory, dictation recovery, translation, export | Planned |
+| **3.0** | Phase 5b | Notarization release, release channels, performance optimization | Planned |
 
 ---
 

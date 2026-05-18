@@ -1,6 +1,7 @@
 import Groq from "groq-sdk";
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
+import { debug, error } from "@main/log";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
@@ -45,15 +46,15 @@ export const GroqSttProvider: TranscriptionProvider = {
   models: [{ id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" }],
 
   async transcribe(clip, options): Promise<TranscriptionResult> {
-    console.log(`[vaani:groq] transcribe called: apiKey=${options.apiKey ? `${options.apiKey.slice(0, 8)}...` : "MISSING"}, clipDuration=${clip.durationSeconds.toFixed(2)}s, samples=${clip.pcmData.length}`);
+    debug("groq", `transcribe called: hasApiKey=${!!options.apiKey}, clipDuration=${clip.durationSeconds.toFixed(2)}s, samples=${clip.pcmData.length}`);
 
     if (!options.apiKey) {
-      console.error("[vaani:groq] No API key provided!");
+      error("groq", "No API key provided");
       throw new Error("Groq API key not configured. Go to Settings → API & Providers and enter your Groq API key.");
     }
 
     const wavBuffer = createWavBuffer(clip);
-    console.log(`[vaani:groq] WAV buffer created: ${wavBuffer.length} bytes`);
+    debug("groq", `WAV buffer created: ${wavBuffer.length} bytes`);
 
     const arrayBuffer = wavBuffer.buffer.slice(wavBuffer.byteOffset, wavBuffer.byteOffset + wavBuffer.byteLength) as ArrayBuffer;
     const file = new File([arrayBuffer], "recording.wav", { type: "audio/wav" });
@@ -67,7 +68,7 @@ export const GroqSttProvider: TranscriptionProvider = {
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        console.log(`[vaani:groq] Attempt ${attempt + 1}/${MAX_RETRIES}: calling Groq API...`);
+        debug("groq", `Attempt ${attempt + 1}/${MAX_RETRIES}: calling Groq API...`);
         const groq = new Groq({ apiKey: options.apiKey });
         const response = await groq.audio.transcriptions.create({
           file,
@@ -78,7 +79,7 @@ export const GroqSttProvider: TranscriptionProvider = {
         });
 
         const rawText = (response.text ?? "").trim();
-        console.log(`[vaani:groq] Success! Got ${rawText.length} chars: "${rawText.slice(0, 50)}${rawText.length > 50 ? '...' : ''}"`);
+        debug("groq", `Success: ${rawText.length} chars`);
 
         if (!rawText) throw new Error("No speech detected in the recording.");
 
@@ -88,16 +89,29 @@ export const GroqSttProvider: TranscriptionProvider = {
           language: options.language === "auto" ? "en" : (options.language ?? "en"),
         };
       } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        console.error(`[vaani:groq] Attempt ${attempt + 1} failed:`, lastError.message);
+        const message = err instanceof Error ? err.message : String(err);
+        lastError = err instanceof Error ? err : new Error(message);
+
+        // Don't retry user-facing errors
+        if (isNotRetryableError(message)) throw lastError;
+
+        debug("groq", `Attempt ${attempt + 1} failed: ${lastError.message}`);
         if (attempt < MAX_RETRIES - 1) await delay(RETRY_DELAY);
       }
     }
 
-    throw new Error(`Groq transcription failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
+    throw new Error(`Groq transcription is temporarily unavailable. Please try again.`);
   },
 
   async isAvailable(): Promise<boolean> {
     return true;
   },
 };
+
+function isNotRetryableError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("no speech") ||
+    lower.includes("401") || lower.includes("403") ||
+    lower.includes("unauthorized") || lower.includes("authentication") ||
+    lower.includes("invalid api key") || lower.includes("incorrect api key");
+}

@@ -31,7 +31,7 @@ export const OpenAISttProvider: TranscriptionProvider = {
   models: [{ id: "whisper-1", name: "Whisper v1" }],
 
   async transcribe(clip, options): Promise<TranscriptionResult> {
-    if (!options.apiKey) throw new Error("OpenAI API key not configured.");
+    if (!options.apiKey) throw new Error("OpenAI API key not configured. Go to Settings → API & Providers.");
 
     const wavBuffer = createWavBuffer(clip);
     const blob = new Blob([new Uint8Array(wavBuffer)], { type: "audio/wav" });
@@ -56,8 +56,7 @@ export const OpenAISttProvider: TranscriptionProvider = {
     });
 
     if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`OpenAI API error ${response.status}: ${body}`);
+      throw new Error(`OpenAI API is temporarily unavailable. Please try again.`);
     }
 
     const data = await response.json() as { text: string };
@@ -78,7 +77,7 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
   models: [{ id: "whisper-1", name: "Whisper v1 (compatible)" }],
 
   async transcribe(clip, options): Promise<TranscriptionResult> {
-    if (!options.apiKey) throw new Error("API key not configured.");
+    if (!options.apiKey) throw new Error("OpenAI Compatible API key not configured. Go to Settings → API & Providers.");
     if (!options.baseUrl) throw new Error("Base URL required for OpenAI Compatible provider.");
 
     const wavBuffer = createWavBuffer(clip);
@@ -100,8 +99,7 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
     });
 
     if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`API error ${response.status}: ${body}`);
+      throw new Error(`OpenAI Compatible API is temporarily unavailable. Please try again.`);
     }
 
     const data = await response.json() as { text: string };

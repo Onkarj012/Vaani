@@ -1,6 +1,6 @@
 # TypeWhisper vs Vaani — Detailed Comparative Analysis
 
-**Generated:** May 14, 2026  
+**Generated:** May 18, 2026 (updated for Vaani v1.0.4)
 **Projects:** `typewhisper-mac/` (Swift) vs `Vaani_main/` (Electron)
 
 ---
@@ -40,7 +40,7 @@
 | **License** | GPLv3 + Commercial | MIT |
 | **Codebase size** | ~160+ Swift files (app) + 35 plugin targets + CLI + Widgets | ~50 TypeScript files + 3 native `.mm` files |
 | **Release channels** | Stable, Release Candidate, Daily | Single channel via GitHub Releases |
-| **Version** | ~0.9.2 | 1.0.3 |
+| **Version** | ~0.9.2 | 1.0.4 |
 
 ---
 
@@ -214,39 +214,40 @@
 
 ### Vaani
 
-- **Groq SDK only:**
-  - **Transcription:** `groq.audio.transcriptions.create()` with `whisper-large-v3-turbo`
-    - Up to 3 retries, 2s delay
-    - Custom vocabulary hints via `prompt` parameter
-    - Multi-language + "hinglish" mode
-  - **Formatting:** `groq.chat.completions.create()` with `llama-3.1-8b-instant`
-    - Adds punctuation + capitalization
-    - Two-pass formatting with strict fallback
-    - Multiple sanity checks:
-      - First sentence overlap ratio (>50%)
-      - Lead word overlap (>50%)
-      - Ordered token preservation (>82%)
-      - Vocabulary overlap (>55%)
-      - Length change guards (can't shorten >55%, expand >150%+50 chars)
-      - Word count difference (max 3+cue-words)
-      - Assistant reply pattern detection
+- **Multi-provider engine (v1.0.4):**
+  - **Transcription providers:** Groq Whisper, OpenAI Whisper, Deepgram Nova-2, Local whisper.cpp (offline), OpenAI-compatible (any endpoint)
+  - **Formatting providers:** Groq Llama, OpenAI GPT, Anthropic Claude, OpenRouter (multi-model)
+- **Transcription:** Up to 3 retries, 2s delay, custom vocabulary hints via `prompt` parameter, multi-language + "hinglish" mode
+- **Formatting:**
+  - Adds punctuation + capitalization
+  - Two-pass formatting with strict fallback
+  - Multiple sanity checks:
+    - First sentence overlap ratio (>50%)
+    - Lead word overlap (>50%)
+    - Ordered token preservation (>82%)
+    - Vocabulary overlap (>55%)
+    - Length change guards (can't shorten >55%, expand >150%+50 chars)
+    - Word count difference (max 3+cue-words)
+    - Assistant reply pattern detection
+- **Offline capable:** whisper.cpp runs entirely on-device — no internet, no API keys
 
 ### Comparison
 
 | Feature | TypeWhisper | Vaani |
 |---------|-------------|-------|
 | Apple Intelligence | ✅ `FoundationModels` framework | ❌ No |
-| OpenAI | ✅ Plugin | ❌ No |
-| Groq | ✅ Plugin | ✅ **Primary (only provider)** |
+| OpenAI | ✅ Plugin | ✅ Provider |
+| Groq | ✅ Plugin | ✅ Provider |
 | xAI/Grok | ✅ Plugin | ❌ No |
 | Google Gemini | ✅ Plugin | ❌ No |
-| Anthropic Claude | ✅ Plugin | ❌ No |
+| Anthropic Claude | ✅ Plugin | ✅ Provider |
+| OpenRouter | ✅ Plugin | ✅ Provider |
 | Local on-device LLM | ✅ Gemma 4 via MLX | ❌ No |
-| Local transcription | ✅ WhisperKit, Parakeet, Granite, Qwen3, Voxtral | ❌ Cloud-only |
-| Cloud transcription | ✅ 7+ providers | ✅ Groq only |
+| Local transcription | ✅ WhisperKit, Parakeet, Granite, Qwen3, Voxtral | ✅ whisper.cpp |
+| Cloud transcription | ✅ 7+ providers | ✅ 4+ (Groq, OpenAI, Deepgram, OpenAI-compatible) |
 | Formatting sanity checks | ❌ (handled per-plugin) | ✅ Extensive (7 checks) |
 | Two-pass formatting | ❌ | ✅ Yes |
-| Provider count | 11 LLM + 5+ transcription providers | 1 provider (Groq) |
+| Provider count | 11 LLM + 5+ transcription providers | 5 STT + 4 LLM providers |
 
 **Key Insight:** TypeWhisper supports a vast ecosystem of 11+ LLM providers and 7+ cloud/local transcription engines, including on-device MLX models and Apple Intelligence. Vaani is exclusively tied to Groq — both for transcription (Whisper) and formatting (Llama). Vaani compensates with unusually thorough output sanity checks and two-pass formatting.
 
@@ -421,24 +422,28 @@
 | Gladia (SDK) | Cloud | 30+ | API-based |
 | Cloudflare ASR (SDK) | Cloud | 30+ | API-based |
 
-### Vaani — **1 engine**
+### Vaani — **5 engines (v1.0.4)**
 
 | Engine | Type | Languages | Features |
 |--------|------|-----------|----------|
 | Groq Whisper (whisper-large-v3-turbo) | Cloud | 99+ | 3 retries, custom vocabulary hints |
+| OpenAI Whisper (whisper-1) | Cloud | 99+ | Standard Whisper API |
+| Deepgram Nova-2 | Cloud | 30+ | Low-latency, diarization |
+| Local whisper.cpp (tiny/base/small) | On-device | 99+ | Fully offline, CoreML accelerated |
+| OpenAI-compatible | Cloud | Varies | Any OpenAI-compatible endpoint |
 
 ### Comparison
 
 | Feature | TypeWhisper | Vaani |
 |---------|-------------|-------|
-| Total engines | 17 (6 local + 11 cloud) | 1 (cloud) |
-| On-device/local | ✅ 6 (WhisperKit, Parakeet, SpeechAnalyzer, Granite, Qwen3, Voxtral) | ❌ None |
+| Total engines | 17 (6 local + 11 cloud) | 5 (1 local + 4 cloud) |
+| On-device/local | ✅ 6 (WhisperKit, Parakeet, SpeechAnalyzer, Granite, Qwen3, Voxtral) | ✅ whisper.cpp |
 | Streaming | ✅ WhisperKit live partials | ❌ No (full clip) |
 | Translation | ✅ WhisperKit translate task | ❌ No |
 | Multi-engine fallback | ✅ Yes | ❌ No |
-| Offline capability | ✅ Yes (local engines) | ❌ No (requires internet) |
+| Offline capability | ✅ Yes (local engines) | ✅ Yes (whisper.cpp) |
 
-**Key Insight:** TypeWhisper supports 17 transcription engines — 6 running entirely on-device (offline capable) and 11 cloud providers. Vaani uses a single cloud-only engine (Groq Whisper). This is the most striking architectural difference: TypeWhisper works fully offline; Vaani requires internet connectivity.
+**Key Insight:** TypeWhisper supports 17 transcription engines — 6 running entirely on-device and 11 cloud providers. Vaani (v1.0.4) now supports 5 engines including local whisper.cpp for offline use, significantly closing the gap from its previous single-provider state.
 
 ---
 
@@ -745,9 +750,9 @@ com.apple.security.accessibility                        ✅
 | **Hotkeys** | 7 slot types, mouse buttons, per-profile | 2 slots, basic modifier combos |
 | **Audio capture** | AVAudioEngine + ScreenCaptureKit | MediaRecorder Web API |
 | **System audio** | ✅ Yes (ScreenCaptureKit) | ❌ No |
-| **STT engines** | 17 (6 local + 11 cloud) | 1 (Groq Whisper) |
-| **LLM providers** | 11 + Apple Intelligence | 1 (Groq Llama) |
-| **Local models** | ✅ WhisperKit, Parakeet, MLX models | ❌ None |
+| **STT engines** | 17 (6 local + 11 cloud) | 5 (1 local + 4 cloud) |
+| **LLM providers** | 11 + Apple Intelligence | 4 (Groq, OpenAI, Anthropic, OpenRouter) |
+| **Local models** | ✅ WhisperKit, Parakeet, MLX models | ✅ whisper.cpp |
 | **Text injection** | AX + clipboard | 5 methods with per-app policy |
 | **Plugin system** | ✅ Full SDK (7 protocol categories, 35 plugins) | ❌ None |
 | **Widgets** | ✅ 4 WidgetKit widgets | ❌ None |
@@ -756,7 +761,7 @@ com.apple.security.accessibility                        ✅
 | **Licensing** | GPLv3 + Commercial (Polar.sh) | MIT (free) |
 | **Auto-update** | Sparkle (3 channels) | electron-updater (1 channel) |
 | **Multilingual** | ✅ en + de | ❌ English only |
-| **Offline capability** | ✅ Yes (local engines) | ❌ No (cloud required) |
+| **Offline capability** | ✅ Yes (local engines) | ✅ Yes (whisper.cpp) |
 | **Extensibility** | ✅ Plugin ecosystem | ❌ Hard-coded |
 | **Testing** | 35+ XCTest files | 7 Vitest files |
 
@@ -773,10 +778,11 @@ com.apple.security.accessibility                        ✅
 - **Developer-friendly:** CLI, HTTP API, plugin SDK, comprehensive test suite
 - **Complexity:** High — ~160+ source files, multiple targets, sophisticated architecture
 
-### Vaani — "The Minimalist"
+### Vaani — "The Minimalist, Growing Up"
 
 - **Cross-platform stack:** Electron + React enables faster iteration and potential cross-platform portability
-- **Focused scope:** One purpose (Groq dictation), one provider, one integration — done well
+- **Multi-provider flexibility:** 5 STT engines (Groq, OpenAI, Deepgram, local whisper.cpp, OpenAI-compatible) + 4 LLM formatters
+- **Offline capable:** Local whisper.cpp transcription works fully offline, no API keys needed
 - **Lightweight UX:** Beautiful animated overlay, polished React UI, 5 dashboard pages
 - **Smart defaults:** Sophisticated text injection with 5 fallback methods, per-app policies, clipboard safety
 - **No extensibility:** Everything is hard-coded — no plugins, no CLI, no API
@@ -786,8 +792,8 @@ com.apple.security.accessibility                        ✅
 
 | If you need... | Choose |
 |----------------|--------|
-| Offline dictation (no internet required) | **TypeWhisper** |
-| Multiple LLM/STT providers | **TypeWhisper** |
+| Offline dictation (no internet required) | Both ✅ |
+| Multiple LLM/STT providers | Both (TypeWhisper has more) |
 | A plugin ecosystem (extend with custom engines) | **TypeWhisper** |
 | Widgets, CLI, HTTP API | **TypeWhisper** |
 | Minimal, focused tool with beautiful UI | **Vaani** |

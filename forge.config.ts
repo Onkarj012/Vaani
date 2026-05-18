@@ -34,12 +34,11 @@ const config: ForgeConfig = {
         hardenedRuntime: true
       })
     },
-    // osxNotarize: {
-    //   tool: 'notarytool',
-    //   appleId: process.env.APPLE_ID || '',
-    //   appleIdPassword: process.env.APPLE_PASSWORD || '',
-    //   teamId: process.env.APPLE_TEAM_ID || ''
-    // }
+    osxNotarize: process.env.APPLE_ID && process.env.APPLE_PASSWORD && process.env.APPLE_TEAM_ID ? {
+      appleId: process.env.APPLE_ID,
+      appleIdPassword: process.env.APPLE_PASSWORD,
+      teamId: process.env.APPLE_TEAM_ID
+    } : undefined
   },
   makers: [
     new MakerZIP({}, ["darwin"]),

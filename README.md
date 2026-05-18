@@ -2,19 +2,21 @@
 
 > Press a hotkey. Speak. Words appear — instantly, in any app.
 
-Vaani is a fast, privacy-first voice dictation app for macOS powered by [Groq's Whisper API](https://groq.com). No subscription, no cloud storage, no telemetry.
+Vaani is a fast, privacy-first voice dictation app for macOS with multi-provider transcription and LLM formatting. Choose from Groq, OpenAI, Deepgram, Anthropic, or run entirely offline with local Whisper. No subscription, no cloud storage, no telemetry.
 
 ## Features
 
-- **Global Hotkey** — Start dictating from anywhere with a customizable keyboard shortcut
-- **Fast Transcription** — Powered by Groq's Whisper API for near-instant results
-- **Smart Text Cleanup** — Removes filler words ("um", "uh", "like") and fixes punctuation
-- **Context-Aware Injection** — Detects the active app and picks the best insertion method
-- **Multiple Injection Methods** — Accessibility APIs, clipboard, or keystroke simulation
+- **Global Hotkey** — Start dictating from anywhere with a customizable keyboard shortcut. Toggle or push-to-talk mode.
+- **Multi-Provider STT** — Transcribe with Groq Whisper, OpenAI Whisper, Deepgram Nova-2, or local whisper.cpp (offline)
+- **Multi-Provider LLM Formatting** — Clean up text with Groq Llama, OpenAI GPT, Anthropic Claude, or OpenRouter
+- **Offline Mode** — Built-in whisper.cpp runs entirely on-device — no internet, no API keys needed
+- **Smart Text Cleanup** — Removes filler words ("um", "uh", "like"), fixes punctuation, and applies AI formatting
+- **Context-Aware Injection** — Detects the active app and picks the best of 5 insertion methods with per-app policies
+- **Per-App Profiles** — Different provider, language, and formatting settings per application
 - **Snippets & Dictionary** — Custom slash-command snippets and word replacements
 - **History** — Browse and re-inject past dictations
 - **Auto-Updater** — Gets the latest version automatically from GitHub Releases
-- **Privacy-First** — Audio goes directly to Groq's API; nothing stored on any server
+- **Privacy-First** — Audio is transient; nothing stored on any server. Local mode keeps everything on-device.
 
 ## System Requirements
 
@@ -30,17 +32,12 @@ Vaani is a fast, privacy-first voice dictation app for macOS powered by [Groq's 
 Download the latest `Vaani-x.x.x-arm64.dmg` from [Releases](https://github.com/Onkarj012/Vaani/releases), open it, and drag `Vaani.app` to your Applications folder.
 
 > **"Vaani is damaged and can't be opened"?**
-> This is macOS blocking an app that isn't signed with an Apple Developer certificate — the app itself is fine.
+> macOS blocks unsigned apps. Notarization is configured — set `APPLE_ID`, `APPLE_PASSWORD` (app-specific), and `APPLE_TEAM_ID` environment variables before building.
 >
-> **Fix (one time only):**
-> 1. Open **Terminal** (search "Terminal" in Spotlight with `Cmd+Space`)
-> 2. Paste this and press Enter:
->    ```bash
->    xattr -cr /Applications/Vaani.app
->    ```
-> 3. Open Vaani normally
->
-> You only need to do this once after installing.
+> **One-time workaround (no Apple Developer account):**
+> ```bash
+> xattr -cr /Applications/Vaani.app
+> ```
 
 ### Build from Source
 
@@ -56,10 +53,16 @@ The built app and DMG will be in `out/make/`.
 
 ## Setup
 
-### 1. Groq API Key
+### 1. Provider API Keys
 
-1. Sign up at [groq.com](https://groq.com) and get an API key
-2. Open Vaani → Settings → paste your key
+1. Sign up for at least one provider and get an API key:
+   - [Groq](https://groq.com) (fastest, free tier available)
+   - [OpenAI](https://platform.openai.com) (Whisper + GPT formatting)
+   - [Deepgram](https://deepgram.com) (Nova-2 STT)
+   - [Anthropic](https://anthropic.com) (Claude formatting)
+   - [OpenRouter](https://openrouter.ai) (multi-model gateway)
+2. Open Vaani → Settings → paste your key(s)
+3. Or skip cloud entirely — select **Local (whisper.cpp)** for offline transcription
 
 ### 2. Accessibility Permission
 
@@ -105,11 +108,15 @@ Open Settings from the menu bar icon or `Cmd+,`.
 | Setting | Options |
 |---------|---------|
 | Primary hotkey | Any key combo |
+| Dictation mode | Toggle / Push-to-talk / Double-press |
 | Paste latest hotkey | Any key combo |
+| Transcription provider | Groq / OpenAI / Deepgram / Local (whisper.cpp) |
+| Formatting provider | Groq / OpenAI / Anthropic / OpenRouter / None |
 | Language | Auto-detect or specific language |
-| Injection mode | Auto / Accessibility / Clipboard |
+| Injection mode | Auto / Accessibility / Clipboard / Keystroke |
 | Smart punctuation | On / Off |
 | Remove filler words | On / Off |
+| Local Whisper model | tiny.en / base.en / small.en |
 
 ## Keyboard Shortcuts
 
@@ -135,13 +142,15 @@ Open Settings from the menu bar icon or `Cmd+,`.
 
 ```
 src/
-├── main/          # Electron main process (dictation, injection, overlay, tray)
-│   ├── injection/ # AX + clipboard injection strategies
-│   ├── store/     # Settings & history (JSON, ~/.vaani/)
-│   └── text/      # Cleanup and formatting
-├── renderer/      # React UI (pages, components, hooks)
-├── preload/       # Secure IPC bridge
-└── shared/        # Types, defaults, IPC channel names
+├── main/            # Electron main process
+│   ├── providers/   # Multi-provider STT + LLM engine (groq, openai, deepgram, anthropic, local, openai-compatible)
+│   ├── injection/   # AX + clipboard + keystroke injection (5 strategies, per-app policies)
+│   ├── store/       # Settings & history (JSON, ~/.vaani/)
+│   ├── native/      # C++/Obj-C native addons (hotkey, injection, audio, whisper)
+│   └── text/        # Cleanup and formatting
+├── renderer/        # React UI (pages, components, hooks, overlay)
+├── preload/         # Secure IPC bridge
+└── shared/          # Types, defaults, IPC channel names
 ```
 
 ### Commands
@@ -170,8 +179,20 @@ bun run typecheck    # TypeScript check
 ## Known Limitations
 
 - macOS only (12+)
-- Requires internet for transcription
+- Cloud providers require internet; local whisper.cpp works fully offline
 - Very short phrases (< 3 words) may not inject reliably in some apps
+- **Stale state after extended uptime** — App may become unresponsive after ~16 hours of continuous use. Restarting Vaani resolves this. Auto-recovery watchdog added in v1.0.4; root cause investigation ongoing.
+- **Capsule overlay** — The recording overlay (bottom-center pill) may occasionally not appear when dictation starts. It typically reappears on the next attempt. Visibility retry logic added in v1.0.4.
+- API keys are stored in plain JSON on disk. Keychain integration is planned for v1.1.
+- Notarization requires Apple Developer credentials. See installation workaround below.
+
+## Roadmap (v1.1+)
+
+- **macOS Keychain integration** — Secure API key storage replacing plain JSON
+- **Persistent stale state fix** — Root cause investigation and fix for long-uptime unresponsiveness
+- **Capsule reliability** — Eliminate intermittent overlay non-appearance
+- **Improved offline support** — Smarter offline/online switching without user intervention
+- **App profiles** — Per-app transcription settings (language, provider, auto-submit)
 
 ## Contributing
 
@@ -195,5 +216,6 @@ MIT — see [LICENSE](LICENSE)
 
 ## Credits
 
-- Transcription by [Groq](https://groq.com) / OpenAI Whisper
+- Transcription by [Groq](https://groq.com), [OpenAI](https://openai.com), [Deepgram](https://deepgram.com), and [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
+- LLM formatting by Groq, OpenAI, Anthropic, and [OpenRouter](https://openrouter.ai)
 - Built with [Electron](https://electronjs.org) and [React](https://react.dev)

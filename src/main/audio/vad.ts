@@ -1,4 +1,5 @@
 import type { AudioClip } from "@shared/types";
+import { debug } from "@main/log";
 
 const LEADING_PAD_FRAMES = 12;
 const TRAILING_PAD_FRAMES = 50;
@@ -18,13 +19,13 @@ export function trimSilence(clip: AudioClip, threshold: number): AudioClip {
     effectiveThreshold = Math.max(0.002, maxRms * 0.3);
     startIndex = clip.rmsFrames.findIndex(v => v >= effectiveThreshold);
     endIndex = clip.rmsFrames.findLastIndex(v => v >= effectiveThreshold);
-    console.log(`[vaani:vad] Adaptive threshold: ${effectiveThreshold.toFixed(4)} (original ${threshold.toFixed(4)} too high)`);
+    debug("vad", `Adaptive threshold: ${effectiveThreshold.toFixed(4)} (original ${threshold.toFixed(4)} too high)`);
   }
 
-  console.log(`[vaani:vad] trimSilence: threshold=${effectiveThreshold.toFixed(4)}, maxRms=${maxRms.toFixed(4)}, avgRms=${avgRms.toFixed(4)}, frames=${clip.rmsFrames.length}, startIdx=${startIndex}, endIdx=${endIndex}`);
+  debug("vad", `trimSilence: threshold=${effectiveThreshold.toFixed(4)}, maxRms=${maxRms.toFixed(4)}, avgRms=${avgRms.toFixed(4)}, frames=${clip.rmsFrames.length}, startIdx=${startIndex}, endIdx=${endIndex}`);
 
   if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
-    console.log(`[vaani:vad] ALL frames below threshold! Clip treated as silence.`);
+    debug("vad", "ALL frames below threshold! Clip treated as silence.");
     return { ...clip, pcmData: [], durationSeconds: 0, rmsFrames: [] };
   }
 

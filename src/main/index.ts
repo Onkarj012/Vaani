@@ -16,6 +16,7 @@ import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
 import type { DictationState } from "@shared/types";
 import { getProviderRegistry } from "./providers";
+import { error } from "@main/log";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
@@ -135,6 +136,7 @@ function syncAppPresentation(): void {
 
 function cleanupRuntimeResources(): void {
   clearMainWindowReadyTimeout();
+  dictationService?.destroy();
   hotkeyManager?.unregister();
   hotkeyManager = null;
   recorderController?.destroy();
@@ -362,7 +364,7 @@ async function bootstrap(): Promise<void> {
     },
     () => dictation.endHotkeySession(),
     () => dictation.cancelSession(),
-    () => { dictation.pasteLatestEntry().catch((err) => { console.error("[vaani] paste latest failed:", err); }); },
+    () => { dictation.pasteLatestEntry().catch((err) => { error("main", `paste latest failed: ${err instanceof Error ? err.message : String(err)}`); }); },
     (message) => dictation.reportHotkeyUnavailable(message)
   );
 

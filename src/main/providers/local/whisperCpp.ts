@@ -44,11 +44,11 @@ export const LocalWhisperProvider: TranscriptionProvider = {
   async transcribe(clip, _options): Promise<TranscriptionResult> {
     const mod = getWhisperModule();
     if (!mod?.whisperTranscribe) {
-      throw new Error("Local Whisper is not available. The native module may not be built.");
+      throw new Error("Local Whisper is not available. Go to Settings → Offline Mode to configure.");
     }
 
     if (!mod.whisperIsModelLoaded?.()) {
-      throw new Error("No Whisper model loaded. Download a model in Settings.");
+      throw new Error("No Whisper model loaded. Go to Settings → Offline Mode to download a model.");
     }
 
     const pcmData = new Float32Array(clip.pcmData);
