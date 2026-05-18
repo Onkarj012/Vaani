@@ -26,7 +26,9 @@ const config: ForgeConfig = {
       join(__dirname, "assets", "iconset", "trayTemplate@2x.png"),
     ],
     osxSign: {
-      identity: "-",
+      identity: process.env.APPLE_ID && process.env.APPLE_PASSWORD && process.env.APPLE_TEAM_ID
+        ? "Developer ID Application"
+        : "-",
       identityValidation: false,
       preAutoEntitlements: false,
       optionsForFile: () => ({

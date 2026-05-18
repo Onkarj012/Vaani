@@ -1,4 +1,6 @@
-const isDev = !__filename.includes(".asar");
+import { fileURLToPath } from "node:url";
+
+const isDev = !fileURLToPath(import.meta.url).includes(".asar");
 
 export function debug(category: string, message: string, ...args: unknown[]): void {
   if (!isDev) return;

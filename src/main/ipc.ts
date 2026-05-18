@@ -87,10 +87,23 @@ export function registerIpcHandlers(opts: {
     }
     // Keep in-memory credentials cache in sync with saved API keys
     if (credentials) {
-      for (const pk of patch.providerApiKeys ?? []) {
-        if (pk.providerId && pk.key) credentials.set(pk.providerId, pk.key);
+      const allKeys = new Set<string>();
+      for (const pk of updated.providerApiKeys ?? []) {
+        if (pk.providerId && pk.key) {
+          credentials.set(pk.providerId, pk.key);
+        }
+        allKeys.add(pk.providerId);
       }
-      if (patch.groqApiKey) credentials.set("groq", patch.groqApiKey);
+      if (updated.groqApiKey) {
+        credentials.set("groq", updated.groqApiKey);
+        allKeys.add("groq");
+      }
+      // Remove credentials that are no longer present in settings
+      for (const entry of credentials.getAll()) {
+        if (!allKeys.has(entry.key)) {
+          credentials.delete(entry.key);
+        }
+      }
     }
     // Update provider registry when provider or key settings change
     if ("transcriptionProvider" in patch) {
@@ -136,16 +149,11 @@ export function registerIpcHandlers(opts: {
   });
 
   // Phase 1: Provider API key testing
-  ipcMain.handle(IpcChannel.TestApiKey, async (_e, providerId: string, apiKey: string) => {
+  ipcMain.handle(IpcChannel.TestApiKey, async (_e, providerId: string, _apiKey: string) => {
     try {
       const registry = getProviderRegistry();
       const provider = registry.getTranscription(providerId) || registry.getFormatting(providerId);
       if (!provider) return { valid: false, message: `Provider "${providerId}" not found.` };
-
-      // Store in credentials if provided
-      if (apiKey && credentials) {
-        credentials.set(providerId, apiKey);
-      }
 
       const available = await provider.isAvailable();
       return { valid: available, message: available ? `${provider.name} is available.` : `${provider.name} is not available.` };

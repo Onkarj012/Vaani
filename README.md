@@ -22,7 +22,7 @@ Vaani is a fast, privacy-first voice dictation app for macOS with multi-provider
 
 - **macOS**: 12.0 (Monterey) or later
 - **Architecture**: Apple Silicon or Intel
-- **Internet**: Required for transcription (Groq API)
+- **Internet**: Required only for cloud transcription (Groq API). For offline transcription, select Local (whisper.cpp) — no internet or API keys required.
 - **Permissions**: Accessibility (global hotkeys + text injection), Microphone
 
 ## Installation
@@ -172,7 +172,8 @@ bun run typecheck    # TypeScript check
 ## Privacy
 
 - Audio is never stored locally or on any server
-- Audio is sent directly to Groq's API; their [privacy policy](https://groq.com/privacy) applies
+- Cloud transcription sends audio to your selected provider's API; their privacy policies apply
+- Local whisper.cpp mode keeps all audio on-device
 - Settings and history are stored locally in `~/.vaani/`
 - No telemetry or analytics
 

@@ -95,7 +95,7 @@ export class TranscriptionService {
       if (key) return key;
     }
 
-    if (providerId === "groq" && settings.groqApiKey) {
+    if ((providerId === "groq" || providerId === "groq-llm") && settings.groqApiKey) {
       return settings.groqApiKey;
     }
 
@@ -113,12 +113,4 @@ function isAuthError(error: unknown): boolean {
 }
 
 // Re-export for backward compatibility
-
-export async function formatTranscript(apiKey: string, rawText: string): Promise<string> {
-  const registry = getProviderRegistry();
-  const provider = registry.getFormatting("groq-llm");
-  if (provider) {
-    return provider.format(rawText, { apiKey });
-  }
-  return rawText;
-}
+export { formatTranscript } from "./formatting";

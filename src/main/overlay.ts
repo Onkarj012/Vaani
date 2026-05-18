@@ -34,6 +34,7 @@ export class OverlayController {
   private pendingBars: number[] | null = null;
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
+  private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private accentColor = "#FF006E";
   private onPresentCallback: (() => void) | null = null;
 
@@ -74,6 +75,7 @@ export class OverlayController {
   }
 
   show(): void {
+    this.clearHideTimer();
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     if (this.window && !this.window.isDestroyed()) {
       log("overlay:show-existing", { loadReady: this.loadReady, visible: this.window.isVisible() });
@@ -93,11 +95,13 @@ export class OverlayController {
       this.tryUpdateMode("idle");
       // Delay window.hide() to let the React exit animation complete
       // (spring transition ~200ms). Immediate hide causes visual jump.
+      this.clearHideTimer();
       const w = this.window;
-      setTimeout(() => {
+      this.hideTimer = setTimeout(() => {
         if (w && !w.isDestroyed() && this.window === w) {
           w.hide();
         }
+        this.hideTimer = null;
       }, 250);
     }
     this.pendingMode = null;
@@ -220,6 +224,7 @@ export class OverlayController {
   }
 
   destroy(): void {
+    this.clearHideTimer();
     this.clearPromptDismissTimer();
     this.promptActive = false;
     this.clearLoadTimeout();
@@ -263,6 +268,13 @@ export class OverlayController {
     this.window.setFocusable(false);
     void this.resizeWindow(false);
     setTimeout(() => this.hide(), 400);
+  }
+
+  private clearHideTimer(): void {
+    if (this.hideTimer) {
+      clearTimeout(this.hideTimer);
+      this.hideTimer = null;
+    }
   }
 
   private clearPromptDismissTimer(): void {

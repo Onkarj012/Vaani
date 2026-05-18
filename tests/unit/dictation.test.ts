@@ -4,6 +4,25 @@ import { IpcChannel } from "@shared/ipc";
 import type { AudioVisualFrame } from "@shared/types";
 import { DictationService } from "./dictation.fixture";
 
+vi.mock("electron", () => ({
+  app: {
+    isPackaged: false,
+    getName: () => "Vaani Test",
+    getPath: (name: string) => `/tmp/vaani-test/${name}`,
+    setActivationPolicy: () => {},
+    dock: {
+      show: () => Promise.resolve(),
+      hide: () => {}
+    }
+  },
+  BrowserWindow: class BrowserWindowMock {},
+  session: {
+    defaultSession: {
+      setPermissionRequestHandler: () => {}
+    }
+  }
+}), { virtual: true });
+
 function createDictationService() {
   const overlay = {
     setPressed: vi.fn(),

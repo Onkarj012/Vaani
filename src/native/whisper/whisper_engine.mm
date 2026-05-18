@@ -21,6 +21,12 @@ Napi::Value Transcribe(const Napi::CallbackInfo& info) {
     return env.Null();
   }
 
+  Napi::TypedArray typed = info[0].As<Napi::TypedArray>();
+  if (typed.TypedArrayType() != napi_float32_array) {
+    Napi::TypeError::New(env, "Expected Float32Array for pcm").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
   Napi::Float32Array pcmArray = info[0].As<Napi::Float32Array>();
   int sampleRate = info[1].As<Napi::Number>().Int32Value();
 

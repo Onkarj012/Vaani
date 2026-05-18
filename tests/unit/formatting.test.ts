@@ -64,14 +64,17 @@ describe("formatTranscript", () => {
 
     expect(result).toBe("Project checklist:\n\n1. Fix transcription.\n2. Improve API prompt.");
     expect(createCompletionMock).toHaveBeenCalledTimes(1);
-    expect(createCompletionMock).toHaveBeenCalledWith(expect.objectContaining({
-      messages: expect.arrayContaining([
-        expect.objectContaining({
-          role: "user",
-          content: expect.stringContaining("<transcript>\nProject checklist. Number 1. Fix transcription. Number 2. Improve API prompt.\n</transcript>")
-        })
-      ])
-    }));
+    expect(createCompletionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: "user",
+            content: expect.stringContaining("<transcript>\nProject checklist. Number 1. Fix transcription. Number 2. Improve API prompt.\n</transcript>")
+          })
+        ])
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
   });
 
   it("falls back to raw text when the LLM response is empty", async () => {

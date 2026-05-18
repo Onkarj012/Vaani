@@ -5,7 +5,7 @@ export interface TranscriptionProvider {
   readonly name: string;
   readonly requiresApiKey: boolean;
   readonly models: { id: string; name: string }[];
-  transcribe(clip: AudioClip, options: TranscriptionOptions & { apiKey: string; baseUrl?: string }): Promise<TranscriptionResult>;
+  transcribe(clip: AudioClip, options: TranscriptionOptions & { apiKey?: string; baseUrl?: string }): Promise<TranscriptionResult>;
   isAvailable(): Promise<boolean>;
 }
 
@@ -14,7 +14,7 @@ export interface FormattingProvider {
   readonly name: string;
   readonly requiresApiKey: boolean;
   readonly models: { id: string; name: string }[];
-  format(rawText: string, options: FormattingOptions & { apiKey: string }): Promise<string>;
+  format(rawText: string, options: FormattingOptions & { apiKey?: string }): Promise<string>;
   isAvailable(): Promise<boolean>;
 }
 

@@ -1,6 +1,14 @@
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 
+const STT_TIMEOUT_MS = 20_000;
+
+function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = STT_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 function createWavBuffer(audio: AudioClip): Buffer {
   const dataSize = audio.pcmData.length * 2;
   const buf = Buffer.alloc(44 + dataSize);
@@ -43,7 +51,7 @@ export const DeepgramSttProvider: TranscriptionProvider = {
       url += `&language=${options.language}`;
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: "POST",
       headers: {
         Authorization: `Token ${options.apiKey}`,

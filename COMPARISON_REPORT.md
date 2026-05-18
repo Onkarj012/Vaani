@@ -34,7 +34,7 @@
 
 | Aspect | TypeWhisper (Swift) | Vaani (Electron) |
 |--------|-------------------|-------------------|
-| **Purpose** | Full-featured macOS dictation + transcription app with plugin ecosystem | Minimal, fast macOS voice dictation powered by Groq |
+| **Purpose** | Full-featured macOS dictation + transcription app with plugin ecosystem | Multi-provider macOS voice dictation with online/offline support |
 | **Language** | Swift 6 (98%), Obj-C bridging (minimal) | TypeScript (60%), C++/Obj-C++ native addon (20%) |
 | **Min macOS** | 14.0 (Sonoma), 15+ for translation, 26+ for Apple Intelligence | macOS 12+ (Monterey) |
 | **License** | GPLv3 + Commercial | MIT |
@@ -249,7 +249,7 @@
 | Two-pass formatting | ❌ | ✅ Yes |
 | Provider count | 11 LLM + 5+ transcription providers | 5 STT + 4 LLM providers |
 
-**Key Insight:** TypeWhisper supports a vast ecosystem of 11+ LLM providers and 7+ cloud/local transcription engines, including on-device MLX models and Apple Intelligence. Vaani is exclusively tied to Groq — both for transcription (Whisper) and formatting (Llama). Vaani compensates with unusually thorough output sanity checks and two-pass formatting.
+**Key Insight:** TypeWhisper supports a vast ecosystem of 11+ LLM providers and 7+ cloud/local transcription engines, including on-device MLX models and Apple Intelligence. Vaani (v1.0.4) supports 5 STT engines (Groq, OpenAI, Deepgram, local whisper.cpp, OpenAI-compatible) and 4 LLM formatters (Groq, OpenAI, Anthropic, OpenRouter). Vaani compensates for fewer providers with unusually thorough output sanity checks and two-pass formatting.
 
 ---
 
@@ -691,7 +691,7 @@ com.apple.security.accessibility                        ✅
 | Feature | TypeWhisper | Vaani |
 |---------|-------------|-------|
 | Telemetry | ❌ None | ❌ None |
-| On-device processing | ✅ Yes (local models) | ❌ No (cloud-only) |
+| On-device processing | ✅ Yes (local models) | ✅ Yes (Fully offline, CoreML accelerated) |
 | API key storage | ✅ Keychain | ❌ Config file (~/.vaani/settings.json) |
 | Privacy manifest | ✅ PrivacyInfo.xcprivacy | ❌ Not needed (Electron) |
 | CSP | ❌ | ✅ Session permission handler |

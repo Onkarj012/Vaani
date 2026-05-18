@@ -16,10 +16,16 @@ export class ProviderRegistry {
   }
 
   setActiveTranscription(id: string): void {
+    if (!this.transcriptionProviders.has(id)) {
+      throw new Error(`Unknown transcription provider: ${id}`);
+    }
     this.activeTranscriptionId = id;
   }
 
   setActiveFormatting(id: string): void {
+    if (!this.formattingProviders.has(id)) {
+      throw new Error(`Unknown formatting provider: ${id}`);
+    }
     this.activeFormattingId = id;
   }
 

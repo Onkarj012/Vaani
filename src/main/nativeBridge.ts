@@ -58,10 +58,11 @@ function loadNativeAddon(): NativeBridge {
     }
 
     try {
+      const addon = require(candidatePath) as NativeBridge;
       debug("native", `loaded native module from: ${candidatePath}`);
-      return require(candidatePath) as NativeBridge;
+      return addon;
     } catch (error) {
-      debug("native", `failed to load native module from: ${candidatePath}`);
+      debug("native", `failed to load native module from: ${candidatePath} (${error instanceof Error ? error.message : String(error)})`);
     }
   }
 

@@ -1,6 +1,13 @@
 import type { FormattingProvider } from "../types";
 
 const MIN_WORDS_FOR_FORMATTING = 4;
+const LLM_TIMEOUT_MS = 20_000;
+
+function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = LLM_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
 
 const FORMATTING_PROMPT = [
   "You are a transcript formatter. Your ONLY job: add punctuation and capitalization.",
@@ -29,7 +36,7 @@ export const OpenAILlmProvider: FormattingProvider = {
     if (!options.apiKey) return text;
 
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

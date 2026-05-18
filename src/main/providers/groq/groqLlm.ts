@@ -135,18 +135,29 @@ function hasOrderedTokenPreservation(rawText: string, formattedText: string): bo
   return matched / rawTokens.length >= 0.78;
 }
 
+const FORMATTING_TIMEOUT_MS = 20_000;
+
 async function requestFormatting(apiKey: string, text: string, prompt: string, model: string): Promise<string | null> {
-  const groq = new Groq({ apiKey });
-  const response = await groq.chat.completions.create({
-    model,
-    temperature: 0,
-    max_completion_tokens: Math.max(256, text.length * 2),
-    messages: [
-      { role: "system", content: prompt },
-      { role: "user", content: `<transcript>\n${text}\n</transcript>` },
-    ],
-  });
-  return response.choices[0]?.message?.content?.trim() || null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FORMATTING_TIMEOUT_MS);
+  try {
+    const groq = new Groq({ apiKey });
+    const response = await groq.chat.completions.create({
+      model,
+      temperature: 0,
+      max_completion_tokens: Math.max(256, text.length * 2),
+      messages: [
+        { role: "system", content: prompt },
+        { role: "user", content: `<transcript>\n${text}\n</transcript>` },
+      ],
+    }, { signal: controller.signal });
+    return response.choices[0]?.message?.content?.trim() || null;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") return null;
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export const GroqLlmProvider: FormattingProvider = {

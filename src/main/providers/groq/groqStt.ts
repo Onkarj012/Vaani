@@ -5,6 +5,7 @@ import { debug, error } from "@main/log";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
+const ATTEMPT_TIMEOUT_MS = 15_000;
 
 const TRANSCRIPTION_PROMPT: Record<string, string> = {
   default: "",
@@ -69,6 +70,8 @@ export const GroqSttProvider: TranscriptionProvider = {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         debug("groq", `Attempt ${attempt + 1}/${MAX_RETRIES}: calling Groq API...`);
+        const controller = new AbortController();
+        const attemptTimer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
         const groq = new Groq({ apiKey: options.apiKey });
         const response = await groq.audio.transcriptions.create({
           file,
@@ -76,7 +79,8 @@ export const GroqSttProvider: TranscriptionProvider = {
           language: whisperLang,
           temperature: options.temperature ?? 0,
           ...(prompt ? { prompt } : {}),
-        });
+        }, { signal: controller.signal });
+        clearTimeout(attemptTimer);
 
         const rawText = (response.text ?? "").trim();
         debug("groq", `Success: ${rawText.length} chars`);

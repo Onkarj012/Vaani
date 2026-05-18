@@ -1,5 +1,6 @@
 import { BrowserWindow } from "electron";
-import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFile, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
@@ -30,6 +31,7 @@ import { TranscriptionService } from "./transcription";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
+const FORMATTING_TIMEOUT_MS = 20_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
@@ -101,6 +103,12 @@ export class DictationService {
         this.resetToIdle();
       }
     }, STALE_SESSION_TIMEOUT_MS);
+  }
+
+  private rearmStaleSessionGuard(): void {
+    if (this.activeSessionId) {
+      this.armStaleSessionGuard(this.activeSessionId);
+    }
   }
 
   beginHotkeySession(): void {
@@ -192,6 +200,7 @@ export class DictationService {
 
     this.clearRecorderStartTimer();
     this.setState({ status: "recording", sessionId });
+    this.rearmStaleSessionGuard();
     this.clearAudioFrameTimer();
     this.audioFrameTimer = setTimeout(() => {
       if (this.isCurrentSession(sessionId) && this.state.status === "recording") {
@@ -226,7 +235,7 @@ export class DictationService {
 
     // Save recording to disk if enabled
     if (settings.saveRecordings) {
-      this.saveRecordingToDisk(clippedCopy(payload.clip));
+      void this.saveRecordingToDisk(clippedCopy(payload.clip));
     }
 
     if (!isValidClip(trimmedClip, settings.minClipDuration)) {
@@ -249,7 +258,12 @@ export class DictationService {
       // Format via LLM using provider system
       let formattedText = transcription.rawText;
       try {
-        formattedText = await this.transcription.formatTranscript(transcription.rawText);
+        formattedText = await Promise.race([
+          this.transcription.formatTranscript(transcription.rawText),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Formatting timed out.")), FORMATTING_TIMEOUT_MS)
+          ),
+        ]);
       } catch {
         formattedText = transcription.rawText;
       }
@@ -329,6 +343,7 @@ export class DictationService {
   updateAudioLevel(frame: AudioVisualFrame): void {
     if (this.state.status !== "recording" && this.state.status !== "finalizing") return;
     this.clearAudioFrameTimer();
+    this.rearmStaleSessionGuard();
     this.overlay.updateBars(frame.bars);
     this.mainWindow?.webContents.send(IpcChannel.AudioLevel, frame.level, frame.bars);
   }
@@ -400,11 +415,11 @@ export class DictationService {
     this.mainWindow?.webContents.send(IpcChannel.Navigation, { route });
   }
 
-  private saveRecordingToDisk(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): void {
+  private async saveRecordingToDisk(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<void> {
     try {
       const settings = this.settings.get();
       const dir = settings.recordingsPath || join(homedir(), "Documents", "Vaani Recordings");
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      if (!existsSync(dir)) await mkdir(dir, { recursive: true });
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = `vaani-recording-${timestamp}.wav`;
@@ -429,7 +444,7 @@ export class DictationService {
         const s = Math.max(-1, Math.min(1, clip.pcmData[i] ?? 0));
         buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
       }
-      writeFileSync(filepath, buf);
+      await writeFile(filepath, buf);
     } catch {
       // Best-effort saving
     }

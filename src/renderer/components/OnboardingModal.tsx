@@ -70,7 +70,10 @@ export default function OnboardingModal({
   });
   const [busy, setBusy] = useState(false);
   const [micAttempted, setMicAttempted] = useState(false);
-  const [apiKey, setApiKey] = useState(settings.groqApiKey ?? '');
+  const [apiKey, setApiKey] = useState(() => {
+    const entry = (settings.providerApiKeys ?? []).find(k => k.providerId === settings.transcriptionProvider);
+    return entry?.key ?? (settings.transcriptionProvider === "groq" ? settings.groqApiKey ?? "" : "");
+  });
   const [showApiKey, setShowApiKey] = useState(false);
   const [, setIsDark] = useState(() =>
     document.documentElement.classList.contains("dark")
@@ -186,11 +189,27 @@ export default function OnboardingModal({
       showApiKey={showApiKey}
       onKeyChange={(v) => {
         setApiKey(v);
-        void updateSettings({ groqApiKey: v });
-        void updateSettings({ providerApiKeys: [{ providerId: settings.transcriptionProvider, key: v }] });
+        const providerId = settings.transcriptionProvider;
+        const current = settings.providerApiKeys ?? [];
+        const idx = current.findIndex((k) => k.providerId === providerId);
+        const nextKeys =
+          idx >= 0
+            ? current.map((k, i) => (i === idx ? { providerId, key: v } : k))
+            : [...current, { providerId, key: v }];
+
+        void updateSettings({
+          providerApiKeys: nextKeys,
+          ...(providerId === "groq" ? { groqApiKey: v } : {}),
+        });
       }}
       onToggleShow={() => setShowApiKey(!showApiKey)}
-      onProviderChange={(v) => updateSettings({ transcriptionProvider: v })}
+      onProviderChange={(v) => {
+        void updateSettings({ transcriptionProvider: v });
+        const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === v);
+        setApiKey(
+          entry?.key ?? (v === "groq" ? settings.groqApiKey ?? "" : "")
+        );
+      }}
     />,
     <HotkeySlide
       key="hotkey"
@@ -205,9 +224,17 @@ export default function OnboardingModal({
   const isFirstSlide = slide === 0;
 
   // Determine if next should be disabled
+  const selectedSttProvider = KNOWN_PROVIDERS.find(
+    (p) =>
+      p.id === settings.transcriptionProvider &&
+      (p.type === "stt" || p.type === "local-stt")
+  );
+  const requiresApiKey = selectedSttProvider?.requiresApiKey !== false;
+  const hasRequiredApiKey = !requiresApiKey || !!apiKey.trim();
+
   const nextDisabled =
     (slide === 2 && !canContinueFromPermissions) ||
-    (slide === 3 && !apiKey.trim()) ||
+    (slide === 3 && !hasRequiredApiKey) ||
     busy;
 
   return (

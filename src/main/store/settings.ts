@@ -19,12 +19,12 @@ export class SettingsStore {
 
   private async load(): Promise<Settings> {
     const stored = await readJsonFile<Partial<Settings>>(this.filePath, {});
-    const migrated = this.migrateSettings(stored);
+    const migrated = await this.migrateSettings(stored);
     this.cached = { ...DEFAULT_SETTINGS, ...migrated, theme: "aurora" };
     return this.cached;
   }
 
-  private migrateSettings(stored: Partial<Settings>): Partial<Settings> {
+  private async migrateSettings(stored: Partial<Settings>): Promise<Partial<Settings>> {
     let changed = false;
     const next = { ...stored };
 
@@ -35,7 +35,7 @@ export class SettingsStore {
     }
 
     if (changed) {
-      void writeJsonFile(this.filePath, next);
+      await writeJsonFile(this.filePath, next);
     }
     return next;
   }

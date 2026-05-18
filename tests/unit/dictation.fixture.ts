@@ -1,18 +1,5 @@
 import { vi } from "vitest";
 
-vi.mock("electron", () => ({
-  app: {
-    dock: null,
-    isReady: () => false
-  },
-  BrowserWindow: class BrowserWindowMock {},
-  session: {
-    defaultSession: {
-      setPermissionRequestHandler: () => {}
-    }
-  }
-}));
-
 vi.mock("/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts", () => ({
   OverlayController: class OverlayControllerMock {}
 }));

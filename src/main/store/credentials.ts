@@ -25,8 +25,8 @@ export class CredentialsStore {
     this.cache.delete(key);
   }
 
-  getAll(): CredentialEntry[] {
-    return Array.from(this.cache.entries()).map(([key, value]) => ({ key, value }));
+  getAll(): Array<Pick<CredentialEntry, "key">> {
+    return Array.from(this.cache.keys()).map((key) => ({ key }));
   }
 
   migrateFromSettings(settings: Settings): Partial<Settings> {

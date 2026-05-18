@@ -1,6 +1,14 @@
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 
+const STT_TIMEOUT_MS = 20_000;
+
+function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = STT_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 function createWavBuffer(audio: AudioClip): Buffer {
   const dataSize = audio.pcmData.length * 2;
   const buf = Buffer.alloc(44 + dataSize);
@@ -47,7 +55,7 @@ export const OpenAISttProvider: TranscriptionProvider = {
       formData.append("prompt", options.prompt);
     }
 
-    const response = await fetch(options.baseUrl
+    const response = await fetchWithTimeout(options.baseUrl
       ? `${options.baseUrl}/audio/transcriptions`
       : "https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
@@ -62,7 +70,8 @@ export const OpenAISttProvider: TranscriptionProvider = {
     const data = await response.json() as { text: string };
     const rawText = (data.text ?? "").trim();
     if (!rawText) throw new Error("No speech detected.");
-    return { rawText, formattedText: rawText, language: options.language ?? "en" };
+    const resolvedLanguage = options.language === "auto" ? "en" : (options.language ?? "en");
+    return { rawText, formattedText: rawText, language: resolvedLanguage };
   },
 
   async isAvailable(): Promise<boolean> {
@@ -92,7 +101,7 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
     }
 
     const url = options.baseUrl.endsWith("/") ? `${options.baseUrl}audio/transcriptions` : `${options.baseUrl}/audio/transcriptions`;
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${options.apiKey}` },
       body: formData,
@@ -105,7 +114,8 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
     const data = await response.json() as { text: string };
     const rawText = (data.text ?? "").trim();
     if (!rawText) throw new Error("No speech detected.");
-    return { rawText, formattedText: rawText, language: options.language ?? "en" };
+    const resolvedLanguage = options.language === "auto" ? "en" : (options.language ?? "en");
+    return { rawText, formattedText: rawText, language: resolvedLanguage };
   },
 
   async isAvailable(): Promise<boolean> {

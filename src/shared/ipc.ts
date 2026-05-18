@@ -45,4 +45,7 @@ export const enum IpcChannel {
   // Phase 1: Providers
   TestApiKey = "providers:test-api-key",
   GetProviderStatus = "providers:get-status",
+
+  // Updater notifications
+  UpdateNotification = "updater:notification",
 }
