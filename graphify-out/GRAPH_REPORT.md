@@ -1,11 +1,11 @@
 # Graph Report - /Users/onkarj012/Projects/Alternatives/Trail/Vaani_main  (2026-05-19)
 
 ## Corpus Check
-- 103 files · ~78,723 words
+- 103 files · ~78,781 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 513 nodes · 872 edges · 87 communities detected
+- 515 nodes · 872 edges · 88 communities detected
 - Extraction: 79% EXTRACTED · 21% INFERRED · 0% AMBIGUOUS · INFERRED: 183 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
@@ -97,6 +97,7 @@
 - [[_COMMUNITY_Community 84|Community 84]]
 - [[_COMMUNITY_Community 85|Community 85]]
 - [[_COMMUNITY_Community 86|Community 86]]
+- [[_COMMUNITY_Community 87|Community 87]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `DictationService` - 43 edges
@@ -130,8 +131,8 @@
 ## Communities
 
 ### Community 0 - "Community 0"
-Cohesion: 0.06
-Nodes (26): armMainWindowReadyTimeout(), bootstrap(), cleanupRuntimeResources(), clearMainWindowReadyTimeout(), configureMediaPermissions(), configureRendererLifecycle(), createMainWindow(), isDictationActive() (+18 more)
+Cohesion: 0.09
+Nodes (12): syncAppPresentation(), OverlayController, RecorderWindowController, focus(), isDestroyed(), loadFile(), loadURL(), setAlwaysOnTop() (+4 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.09
@@ -154,71 +155,71 @@ Cohesion: 0.14
 Nodes (15): debug(), error(), configureMacOSAudioSession(), getCurrentAudioInputDevice(), hasSwitchAudioSource(), isBluetoothDeviceName(), listAudioInputDevices(), setAudioInputDevice() (+7 more)
 
 ### Community 6 - "Community 6"
+Cohesion: 0.15
+Nodes (14): armMainWindowReadyTimeout(), bootstrap(), cleanupRuntimeResources(), clearMainWindowReadyTimeout(), configureMediaPermissions(), configureRendererLifecycle(), createMainWindow(), isDictationActive() (+6 more)
+
+### Community 7 - "Community 7"
 Cohesion: 0.25
 Nodes (4): HotkeyManager, isNativeOnlyAccelerator(), toElectronAccelerator(), warn()
 
-### Community 7 - "Community 7"
+### Community 8 - "Community 8"
 Cohesion: 0.12
 Nodes (18): No Secrets in Source Code Policy, Accessibility APIs, Beautiful UI with Signal & Obsidian Themes, Clipboard Injection, Custom Dictionary for Word Replacements, Default Hotkey Ctrl+Option+D, Global Hotkey Feature, Groq API Key Configuration (+10 more)
 
-### Community 8 - "Community 8"
+### Community 9 - "Community 9"
 Cohesion: 0.21
 Nodes (13): blobToClip(), calculateRmsFrames(), chooseMicDevice(), cleanup(), mixToMono(), preferredMimeType(), reportFailure(), resampleToTargetRate() (+5 more)
 
-### Community 9 - "Community 9"
+### Community 10 - "Community 10"
 Cohesion: 0.22
 Nodes (13): applyCorrections(), applySmartPunctuation(), applySnippets(), capitalizeSentences(), cleanupText(), collapseAdjacentDuplicateWords(), ensureLinePunctuation(), hasMultipleLines() (+5 more)
 
-### Community 10 - "Community 10"
+### Community 11 - "Community 11"
 Cohesion: 0.24
 Nodes (3): writeJsonFile(), HistoryStore, normalizeHistory()
 
-### Community 11 - "Community 11"
+### Community 12 - "Community 12"
 Cohesion: 0.24
 Nodes (7): getPermissionStatus(), normalizeMediaStatus(), openPermissionSettings(), registerIpcHandlers(), refreshPermissions(), requestAccessibility(), requestMicrophone()
 
-### Community 12 - "Community 12"
+### Community 13 - "Community 13"
 Cohesion: 0.47
 Nodes (8): calculateFirstSentenceOverlap(), firstSentence(), hasLeadWordOverlap(), hasOrderedTokenPreservation(), looksSuspicious(), stripSpokenCues(), tokenizeForComparison(), tokenizeOrdered()
 
-### Community 13 - "Community 13"
+### Community 14 - "Community 14"
 Cohesion: 0.39
 Nodes (5): cleanupStaleProcesses(), listStalePids(), processExists(), sleep(), terminatePid()
 
-### Community 14 - "Community 14"
+### Community 15 - "Community 15"
 Cohesion: 0.48
 Nodes (4): AccessibilityTextInjector, delay(), moveCursorToEndOfText(), normalizeFailureReason()
 
-### Community 15 - "Community 15"
+### Community 16 - "Community 16"
 Cohesion: 0.8
 Nodes (5): build_iconset(), build_square_png(), main(), read_image_dimensions(), run()
 
-### Community 16 - "Community 16"
+### Community 17 - "Community 17"
 Cohesion: 0.4
 Nodes (3): ThemeToggle(), VaaniIcon(), useTheme()
 
-### Community 17 - "Community 17"
+### Community 18 - "Community 18"
 Cohesion: 0.6
 Nodes (5): freeWhisperModel(), getWhisperModule(), isModelLoaded(), listDownloadedModels(), loadWhisperModel()
 
-### Community 18 - "Community 18"
+### Community 19 - "Community 19"
 Cohesion: 0.5
 Nodes (2): keyToLabel(), onKeyDown()
 
-### Community 19 - "Community 19"
+### Community 20 - "Community 20"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 20 - "Community 20"
+### Community 21 - "Community 21"
 Cohesion: 0.7
 Nodes (4): dedupeSuggestions(), detectDictionarySuggestions(), suffixesMatch(), tokenize()
 
-### Community 21 - "Community 21"
-Cohesion: 0.4
-Nodes (0): 
-
 ### Community 22 - "Community 22"
-Cohesion: 0.5
+Cohesion: 0.4
 Nodes (0): 
 
 ### Community 23 - "Community 23"
@@ -230,16 +231,16 @@ Cohesion: 0.5
 Nodes (0): 
 
 ### Community 25 - "Community 25"
-Cohesion: 0.67
-Nodes (4): Vaani Architecture Summary, Business Logic in Main Process Services, Renderer Components for Presentation Only, Graph-Derived Architecture Summary
+Cohesion: 0.5
+Nodes (0): 
 
 ### Community 26 - "Community 26"
 Cohesion: 0.67
-Nodes (0): 
+Nodes (4): Vaani Architecture Summary, Business Logic in Main Process Services, Renderer Components for Presentation Only, Graph-Derived Architecture Summary
 
 ### Community 27 - "Community 27"
-Cohesion: 0.67
-Nodes (0): 
+Cohesion: 1.0
+Nodes (2): findLatestMacYml(), walkFiles()
 
 ### Community 28 - "Community 28"
 Cohesion: 0.67
@@ -250,11 +251,11 @@ Cohesion: 0.67
 Nodes (0): 
 
 ### Community 30 - "Community 30"
-Cohesion: 1.0
+Cohesion: 0.67
 Nodes (0): 
 
 ### Community 31 - "Community 31"
-Cohesion: 1.0
+Cohesion: 0.67
 Nodes (0): 
 
 ### Community 32 - "Community 32"
@@ -315,7 +316,7 @@ Nodes (0):
 
 ### Community 46 - "Community 46"
 Cohesion: 1.0
-Nodes (2): Path Aliases for Imports, TypeScript Strict Mode Code Style
+Nodes (0): 
 
 ### Community 47 - "Community 47"
 Cohesion: 1.0
@@ -323,7 +324,7 @@ Nodes (0):
 
 ### Community 48 - "Community 48"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (2): Path Aliases for Imports, TypeScript Strict Mode Code Style
 
 ### Community 49 - "Community 49"
 Cohesion: 1.0
@@ -463,146 +464,148 @@ Nodes (0):
 
 ### Community 83 - "Community 83"
 Cohesion: 1.0
-Nodes (1): Graphify Context Rules
+Nodes (0): 
 
 ### Community 84 - "Community 84"
 Cohesion: 1.0
-Nodes (1): Tailwind Utility-First Styling
+Nodes (1): Graphify Context Rules
 
 ### Community 85 - "Community 85"
 Cohesion: 1.0
-Nodes (1): Native Build Step Requirement
+Nodes (1): Tailwind Utility-First Styling
 
 ### Community 86 - "Community 86"
+Cohesion: 1.0
+Nodes (1): Native Build Step Requirement
+
+### Community 87 - "Community 87"
 Cohesion: 1.0
 Nodes (1): Do Not Edit Generated Build Artifacts
 
 ## Knowledge Gaps
 - **17 isolated node(s):** `Smart Text Cleanup`, `Accessibility APIs`, `Clipboard Injection`, `Keystroke Simulation`, `Custom Dictionary for Word Replacements` (+12 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Community 30`** (2 nodes): `createSettings()`, `cleanup.test.ts`
+- **Thin community `Community 32`** (2 nodes): `createSettings()`, `cleanup.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 31`** (2 nodes): `createDictationService()`, `dictation.test.ts`
+- **Thin community `Community 33`** (2 nodes): `createDictationService()`, `dictation.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 32`** (2 nodes): `walk()`, `generate-latest-mac-yml.js`
+- **Thin community `Community 34`** (2 nodes): `walk()`, `generate-latest-mac-yml.js`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 33`** (2 nodes): `vaani-ui.tsx`, `VaaniUiProvider()`
+- **Thin community `Community 35`** (2 nodes): `vaani-ui.tsx`, `VaaniUiProvider()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 34`** (2 nodes): `cn()`, `api-key-input.tsx`
+- **Thin community `Community 36`** (2 nodes): `cn()`, `api-key-input.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 35`** (2 nodes): `cn()`, `Kbd.tsx`
+- **Thin community `Community 37`** (2 nodes): `cn()`, `Kbd.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 36`** (2 nodes): `Badge()`, `badge.tsx`
+- **Thin community `Community 38`** (2 nodes): `Badge()`, `badge.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 37`** (2 nodes): `LiveWaveform()`, `live-waveform.tsx`
+- **Thin community `Community 39`** (2 nodes): `LiveWaveform()`, `live-waveform.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 38`** (2 nodes): `Skeleton()`, `Skeleton.tsx`
+- **Thin community `Community 40`** (2 nodes): `Skeleton()`, `Skeleton.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 39`** (2 nodes): `utils.js`, `cn()`
+- **Thin community `Community 41`** (2 nodes): `utils.js`, `cn()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 40`** (2 nodes): `handleAdd()`, `Dictionary.tsx`
+- **Thin community `Community 42`** (2 nodes): `handleAdd()`, `Dictionary.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 41`** (2 nodes): `StatSkeleton()`, `Dashboard.tsx`
+- **Thin community `Community 43`** (2 nodes): `StatSkeleton()`, `Dashboard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 42`** (2 nodes): `whisper_engine.h`, `vaani()`
+- **Thin community `Community 44`** (2 nodes): `whisper_engine.h`, `vaani()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 43`** (2 nodes): `fetchWithTimeout()`, `openaiLlm.ts`
+- **Thin community `Community 45`** (2 nodes): `fetchWithTimeout()`, `openaiLlm.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 44`** (2 nodes): `subscribe()`, `recorder.ts`
+- **Thin community `Community 46`** (2 nodes): `subscribe()`, `recorder.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 45`** (2 nodes): `subscribe()`, `index.ts`
+- **Thin community `Community 47`** (2 nodes): `subscribe()`, `index.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 46`** (2 nodes): `Path Aliases for Imports`, `TypeScript Strict Mode Code Style`
+- **Thin community `Community 48`** (2 nodes): `Path Aliases for Imports`, `TypeScript Strict Mode Code Style`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 47`** (1 nodes): `forge.config.ts`
+- **Thin community `Community 49`** (1 nodes): `vite.recorder-preload.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 48`** (1 nodes): `vite.recorder-preload.config.ts`
+- **Thin community `Community 50`** (1 nodes): `vite.overlay-preload.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 49`** (1 nodes): `vite.overlay-preload.config.ts`
+- **Thin community `Community 51`** (1 nodes): `vite.main.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 50`** (1 nodes): `vite.main.config.ts`
+- **Thin community `Community 52`** (1 nodes): `vite.preload.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 51`** (1 nodes): `vite.preload.config.ts`
+- **Thin community `Community 53`** (1 nodes): `vite.overlay.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 52`** (1 nodes): `vite.overlay.config.ts`
+- **Thin community `Community 54`** (1 nodes): `vite.recorder.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 53`** (1 nodes): `vite.recorder.config.ts`
+- **Thin community `Community 55`** (1 nodes): `vitest.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 54`** (1 nodes): `vitest.config.ts`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 55`** (1 nodes): `vite.renderer.config.ts`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 56`** (1 nodes): `electron.ts`
+- **Thin community `Community 56`** (1 nodes): `vite.renderer.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 57`** (1 nodes): `electron.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 58`** (1 nodes): `hotkeys.test.ts`
+- **Thin community `Community 58`** (1 nodes): `electron.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 59`** (1 nodes): `dictionarySuggestions.test.ts`
+- **Thin community `Community 59`** (1 nodes): `hotkeys.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 60`** (1 nodes): `formatting.test.ts`
+- **Thin community `Community 60`** (1 nodes): `dictionarySuggestions.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 61`** (1 nodes): `dictation.fixture.ts`
+- **Thin community `Community 61`** (1 nodes): `formatting.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 62`** (1 nodes): `textInjector.test.ts`
+- **Thin community `Community 62`** (1 nodes): `dictation.fixture.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 63`** (1 nodes): `App.tsx`
+- **Thin community `Community 63`** (1 nodes): `textInjector.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 64`** (1 nodes): `card.tsx`
+- **Thin community `Community 64`** (1 nodes): `App.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 65`** (1 nodes): `slider.tsx`
+- **Thin community `Community 65`** (1 nodes): `card.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 66`** (1 nodes): `switch.tsx`
+- **Thin community `Community 66`** (1 nodes): `slider.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 67`** (1 nodes): `separator.tsx`
+- **Thin community `Community 67`** (1 nodes): `switch.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 68`** (1 nodes): `button.tsx`
+- **Thin community `Community 68`** (1 nodes): `separator.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 69`** (1 nodes): `dropdown-menu.tsx`
+- **Thin community `Community 69`** (1 nodes): `button.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 70`** (1 nodes): `main.tsx`
+- **Thin community `Community 70`** (1 nodes): `dropdown-menu.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 71`** (1 nodes): `CapsuleOverlay.tsx`
+- **Thin community `Community 71`** (1 nodes): `main.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 72`** (1 nodes): `hotkey_monitor.mm`
+- **Thin community `Community 72`** (1 nodes): `CapsuleOverlay.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 73`** (1 nodes): `detector.mm`
+- **Thin community `Community 73`** (1 nodes): `hotkey_monitor.mm`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 74`** (1 nodes): `injector.mm`
+- **Thin community `Community 74`** (1 nodes): `detector.mm`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 75`** (1 nodes): `whisper_engine.mm`
+- **Thin community `Community 75`** (1 nodes): `injector.mm`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 76`** (1 nodes): `defaults.ts`
+- **Thin community `Community 76`** (1 nodes): `whisper_engine.mm`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 77`** (1 nodes): `types.ts`
+- **Thin community `Community 77`** (1 nodes): `defaults.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 78`** (1 nodes): `ipc.ts`
+- **Thin community `Community 78`** (1 nodes): `types.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 79`** (1 nodes): `formatting-constants.ts`
+- **Thin community `Community 79`** (1 nodes): `ipc.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 80`** (1 nodes): `openRouterLlm.ts`
+- **Thin community `Community 80`** (1 nodes): `formatting-constants.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 81`** (1 nodes): `anthropicLlm.ts`
+- **Thin community `Community 81`** (1 nodes): `openRouterLlm.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 82`** (1 nodes): `overlay.ts`
+- **Thin community `Community 82`** (1 nodes): `anthropicLlm.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 83`** (1 nodes): `Graphify Context Rules`
+- **Thin community `Community 83`** (1 nodes): `overlay.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 84`** (1 nodes): `Tailwind Utility-First Styling`
+- **Thin community `Community 84`** (1 nodes): `Graphify Context Rules`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 85`** (1 nodes): `Native Build Step Requirement`
+- **Thin community `Community 85`** (1 nodes): `Tailwind Utility-First Styling`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 86`** (1 nodes): `Do Not Edit Generated Build Artifacts`
+- **Thin community `Community 86`** (1 nodes): `Native Build Step Requirement`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 87`** (1 nodes): `Do Not Edit Generated Build Artifacts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `log()` connect `Community 0` to `Community 1`, `Community 2`, `Community 3`, `Community 5`, `Community 6`, `Community 14`?**
-  _High betweenness centrality (0.145) - this node is a cross-community bridge._
-- **Why does `DictationService` connect `Community 1` to `Community 0`, `Community 2`?**
+- **Why does `log()` connect `Community 6` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 5`, `Community 7`, `Community 15`?**
+  _High betweenness centrality (0.143) - this node is a cross-community bridge._
+- **Why does `DictationService` connect `Community 1` to `Community 0`, `Community 2`, `Community 6`?**
   _High betweenness centrality (0.062) - this node is a cross-community bridge._
-- **Why does `bootstrap()` connect `Community 0` to `Community 2`, `Community 11`?**
+- **Why does `bootstrap()` connect `Community 6` to `Community 0`, `Community 2`, `Community 12`?**
   _High betweenness centrality (0.061) - this node is a cross-community bridge._
 - **Are the 21 inferred relationships involving `isDestroyed()` (e.g. with `showMainWindow()` and `syncAppPresentation()`) actually correct?**
   _`isDestroyed()` has 21 INFERRED edges - model-reasoned connections that need verification._

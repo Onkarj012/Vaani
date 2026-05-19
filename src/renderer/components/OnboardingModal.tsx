@@ -31,6 +31,8 @@ import { KNOWN_PROVIDERS } from "@shared/defaults";
 import devanagariDarkUrl from "../../../assets/iconset/devanagari/devanagari_dark.svg?url";
 import devanagariLightUrl from "../../../assets/iconset/devanagari/devanagari_light.svg?url";
 
+const EXCLUDED_LLM_KEY_PROVIDERS = new Set(["openai-llm", "openrouter", "groq-llm"]);
+
 interface OnboardingModalProps {
   settings: Settings;
   onComplete: () => Promise<void>;
@@ -260,8 +262,7 @@ export default function OnboardingModal({
     (p) => p.id === settings.formattingProvider && p.type === "llm"
   );
   const llmRequiresKey = selectedLlmProvider?.requiresApiKey !== false;
-  const excludedLlmProviders = new Set(["openai-llm", "openrouter", "groq-llm"]);
-  const llmNeedsOnboardingKey = llmRequiresKey && !excludedLlmProviders.has(selectedLlmProvider?.id ?? "");
+  const llmNeedsOnboardingKey = llmRequiresKey && !EXCLUDED_LLM_KEY_PROVIDERS.has(selectedLlmProvider?.id ?? "");
   const hasRequiredLlmKey = !llmNeedsOnboardingKey || !!llmApiKey.trim();
   const hasRequiredApiKey = hasRequiredSttKey && hasRequiredLlmKey;
 
@@ -655,8 +656,7 @@ function ProviderApiSlide({
   const activeLlm = llmProviders.find(p => p.id === settings.formattingProvider);
   const [llmProvOpen, setLlmProvOpen] = useState(false);
 
-  const excludedLlmProviders = new Set(["openai-llm", "openrouter", "groq-llm"]);
-  const showLlmKeyInput = activeLlm?.requiresApiKey !== false && !excludedLlmProviders.has(activeLlm?.id ?? "");
+  const showLlmKeyInput = activeLlm?.requiresApiKey !== false && !EXCLUDED_LLM_KEY_PROVIDERS.has(activeLlm?.id ?? "");
 
   return (
     <div className="flex flex-col items-center text-center">

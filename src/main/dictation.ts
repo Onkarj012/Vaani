@@ -658,7 +658,7 @@ function safeFocusedValue(): string | null {
 }
 
 function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {
-  if (!initialValue) return currentValue.trim() || null;
+  if (!initialValue) return null;
   const insertedAt = initialValue.indexOf(insertedText);
   if (insertedAt < 0) return currentValue.trim() || null;
 

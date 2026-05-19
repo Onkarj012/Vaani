@@ -135,19 +135,16 @@ export class OverlayController {
   setProcessing(): void {
     this.pendingMode = "transcribing";
     this.show();
-    this.tryUpdateMode("transcribing");
   }
 
   setSuccess(): void {
     this.pendingMode = "done";
     this.show();
-    this.tryUpdateMode("done");
   }
 
   setError(): void {
     this.pendingMode = "error";
     this.show();
-    this.tryUpdateMode("error");
   }
 
   updateBars(bars: number[]): void {
