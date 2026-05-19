@@ -98,6 +98,16 @@ export default function OnboardingModal({
     return () => observer.disconnect();
   }, []);
 
+  function upsertProviderKey(providerId: string, key: string) {
+    const current = settings.providerApiKeys ?? [];
+    const idx = current.findIndex((k) => k.providerId === providerId);
+    const nextKeys =
+      idx >= 0
+        ? current.map((k, i) => (i === idx ? { providerId, key } : k))
+        : [...current, { providerId, key }];
+    return nextKeys;
+  }
+
   async function refreshPermissions() {
     const next = await window.vaani.getPermissionStatus();
     setPermissions(next);
@@ -198,17 +208,9 @@ export default function OnboardingModal({
       showLlmApiKey={showLlmApiKey}
       onKeyChange={(v) => {
         setApiKey(v);
-        const providerId = settings.transcriptionProvider;
-        const current = settings.providerApiKeys ?? [];
-        const idx = current.findIndex((k) => k.providerId === providerId);
-        const nextKeys =
-          idx >= 0
-            ? current.map((k, i) => (i === idx ? { providerId, key: v } : k))
-            : [...current, { providerId, key: v }];
-
         void updateSettings({
-          providerApiKeys: nextKeys,
-          ...(providerId === "groq" ? { groqApiKey: v } : {}),
+          providerApiKeys: upsertProviderKey(settings.transcriptionProvider, v),
+          ...(settings.transcriptionProvider === "groq" ? { groqApiKey: v } : {}),
         });
       }}
       onToggleShow={() => setShowApiKey(!showApiKey)}
@@ -221,14 +223,7 @@ export default function OnboardingModal({
       }}
       onLlmKeyChange={(v) => {
         setLlmApiKey(v);
-        const providerId = settings.formattingProvider;
-        const current = settings.providerApiKeys ?? [];
-        const idx = current.findIndex((k) => k.providerId === providerId);
-        const nextKeys =
-          idx >= 0
-            ? current.map((k, i) => (i === idx ? { providerId, key: v } : k))
-            : [...current, { providerId, key: v }];
-        void updateSettings({ providerApiKeys: nextKeys });
+        void updateSettings({ providerApiKeys: upsertProviderKey(settings.formattingProvider, v) });
       }}
       onToggleLlmShow={() => setShowLlmApiKey(!showLlmApiKey)}
       onLlmProviderChange={(v) => {
@@ -734,6 +729,7 @@ function ProviderApiSlide({
               <button
                 type="button"
                 onClick={onToggleShow}
+                aria-label={showApiKey ? "Hide API key" : "Show API key"}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-vaani-gray-400 hover:text-vaani-gray-600 dark:hover:text-vaani-gray-200 transition-colors"
               >
                 {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -797,6 +793,7 @@ function ProviderApiSlide({
               <button
                 type="button"
                 onClick={onToggleLlmShow}
+                aria-label={showLlmApiKey ? "Hide LLM API key" : "Show LLM API key"}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-vaani-gray-400 hover:text-vaani-gray-600 dark:hover:text-vaani-gray-200 transition-colors"
               >
                 {showLlmApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
