@@ -4,9 +4,33 @@ import { MakerZIP } from "@electron-forge/maker-zip";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { PublisherGithub } from "@electron-forge/publisher-github";
-import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const config: ForgeConfig = {
+  hooks: {
+    postMake: async (_forgeConfig, makeResults) => {
+      execFileSync(process.execPath, [join(__dirname, "scripts", "generate-latest-mac-yml.js")], {
+        stdio: "inherit"
+      });
+
+      const makeRoot = join(__dirname, "out", "make");
+      const latestMacYml = findLatestMacYml(makeRoot);
+      if (!latestMacYml) return makeResults;
+
+      for (const result of makeResults) {
+        const hasMacZip = result.artifacts.some((artifact) =>
+          artifact.endsWith(".zip") && dirname(artifact) === dirname(latestMacYml)
+        );
+        if (hasMacZip && !result.artifacts.includes(latestMacYml)) {
+          result.artifacts.push(latestMacYml);
+        }
+      }
+
+      return makeResults;
+    }
+  },
   packagerConfig: {
     asar: true,
     appBundleId: "com.claudevaani.app",
@@ -74,3 +98,26 @@ new MakerDMG({
 };
 
 export default config;
+
+function findLatestMacYml(makeRoot: string): string | null {
+  const candidates = walkFiles(makeRoot)
+    .filter((file) => file.endsWith("latest-mac.yml"))
+    .sort((left, right) => {
+      return statSync(right).mtimeMs - statSync(left).mtimeMs;
+    });
+  return candidates[0] ?? null;
+}
+
+function walkFiles(dir: string): string[] {
+  const entries: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const fullPath = join(dir, name);
+    const stat = statSync(fullPath);
+    if (stat.isDirectory()) {
+      entries.push(...walkFiles(fullPath));
+    } else {
+      entries.push(fullPath);
+    }
+  }
+  return entries;
+}

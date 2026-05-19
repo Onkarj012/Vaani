@@ -1,5 +1,6 @@
 import { BrowserWindow, clipboard, ipcMain, shell, systemPreferences } from "electron";
 import { IpcChannel } from "@shared/ipc";
+import { KNOWN_PROVIDERS } from "@shared/defaults";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioVisualFrame,
@@ -32,9 +33,12 @@ function normalizeMediaStatus(status: string): MacOSPermissionState {
 }
 
 function getPermissionStatus(): PermissionStatus {
+  const accessibilityTrusted = nativeBridge.isAccessibilityTrusted?.()
+    ?? systemPreferences.isTrustedAccessibilityClient(false);
+
   return {
     microphone: normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone")),
-    accessibility: systemPreferences.isTrustedAccessibilityClient(false) ? "granted" : "denied"
+    accessibility: accessibilityTrusted ? "granted" : "denied"
   };
 }
 
@@ -81,6 +85,13 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.GetSettings, () => settings.get());
 
   ipcMain.handle(IpcChannel.UpdateSettings, (_e, patch) => {
+    if ("formattingProvider" in patch && typeof patch.formattingProvider === "string" && !("formattingModel" in patch)) {
+      const provider = KNOWN_PROVIDERS.find((candidate) => candidate.id === patch.formattingProvider);
+      if (provider?.type === "llm") {
+        patch = { ...patch, formattingModel: provider.defaultModel };
+      }
+    }
+
     const updated = settings.update(patch);
     if ("primaryHotkey" in patch || "pasteLatestHotkey" in patch) {
       hotkeys.reregister();
@@ -127,7 +138,9 @@ export function registerIpcHandlers(opts: {
     return normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone"));
   });
   ipcMain.handle(IpcChannel.RequestAccessibilityPermission, () => {
-    const trusted = systemPreferences.isTrustedAccessibilityClient(true);
+    systemPreferences.isTrustedAccessibilityClient(true);
+    const trusted = nativeBridge.isAccessibilityTrusted?.()
+      ?? systemPreferences.isTrustedAccessibilityClient(false);
     return trusted ? "granted" : "denied";
   });
   ipcMain.handle(IpcChannel.OpenPermissionSettings, (_e, permission: keyof PermissionStatus) => (

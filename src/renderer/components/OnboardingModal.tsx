@@ -31,6 +31,8 @@ import { KNOWN_PROVIDERS } from "@shared/defaults";
 import devanagariDarkUrl from "../../../assets/iconset/devanagari/devanagari_dark.svg?url";
 import devanagariLightUrl from "../../../assets/iconset/devanagari/devanagari_light.svg?url";
 
+const EXCLUDED_LLM_KEY_PROVIDERS = new Set(["openai-llm", "openrouter", "groq-llm"]);
+
 interface OnboardingModalProps {
   settings: Settings;
   onComplete: () => Promise<void>;
@@ -75,6 +77,11 @@ export default function OnboardingModal({
     return entry?.key ?? (settings.transcriptionProvider === "groq" ? settings.groqApiKey ?? "" : "");
   });
   const [showApiKey, setShowApiKey] = useState(false);
+  const [llmApiKey, setLlmApiKey] = useState(() => {
+    const entry = (settings.providerApiKeys ?? []).find(k => k.providerId === settings.formattingProvider);
+    return entry?.key ?? "";
+  });
+  const [showLlmApiKey, setShowLlmApiKey] = useState(false);
   const [, setIsDark] = useState(() =>
     document.documentElement.classList.contains("dark")
   );
@@ -90,6 +97,16 @@ export default function OnboardingModal({
     });
     return () => observer.disconnect();
   }, []);
+
+  function upsertProviderKey(providerId: string, key: string) {
+    const current = settings.providerApiKeys ?? [];
+    const idx = current.findIndex((k) => k.providerId === providerId);
+    const nextKeys =
+      idx >= 0
+        ? current.map((k, i) => (i === idx ? { providerId, key } : k))
+        : [...current, { providerId, key }];
+    return nextKeys;
+  }
 
   async function refreshPermissions() {
     const next = await window.vaani.getPermissionStatus();
@@ -187,19 +204,13 @@ export default function OnboardingModal({
       settings={settings}
       apiKey={apiKey}
       showApiKey={showApiKey}
+      llmApiKey={llmApiKey}
+      showLlmApiKey={showLlmApiKey}
       onKeyChange={(v) => {
         setApiKey(v);
-        const providerId = settings.transcriptionProvider;
-        const current = settings.providerApiKeys ?? [];
-        const idx = current.findIndex((k) => k.providerId === providerId);
-        const nextKeys =
-          idx >= 0
-            ? current.map((k, i) => (i === idx ? { providerId, key: v } : k))
-            : [...current, { providerId, key: v }];
-
         void updateSettings({
-          providerApiKeys: nextKeys,
-          ...(providerId === "groq" ? { groqApiKey: v } : {}),
+          providerApiKeys: upsertProviderKey(settings.transcriptionProvider, v),
+          ...(settings.transcriptionProvider === "groq" ? { groqApiKey: v } : {}),
         });
       }}
       onToggleShow={() => setShowApiKey(!showApiKey)}
@@ -209,6 +220,16 @@ export default function OnboardingModal({
         setApiKey(
           entry?.key ?? (v === "groq" ? settings.groqApiKey ?? "" : "")
         );
+      }}
+      onLlmKeyChange={(v) => {
+        setLlmApiKey(v);
+        void updateSettings({ providerApiKeys: upsertProviderKey(settings.formattingProvider, v) });
+      }}
+      onToggleLlmShow={() => setShowLlmApiKey(!showLlmApiKey)}
+      onLlmProviderChange={(v) => {
+        void updateSettings({ formattingProvider: v });
+        const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === v);
+        setLlmApiKey(entry?.key ?? "");
       }}
     />,
     <HotkeySlide
@@ -230,7 +251,15 @@ export default function OnboardingModal({
       (p.type === "stt" || p.type === "local-stt")
   );
   const requiresApiKey = selectedSttProvider?.requiresApiKey !== false;
-  const hasRequiredApiKey = !requiresApiKey || !!apiKey.trim();
+  const hasRequiredSttKey = !requiresApiKey || !!apiKey.trim();
+
+  const selectedLlmProvider = KNOWN_PROVIDERS.find(
+    (p) => p.id === settings.formattingProvider && p.type === "llm"
+  );
+  const llmRequiresKey = selectedLlmProvider?.requiresApiKey !== false;
+  const llmNeedsOnboardingKey = llmRequiresKey && !EXCLUDED_LLM_KEY_PROVIDERS.has(selectedLlmProvider?.id ?? "");
+  const hasRequiredLlmKey = !llmNeedsOnboardingKey || !!llmApiKey.trim();
+  const hasRequiredApiKey = hasRequiredSttKey && hasRequiredLlmKey;
 
   const nextDisabled =
     (slide === 2 && !canContinueFromPermissions) ||
@@ -592,37 +621,53 @@ function ProviderApiSlide({
   settings,
   apiKey,
   showApiKey,
+  llmApiKey,
+  showLlmApiKey,
   onKeyChange,
   onToggleShow,
   onProviderChange,
+  onLlmKeyChange,
+  onToggleLlmShow,
+  onLlmProviderChange,
 }: {
   settings: Settings;
   apiKey: string;
   showApiKey: boolean;
+  llmApiKey: string;
+  showLlmApiKey: boolean;
   onKeyChange: (v: string) => void;
   onToggleShow: () => void;
   onProviderChange: (v: string) => void;
+  onLlmKeyChange: (v: string) => void;
+  onToggleLlmShow: () => void;
+  onLlmProviderChange: (v: string) => void;
 }) {
   const isValid = apiKey.trim().length > 0;
   const sttProviders = KNOWN_PROVIDERS.filter(p => p.type === 'stt' || p.type === 'local-stt');
   const activeProvider = sttProviders.find(p => p.id === settings.transcriptionProvider);
   const [provOpen, setProvOpen] = useState(false);
 
+  const llmProviders = KNOWN_PROVIDERS.filter(p => p.type === 'llm');
+  const activeLlm = llmProviders.find(p => p.id === settings.formattingProvider);
+  const [llmProvOpen, setLlmProvOpen] = useState(false);
+
+  const showLlmKeyInput = activeLlm?.requiresApiKey !== false && !EXCLUDED_LLM_KEY_PROVIDERS.has(activeLlm?.id ?? "");
+
   return (
     <div className="flex flex-col items-center text-center">
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20"
+        className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20"
       >
-        <Plug size={26} />
+        <Plug size={22} />
       </motion.div>
 
-      <h2 className="mb-2 text-2xl font-bold text-vaani-black dark:text-white">
-        Choose Provider &amp; Add Key
+      <h2 className="mb-1 text-2xl font-bold text-vaani-black dark:text-white">
+        Choose Providers &amp; Add Keys
       </h2>
-      <p className="mb-6 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-        Your key stays on your device. Start with Groq — it's fast and free.
+      <p className="mb-5 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
+        Your keys stay on your device. Start with Groq — it's fast and free.
       </p>
 
       <motion.div
@@ -631,7 +676,7 @@ function ProviderApiSlide({
         transition={{ delay: 0.1 }}
         className="w-full space-y-3"
       >
-        {/* Provider selector */}
+        {/* Transcription Provider selector */}
         <div>
           <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1 text-left">
             Transcription Provider
@@ -665,7 +710,7 @@ function ProviderApiSlide({
           </div>
         </div>
 
-        {/* API key input */}
+        {/* STT API key input */}
         {activeProvider?.requiresApiKey !== false && (
           <div>
             <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1 text-left">
@@ -679,14 +724,79 @@ function ProviderApiSlide({
                 placeholder={activeProvider?.id === 'openai' ? 'sk-...' : activeProvider?.id === 'deepgram' ? 'Token...' : 'gsk_...'}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full rounded-xl border border-vaani-gray-200 bg-vaani-gray-50 px-4 py-3 pr-11 text-sm text-vaani-black outline-none transition-all focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 dark:border-vaani-gray-700 dark:bg-vaani-gray-800 dark:text-white placeholder:text-vaani-gray-400"
+                className="w-full rounded-xl border border-vaani-gray-200 bg-vaani-gray-50 px-4 py-2.5 pr-11 text-sm text-vaani-black outline-none transition-all focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 dark:border-vaani-gray-700 dark:bg-vaani-gray-800 dark:text-white placeholder:text-vaani-gray-400"
               />
               <button
                 type="button"
                 onClick={onToggleShow}
+                aria-label={showApiKey ? "Hide API key" : "Show API key"}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-vaani-gray-400 hover:text-vaani-gray-600 dark:hover:text-vaani-gray-200 transition-colors"
               >
                 {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="h-px bg-vaani-gray-100 dark:bg-vaani-gray-800" />
+
+        {/* Formatting Provider selector */}
+        <div>
+          <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1 text-left">
+            Formatting Provider
+          </label>
+          <div className="relative">
+            <button
+              onClick={() => setLlmProvOpen(!llmProvOpen)}
+              className="w-full flex items-center justify-between px-4 py-2.5 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm text-vaani-black dark:text-white hover:border-vaani-gray-300 transition-colors"
+            >
+              {activeLlm?.name ?? 'Select provider'}
+              <ChevronRight size={14} className={`text-vaani-gray-400 transition-transform ${llmProvOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {llmProvOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setLlmProvOpen(false)} />
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto">
+                  {llmProviders.map((p) => (
+                    <button key={p.id}
+                      onClick={() => { onLlmProviderChange(p.id); setLlmProvOpen(false) }}
+                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-vaani-gray-50 dark:hover:bg-vaani-gray-700 transition-colors flex items-center justify-between ${
+                        settings.formattingProvider === p.id ? 'text-vaani-pink font-medium' : 'text-vaani-black dark:text-white'
+                      }`}
+                    >
+                      {p.name}
+                      {settings.formattingProvider === p.id && <CheckCircle2 size={14} className="text-vaani-pink" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* LLM API key input — only for non-excluded providers */}
+        {showLlmKeyInput && (
+          <div>
+            <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1 text-left">
+              {activeLlm?.name ?? 'Provider'} API Key
+            </label>
+            <div className="relative">
+              <input
+                type={showLlmApiKey ? "text" : "password"}
+                value={llmApiKey}
+                onChange={(e) => onLlmKeyChange(e.target.value)}
+                placeholder={activeLlm?.id === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full rounded-xl border border-vaani-gray-200 bg-vaani-gray-50 px-4 py-2.5 pr-11 text-sm text-vaani-black outline-none transition-all focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 dark:border-vaani-gray-700 dark:bg-vaani-gray-800 dark:text-white placeholder:text-vaani-gray-400"
+              />
+              <button
+                type="button"
+                onClick={onToggleLlmShow}
+                aria-label={showLlmApiKey ? "Hide LLM API key" : "Show LLM API key"}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-vaani-gray-400 hover:text-vaani-gray-600 dark:hover:text-vaani-gray-200 transition-colors"
+              >
+                {showLlmApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>

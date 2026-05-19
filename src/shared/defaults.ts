@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: Settings = {
   primaryHotkey: "Fn",
   pasteLatestHotkey: "Ctrl+Cmd+V",
   language: "auto",
+  customPrompt: "",
   cleanupEnabled: true,
   smartPunctuation: true,
   fillerWords: DEFAULT_FILLER_WORDS,

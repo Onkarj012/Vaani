@@ -33,6 +33,7 @@ Premium macOS voice dictation app — Electron Forge + Vite + React + TypeScript
 - Batch all file changes into as few operations as possible.
 - Delegate exploration of 3+ files to subagents.
 - When compacting, always preserve: file paths being edited, current task description, unresolved errors.
+- For Dock/window-activation bugs, compare the current branch against `main` before changing window lifecycle code. Avoid startup prewarm or hidden-window creation unless it is explicitly required and verified not to affect Dock visibility.
 
 ## Prohibitions
 - NEVER remove the native build step from scripts — app depends on `vaani_native.node`.

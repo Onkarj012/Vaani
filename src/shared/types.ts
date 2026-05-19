@@ -96,6 +96,7 @@ export interface Settings {
   primaryHotkey: string;
   pasteLatestHotkey: string;
   language: string;
+  customPrompt?: string;
   cleanupEnabled: boolean;
   smartPunctuation: boolean;
   fillerWords: string[];

@@ -36,12 +36,6 @@ export class OverlayController {
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private accentColor = "#FF006E";
-  private onPresentCallback: (() => void) | null = null;
-
-  setOnPresent(cb: () => void): void {
-    this.onPresentCallback = cb;
-  }
-
   // ── Public setters ────────────────────────────────────────────────────────
 
   setColorMode(_colorMode: "light" | "dark"): void {
@@ -78,14 +72,30 @@ export class OverlayController {
     this.clearHideTimer();
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     if (this.window && !this.window.isDestroyed()) {
+      if (this.window.webContents.isCrashed()) {
+        this.recoverWindow("show-crashed");
+        return;
+      }
       log("overlay:show-existing", { loadReady: this.loadReady, visible: this.window.isVisible() });
-      void this.presentWindow(frontmostBefore);
+      this.window.showInactive();
+      if (this.pendingMode) {
+        this.tryUpdateMode(this.pendingMode);
+      }
+      if (this.pendingBars) {
+        this.updateBars(this.pendingBars);
+      }
       return;
     }
     this.loadReady = false;
     void this.ensureWindow().then(() => {
       log("overlay:show-created", { loadReady: this.loadReady });
-      void this.presentWindow(frontmostBefore);
+      if (this.pendingMode) {
+        this.tryUpdateMode(this.pendingMode);
+      }
+      if (this.pendingBars) {
+        this.updateBars(this.pendingBars);
+      }
+      void this.restoreFocusIfNeeded(frontmostBefore);
     });
   }
 
@@ -124,17 +134,17 @@ export class OverlayController {
 
   setProcessing(): void {
     this.pendingMode = "transcribing";
-    this.tryUpdateMode("transcribing");
+    this.show();
   }
 
   setSuccess(): void {
     this.pendingMode = "done";
-    this.tryUpdateMode("done");
+    this.show();
   }
 
   setError(): void {
     this.pendingMode = "error";
-    this.tryUpdateMode("error");
+    this.show();
   }
 
   updateBars(bars: number[]): void {
@@ -407,28 +417,6 @@ export class OverlayController {
 
     try {
       this.window.showInactive();
-      this.window.moveTop();
-      // On macOS, showInactive can fail to bring the window above other apps'
-      // windows. moveTop() forces it to the top of the z-order. A second
-      // moveTop after a microtask ensures it stays there.
-      setTimeout(() => {
-        if (this.window && !this.window.isDestroyed()) {
-          this.window.moveTop();
-        }
-      }, 100);
-      // Visibility fallback: if showInactive didn't make the window visible,
-      // try again after a short delay. This handles the intermittent capsule
-      // non-appearance (window focus/visibility race on macOS).
-      setTimeout(() => {
-        if (this.window && !this.window.isDestroyed() && !this.window.isVisible()) {
-          log("overlay:show-retry", { visible: this.window.isVisible() });
-          try { this.window.showInactive(); } catch { /* best effort */ }
-          try { this.window.moveTop(); } catch { /* best effort */ }
-        }
-      }, 200);
-      // Showing the overlay can cause macOS to hide the main app's dock icon
-      // (via internal activation-policy changes). Notify the caller to restore it.
-      this.onPresentCallback?.();
     } catch { /* best effort */ }
 
     if (this.pendingMode) {
@@ -560,9 +548,12 @@ export class OverlayController {
       await win.loadFile(filePath);
     }
 
-    // Show immediately so that when React mounts and sets mode, the pill
-    // is already visible. transparent background means empty window is invisible.
-    win.showInactive();
+    // Do not show purely because the renderer loaded. Visibility is owned by
+    // presentWindow(), otherwise a late load can resurrect a window after a
+    // session reset/hide raced with creation.
+    if (this.pendingMode || this.promptActive) {
+      await this.presentWindow(nativeBridge.getFrontmostApplication?.());
+    }
   }
 }
 

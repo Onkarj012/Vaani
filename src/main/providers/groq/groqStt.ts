@@ -13,6 +13,13 @@ const TRANSCRIPTION_PROMPT: Record<string, string> = {
   hinglish: "Namaste. Yeh Hinglish mein likha gaya transcript hai."
 };
 
+function buildPrompt(language: string | undefined, customPrompt: string | undefined): string {
+  return [
+    TRANSCRIPTION_PROMPT[language as keyof typeof TRANSCRIPTION_PROMPT] || TRANSCRIPTION_PROMPT.default,
+    customPrompt?.trim() ?? ""
+  ].filter(Boolean).join("\n");
+}
+
 function createWavBuffer(audio: AudioClip): Buffer {
   const dataSize = audio.pcmData.length * 2;
   const buf = Buffer.alloc(44 + dataSize);
@@ -63,7 +70,7 @@ export const GroqSttProvider: TranscriptionProvider = {
     const isHinglish = options.language === "hinglish";
     const languageCode = isHinglish ? undefined : options.language === "auto" ? undefined : options.language;
     const whisperLang = options.language === "hinglish" ? "hi" : languageCode;
-    const prompt = TRANSCRIPTION_PROMPT[options.language as keyof typeof TRANSCRIPTION_PROMPT] || TRANSCRIPTION_PROMPT.default;
+    const prompt = buildPrompt(options.language, options.prompt);
 
     let lastError: Error | null = null;
 

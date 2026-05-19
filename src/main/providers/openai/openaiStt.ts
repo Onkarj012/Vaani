@@ -2,6 +2,10 @@ import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 
 const STT_TIMEOUT_MS = 20_000;
+const OPENAI_LANGUAGE_ALIASES: Record<string, string> = {
+  hinglish: "hi",
+  zh: "zh"
+};
 
 function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = STT_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
@@ -48,8 +52,9 @@ export const OpenAISttProvider: TranscriptionProvider = {
     formData.append("model", options.model || "whisper-1");
     formData.append("response_format", "json");
     formData.append("temperature", String(options.temperature ?? 0));
-    if (options.language && options.language !== "auto") {
-      formData.append("language", options.language);
+    const language = normalizeOpenAiLanguage(options.language);
+    if (language) {
+      formData.append("language", language);
     }
     if (options.prompt) {
       formData.append("prompt", options.prompt);
@@ -96,8 +101,12 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
     formData.append("model", options.model || "whisper-1");
     formData.append("response_format", "json");
     formData.append("temperature", String(options.temperature ?? 0));
-    if (options.language && options.language !== "auto") {
-      formData.append("language", options.language);
+    const language = normalizeOpenAiLanguage(options.language);
+    if (language) {
+      formData.append("language", language);
+    }
+    if (options.prompt) {
+      formData.append("prompt", options.prompt);
     }
 
     const url = options.baseUrl.endsWith("/") ? `${options.baseUrl}audio/transcriptions` : `${options.baseUrl}/audio/transcriptions`;
@@ -122,3 +131,8 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
     return true;
   },
 };
+
+function normalizeOpenAiLanguage(language: string | undefined): string | null {
+  if (!language || language === "auto") return null;
+  return OPENAI_LANGUAGE_ALIASES[language] ?? language;
+}
