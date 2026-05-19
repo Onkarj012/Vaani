@@ -31,7 +31,9 @@ function createDictationService() {
     setSuccess: vi.fn(),
     setError: vi.fn(),
     hide: vi.fn(),
-    updateBars: vi.fn()
+    updateBars: vi.fn(),
+    showDictionaryPrompt: vi.fn((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => resolve(true)),
+    showSnippetPrompt: vi.fn((_trigger: string, resolve: (accepted: boolean) => void) => resolve(true))
   };
 
   const mainWindow = {
@@ -41,7 +43,8 @@ function createDictationService() {
   };
 
   const settings = {
-    get: () => DEFAULT_SETTINGS
+    get: vi.fn(() => DEFAULT_SETTINGS),
+    update: vi.fn((patch) => ({ ...DEFAULT_SETTINGS, ...patch }))
   };
 
   const history = {
@@ -58,16 +61,29 @@ function createDictationService() {
     stopRecording: vi.fn(() => true)
   };
 
+  const transcription = {
+    transcribe: vi.fn(async () => ({ rawText: "open get hub", language: "en" })),
+    formatTranscript: vi.fn(async (text: string) => text)
+  };
+
+  const injector = {
+    inject: vi.fn(async () => ({ success: true, method: "clipboard" as const }))
+  };
+
+  const appDetector = {
+    getContext: vi.fn(() => ({ appBundleId: "com.apple.TextEdit", appName: "TextEdit" }))
+  };
+
   const service = new DictationService(
     mainWindow as never,
     settings as never,
     history as never,
     vi.fn(),
     overlay as never,
-    { recorder }
+    { recorder, transcription, injector, appDetector }
   );
 
-  return { service, overlay, mainWindow, history, recorder };
+  return { service, overlay, mainWindow, history, recorder, settings, transcription, injector, appDetector };
 }
 
 describe("DictationService", () => {
@@ -162,5 +178,141 @@ describe("DictationService", () => {
 
     expect(recorder.stopRecording).toHaveBeenCalledWith(sessionId);
     expect(overlay.setError).toHaveBeenCalledTimes(1);
+  });
+
+  it("prompts for a dictionary rule shortly after the user edits inserted text", async () => {
+    const { service, overlay, history } = createDictationService();
+    const nativeBridge = await import("@main/nativeBridge");
+    const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("open get hub")
+      .mockReturnValue("open GitHub");
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(1_000);
+    await Promise.resolve();
+
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+
+    expect(history.append).toHaveBeenCalledTimes(1);
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function));
+  });
+
+  it("prompts to save a snippet when the edited text is a phrase, not a word correction", async () => {
+    const { service, overlay, settings, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "my email", language: "en" });
+    const nativeBridge = await import("@main/nativeBridge");
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("my email")
+      .mockReturnValue("onkarj012@gmail.com");
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(3_000);
+    await Promise.resolve();
+
+    expect(overlay.showSnippetPrompt).toHaveBeenCalledWith("onkarj012gmailcom", expect.any(Function));
+    expect(settings.update).toHaveBeenCalledWith({
+      snippets: [{ trigger: "onkarj012gmailcom", content: "onkarj012@gmail.com" }]
+    });
+  });
+
+  it("waits for editing to settle before suggesting OSL to Vercel as a dictionary rule", async () => {
+    const { service, overlay, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "OSL", language: "en" });
+    const nativeBridge = await import("@main/nativeBridge");
+    const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("OSL")
+      .mockReturnValueOnce("Ve")
+      .mockReturnValueOnce("Verc")
+      .mockReturnValue("Vercel");
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("OSL", "Vercel", expect.any(Function));
+  });
+
+  it("does not suggest snippets for ordinary phrase edits", async () => {
+    const { service, overlay, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "sentence", language: "en" });
+    const nativeBridge = await import("@main/nativeBridge");
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("sentence")
+      .mockReturnValue("sentence about the release notes");
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(3_000);
+    await Promise.resolve();
+
+    expect(overlay.showSnippetPrompt).not.toHaveBeenCalled();
+  });
+
+  it("does not treat punctuation-heavy prose as snippet content", async () => {
+    const { service, overlay, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "sentence", language: "en" });
+    const nativeBridge = await import("@main/nativeBridge");
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("sentence")
+      .mockReturnValue("sentence: review the API/auth flow");
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(3_000);
+    await Promise.resolve();
+
+    expect(overlay.showSnippetPrompt).not.toHaveBeenCalled();
   });
 });

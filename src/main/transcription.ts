@@ -25,7 +25,12 @@ export class TranscriptionService {
     let lastError: Error = new Error("All transcription providers failed.");
     for (const { id, provider, apiKey } of chain) {
       try {
-        return await provider.transcribe(clip, { apiKey, language: settings.language, temperature: 0 });
+        return await provider.transcribe(clip, {
+          apiKey,
+          language: settings.language,
+          prompt: settings.customPrompt,
+          temperature: 0
+        });
       } catch (error) {
         if (isAuthError(error)) {
           throw error;
@@ -83,7 +88,11 @@ export class TranscriptionService {
     if (provider.requiresApiKey && !apiKey) return rawText;
 
     try {
-      return await provider.format(rawText, { apiKey: apiKey ?? "", model: settings.formattingModel });
+      return await provider.format(rawText, {
+        apiKey: apiKey ?? "",
+        model: settings.formattingModel,
+        systemPrompt: settings.customPrompt
+      });
     } catch {
       return rawText;
     }

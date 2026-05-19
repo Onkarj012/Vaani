@@ -121,16 +121,40 @@ function armMainWindowReadyTimeout(win: BrowserWindow): void {
 function syncAppPresentation(): void {
   const showInDock = settingsStore?.get().showInDock ?? true;
   const mainWindowExists = !!mainWindow && !mainWindow.isDestroyed();
-  const dashboardOpenRequested = mainWindowExists && mainWindowOpenRequested && !menuBarMode;
-  const shouldShowDock = showInDock && dashboardOpenRequested;
+  const shouldShowDock = showInDock && mainWindowExists && mainWindowOpenRequested && !menuBarMode;
+
+  if (lastDockVisible === shouldShowDock) {
+    return;
+  }
 
   if (shouldShowDock) {
-    app.setActivationPolicy?.("regular");
     void app.dock?.show();
-  } else if (lastDockVisible !== false) {
+  } else {
     app.dock?.hide();
   }
   lastDockVisible = shouldShowDock;
+}
+
+function preserveDockIfDashboardOpen(): void {
+  const showInDock = settingsStore?.get().showInDock ?? true;
+  const mainWindowExists = !!mainWindow && !mainWindow.isDestroyed();
+  const shouldShowDock = showInDock && mainWindowExists && mainWindowOpenRequested && !menuBarMode;
+  if (!shouldShowDock) return;
+
+  for (const delayMs of [0, 100, 300, 700]) {
+    setTimeout(() => {
+      const stillShouldShowDock =
+        (settingsStore?.get().showInDock ?? true) &&
+        !!mainWindow &&
+        !mainWindow.isDestroyed() &&
+        mainWindowOpenRequested &&
+        !menuBarMode;
+      if (stillShouldShowDock) {
+        void app.dock?.show();
+        lastDockVisible = true;
+      }
+    }, delayMs);
+  }
 }
 
 function cleanupRuntimeResources(): void {
@@ -226,7 +250,6 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
 
   win.on("hide", () => {
     log("window:hidden", { menuBarMode, mainWindowOpenRequested });
-    syncAppPresentation();
   });
 
   win.on("blur", () => { log("window:blur"); });
@@ -317,10 +340,6 @@ async function bootstrap(): Promise<void> {
   configureRendererLifecycle(mainWindow);
 
   overlayController = new OverlayController();
-  overlayController.setOnPresent(() => {
-    suppressDashboardActivation("overlay");
-    syncAppPresentation();
-  });
   recorderController = new RecorderWindowController();
   overlayController.setTheme("aurora");
   overlayController.setColorMode(initSettings.colorMode ?? "light");
@@ -358,8 +377,8 @@ async function bootstrap(): Promise<void> {
     () => settings.get(),
     () => {
       suppressDashboardActivation("hotkey");
-      syncAppPresentation();
       dictation.beginHotkeySession();
+      preserveDockIfDashboardOpen();
     },
     () => dictation.endHotkeySession(),
     () => dictation.cancelSession(),
@@ -393,15 +412,7 @@ async function bootstrap(): Promise<void> {
 
   await loadWindowUrl(mainWindow);
   setTimeout(() => showMainWindow(), 100);
-  await recorderController.init();
   setTimeout(() => hotkeyManager?.register(), 300);
-  setTimeout(() => {
-    overlayController?.prewarm();
-    // Showing a panel-type BrowserWindow (the overlay) can cause macOS to flip
-    // the app to "accessory" activation policy, which hides the dock icon.
-    // Re-sync after a short delay to restore it while the main window is open.
-    setTimeout(() => syncAppPresentation(), 300);
-  }, 1500);
 
   // Auto-updater (only in packaged builds)
   if (app.isPackaged) {
@@ -465,7 +476,6 @@ app.whenReady()
 app.on("activate", () => {
   if (shouldSuppressDashboardActivation()) {
     log("activate:suppressed", { dictationStatus: dictationService?.getState().status });
-    syncAppPresentation();
     return;
   }
   showMainWindow();

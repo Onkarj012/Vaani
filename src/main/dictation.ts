@@ -36,6 +36,9 @@ const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
 const UPTIME_LOG_INTERVAL_MS = 3_600_000;
+const EDIT_WATCH_INTERVAL_MS = 500;
+const EDIT_WATCH_TIMEOUT_MS = 12_000;
+const EDIT_PROMPT_IDLE_MS = 2_000;
 
 interface RecorderCommands {
   isReady: () => boolean;
@@ -64,13 +67,16 @@ export class DictationService {
   private recorderStartTimer: ReturnType<typeof setTimeout> | null = null;
   private staleSessionTimer: ReturnType<typeof setTimeout> | null = null;
   private uptimeLogTimer: ReturnType<typeof setTimeout> | null = null;
+  private editWatchTimer: ReturnType<typeof setInterval> | null = null;
+  private editWatchTimeout: ReturnType<typeof setTimeout> | null = null;
+  private editPromptTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingEditPromptKey: string | null = null;
   private activeSessionId: string | null = null;
   private activeTarget: AppContextResult | null = null;
   private activeSelection: SelectionRange | null = null;
   private releaseRequestedDuringStart = false;
   private readonly recorder: RecorderCommands | null;
   private pasteLatestInProgress = false;
-  private lastInjectedText: string | null = null;
 
   constructor(
     private readonly mainWindow: BrowserWindow | null,
@@ -124,21 +130,7 @@ export class DictationService {
 
     this.clearTimers();
 
-    // Before starting a new dictation, check if the user manually edited
-    // the last injected text in the target app (e.g. fixed a typo in their
-    // browser). If so, detect word diffs and prompt to add to dictionary.
-    if (this.lastInjectedText && this.activeTarget) {
-      try {
-        const currentValue = nativeBridge.getFocusedValue?.();
-        if (currentValue && currentValue !== this.lastInjectedText) {
-          const suggestions = detectDictionarySuggestions(this.lastInjectedText, currentValue);
-          if (suggestions.length > 0) {
-            void this.showDictionarySuggestions(suggestions);
-          }
-        }
-      } catch { /* best-effort */ }
-    }
-    this.lastInjectedText = null;
+    this.clearEditWatch();
 
     const sessionId = this.createSessionId();
     this.activeSessionId = sessionId;
@@ -167,6 +159,7 @@ export class DictationService {
   }
 
   cancelSession(): void {
+    this.clearEditWatch();
     this.resetToIdle();
   }
 
@@ -309,10 +302,7 @@ export class DictationService {
       if (injection.success) {
         await this.history.append({ ...entryBase, injectionStatus: "injected", injectionMethod: injection.method });
         this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor");
-
-        // Remember injected text so the next dictation can detect if the user
-        // manually corrected typos in the target app before dictating again.
-        this.lastInjectedText = cleanedText;
+        this.watchForManualEdits(cleanedText, target);
       } else {
         await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
         this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history");
@@ -392,6 +382,7 @@ export class DictationService {
 
   destroy(): void {
     this.clearTimers();
+    this.clearEditWatch();
     this.clearUptimeLogging();
   }
 
@@ -406,6 +397,18 @@ export class DictationService {
       });
       if (accepted) this.applyDictionarySuggestion(suggestion);
     }
+  }
+
+  private async showSnippetSuggestion(content: string): Promise<void> {
+    const trigger = buildSnippetTrigger(content, this.settings.get().snippets ?? []);
+    const accepted = await new Promise<boolean>((resolve) => {
+      this.overlay.showSnippetPrompt(trigger, resolve);
+    });
+    if (!accepted) return;
+
+    const current = this.settings.get().snippets ?? [];
+    if (current.some((snippet) => snippet.trigger.toLowerCase() === trigger.toLowerCase())) return;
+    this.settings.update({ snippets: [...current, { trigger, content }] });
   }
 
   navigateToHistoryEntry(entryId: string): void {
@@ -470,6 +473,45 @@ export class DictationService {
     this.settings.update({ customCorrections: nextCorrections });
   }
 
+  private watchForManualEdits(insertedText: string, target: Pick<AppContextResult, "appBundleId" | "appName"> | null): void {
+    this.clearEditWatch();
+    if (!isExternalTarget(target) || !nativeBridge.getFocusedValue) return;
+
+    const initialValue = safeFocusedValue();
+    this.editWatchTimer = setInterval(() => {
+      if (!sameTarget(target, this.appDetector.getContext())) return;
+
+      const currentValue = safeFocusedValue();
+      if (!currentValue || currentValue === initialValue || currentValue === insertedText) return;
+
+      const correctedCandidate = extractCorrectedInsertedText(initialValue, currentValue, insertedText);
+      if (!correctedCandidate || insertedText === correctedCandidate) return;
+
+      this.scheduleEditPrompt(insertedText, correctedCandidate);
+    }, EDIT_WATCH_INTERVAL_MS);
+
+    this.editWatchTimeout = setTimeout(() => this.clearEditWatch(), EDIT_WATCH_TIMEOUT_MS);
+  }
+
+  private scheduleEditPrompt(insertedText: string, correctedCandidate: string): void {
+    const key = `${insertedText}\u0000${correctedCandidate}`;
+    if (this.pendingEditPromptKey === key) return;
+    this.clearEditPromptTimer();
+    this.pendingEditPromptKey = key;
+    this.editPromptTimer = setTimeout(() => {
+      this.clearEditWatch();
+      const suggestions = detectDictionarySuggestions(insertedText, correctedCandidate);
+      if (suggestions.length > 0 && !isSnippetLikeContent(correctedCandidate)) {
+        void this.showDictionarySuggestions(suggestions);
+        return;
+      }
+
+      if (shouldSuggestSnippet(insertedText, correctedCandidate)) {
+        void this.showSnippetSuggestion(correctedCandidate);
+      }
+    }, EDIT_PROMPT_IDLE_MS);
+  }
+
   private completeSession(sessionId: string, outcome: DictationCompletionOutcome, text: string, message: string): void {
     if (!this.isCurrentSession(sessionId)) return;
     this.clearAudioFrameTimer();
@@ -513,6 +555,24 @@ export class DictationService {
   private clearAudioFrameTimer(): void { if (this.audioFrameTimer) { clearTimeout(this.audioFrameTimer); this.audioFrameTimer = null; } }
   private clearRecorderStartTimer(): void { if (this.recorderStartTimer) { clearTimeout(this.recorderStartTimer); this.recorderStartTimer = null; } }
   private clearStaleSessionTimer(): void { if (this.staleSessionTimer) { clearTimeout(this.staleSessionTimer); this.staleSessionTimer = null; } }
+  private clearEditWatch(): void {
+    if (this.editWatchTimer) {
+      clearInterval(this.editWatchTimer);
+      this.editWatchTimer = null;
+    }
+    if (this.editWatchTimeout) {
+      clearTimeout(this.editWatchTimeout);
+      this.editWatchTimeout = null;
+    }
+    this.clearEditPromptTimer();
+  }
+  private clearEditPromptTimer(): void {
+    if (this.editPromptTimer) {
+      clearTimeout(this.editPromptTimer);
+      this.editPromptTimer = null;
+    }
+    this.pendingEditPromptKey = null;
+  }
 
   clearUptimeLogging(): void {
     if (this.uptimeLogTimer) {
@@ -587,4 +647,69 @@ function messageForInjectionFailure(reason: InjectionFailureReason): string {
     case "no_editable_target": return "No editable text field is focused.";
     default: return "Could not paste the latest dictation.";
   }
+}
+
+function safeFocusedValue(): string | null {
+  try {
+    return nativeBridge.getFocusedValue?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {
+  if (!initialValue) return currentValue.trim() || null;
+  const insertedAt = initialValue.indexOf(insertedText);
+  if (insertedAt < 0) return currentValue.trim() || null;
+
+  const prefix = initialValue.slice(0, insertedAt);
+  const suffix = initialValue.slice(insertedAt + insertedText.length);
+  if (!currentValue.startsWith(prefix) || !currentValue.endsWith(suffix)) {
+    return null;
+  }
+
+  const end = suffix.length === 0 ? currentValue.length : currentValue.length - suffix.length;
+  const corrected = currentValue.slice(prefix.length, end).trim();
+  return corrected || null;
+}
+
+function shouldSuggestSnippet(originalText: string, correctedText: string): boolean {
+  if (!isSnippetLikeContent(correctedText)) return false;
+  if (wordCount(originalText) > 4) return false;
+  return correctedText.length >= 8;
+}
+
+function isSnippetLikeContent(text: string): boolean {
+  return EMAIL_PATTERN.test(text)
+    || URL_PATTERN.test(text)
+    || PHONE_PATTERN.test(text)
+    || ADDRESS_PATTERN.test(text);
+}
+
+const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+\b/i;
+const PHONE_PATTERN = /\b(?:\+?\d[\d\s().-]{7,}\d)\b/;
+const ADDRESS_PATTERN = /\b\d{1,6}\s+[A-Za-z0-9 .'-]+\s+(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd)\b/i;
+
+function buildSnippetTrigger(content: string, existing: Array<{ trigger: string }>): string {
+  const base = content
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 3)
+    .join("-");
+  const fallback = base || "snippet";
+  const taken = new Set(existing.map((snippet) => snippet.trigger.toLowerCase()));
+  if (!taken.has(fallback)) return fallback;
+
+  let suffix = 2;
+  while (taken.has(`${fallback}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${fallback}-${suffix}`;
+}
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
 }

@@ -22,10 +22,11 @@ function walk(dir) {
 
 const zip = walk(makeDir)
   .filter((file) => file.endsWith(".zip") && !file.endsWith(".blockmap"))
-  .sort((left, right) => statSync(right).size - statSync(left).size)[0];
+  .filter((file) => basename(file).includes(`-${packageJson.version}.`))
+  .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)[0];
 
 if (!zip) {
-  throw new Error(`No macOS zip artifact found under ${makeDir}`);
+  throw new Error(`No macOS zip artifact found for version ${packageJson.version} under ${makeDir}`);
 }
 
 const data = readFileSync(zip);

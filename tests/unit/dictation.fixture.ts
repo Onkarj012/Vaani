@@ -1,30 +1,30 @@
 import { vi } from "vitest";
 
-vi.mock("/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/overlay.ts", () => ({
+vi.mock("@main/overlay", () => ({
   OverlayController: class OverlayControllerMock {}
 }));
 
-vi.mock("/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/history.ts", () => ({
+vi.mock("@main/store/history", () => ({
   HistoryStore: class HistoryStoreMock {}
 }));
 
-vi.mock("/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/store/settings.ts", () => ({
+vi.mock("@main/store/settings", () => ({
   SettingsStore: class SettingsStoreMock {}
 }));
 
-vi.mock("/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/index.ts", () => ({
+vi.mock("@main/injection", () => ({
   TextInjector: class TextInjectorMock {}
 }));
 
-vi.mock("/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/accessibility.ts", () => ({
+vi.mock("@main/injection/accessibility", () => ({
   AccessibilityTextInjector: class AccessibilityTextInjectorMock {}
 }));
 
-vi.mock("/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/injection/clipboard.ts", () => ({
+vi.mock("@main/injection/clipboard", () => ({
   ClipboardTextInjector: class ClipboardTextInjectorMock {}
 }));
 
-vi.mock("/Users/onkarj012/Projects/Alternatives/claude_vaani/src/main/nativeBridge.ts", () => ({
+vi.mock("@main/nativeBridge", () => ({
   nativeBridge: {}
 }));
 

@@ -2,6 +2,10 @@ import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 
 const STT_TIMEOUT_MS = 20_000;
+const DEEPGRAM_LANGUAGE_ALIASES: Record<string, string> = {
+  hinglish: "hi",
+  zh: "zh-CN"
+};
 
 function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = STT_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
@@ -47,8 +51,9 @@ export const DeepgramSttProvider: TranscriptionProvider = {
     const wavBuffer = createWavBuffer(clip);
     const model = options.model || "nova-3";
     let url = `https://api.deepgram.com/v1/listen?model=${model}`;
-    if (options.language && options.language !== "auto") {
-      url += `&language=${options.language}`;
+    const language = normalizeDeepgramLanguage(options.language);
+    if (language) {
+      url += `&language=${encodeURIComponent(language)}`;
     }
 
     const response = await fetchWithTimeout(url, {
@@ -77,3 +82,8 @@ export const DeepgramSttProvider: TranscriptionProvider = {
     return true;
   },
 };
+
+function normalizeDeepgramLanguage(language: string | undefined): string | null {
+  if (!language || language === "auto") return null;
+  return DEEPGRAM_LANGUAGE_ALIASES[language] ?? language;
+}

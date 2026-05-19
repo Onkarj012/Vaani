@@ -4,9 +4,32 @@ import { MakerZIP } from "@electron-forge/maker-zip";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { PublisherGithub } from "@electron-forge/publisher-github";
-import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const config: ForgeConfig = {
+  hooks: {
+    postMake: async (_forgeConfig, makeResults) => {
+      execFileSync(process.execPath, [join(__dirname, "scripts", "generate-latest-mac-yml.js")], {
+        stdio: "inherit"
+      });
+
+      const latestMacYml = join(__dirname, "out", "make", "zip", "darwin", "arm64", "latest-mac.yml");
+      if (!existsSync(latestMacYml)) return makeResults;
+
+      for (const result of makeResults) {
+        const hasMacZip = result.artifacts.some((artifact) =>
+          artifact.endsWith(".zip") && dirname(artifact) === dirname(latestMacYml)
+        );
+        if (hasMacZip && !result.artifacts.includes(latestMacYml)) {
+          result.artifacts.push(latestMacYml);
+        }
+      }
+
+      return makeResults;
+    }
+  },
   packagerConfig: {
     asar: true,
     appBundleId: "com.claudevaani.app",
