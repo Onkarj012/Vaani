@@ -39,7 +39,7 @@ interface OnboardingModalProps {
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
 }
 
-const TOTAL_SLIDES = 7;
+const TOTAL_SLIDES = 8;
 
 const slideVariants = {
   enter: (direction: number) => ({
@@ -238,6 +238,7 @@ export default function OnboardingModal({
       onChange={(v) => updateSettings({ primaryHotkey: v })}
     />,
     <FeaturesSlide key="features" />,
+    <DemoSlide key="demo" />,
     <ReadySlide key="ready" onComplete={onComplete} />,
   ];
 
@@ -1054,7 +1055,234 @@ function FeaturesSlide() {
   );
 }
 
-/* ─── Slide 7: Ready ───────────────────────────────────────────────────────── */
+/* ─── Slide 7: Demo ────────────────────────────────────────────────────────── */
+
+function DemoSlide() {
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcription, setTranscription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const recorderRef = useState<MediaRecorder | null>(null);
+  const chunksRef = useState<Blob[]>([]);
+
+  const startRecording = async () => {
+    setTranscription("");
+    setError("");
+    setIsRecording(true);
+    chunksRef[1]([]);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
+      const mimeType = preferredMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+      recorderRef[1](recorder);
+
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+
+      recorder.onstop = async () => {
+        setIsRecording(false);
+        setBusy(true);
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+          if (blob.size === 0) {
+            setError("No audio captured. Please try again.");
+            setBusy(false);
+            return;
+          }
+          const clip = await blobToAudioClip(blob);
+          const text = await window.vaani.demoTranscribe(clip);
+          setTranscription(text);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Transcription failed");
+        } finally {
+          setBusy(false);
+          stream.getTracks().forEach((t) => t.stop());
+        }
+      };
+
+      recorder.start(250);
+      // Auto-stop after 8 seconds to prevent overly long demo recordings
+      setTimeout(() => {
+        if (recorder.state !== "inactive") {
+          recorder.stop();
+        }
+      }, 8000);
+    } catch (err) {
+      setIsRecording(false);
+      setError(err instanceof Error ? err.message : "Could not access microphone");
+    }
+  };
+
+  const stopRecording = () => {
+    const recorder = recorderRef[0];
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center text-center">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20"
+      >
+        <Mic size={26} />
+      </motion.div>
+
+      <h2 className="mb-2 text-2xl font-bold text-vaani-black dark:text-white">
+        Try It Now
+      </h2>
+      <p className="mb-6 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
+        Record a short phrase and see Vaani transcribe it instantly.
+      </p>
+
+      {!isRecording ? (
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={startRecording}
+          disabled={busy}
+          className="flex items-center gap-2 rounded-xl bg-vaani-pink px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-vaani-pink/25 transition-all hover:shadow-vaani-pink/40 disabled:opacity-50"
+        >
+          <Mic size={16} />
+          Record a Phrase
+        </motion.button>
+      ) : (
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={stopRecording}
+          className="flex items-center gap-2 rounded-xl bg-red-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition-all animate-pulse"
+        >
+          <div className="w-2 h-2 bg-white rounded-full" />
+          Stop Recording
+        </motion.button>
+      )}
+
+      {busy && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mt-4 flex items-center gap-2 text-sm text-vaani-gray-500 dark:text-vaani-gray-400"
+        >
+          <Loader2 size={14} className="animate-spin" />
+          Transcribing…
+        </motion.div>
+      )}
+
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left dark:border-red-900/40 dark:bg-red-900/20"
+        >
+          <p className="text-xs leading-relaxed text-red-700 dark:text-red-300">{error}</p>
+        </motion.div>
+      )}
+
+      {transcription && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-5 w-full rounded-2xl border border-vaani-gray-100 bg-vaani-gray-50/50 p-4 text-left dark:border-vaani-gray-800 dark:bg-vaani-gray-900/50"
+        >
+          <div className="text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1">
+            Transcription
+          </div>
+          <p className="text-sm text-vaani-black dark:text-white leading-relaxed">
+            {transcription}
+          </p>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+async function blobToAudioClip(blob: Blob): Promise<{
+  pcmData: number[];
+  sampleRate: number;
+  durationSeconds: number;
+  rmsFrames: number[];
+}> {
+  const TARGET_SAMPLE_RATE = 16_000;
+  const buffer = await blob.arrayBuffer();
+  const context = new AudioContext();
+  try {
+    const decoded = await context.decodeAudioData(buffer.slice(0));
+    const mono =
+      decoded.numberOfChannels === 1
+        ? new Float32Array(decoded.getChannelData(0))
+        : mixToMono(decoded);
+    const pcmData = resampleToTargetRate(mono, decoded.sampleRate, TARGET_SAMPLE_RATE);
+    const rmsFrames = calculateRmsFrames(pcmData, TARGET_SAMPLE_RATE);
+    return {
+      pcmData: Array.from(pcmData),
+      sampleRate: TARGET_SAMPLE_RATE,
+      durationSeconds: pcmData.length / TARGET_SAMPLE_RATE,
+      rmsFrames,
+    };
+  } finally {
+    await context.close();
+  }
+}
+
+function preferredMimeType(): string | null {
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+  for (const mimeType of candidates) {
+    if (MediaRecorder.isTypeSupported(mimeType)) return mimeType;
+  }
+  return null;
+}
+
+function mixToMono(buffer: AudioBuffer): Float32Array {
+  const mixed = new Float32Array(buffer.length);
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const data = buffer.getChannelData(channel);
+    for (let i = 0; i < buffer.length; i++) {
+      mixed[i] = (mixed[i] ?? 0) + (data[i] ?? 0) / buffer.numberOfChannels;
+    }
+  }
+  return mixed;
+}
+
+function resampleToTargetRate(input: Float32Array, inputRate: number, outputRate: number): Float32Array {
+  if (inputRate === outputRate) return input;
+  const ratio = inputRate / outputRate;
+  const outputLength = Math.max(1, Math.round(input.length / ratio));
+  const output = new Float32Array(outputLength);
+  for (let i = 0; i < outputLength; i++) {
+    const sourceIndex = i * ratio;
+    const left = Math.floor(sourceIndex);
+    const right = Math.min(left + 1, input.length - 1);
+    const interpolation = sourceIndex - left;
+    output[i] = (input[left] ?? 0) * (1 - interpolation) + (input[right] ?? 0) * interpolation;
+  }
+  return output;
+}
+
+function calculateRmsFrames(pcmData: Float32Array, sampleRate: number): number[] {
+  const frameSize = Math.max(1, Math.floor(sampleRate * 0.02));
+  const rmsFrames: number[] = [];
+  for (let i = 0; i < pcmData.length; i += frameSize) {
+    const frame = pcmData.subarray(i, Math.min(i + frameSize, pcmData.length));
+    if (frame.length === 0) continue;
+    let sum = 0;
+    for (let j = 0; j < frame.length; j++) {
+      const value = frame[j] ?? 0;
+      sum += value * value;
+    }
+    rmsFrames.push(Math.sqrt(sum / frame.length));
+  }
+  return rmsFrames;
+}
+
+/* ─── Slide 8: Ready ───────────────────────────────────────────────────────── */
 
 function ReadySlide({ onComplete: _onComplete }: { onComplete: () => Promise<void> }) {
   return (

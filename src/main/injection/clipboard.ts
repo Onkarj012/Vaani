@@ -52,7 +52,14 @@ export class ClipboardTextInjector {
         return { success: false, reason: "insertion_failed" };
       }
 
-      const methods = shouldPreferTypingInjection(target)
+      const hasNonAscii = /[^\x00-\x7F]/.test(text);
+
+      const methods = hasNonAscii
+        ? [
+            { name: "paste-applescript", run: () => this.pasteWithAppleScript(target), kind: "paste" as const },
+            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target), kind: "paste" as const }
+          ]
+        : shouldPreferTypingInjection(target)
         ? [
             { name: "type-native", run: () => this.typeWithNativeBridge(text, target), kind: "typing" as const },
             { name: "type-applescript", run: () => this.typeWithAppleScript(text, target), kind: "typing" as const },

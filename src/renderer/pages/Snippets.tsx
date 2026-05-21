@@ -26,7 +26,7 @@ const itemVariants = {
 }
 
 export default function Snippets() {
-  const { snippets, addSnippet, removeSnippet } = useVaaniUi()
+  const { snippets, addSnippet, removeSnippet, settings, updateSettings } = useVaaniUi()
   const [searchQuery, setSearchQuery] = useState('')
   const [isAdding, setIsAdding] = useState(false)
   const [newTrigger, setNewTrigger] = useState('')
@@ -83,6 +83,51 @@ export default function Snippets() {
           New Snippet
         </motion.button>
       </motion.div>
+
+      {!settings.snippetsOnboarded && (
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-vaani-lime/5 dark:bg-vaani-lime/10 border border-vaani-lime/20 dark:border-vaani-lime/30 rounded-2xl p-6"
+        >
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-vaani-black dark:text-white mb-1">Snippets Tutorial</h3>
+              <p className="text-sm text-vaani-gray-600 dark:text-vaani-gray-400 leading-relaxed">
+                Snippets are slash commands that expand into longer text. Type <code className="bg-white dark:bg-vaani-gray-800 px-1.5 py-0.5 rounded text-xs font-mono">/email</code> and Vaani will replace it with your full email signature.
+              </p>
+            </div>
+            <button
+              onClick={() => updateSettings({ snippetsOnboarded: true })}
+              className="text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 hover:text-vaani-black dark:hover:text-white transition-colors shrink-0"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                void addSnippet({
+                  trigger: 'sig',
+                  content: 'Best regards,\n[Your Name]\n[Your Title]\n[Your Company]',
+                });
+                void updateSettings({ snippetsOnboarded: true });
+              }}
+              className="px-4 py-2 bg-vaani-pink text-white rounded-full text-sm font-semibold hover:bg-vaani-pink/90 transition-colors"
+            >
+              Add /sig Example
+            </motion.button>
+            <button
+              onClick={() => updateSettings({ snippetsOnboarded: true })}
+              className="px-4 py-2 text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 hover:text-vaani-black dark:hover:text-white transition-colors"
+            >
+              Skip
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       <AnimatePresence>
         {isAdding && (

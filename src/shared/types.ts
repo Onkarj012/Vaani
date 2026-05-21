@@ -128,6 +128,9 @@ export interface Settings {
   // Phase 2: Local model settings
   localWhisperModel: string;
   offlineMode: "auto" | "always-offline" | "always-online";
+  // Onboarding tracking
+  dictionaryOnboarded: boolean;
+  snippetsOnboarded: boolean;
 }
 
 export type MacOSPermissionState = "not-determined" | "granted" | "denied" | "restricted" | "unknown";
@@ -179,6 +182,14 @@ export interface RecorderCommand {
 
 // ─── IPC API types ───────────────────────────────────────────────────────────
 
+export type UpdateStatus = "checking" | "downloading" | "ready" | "no-update" | "error";
+
+export interface UpdateNotificationPayload {
+  version?: string;
+  status: UpdateStatus;
+  message: string;
+}
+
 export interface VaaniAPI {
   getDictationState: () => Promise<DictationState>;
   onStateChange: (cb: (state: DictationState) => void) => () => void;
@@ -198,10 +209,15 @@ export interface VaaniAPI {
   requestAccessibilityPermission: () => Promise<MacOSPermissionState>;
   openPermissionSettings: (permission: keyof PermissionStatus) => Promise<void>;
   onNavigate: (cb: (route: string) => void) => () => void;
+  onUpdateNotification: (cb: (payload: UpdateNotificationPayload) => void) => () => void;
+  checkForUpdates: () => Promise<{ available: boolean; version: string }>;
+  quitAndInstall: () => void;
+  restartAndInstall: () => Promise<void>;
   reportRendererReady: () => void;
   reportRendererError: (payload: { message: string; stack?: string }) => void;
   testApiKey: (providerId: string, apiKey: string) => Promise<{ valid: boolean; message: string }>;
   getProviderStatus: () => Promise<{ id: string; name: string; available: boolean; configured: boolean }[]>;
+  demoTranscribe: (clip: AudioClip) => Promise<string>;
 }
 
 declare global {

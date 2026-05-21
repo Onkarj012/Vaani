@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IpcChannel } from "@shared/ipc";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
-import type { DictationState, VaaniAPI } from "@shared/types";
+import type { DictationState, UpdateNotificationPayload, VaaniAPI } from "@shared/types";
 
 function subscribe<T>(channel: IpcChannel, cb: (payload: T) => void): () => void {
   const listener = (_e: Electron.IpcRendererEvent, payload: T) => cb(payload);
@@ -32,6 +32,11 @@ const api: VaaniAPI = {
   requestAccessibilityPermission: () => ipcRenderer.invoke(IpcChannel.RequestAccessibilityPermission),
   openPermissionSettings: (permission) => ipcRenderer.invoke(IpcChannel.OpenPermissionSettings, permission),
   onNavigate: (cb) => subscribe<{ route: string }>(IpcChannel.Navigation, ({ route }) => cb(route)),
+  onUpdateNotification: (cb) => subscribe<UpdateNotificationPayload>(IpcChannel.UpdateNotification, cb),
+  checkForUpdates: () => ipcRenderer.invoke(IpcChannel.CheckForUpdates),
+  quitAndInstall: () => ipcRenderer.send(IpcChannel.QuitAndInstall),
+  restartAndInstall: () => ipcRenderer.invoke(IpcChannel.QuitAndInstall),
+  demoTranscribe: (clip) => ipcRenderer.invoke(IpcChannel.DemoTranscribe, clip),
   reportRendererReady: () => ipcRenderer.send(IpcChannel.RendererReady),
   reportRendererError: (payload) => ipcRenderer.send(IpcChannel.RendererError, payload),
   testApiKey: (providerId, apiKey) => ipcRenderer.invoke(IpcChannel.TestApiKey, providerId, apiKey),

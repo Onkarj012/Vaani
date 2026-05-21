@@ -25,11 +25,13 @@ const itemVariants = {
 }
 
 export default function Dictionary() {
-  const { userDictionary, addDictionaryWord, removeDictionaryWord } = useVaaniUi()
+  const { userDictionary, addDictionaryWord, removeDictionaryWord, settings, updateSettings } = useVaaniUi()
   const [searchQuery, setSearchQuery] = useState('')
   const [isAdding, setIsAdding] = useState(false)
   const [newTrigger, setNewTrigger] = useState('')
   const [newReplacement, setNewReplacement] = useState('')
+  const [demoTrigger, setDemoTrigger] = useState('')
+  const [demoReplacement, setDemoReplacement] = useState('')
 
   const filteredRules = userDictionary.filter(
     (rule) =>
@@ -74,6 +76,73 @@ export default function Dictionary() {
           New Rule
         </motion.button>
       </motion.div>
+
+      {!settings.dictionaryOnboarded && (
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-vaani-purple/5 dark:bg-vaani-purple/10 border border-vaani-purple/20 dark:border-vaani-purple/30 rounded-2xl p-6"
+        >
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-vaani-black dark:text-white mb-1">Dictionary Tutorial</h3>
+              <p className="text-sm text-vaani-gray-600 dark:text-vaani-gray-400 leading-relaxed">
+                Dictionary rules replace trigger words in your transcriptions. For example, if Whisper often transcribes &quot;gonna&quot; but you prefer &quot;going to&quot;, add a rule.
+              </p>
+            </div>
+            <button
+              onClick={() => updateSettings({ dictionaryOnboarded: true })}
+              className="text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 hover:text-vaani-black dark:hover:text-white transition-colors shrink-0"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1">Trigger</label>
+              <input
+                type="text"
+                value={demoTrigger}
+                onChange={(e) => setDemoTrigger(e.target.value)}
+                placeholder="e.g. gonna"
+                className="w-full px-3 py-2 bg-white dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1">Replacement</label>
+              <input
+                type="text"
+                value={demoReplacement}
+                onChange={(e) => setDemoReplacement(e.target.value)}
+                placeholder="e.g. going to"
+                className="w-full px-3 py-2 bg-white dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                if (!demoTrigger.trim()) return;
+                void addDictionaryWord({ word: demoTrigger.trim(), replacement: demoReplacement.trim() });
+                setDemoTrigger('');
+                setDemoReplacement('');
+                void updateSettings({ dictionaryOnboarded: true });
+              }}
+              className="px-4 py-2 bg-vaani-pink text-white rounded-full text-sm font-semibold hover:bg-vaani-pink/90 transition-colors"
+            >
+              Add Example Rule
+            </motion.button>
+            <button
+              onClick={() => updateSettings({ dictionaryOnboarded: true })}
+              className="px-4 py-2 text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 hover:text-vaani-black dark:hover:text-white transition-colors"
+            >
+              Skip
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       <AnimatePresence>
         {isAdding && (

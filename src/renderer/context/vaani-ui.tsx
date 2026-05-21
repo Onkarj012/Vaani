@@ -4,9 +4,10 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useState,
   type ReactNode
 } from "react";
-import type { DictationEntry, DictationState, Settings } from "@shared/types";
+import type { DictationEntry, DictationState, Settings, UpdateNotificationPayload } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 
 export type ThemeId = "aurora";
@@ -63,6 +64,13 @@ interface WeeklyActivityView {
   words: number;
 }
 
+interface UpdateState {
+  available: boolean;
+  version: string;
+  status: "idle" | "checking" | "available" | "downloading" | "ready" | "error";
+  message?: string;
+}
+
 interface HistoryModel {
   entries: DictationEntry[];
   loading: boolean;
@@ -101,6 +109,9 @@ interface VaaniUiContextValue {
   removeDictionaryWord: (word: string) => Promise<void>;
   addSnippet: (input: { trigger: string; content: string }) => Promise<void>;
   removeSnippet: (trigger: string) => Promise<void>;
+  updateStatus: UpdateState;
+  checkForUpdates: () => Promise<void>;
+  restartAndInstall: () => Promise<void>;
 }
 
 const VaaniUiContext = createContext<VaaniUiContextValue | null>(null);
@@ -136,6 +147,59 @@ export function VaaniUiProvider({
       document.documentElement.style.setProperty("--accent", color);
     }
   }, [settings.accentColor]);
+
+  const [updateStatus, setUpdateStatus] = useState<UpdateState>({
+    available: false,
+    version: "",
+    status: "idle",
+  });
+
+  useEffect(() => {
+    const unsub = window.vaani.onUpdateNotification((payload: UpdateNotificationPayload) => {
+      if (payload.status === "no-update") {
+        setUpdateStatus({ available: false, version: payload.version ?? "", status: "idle" });
+        return;
+      }
+      setUpdateStatus({
+        available: payload.status === "downloading" || payload.status === "ready",
+        version: payload.version ?? "",
+        status: payload.status === "checking" ? "checking" : payload.status === "downloading" ? "downloading" : payload.status === "ready" ? "ready" : payload.status === "error" ? "error" : "idle",
+        message: payload.message,
+      });
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    // Run a quiet update check on startup
+    void window.vaani.checkForUpdates().catch(() => {
+      // Ignore startup check failures
+    });
+  }, []);
+
+  const checkForUpdates = useCallback(async () => {
+    setUpdateStatus((prev) => ({ ...prev, status: "checking" }));
+    try {
+      const result = await window.vaani.checkForUpdates();
+      setUpdateStatus({
+        available: result.available,
+        version: result.version,
+        status: result.available ? "available" : "idle",
+        message: result.available ? `Vaani ${result.version} is available` : undefined,
+      });
+    } catch (err) {
+      setUpdateStatus({
+        available: false,
+        version: "",
+        status: "error",
+        message: err instanceof Error ? err.message : "Update check failed",
+      });
+    }
+  }, []);
+
+  const restartAndInstall = useCallback(async () => {
+    await window.vaani.restartAndInstall();
+  }, []);
 
   const resetSettings = useCallback(async () => {
     await updateSettings(DEFAULT_SETTINGS);
@@ -240,11 +304,15 @@ export function VaaniUiProvider({
     addDictionaryWord,
     removeDictionaryWord,
     addSnippet,
-    removeSnippet
+    removeSnippet,
+    updateStatus,
+    checkForUpdates,
+    restartAndInstall,
   }), [
     addDictionaryWord,
     addSnippet,
     bars,
+    checkForUpdates,
     copyHistoryEntry,
     dictation,
     dictionaryItems,
@@ -253,12 +321,14 @@ export function VaaniUiProvider({
     removeDictionaryWord,
     removeSnippet,
     resetSettings,
+    restartAndInstall,
     settings,
     settingsLoading,
     setTheme,
     snippets,
     theme,
     updateSettings,
+    updateStatus,
     userDictionary,
     weeklyActivity,
     wordHistory,

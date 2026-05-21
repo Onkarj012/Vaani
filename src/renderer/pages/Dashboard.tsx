@@ -12,10 +12,18 @@ import {
   BookOpen,
   Activity,
   Layers,
+  CheckCircle2,
+  ShieldCheck,
+  Plug,
+  Download,
+  Sparkles,
+  X,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useVaaniUi } from '../context/vaani-ui'
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import type { PermissionStatus, Settings } from '@shared/types'
+import { KNOWN_PROVIDERS } from '@shared/defaults'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -43,8 +51,167 @@ function StatSkeleton() {
   )
 }
 
+function OnboardingChecklist({
+  settings,
+  permissions,
+  onDismiss,
+  onRestartTour,
+}: {
+  settings: Settings;
+  permissions: PermissionStatus;
+  onDismiss: () => void;
+  onRestartTour: () => void;
+}) {
+  const navigate = useNavigate()
+
+  const activeProvider = KNOWN_PROVIDERS.find(
+    (p) => p.id === settings.transcriptionProvider && (p.type === 'stt' || p.type === 'local-stt')
+  )
+  const hasApiKey =
+    activeProvider?.requiresApiKey === false ||
+    (settings.providerApiKeys ?? []).some(
+      (pk: { providerId: string; key: string }) => pk.providerId === settings.transcriptionProvider && pk.key
+    ) ||
+    (settings.transcriptionProvider === 'groq' && !!settings.groqApiKey)
+
+  const items = [
+    {
+      label: 'Complete Welcome Tour',
+      done: settings.onboardingCompleted,
+      icon: <Sparkles size={16} />,
+      action: () => onRestartTour(),
+      actionLabel: 'Restart Tour',
+    },
+    {
+      label: 'Setup API Key',
+      done: hasApiKey,
+      icon: <Plug size={16} />,
+      action: undefined,
+      actionLabel: undefined,
+    },
+    {
+      label: 'Grant Permissions',
+      done: permissions.microphone === 'granted' && permissions.accessibility === 'granted',
+      icon: <ShieldCheck size={16} />,
+      action: () => {
+        if (permissions.microphone !== 'granted') {
+          void window.vaani.openPermissionSettings('microphone')
+        } else if (permissions.accessibility !== 'granted') {
+          void window.vaani.openPermissionSettings('accessibility')
+        }
+      },
+      actionLabel: 'Open Settings',
+    },
+    {
+      label: 'Explore Custom Dictionary',
+      done: settings.dictionaryOnboarded,
+      icon: <BookOpen size={16} />,
+      action: () => navigate('/app/dictionary'),
+      actionLabel: 'Go to Dictionary',
+    },
+    {
+      label: 'Try Snippets Shortcuts',
+      done: settings.snippetsOnboarded,
+      icon: <Layers size={16} />,
+      action: () => navigate('/app/snippets'),
+      actionLabel: 'Go to Snippets',
+    },
+  ]
+
+  const completed = items.filter((i) => i.done).length
+  const total = items.length
+  const progress = total > 0 ? Math.round((completed / total) * 100) : 0
+
+  if (progress >= 100) return null
+
+  return (
+    <motion.div
+      variants={itemVariants}
+      className="bg-white dark:bg-vaani-gray-900/80 backdrop-blur-sm rounded-2xl border border-vaani-gray-200 dark:border-vaani-gray-800 p-6"
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-vaani-black dark:text-white">Setup Checklist</h2>
+          <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
+            {completed} of {total} steps completed
+          </p>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="p-2 hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-800 rounded-lg transition-colors"
+        >
+          <X size={16} className="text-vaani-gray-500" />
+        </button>
+      </div>
+
+      <div className="w-full h-2 bg-vaani-gray-100 dark:bg-vaani-gray-800 rounded-full overflow-hidden mb-4">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${progress}%` }}
+          transition={{ duration: 0.6 }}
+          className="h-full rounded-full bg-vaani-pink"
+        />
+      </div>
+
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${
+              item.done
+                ? 'bg-vaani-gray-50 dark:bg-vaani-gray-800/50'
+                : 'bg-vaani-gray-50/50 dark:bg-vaani-gray-800/30'
+            }`}
+          >
+            <div
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                item.done
+                  ? 'bg-vaani-lime/20 text-vaani-black dark:text-vaani-lime'
+                  : 'bg-vaani-gray-100 dark:bg-vaani-gray-700 text-vaani-gray-500 dark:text-vaani-gray-400'
+              }`}
+            >
+              {item.done ? <CheckCircle2 size={16} /> : item.icon}
+            </div>
+            <span
+              className={`text-sm flex-1 ${
+                item.done
+                  ? 'text-vaani-gray-500 dark:text-vaani-gray-400 line-through'
+                  : 'text-vaani-black dark:text-white font-medium'
+              }`}
+            >
+              {item.label}
+            </span>
+            {!item.done && item.action && item.actionLabel && (
+              <button
+                onClick={item.action}
+                className="text-xs font-semibold text-vaani-pink hover:text-vaani-black dark:hover:text-white transition-colors shrink-0"
+              >
+                {item.actionLabel}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  )
+}
+
 export default function Dashboard() {
-  const { stats, historyEntries, historyItems, historyLoading, copyHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry } = useVaaniUi()
+  const {
+    stats, historyEntries, historyItems, historyLoading,
+    copyHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry,
+    settings, updateSettings, updateStatus, restartAndInstall
+  } = useVaaniUi()
+  const [permissions, setPermissions] = useState<PermissionStatus>({ microphone: 'unknown', accessibility: 'unknown' })
+  const [checklistDismissed, setChecklistDismissed] = useState(false)
+
+  useEffect(() => {
+    void window.vaani.getPermissionStatus().then(setPermissions)
+    const id = window.setInterval(() => {
+      void window.vaani.getPermissionStatus().then(setPermissions)
+    }, 3000)
+    return () => window.clearInterval(id)
+  }, [])
 
   const appBreakdown = useMemo(() => {
     const counts = new Map<string, { words: number; sessions: number }>()
@@ -120,6 +287,43 @@ export default function Dashboard() {
           <span>{new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
         </div>
       </motion.div>
+
+      {/* Update Banner */}
+      {(updateStatus.available || updateStatus.status === 'ready') && (
+        <motion.div
+          variants={itemVariants}
+          className="rounded-2xl border border-vaani-pink/30 bg-vaani-pink/10 dark:bg-vaani-pink/20 p-4 flex items-center justify-between gap-4"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <Download size={18} className="text-vaani-pink shrink-0" />
+            <span className="text-sm font-medium text-vaani-black dark:text-white truncate">
+              {updateStatus.status === 'ready'
+                ? `Vaani ${updateStatus.version} is ready to install`
+                : `Vaani ${updateStatus.version} is available`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {updateStatus.status === 'ready' && (
+              <button
+                onClick={() => restartAndInstall()}
+                className="px-3 py-1.5 bg-vaani-pink text-white rounded-lg text-xs font-semibold hover:bg-vaani-pink/90 transition-colors"
+              >
+                Restart & Install
+              </button>
+            )}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Onboarding Progress Checklist */}
+      {!checklistDismissed && (
+        <OnboardingChecklist
+          settings={settings}
+          permissions={permissions}
+          onDismiss={() => setChecklistDismissed(true)}
+          onRestartTour={() => updateSettings({ onboardingCompleted: false })}
+        />
+      )}
 
       <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {historyLoading
