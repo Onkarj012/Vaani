@@ -154,6 +154,7 @@ export default function AppLayout() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const { settings, settingsLoading, updateSettings } = useVaaniUi()
   const { notification, dismiss } = useUpdateNotification()
+  const onboardingOpen = !settingsLoading && !settings.onboardingCompleted
 
   return (
     <div className="min-h-screen bg-vaani-gray-100 dark:bg-vaani-black flex relative">
@@ -175,7 +176,9 @@ export default function AppLayout() {
 
         {notification && <UpdateBanner notification={notification} onDismiss={dismiss} />}
 
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+        <main
+          className={`flex-1 p-6 lg:p-8 ${onboardingOpen ? "overflow-hidden touch-none" : "overflow-y-auto"}`}
+        >
           <Outlet />
         </main>
       </div>
