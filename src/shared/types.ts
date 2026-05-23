@@ -213,6 +213,7 @@ export interface VaaniAPI {
   checkForUpdates: () => Promise<{ available: boolean; version: string }>;
   quitAndInstall: () => void;
   restartAndInstall: () => Promise<void>;
+  getAppVersion: () => Promise<string>;
   reportRendererReady: () => void;
   reportRendererError: (payload: { message: string; stack?: string }) => void;
   testApiKey: (providerId: string, apiKey: string) => Promise<{ valid: boolean; message: string }>;

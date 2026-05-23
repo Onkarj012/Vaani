@@ -381,7 +381,12 @@ export class DictationService {
   getState(): DictationState { return this.state; }
 
   async demoTranscribe(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<string> {
-    const result = await this.transcription.transcribe(clip);
+    const result = await Promise.race([
+      this.transcription.transcribe(clip),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS)
+      ),
+    ]);
     return result.rawText;
   }
 

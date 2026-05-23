@@ -72,6 +72,7 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
             {isDismissable && (
               <button
                 onClick={onDismiss}
+                aria-label="Dismiss update notification"
                 className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
               >
                 <X size={14} />

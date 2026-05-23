@@ -175,6 +175,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { settings, updateSettings, resetSettings, clearHistory, historyEntries, updateStatus, checkForUpdates, restartAndInstall } = useVaaniUi()
   const [activeSection, setActiveSection] = useState('api')
   const [customHex, setCustomHex] = useState(settings.accentColor)
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    void window.vaani.getAppVersion().then(setAppVersion).catch(() => setAppVersion(null))
+  }, [isOpen])
 
   // Track API keys for currently selected providers only
   const [sttKey, setSttKey] = useState('')
@@ -493,7 +499,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="space-y-3">
             <div>
               <div className="text-sm font-medium text-vaani-black dark:text-white">App Updates</div>
-              <div className="text-xs text-vaani-gray-400">Current version: {window.vaani ? '1.0.5' : '—'}</div>
+              <div className="text-xs text-vaani-gray-400">Current version: {appVersion ?? '—'}</div>
             </div>
             <button
               onClick={checkForUpdates}

@@ -5,12 +5,18 @@ export function useUpdateNotification() {
   const [notification, setNotification] = useState<UpdateNotificationPayload | null>(null);
 
   useEffect(() => {
-    return window.vaani.onUpdateNotification((payload) => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const unsub = window.vaani.onUpdateNotification((payload) => {
       setNotification(payload);
       if (payload.status === "no-update") {
-        setTimeout(() => setNotification(null), 4000);
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => setNotification(null), 4000);
       }
     });
+    return () => {
+      unsub();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
 
   const checkForUpdates = useCallback(async () => {

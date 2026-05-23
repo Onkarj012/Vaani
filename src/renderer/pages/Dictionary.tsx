@@ -125,7 +125,10 @@ export default function Dictionary() {
               whileTap={{ scale: 0.95 }}
               onClick={() => {
                 if (!demoTrigger.trim()) return;
-                void addDictionaryWord({ word: demoTrigger.trim(), replacement: demoReplacement.trim() });
+                void addDictionaryWord({
+                  word: demoTrigger.trim().toLowerCase(),
+                  replacement: demoReplacement.trim(),
+                });
                 setDemoTrigger('');
                 setDemoReplacement('');
                 void updateSettings({ dictionaryOnboarded: true });

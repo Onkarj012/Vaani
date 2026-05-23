@@ -21,6 +21,27 @@ import { RecorderWindowController } from "./recorderWindow";
 import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 
+function isNewerVersion(latest: string, current: string): boolean {
+  const parse = (v: string) => {
+    const cleaned = v.replace(/^v/, "");
+    return cleaned.split(".").map((part) => {
+      const num = Number(part);
+      return Number.isNaN(num) ? -1 : num;
+    });
+  };
+  const l = parse(latest);
+  const c = parse(current);
+  if (l.some((n) => n < 0) || c.some((n) => n < 0)) return false;
+  const maxLen = Math.max(l.length, c.length);
+  for (let i = 0; i < maxLen; i++) {
+    const li = l[i] ?? 0;
+    const ci = c[i] ?? 0;
+    if (li > ci) return true;
+    if (li < ci) return false;
+  }
+  return false;
+}
+
 function normalizeMediaStatus(status: string): MacOSPermissionState {
   switch (status) {
     case "not-determined":
@@ -211,8 +232,10 @@ export function registerIpcHandlers(opts: {
     try {
       if (app.isPackaged) {
         const result = await autoUpdater.checkForUpdates();
-        const available = result?.updateInfo?.version ? result.updateInfo.version !== app.getVersion() : false;
-        const version = result?.updateInfo?.version ?? app.getVersion();
+        const latestVersion = result?.updateInfo?.version ?? "";
+        const currentVersion = app.getVersion();
+        const available = !!latestVersion && isNewerVersion(latestVersion, currentVersion);
+        const version = latestVersion || currentVersion;
         if (available) {
           mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
             version,
@@ -228,7 +251,7 @@ export function registerIpcHandlers(opts: {
       const data = await res.json() as { tag_name?: string };
       const latestVersion = (data.tag_name ?? "").replace(/^v/, "");
       const currentVersion = app.getVersion();
-      const available = !!latestVersion && latestVersion !== currentVersion;
+      const available = !!latestVersion && isNewerVersion(latestVersion, currentVersion);
       return { available, version: latestVersion || currentVersion };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Update check failed";
@@ -239,6 +262,8 @@ export function registerIpcHandlers(opts: {
       throw new Error(message);
     }
   });
+
+  ipcMain.handle(IpcChannel.GetAppVersion, () => app.getVersion());
 
   ipcMain.on(IpcChannel.QuitAndInstall, () => {
     autoUpdater.quitAndInstall();

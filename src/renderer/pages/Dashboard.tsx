@@ -70,9 +70,10 @@ function OnboardingChecklist({
   const hasApiKey =
     activeProvider?.requiresApiKey === false ||
     (settings.providerApiKeys ?? []).some(
-      (pk: { providerId: string; key: string }) => pk.providerId === settings.transcriptionProvider && pk.key
+      (pk: { providerId: string; key: string }) =>
+        pk.providerId === settings.transcriptionProvider && pk.key?.toString().trim().length > 0
     ) ||
-    (settings.transcriptionProvider === 'groq' && !!settings.groqApiKey)
+    (settings.transcriptionProvider === 'groq' && !!settings.groqApiKey?.toString().trim())
 
   const items = [
     {
@@ -138,6 +139,8 @@ function OnboardingChecklist({
         </div>
         <button
           onClick={onDismiss}
+          aria-label="Dismiss setup checklist"
+          title="Dismiss setup checklist"
           className="p-2 hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-800 rounded-lg transition-colors"
         >
           <X size={16} className="text-vaani-gray-500" />

@@ -35,7 +35,10 @@ const api: VaaniAPI = {
   onUpdateNotification: (cb) => subscribe<UpdateNotificationPayload>(IpcChannel.UpdateNotification, cb),
   checkForUpdates: () => ipcRenderer.invoke(IpcChannel.CheckForUpdates),
   quitAndInstall: () => ipcRenderer.send(IpcChannel.QuitAndInstall),
-  restartAndInstall: () => ipcRenderer.invoke(IpcChannel.QuitAndInstall),
+  restartAndInstall: async () => {
+    ipcRenderer.send(IpcChannel.QuitAndInstall);
+  },
+  getAppVersion: () => ipcRenderer.invoke(IpcChannel.GetAppVersion),
   demoTranscribe: (clip) => ipcRenderer.invoke(IpcChannel.DemoTranscribe, clip),
   reportRendererReady: () => ipcRenderer.send(IpcChannel.RendererReady),
   reportRendererError: (payload) => ipcRenderer.send(IpcChannel.RendererError, payload),
