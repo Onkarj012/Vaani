@@ -242,6 +242,12 @@ export function registerIpcHandlers(opts: {
             status: "downloading",
             message: `Update ${version} downloading…`,
           });
+        } else {
+          mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+            version,
+            status: "no-update",
+            message: "You're on the latest version",
+          });
         }
         return { available, version };
       }
@@ -252,7 +258,15 @@ export function registerIpcHandlers(opts: {
       const latestVersion = (data.tag_name ?? "").replace(/^v/, "");
       const currentVersion = app.getVersion();
       const available = !!latestVersion && isNewerVersion(latestVersion, currentVersion);
-      return { available, version: latestVersion || currentVersion };
+      const version = latestVersion || currentVersion;
+      if (!available) {
+        mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+          version,
+          status: "no-update",
+          message: "You're on the latest version",
+        });
+      }
+      return { available, version };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Update check failed";
       mainWindow?.webContents.send(IpcChannel.UpdateNotification, {

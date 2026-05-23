@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { blobToClip } from "@renderer/hooks/useAudioRecorder";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Mic,
@@ -1114,30 +1115,57 @@ function DemoSlide({
   const [phase, setPhase] = useState<"idle" | "active" | "transcribing">("idle");
   const [error, setError] = useState("");
 
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const displayKeys = primaryHotkey.split("+").filter(Boolean);
 
-  useEffect(() => {
-    const unsub = window.vaani.onStateChange((state) => {
-      if (
-        state.status === "starting" ||
-        state.status === "recording" ||
-        state.status === "finalizing"
-      ) {
-        setPhase("active");
-        setError("");
-      } else if (state.status === "transcribing") {
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = async () => {
         setPhase("transcribing");
-      } else if (state.status === "completed") {
-        setPhase("idle");
-        setTranscription(state.text);
-      } else if (state.status === "error") {
-        setPhase("idle");
-        setError(state.message);
-      } else if (state.status === "idle") {
-        setPhase("idle");
-      }
-    });
-    return unsub;
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType });
+          const clip = await blobToClip(blob);
+          const text = await window.vaani.demoTranscribe(clip);
+          setTranscription(text);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Demo transcription failed");
+        } finally {
+          setPhase("idle");
+          stream.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
+      };
+
+      recorder.start();
+      setPhase("active");
+      setError("");
+      setTranscription("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not access microphone");
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    mediaRecorderRef.current?.stop();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stop();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
   }, []);
 
   const statusLabel =
@@ -1147,7 +1175,9 @@ function DemoSlide({
       ? "Transcribing…"
       : transcription
       ? "Done — try again anytime"
-      : "Waiting for your shortcut";
+      : "Press Record to try your shortcut";
+
+  const isRecording = phase === "active";
 
   return (
     <div className="flex w-full flex-col items-center text-center">
@@ -1163,7 +1193,7 @@ function DemoSlide({
         Try Your Shortcut
       </h2>
       <p className="mb-4 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-        Use the same hotkey you configured — just like real dictation.
+        Press Record and speak your phrase — just like real dictation.
       </p>
 
       <div className="mb-4 w-full rounded-2xl border border-vaani-gray-100 bg-vaani-gray-50/50 p-4 dark:border-vaani-gray-800 dark:bg-vaani-gray-900/50">
@@ -1171,10 +1201,44 @@ function DemoSlide({
         <p className="mt-3 text-xs leading-relaxed text-vaani-gray-500 dark:text-vaani-gray-400">
           {demoHotkeyHint(dictationMode)}
         </p>
+
+        <button
+          type="button"
+          onClick={isRecording ? stopRecording : startRecording}
+          disabled={phase === "transcribing"}
+          className={`mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all ${
+            isRecording
+              ? "bg-red-500 text-white shadow-lg shadow-red-500/25 hover:bg-red-600"
+              : phase === "transcribing"
+              ? "cursor-wait bg-vaani-gray-200 text-vaani-gray-500 dark:bg-vaani-gray-700 dark:text-vaani-gray-400"
+              : "bg-vaani-pink text-white shadow-lg shadow-vaani-pink/25 hover:bg-vaani-pink/90"
+          }`}
+        >
+          {isRecording ? (
+            <>
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
+              </span>
+              Stop
+            </>
+          ) : phase === "transcribing" ? (
+            <>
+              <Loader2 size={14} className="animate-spin" />
+              Transcribing…
+            </>
+          ) : (
+            <>
+              <Mic size={14} />
+              Record
+            </>
+          )}
+        </button>
+
         <p
           className={`mt-2 text-xs font-medium ${
             phase === "active"
-              ? "text-vaani-pink animate-pulse"
+              ? "animate-pulse text-vaani-pink"
               : phase === "transcribing"
               ? "text-vaani-gray-500 dark:text-vaani-gray-400"
               : transcription
@@ -1201,7 +1265,7 @@ function DemoSlide({
               setTranscription("");
               setError("");
             }}
-            className="text-xs font-medium text-vaani-pink hover:text-vaani-pink/80 transition-colors"
+            className="text-xs font-medium text-vaani-pink transition-colors hover:text-vaani-pink/80"
           >
             Use example
           </button>
@@ -1214,7 +1278,7 @@ function DemoSlide({
           className="w-full resize-none rounded-xl border border-vaani-gray-200 bg-white px-4 py-2.5 text-sm text-vaani-black outline-none transition-all placeholder:text-vaani-gray-400 focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 dark:border-vaani-gray-700 dark:bg-vaani-gray-800 dark:text-white"
         />
         <p className="mt-1 text-xs text-vaani-gray-400 dark:text-vaani-gray-500">
-          Type your own phrase or use the example, then dictate with your shortcut.
+          Type your own phrase or use the example, then press Record.
         </p>
       </div>
 

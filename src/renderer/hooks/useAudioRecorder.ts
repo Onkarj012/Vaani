@@ -382,7 +382,7 @@ function buildBarsFromSamples(samples: Float32Array, barCount: number): number[]
   return smoothedBars.map(b => Math.max(MIN_BAR_HEIGHT, Math.min(MAX_BAR_HEIGHT, b)));
 }
 
-async function blobToClip(blob: Blob): Promise<AudioClip> {
+export async function blobToClip(blob: Blob): Promise<AudioClip> {
   const buffer = await blob.arrayBuffer();
   const audioContext = new AudioContext();
 
