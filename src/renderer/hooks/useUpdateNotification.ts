@@ -7,9 +7,12 @@ export function useUpdateNotification() {
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const unsub = window.vaani.onUpdateNotification((payload) => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
       setNotification(payload);
       if (payload.status === "no-update") {
-        if (timeoutId) clearTimeout(timeoutId);
         timeoutId = setTimeout(() => setNotification(null), 4000);
       }
     });

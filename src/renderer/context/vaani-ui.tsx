@@ -181,11 +181,16 @@ export function VaaniUiProvider({
     setUpdateStatus((prev) => ({ ...prev, status: "checking" }));
     try {
       const result = await window.vaani.checkForUpdates();
-      setUpdateStatus({
-        available: result.available,
-        version: result.version,
-        status: result.available ? "available" : "idle",
-        message: result.available ? `Vaani ${result.version} is available` : undefined,
+      setUpdateStatus((prev) => {
+        // If the IPC handler already transitioned the state past checking
+        // (e.g. to downloading), don't overwrite it.
+        if (prev.status !== "checking") return prev;
+        return {
+          available: result.available,
+          version: result.version,
+          status: result.available ? "available" : "idle",
+          message: result.available ? `Vaani ${result.version} is available` : undefined,
+        };
       });
     } catch (err) {
       setUpdateStatus({
