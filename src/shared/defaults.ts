@@ -42,6 +42,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // Phase 2
   localWhisperModel: "tiny.en",
   offlineMode: "auto",
+  // Onboarding tracking
+  dictionaryOnboarded: false,
+  snippetsOnboarded: false,
 };
 
 export const HISTORY_LIMIT = 2000;

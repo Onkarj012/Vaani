@@ -48,4 +48,12 @@ export const enum IpcChannel {
 
   // Updater notifications
   UpdateNotification = "updater:notification",
+  CheckForUpdates = "updater:check",
+  QuitAndInstall = "updater:quit-and-install",
+
+  // App info
+  GetAppVersion = "app:get-version",
+
+  // Demo transcription
+  DemoTranscribe = "demo:transcribe",
 }

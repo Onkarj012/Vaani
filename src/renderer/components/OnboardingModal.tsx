@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { blobToClip } from "@renderer/hooks/useAudioRecorder";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Mic,
@@ -25,7 +26,7 @@ import {
   EyeOff,
   Plug,
 } from "lucide-react";
-import type { PermissionStatus, Settings } from "@shared/types";
+import type { DictationMode, PermissionStatus, Settings } from "@shared/types";
 import type { MacOSPermissionState } from "@shared/types";
 import { KNOWN_PROVIDERS } from "@shared/defaults";
 import devanagariDarkUrl from "../../../assets/iconset/devanagari/devanagari_dark.svg?url";
@@ -39,7 +40,7 @@ interface OnboardingModalProps {
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
 }
 
-const TOTAL_SLIDES = 7;
+const TOTAL_SLIDES = 8;
 
 const slideVariants = {
   enter: (direction: number) => ({
@@ -112,6 +113,14 @@ export default function OnboardingModal({
     const next = await window.vaani.getPermissionStatus();
     setPermissions(next);
   }
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
 
   useEffect(() => {
     void refreshPermissions();
@@ -238,6 +247,11 @@ export default function OnboardingModal({
       onChange={(v) => updateSettings({ primaryHotkey: v })}
     />,
     <FeaturesSlide key="features" />,
+    <DemoSlide
+      key="demo"
+      primaryHotkey={settings.primaryHotkey}
+      dictationMode={settings.dictationMode}
+    />,
     <ReadySlide key="ready" onComplete={onComplete} />,
   ];
 
@@ -267,13 +281,15 @@ export default function OnboardingModal({
     busy;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-vaani-black/80 p-4 backdrop-blur-lg">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-vaani-black/80 p-4 backdrop-blur-lg overscroll-none"
+      onWheel={(e) => e.preventDefault()}
+    >
       <motion.div
         initial={{ opacity: 0, scale: 0.92, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 28 }}
-        className="relative w-full max-w-[720px] rounded-3xl border border-vaani-gray-200 bg-white shadow-2xl dark:border-vaani-gray-800 dark:bg-vaani-gray-900 overflow-hidden flex flex-col"
-        style={{ height: 620 }}
+        className="relative flex h-[min(90vh,780px)] w-full max-w-[760px] flex-col overflow-hidden rounded-3xl border border-vaani-gray-200 bg-white shadow-2xl dark:border-vaani-gray-800 dark:bg-vaani-gray-900"
       >
         {/* Skip button */}
         <button
@@ -292,7 +308,7 @@ export default function OnboardingModal({
         </div>
 
         {/* Slide content */}
-          <div className="relative flex flex-1 flex-col items-center justify-center px-8 pt-14 pb-8 overflow-y-auto">
+          <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-8 pt-14 pb-6">
           <AnimatePresence mode="wait" custom={direction}>
             <motion.div
               key={slide}
@@ -1054,7 +1070,250 @@ function FeaturesSlide() {
   );
 }
 
-/* ─── Slide 7: Ready ───────────────────────────────────────────────────────── */
+/* ─── Slide 7: Demo ────────────────────────────────────────────────────────── */
+
+const DEMO_EXAMPLE_PHRASE = "Vaani makes dictation feel effortless.";
+
+function demoHotkeyHint(mode: DictationMode): string {
+  if (mode === "push-to-talk") {
+    return "Hold your shortcut while you speak, then release.";
+  }
+  if (mode === "toggle-double") {
+    return "Double-press your shortcut to start, speak, then double-press again to stop.";
+  }
+  return "Press your shortcut to start, speak, then press again to stop.";
+}
+
+function HotkeyBadges({ keys }: { keys: string[] }) {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-1.5">
+      {keys.map((k, i) => (
+        <span key={i} className="inline-flex items-center gap-1">
+          {i > 0 && (
+            <span className="text-xs font-medium text-vaani-gray-400 dark:text-vaani-gray-500">
+              +
+            </span>
+          )}
+          <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg border-2 border-vaani-gray-200 bg-white px-2.5 py-1.5 text-sm font-bold text-vaani-black dark:border-vaani-gray-600 dark:bg-vaani-gray-800 dark:text-white">
+            {HOTKEY_MOD_SYMBOL[k] ?? k}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function DemoSlide({
+  primaryHotkey,
+  dictationMode,
+}: {
+  primaryHotkey: string;
+  dictationMode: DictationMode;
+}) {
+  const [practicePhrase, setPracticePhrase] = useState("");
+  const [transcription, setTranscription] = useState("");
+  const [phase, setPhase] = useState<"idle" | "active" | "transcribing">("idle");
+  const [error, setError] = useState("");
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const displayKeys = primaryHotkey.split("+").filter(Boolean);
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        setPhase("transcribing");
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType });
+          const clip = await blobToClip(blob);
+          const text = await window.vaani.demoTranscribe(clip);
+          setTranscription(text);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Demo transcription failed");
+        } finally {
+          setPhase("idle");
+          stream.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
+      };
+
+      recorder.start();
+      setPhase("active");
+      setError("");
+      setTranscription("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not access microphone");
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    mediaRecorderRef.current?.stop();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stop();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  const statusLabel =
+    phase === "active"
+      ? "Listening…"
+      : phase === "transcribing"
+      ? "Transcribing…"
+      : transcription
+      ? "Done — try again anytime"
+      : "Press Record to try your shortcut";
+
+  const isRecording = phase === "active";
+
+  return (
+    <div className="flex w-full flex-col items-center text-center">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20"
+      >
+        <Keyboard size={24} />
+      </motion.div>
+
+      <h2 className="mb-1 text-2xl font-bold text-vaani-black dark:text-white">
+        Try Your Shortcut
+      </h2>
+      <p className="mb-4 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
+        Press Record and speak your phrase — just like real dictation.
+      </p>
+
+      <div className="mb-4 w-full rounded-2xl border border-vaani-gray-100 bg-vaani-gray-50/50 p-4 dark:border-vaani-gray-800 dark:bg-vaani-gray-900/50">
+        <HotkeyBadges keys={displayKeys} />
+        <p className="mt-3 text-xs leading-relaxed text-vaani-gray-500 dark:text-vaani-gray-400">
+          {demoHotkeyHint(dictationMode)}
+        </p>
+
+        <button
+          type="button"
+          onClick={isRecording ? stopRecording : startRecording}
+          disabled={phase === "transcribing"}
+          className={`mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all ${
+            isRecording
+              ? "bg-red-500 text-white shadow-lg shadow-red-500/25 hover:bg-red-600"
+              : phase === "transcribing"
+              ? "cursor-wait bg-vaani-gray-200 text-vaani-gray-500 dark:bg-vaani-gray-700 dark:text-vaani-gray-400"
+              : "bg-vaani-pink text-white shadow-lg shadow-vaani-pink/25 hover:bg-vaani-pink/90"
+          }`}
+        >
+          {isRecording ? (
+            <>
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
+              </span>
+              Stop
+            </>
+          ) : phase === "transcribing" ? (
+            <>
+              <Loader2 size={14} className="animate-spin" />
+              Transcribing…
+            </>
+          ) : (
+            <>
+              <Mic size={14} />
+              Record
+            </>
+          )}
+        </button>
+
+        <p
+          className={`mt-2 text-xs font-medium ${
+            phase === "active"
+              ? "animate-pulse text-vaani-pink"
+              : phase === "transcribing"
+              ? "text-vaani-gray-500 dark:text-vaani-gray-400"
+              : transcription
+              ? "text-vaani-lime dark:text-vaani-lime"
+              : "text-vaani-gray-400 dark:text-vaani-gray-500"
+          }`}
+        >
+          {phase === "transcribing" && (
+            <Loader2 size={12} className="mr-1 inline animate-spin" />
+          )}
+          {statusLabel}
+        </p>
+      </div>
+
+      <div className="mb-3 w-full text-left">
+        <div className="mb-1 flex items-center justify-between">
+          <label className="text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400">
+            Phrase to dictate
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              setPracticePhrase(DEMO_EXAMPLE_PHRASE);
+              setTranscription("");
+              setError("");
+            }}
+            className="text-xs font-medium text-vaani-pink transition-colors hover:text-vaani-pink/80"
+          >
+            Use example
+          </button>
+        </div>
+        <textarea
+          value={practicePhrase}
+          onChange={(e) => setPracticePhrase(e.target.value)}
+          placeholder={DEMO_EXAMPLE_PHRASE}
+          rows={2}
+          className="w-full resize-none rounded-xl border border-vaani-gray-200 bg-white px-4 py-2.5 text-sm text-vaani-black outline-none transition-all placeholder:text-vaani-gray-400 focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 dark:border-vaani-gray-700 dark:bg-vaani-gray-800 dark:text-white"
+        />
+        <p className="mt-1 text-xs text-vaani-gray-400 dark:text-vaani-gray-500">
+          Type your own phrase or use the example, then press Record.
+        </p>
+      </div>
+
+      {(transcription || phase === "transcribing") && (
+        <div className="w-full text-left">
+          <label className="mb-1 block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400">
+            Transcription
+          </label>
+          <div className="min-h-[52px] rounded-xl border border-vaani-gray-100 bg-vaani-gray-50/80 px-4 py-2.5 text-sm leading-relaxed text-vaani-black dark:border-vaani-gray-800 dark:bg-vaani-gray-900/80 dark:text-white">
+            {phase === "transcribing" ? (
+              <span className="inline-flex items-center gap-2 text-vaani-gray-500 dark:text-vaani-gray-400">
+                <Loader2 size={14} className="animate-spin" />
+                Transcribing…
+              </span>
+            ) : (
+              transcription
+            )}
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-3 w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left dark:border-red-900/40 dark:bg-red-900/20"
+        >
+          <p className="text-xs leading-relaxed text-red-700 dark:text-red-300">{error}</p>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Slide 8: Ready ───────────────────────────────────────────────────────── */
 
 function ReadySlide({ onComplete: _onComplete }: { onComplete: () => Promise<void> }) {
   return (

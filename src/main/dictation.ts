@@ -380,10 +380,14 @@ export class DictationService {
 
   getState(): DictationState { return this.state; }
 
-  destroy(): void {
-    this.clearTimers();
-    this.clearEditWatch();
-    this.clearUptimeLogging();
+  async demoTranscribe(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<string> {
+    const result = await Promise.race([
+      this.transcription.transcribe(clip),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS)
+      ),
+    ]);
+    return result.rawText;
   }
 
   async getById(id: string): Promise<DictationEntry | undefined> {
@@ -579,6 +583,16 @@ export class DictationService {
       clearInterval(this.uptimeLogTimer);
       this.uptimeLogTimer = null;
     }
+  }
+
+  destroy(): void {
+    this.clearResetTimer();
+    this.clearFinalizationTimer();
+    this.clearAudioFrameTimer();
+    this.clearRecorderStartTimer();
+    this.clearStaleSessionTimer();
+    this.clearEditWatch();
+    this.clearUptimeLogging();
   }
 
   private isCurrentSession(sessionId: string): boolean { return this.activeSessionId === sessionId; }

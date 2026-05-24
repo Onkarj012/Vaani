@@ -1,4 +1,5 @@
-import { BrowserWindow, clipboard, ipcMain, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, shell, systemPreferences } from "electron";
+import { autoUpdater } from "electron-updater";
 import { IpcChannel } from "@shared/ipc";
 import { KNOWN_PROVIDERS } from "@shared/defaults";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
@@ -19,6 +20,27 @@ import { nativeBridge } from "./nativeBridge";
 import { RecorderWindowController } from "./recorderWindow";
 import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
+
+function isNewerVersion(latest: string, current: string): boolean {
+  const parse = (v: string) => {
+    const cleaned = v.replace(/^v/, "");
+    return cleaned.split(".").map((part) => {
+      const num = Number(part);
+      return Number.isNaN(num) ? -1 : num;
+    });
+  };
+  const l = parse(latest);
+  const c = parse(current);
+  if (l.some((n) => n < 0) || c.some((n) => n < 0)) return false;
+  const maxLen = Math.max(l.length, c.length);
+  for (let i = 0; i < maxLen; i++) {
+    const li = l[i] ?? 0;
+    const ci = c[i] ?? 0;
+    if (li > ci) return true;
+    if (li < ci) return false;
+  }
+  return false;
+}
 
 function normalizeMediaStatus(status: string): MacOSPermissionState {
   switch (status) {
@@ -57,7 +79,7 @@ export function registerIpcHandlers(opts: {
   credentials?: CredentialsStore;
   onSettingsUpdated?: (settings: Settings, patch: Partial<Settings>) => void;
 }): void {
-  const { dictation, history, settings, hotkeys, recorder, credentials, onSettingsUpdated } = opts;
+  const { mainWindow, dictation, history, settings, hotkeys, recorder, credentials, onSettingsUpdated } = opts;
 
   ipcMain.handle(IpcChannel.GetDictationState, () => dictation.getState());
   ipcMain.handle(IpcChannel.GetHistory, () => history.getAll());
@@ -198,5 +220,66 @@ export function registerIpcHandlers(opts: {
     if (latest) {
       dictation.navigateToHistoryEntry(latest.id);
     }
+  });
+
+  // Demo transcription (bypasses history and injection)
+  ipcMain.handle(IpcChannel.DemoTranscribe, async (_e, clip) => {
+    return dictation.demoTranscribe(clip);
+  });
+
+  // Manual update check
+  ipcMain.handle(IpcChannel.CheckForUpdates, async () => {
+    try {
+      if (app.isPackaged) {
+        const result = await autoUpdater.checkForUpdates();
+        const latestVersion = result?.updateInfo?.version ?? "";
+        const currentVersion = app.getVersion();
+        const available = !!latestVersion && isNewerVersion(latestVersion, currentVersion);
+        const version = latestVersion || currentVersion;
+        if (available) {
+          mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+            version,
+            status: "downloading",
+            message: `Update ${version} downloading…`,
+          });
+        } else {
+          mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+            version,
+            status: "no-update",
+            message: "You're on the latest version",
+          });
+        }
+        return { available, version };
+      }
+      // Development: check GitHub releases API
+      const res = await fetch("https://api.github.com/repos/Onkarj012/Vaani/releases/latest");
+      if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+      const data = await res.json() as { tag_name?: string };
+      const latestVersion = (data.tag_name ?? "").replace(/^v/, "");
+      const currentVersion = app.getVersion();
+      const available = !!latestVersion && isNewerVersion(latestVersion, currentVersion);
+      const version = latestVersion || currentVersion;
+      if (!available) {
+        mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+          version,
+          status: "no-update",
+          message: "You're on the latest version",
+        });
+      }
+      return { available, version };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Update check failed";
+      mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+        status: "error",
+        message,
+      });
+      throw new Error(message);
+    }
+  });
+
+  ipcMain.handle(IpcChannel.GetAppVersion, () => app.getVersion());
+
+  ipcMain.on(IpcChannel.QuitAndInstall, () => {
+    autoUpdater.quitAndInstall();
   });
 }

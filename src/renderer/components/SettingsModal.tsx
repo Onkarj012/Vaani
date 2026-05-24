@@ -21,6 +21,7 @@ import {
   Database,
   HardDrive,
   Plug,
+  RefreshCw,
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useVaaniUi } from '../context/vaani-ui'
@@ -36,6 +37,7 @@ const sidebarItems = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'system', label: 'System', icon: Monitor },
   { id: 'audio', label: 'Audio', icon: Volume2 },
+  { id: 'updates', label: 'Updates', icon: Download },
   { id: 'data', label: 'Data', icon: Database },
 ]
 
@@ -48,6 +50,7 @@ const sectionDescriptions: Record<string, string> = {
   appearance: 'Theme and accent colors',
   system: 'Dock, startup, and behavior',
   audio: 'Silence detection and noise gate',
+  updates: 'Check for app updates',
   data: 'Export, clear history, and reset settings',
 }
 
@@ -169,9 +172,15 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { theme, toggleTheme } = useTheme()
-  const { settings, updateSettings, resetSettings, clearHistory, historyEntries } = useVaaniUi()
+  const { settings, updateSettings, resetSettings, clearHistory, historyEntries, updateStatus, checkForUpdates, restartAndInstall } = useVaaniUi()
   const [activeSection, setActiveSection] = useState('api')
   const [customHex, setCustomHex] = useState(settings.accentColor)
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    void window.vaani.getAppVersion().then(setAppVersion).catch(() => setAppVersion(null))
+  }, [isOpen])
 
   // Track API keys for currently selected providers only
   const [sttKey, setSttKey] = useState('')
@@ -481,6 +490,48 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="flex items-center justify-between">
             <div><div className="text-sm font-medium">Launch at Login</div><div className="text-xs text-vaani-gray-400">Start Vaani when you log in</div></div>
             <Toggle checked={settings.launchAtLogin} onChange={(v) => updateSettings({ launchAtLogin: v })} />
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'updates' && (
+        <div className="space-y-4">
+          <div className="space-y-3">
+            <div>
+              <div className="text-sm font-medium text-vaani-black dark:text-white">App Updates</div>
+              <div className="text-xs text-vaani-gray-400">Current version: {appVersion ?? '—'}</div>
+            </div>
+            <button
+              onClick={checkForUpdates}
+              disabled={updateStatus.status === 'checking' || updateStatus.status === 'downloading'}
+              className="flex items-center gap-2 px-4 py-2.5 bg-vaani-gray-100 dark:bg-vaani-gray-800 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {(updateStatus.status === 'checking' || updateStatus.status === 'downloading') ? (
+                <RefreshCw size={14} className="animate-spin" />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              {updateStatus.status === 'checking' ? 'Checking…' :
+               updateStatus.status === 'downloading' ? 'Downloading…' :
+               'Check for Updates'}
+            </button>
+            {updateStatus.status === 'ready' && (
+              <button
+                onClick={() => restartAndInstall()}
+                className="flex items-center gap-2 px-4 py-2.5 bg-vaani-pink text-white hover:bg-vaani-pink/90 rounded-xl text-sm font-medium transition-colors"
+              >
+                Restart to Update
+              </button>
+            )}
+            {updateStatus.status === 'idle' && updateStatus.available === false && (
+              <p className="text-xs text-green-600 dark:text-green-400">Vaani is up to date</p>
+            )}
+            {updateStatus.status === 'available' && (
+              <p className="text-xs text-vaani-pink">{updateStatus.message}</p>
+            )}
+            {updateStatus.status === 'error' && (
+              <p className="text-xs text-red-500">{updateStatus.message}</p>
+            )}
           </div>
         </div>
       )}
