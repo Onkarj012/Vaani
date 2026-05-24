@@ -252,7 +252,16 @@ export function registerIpcHandlers(opts: {
         return { available, version };
       }
       // Development: check GitHub releases API
-      const res = await fetch("https://api.github.com/repos/Onkarj012/Vaani/releases/latest");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      let res: Response;
+      try {
+        res = await fetch("https://api.github.com/repos/Onkarj012/Vaani/releases/latest", {
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
       const data = await res.json() as { tag_name?: string };
       const latestVersion = (data.tag_name ?? "").replace(/^v/, "");
@@ -268,6 +277,9 @@ export function registerIpcHandlers(opts: {
       }
       return { available, version };
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return { available: false, version: app.getVersion() };
+      }
       const message = err instanceof Error ? err.message : "Update check failed";
       mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
         status: "error",

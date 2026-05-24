@@ -1,7 +1,7 @@
 {
   "name": "vaani",
   "productName": "Vaani",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Premium macOS voice dictation powered by Groq Whisper.",
   "main": ".vite/build/main.js",
   "gypfile": true,

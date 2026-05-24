@@ -15,6 +15,8 @@ SingletonCookie
 SingletonLock
 SingletonSocket
 
-graphify-out/cache/
-
+graphify-out/
+bin/
 trial/
+COMPARISON_REPORT.md
+VAANI_IMPROVEMENT_PLAN.md
