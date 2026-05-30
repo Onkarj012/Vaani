@@ -1,4 +1,6 @@
 import { app, BrowserWindow, clipboard, ipcMain, shell, systemPreferences } from "electron";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { autoUpdater } from "electron-updater";
 import { IpcChannel } from "@shared/ipc";
 import { KNOWN_PROVIDERS } from "@shared/defaults";
@@ -20,6 +22,7 @@ import { nativeBridge } from "./nativeBridge";
 import { RecorderWindowController } from "./recorderWindow";
 import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
+import { loadWhisperModel, freeWhisperModel, listDownloadedModels, isModelLoaded } from "./providers/local/whisperCpp";
 
 function isNewerVersion(latest: string, current: string): boolean {
   const parse = (v: string) => {
@@ -124,8 +127,8 @@ export function registerIpcHandlers(opts: {
       for (const pk of updated.providerApiKeys ?? []) {
         if (pk.providerId && pk.key) {
           credentials.set(pk.providerId, pk.key);
+          allKeys.add(pk.providerId);
         }
-        allKeys.add(pk.providerId);
       }
       if (updated.groqApiKey) {
         credentials.set("groq", updated.groqApiKey);
@@ -293,5 +296,25 @@ export function registerIpcHandlers(opts: {
 
   ipcMain.on(IpcChannel.QuitAndInstall, () => {
     autoUpdater.quitAndInstall();
+  });
+
+  // Local Whisper model management
+  ipcMain.handle(IpcChannel.WhisperListModels, () => {
+    const modelsDir = join(homedir(), ".vaani", "models");
+    return listDownloadedModels(modelsDir);
+  });
+
+  ipcMain.handle(IpcChannel.WhisperLoadModel, (_e, modelName: string) => {
+    const modelsDir = join(homedir(), ".vaani", "models");
+    const modelPath = join(modelsDir, `ggml-${modelName}.bin`);
+    return loadWhisperModel(modelPath);
+  });
+
+  ipcMain.handle(IpcChannel.WhisperFreeModel, () => {
+    freeWhisperModel();
+  });
+
+  ipcMain.handle(IpcChannel.WhisperIsModelLoaded, () => {
+    return isModelLoaded();
   });
 }

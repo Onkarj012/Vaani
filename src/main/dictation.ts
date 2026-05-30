@@ -240,22 +240,20 @@ export class DictationService {
     this.setState({ status: "transcribing", sessionId: payload.sessionId });
 
     try {
+      let transcriptionTimer: ReturnType<typeof setTimeout> | null = null;
       const transcription = await Promise.race([
-        this.transcription.transcribe(trimmedClip),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS)
-        ),
+        this.transcription.transcribe(trimmedClip).then(r => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } return r; }),
+        new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS); }),
       ]);
       if (!this.isCurrentSession(payload.sessionId)) return;
 
       // Format via LLM using provider system
       let formattedText = transcription.rawText;
       try {
+        let formattingTimer: ReturnType<typeof setTimeout> | null = null;
         formattedText = await Promise.race([
-          this.transcription.formatTranscript(transcription.rawText),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("Formatting timed out.")), FORMATTING_TIMEOUT_MS)
-          ),
+          this.transcription.formatTranscript(transcription.rawText).then(r => { if (formattingTimer) { clearTimeout(formattingTimer); formattingTimer = null; } return r; }),
+          new Promise<never>((_, reject) => { formattingTimer = setTimeout(() => reject(new Error("Formatting timed out.")), FORMATTING_TIMEOUT_MS); }),
         ]);
       } catch {
         formattedText = transcription.rawText;
@@ -381,11 +379,10 @@ export class DictationService {
   getState(): DictationState { return this.state; }
 
   async demoTranscribe(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<string> {
+    let demoTimer: ReturnType<typeof setTimeout> | null = null;
     const result = await Promise.race([
-      this.transcription.transcribe(clip),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS)
-      ),
+      this.transcription.transcribe(clip).then(r => { if (demoTimer) { clearTimeout(demoTimer); demoTimer = null; } return r; }),
+      new Promise<never>((_, reject) => { demoTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS); }),
     ]);
     return result.rawText;
   }
@@ -416,7 +413,7 @@ export class DictationService {
   }
 
   navigateToHistoryEntry(entryId: string): void {
-    const route = `/4/history?editEntryId=${encodeURIComponent(entryId)}`;
+    const route = `/app/history?editEntryId=${encodeURIComponent(entryId)}`;
     this.mainWindow?.show();
     this.mainWindow?.focus();
     this.mainWindow?.webContents.send(IpcChannel.Navigation, { route });

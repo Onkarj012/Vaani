@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, session } from "electron";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { DictationService } from "./dictation";
 import { HotkeyManager } from "./hotkeys";
@@ -15,6 +15,7 @@ import { CredentialsStore } from "./store/credentials";
 import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
 import { getProviderRegistry } from "./providers";
+import { loadWhisperModel } from "./providers/local/whisperCpp";
 import { error } from "@main/log";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -407,6 +408,11 @@ async function bootstrap(): Promise<void> {
       }
       if ("capsuleDesign" in patch && patch.capsuleDesign) overlayController?.setCapsuleDesign(patch.capsuleDesign);
       if ("showInDock" in patch) syncAppPresentation();
+      if ("offlineMode" in patch) trayController.setOfflineMode(patch.offlineMode === "always-offline");
+      if ("localWhisperModel" in patch && patch.localWhisperModel) {
+        const modelsDir = join(homedir(), ".vaani", "models");
+        loadWhisperModel(join(modelsDir, `ggml-${patch.localWhisperModel}.bin`));
+      }
     }
   });
 

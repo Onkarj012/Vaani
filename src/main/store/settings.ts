@@ -43,7 +43,7 @@ export class SettingsStore {
   update(patch: Partial<Settings>): Settings {
     const next: Settings = { ...this.get(), ...patch, theme: "aurora" };
     this.cached = next;
-    void writeJsonFile(this.filePath, next);
+    void writeJsonFile(this.filePath, next).catch(() => { /* best-effort */ });
     return next;
   }
 

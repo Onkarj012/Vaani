@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useVaaniUi } from './context/vaani-ui'
 import { ThemeProvider } from './contexts/ThemeContext'
 import AppLayout from './components/AppLayout'
@@ -10,6 +11,13 @@ import Insights from './pages/Insights'
 
 function App() {
   const { settings } = useVaaniUi()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    return window.vaani.onNavigate((route) => {
+      navigate(route)
+    })
+  }, [navigate])
 
   return (
     <ThemeProvider colorMode={settings.colorMode}>

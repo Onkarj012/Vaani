@@ -56,4 +56,10 @@ export const enum IpcChannel {
 
   // Demo transcription
   DemoTranscribe = "demo:transcribe",
+
+  // Local Whisper model management
+  WhisperListModels = "whisper:list-models",
+  WhisperLoadModel = "whisper:load-model",
+  WhisperFreeModel = "whisper:free-model",
+  WhisperIsModelLoaded = "whisper:is-model-loaded",
 }

@@ -34,6 +34,7 @@ export class OverlayController {
   private pendingBars: number[] | null = null;
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingPromptRemover: (() => void) | null = null;
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private accentColor = "#FF006E";
   // ── Public setters ────────────────────────────────────────────────────────
@@ -186,11 +187,14 @@ export class OverlayController {
       setTimeout(() => clearInterval(check), 5000);
     }
 
-    this.window?.webContents.ipc.once("capsule:snippet-response", (_e, args: { accepted: boolean }) => {
+    const responseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
       this.clearPromptDismissTimer();
       this.endPrompt();
       onResponse(args.accepted);
-    });
+    };
+    this.window?.webContents.ipc.once("capsule:snippet-response", responseHandler);
+    // Store remover so endPrompt/recover can clean it up
+    this.pendingPromptRemover = () => this.window?.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
   }
 
   showDictionaryPrompt(word: string, correction: string, onResponse: (accepted: boolean) => void): void {
@@ -220,11 +224,13 @@ export class OverlayController {
       setTimeout(() => clearInterval(check), 5000);
     }
 
-    this.window?.webContents.ipc.once("capsule:dictionary-response", (_e, args: { accepted: boolean }) => {
+    const dictResponseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
       this.clearPromptDismissTimer();
       this.endPrompt();
       onResponse(args.accepted);
-    });
+    };
+    this.window?.webContents.ipc.once("capsule:dictionary-response", dictResponseHandler);
+    this.pendingPromptRemover = () => this.window?.webContents.ipc.removeListener("capsule:dictionary-response", dictResponseHandler);
   }
 
   hideExpanded(): void {
@@ -236,6 +242,8 @@ export class OverlayController {
   destroy(): void {
     this.clearHideTimer();
     this.clearPromptDismissTimer();
+    this.pendingPromptRemover?.();
+    this.pendingPromptRemover = null;
     this.promptActive = false;
     this.clearLoadTimeout();
     this.clearShowWatchdog();
@@ -272,6 +280,8 @@ export class OverlayController {
 
   private endPrompt(): void {
     this.promptActive = false;
+    this.pendingPromptRemover?.();
+    this.pendingPromptRemover = null;
     if (!this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:hide-expanded");
     this.window.setIgnoreMouseEvents(true, { forward: true });
