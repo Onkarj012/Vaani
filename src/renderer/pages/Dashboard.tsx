@@ -99,7 +99,7 @@ function OnboardingChecklist({
         <div className="space-y-2">
           {items.map((it) => (
             <div key={it.label} className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3">
-              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${it.done ? 'bg-chip-mint text-[#5a8a2a]' : 'bg-bg text-muted'}`}>
+              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${it.done ? 'bg-accent/10 text-accent' : 'bg-bg text-muted'}`}>
                 {it.done ? <CheckCircle2 size={15} /> : it.icon}
               </div>
               <span className={`flex-1 text-sm ${it.done ? 'text-faint line-through' : 'font-medium text-ink'}`}>{it.label}</span>
@@ -146,10 +146,10 @@ export default function Dashboard() {
   const maxAppSessions = Math.max(...appBreakdown.map((a) => a.sessions), 1)
 
   const statCards = [
-    { label: 'Total Sessions', value: stats.totalSessions.toLocaleString(), change: `${stats.sessionsToday} today`, icon: Activity, iconBg: 'bg-chip-lav text-accent-strong' },
-    { label: 'Words Dictated', value: stats.totalWords.toLocaleString(), change: `${stats.wordsToday.toLocaleString()} today`, icon: Type, iconBg: 'bg-chip-mint text-[#5a8a2a]' },
-    { label: 'Current Streak', value: `${stats.streak} day${stats.streak === 1 ? '' : 's'}`, change: stats.streak > 0 ? 'Keep it going' : 'Start today', icon: Flame, iconBg: 'bg-chip-peach text-[#c4684f]' },
-    { label: 'Injection Rate', value: stats.totalSessions > 0 ? `${stats.accuracy}%` : '—', change: stats.totalSessions > 0 ? 'Successful' : 'No sessions yet', icon: Clock, iconBg: 'bg-chip-sky text-[#2c7fb8]' },
+    { label: 'Total Sessions', value: stats.totalSessions.toLocaleString(), change: `${stats.sessionsToday} today`, icon: Activity, iconBg: 'bg-accent/10 text-accent' },
+    { label: 'Words Dictated', value: stats.totalWords.toLocaleString(), change: `${stats.wordsToday.toLocaleString()} today`, icon: Type, iconBg: 'bg-accent/10 text-accent' },
+    { label: 'Current Streak', value: `${stats.streak} day${stats.streak === 1 ? '' : 's'}`, change: stats.streak > 0 ? 'Keep it going' : 'Start today', icon: Flame, iconBg: 'bg-accent/10 text-accent' },
+    { label: 'Injection Rate', value: stats.totalSessions > 0 ? `${stats.accuracy}%` : '—', change: stats.totalSessions > 0 ? 'Successful' : 'No sessions yet', icon: Clock, iconBg: 'bg-accent/10 text-accent' },
   ] as const
 
   const recentItems = historyItems.slice(0, 4)
@@ -241,7 +241,7 @@ export default function Dashboard() {
         <motion.div variants={item} className="space-y-4">
           <Link to="/app/dictionary" className="group block">
             <Card hover className="flex items-center gap-4 p-4">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-chip-sky text-[#2c7fb8]"><BookOpen size={18} /></div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/10 text-accent"><BookOpen size={18} /></div>
               <div className="flex-1">
                 <div className="font-semibold text-ink">Dictionary</div>
                 <div className="text-sm text-muted">Manage word replacements</div>
@@ -251,7 +251,7 @@ export default function Dashboard() {
           </Link>
           <Link to="/app/snippets" className="group block">
             <Card hover className="flex items-center gap-4 p-4">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-chip-butter text-[#9a7b1a]"><Layers size={18} /></div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/10 text-accent"><Layers size={18} /></div>
               <div className="flex-1">
                 <div className="font-semibold text-ink">Snippets</div>
                 <div className="text-sm text-muted">Manage slash commands</div>
@@ -261,7 +261,7 @@ export default function Dashboard() {
           </Link>
           <Card tone="peach" bordered={false} className="p-4">
             <div className="flex items-start gap-3">
-              <Zap size={18} className="mt-0.5 shrink-0 text-[#c4684f]" />
+              <Zap size={18} className="mt-0.5 shrink-0 text-accent" />
               <div>
                 <div className="mb-1 text-sm font-semibold text-ink">Tip of the day</div>
                 <p className="text-sm leading-relaxed text-muted">

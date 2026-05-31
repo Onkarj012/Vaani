@@ -121,14 +121,14 @@ export default function Snippets() {
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="mb-2 flex items-center gap-3">
-                    <code className="rounded-lg bg-chip-lav px-2 py-1 font-mono text-sm font-semibold text-accent-strong">/{snippet.trigger}</code>
+                    <code className="rounded-lg bg-accent/10 px-2 py-1 font-mono text-sm font-semibold text-accent">/{snippet.trigger}</code>
                     <span className="label-meta flex items-center gap-1 text-[10px] text-faint"><Zap size={10} />Snippet</span>
                   </div>
                   <p className="line-clamp-2 text-sm leading-relaxed text-muted">{snippet.content}</p>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                   <button onClick={() => handleCopy(snippet.trigger, snippet.content)} className="rounded-lg p-2 text-muted transition-colors hover:bg-surface">
-                    {copiedTrigger === snippet.trigger ? <Check size={14} className="text-[#5a8a2a]" /> : <Copy size={14} />}
+                    {copiedTrigger === snippet.trigger ? <Check size={14} className="text-accent" /> : <Copy size={14} />}
                   </button>
                   <button onClick={() => removeSnippet(snippet.trigger)} className="rounded-lg p-2 text-muted transition-colors hover:bg-red-50 hover:text-red-500"><Trash2 size={14} /></button>
                 </div>

@@ -78,12 +78,12 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 function Row({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2">
-      <div>
+    <div className="flex items-center justify-between gap-6 py-2">
+      <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-ink">{title}</div>
         <div className="text-xs text-faint">{desc}</div>
       </div>
-      {children}
+      <div className="shrink-0">{children}</div>
     </div>
   )
 }
@@ -93,14 +93,14 @@ function OptionButton({ active, onClick, label, description }: { active: boolean
     <button
       onClick={onClick}
       className={`flex w-full items-center justify-between rounded-2xl border p-4 text-left transition-all ${
-        active ? 'border-accent bg-chip-lav/50' : 'border-line hover:border-ink/20'
+        active ? 'border-accent bg-accent/10' : 'border-line hover:border-ink/20'
       }`}
     >
       <div>
         <div className="text-sm font-medium text-ink">{label}</div>
         <div className="text-xs text-faint">{description}</div>
       </div>
-      {active && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent"><Check size={12} className="text-white" /></span>}
+      {active && <span className="ml-3 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent"><Check size={12} className="text-white" /></span>}
     </button>
   )
 }
@@ -315,11 +315,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <FieldLabel>Theme</FieldLabel>
             <div className="flex gap-2">
               <button onClick={() => setMode('light')}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-all ${mode === 'light' ? 'border-accent bg-chip-lav/50 text-ink' : 'border-line text-muted hover:border-ink/20'}`}>
+                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-all ${mode === 'light' ? 'border-accent bg-accent/10 text-ink' : 'border-line text-muted hover:border-ink/20'}`}>
                 <Sun size={16} /> Light
               </button>
               <button onClick={() => setMode('dark')}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-all ${mode === 'dark' ? 'border-accent bg-chip-lav/50 text-ink' : 'border-line text-muted hover:border-ink/20'}`}>
+                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-all ${mode === 'dark' ? 'border-accent bg-accent/10 text-ink' : 'border-line text-muted hover:border-ink/20'}`}>
                 <Moon size={16} /> Dark
               </button>
             </div>
@@ -390,7 +390,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {updateStatus.status === 'checking' ? 'Checking…' : updateStatus.status === 'downloading' ? 'Downloading…' : 'Check for Updates'}
           </Button>
           {updateStatus.status === 'ready' && <Button variant="accent" size="sm" onClick={() => restartAndInstall()}>Restart to Update</Button>}
-          {updateStatus.status === 'idle' && updateStatus.available === false && <p className="text-xs text-[#5a8a2a]">Vaani is up to date</p>}
+          {updateStatus.status === 'idle' && updateStatus.available === false && <p className="text-xs text-accent">Vaani is up to date</p>}
           {updateStatus.status === 'available' && <p className="text-xs text-accent">{updateStatus.message}</p>}
           {updateStatus.status === 'error' && <p className="text-xs text-red-500">{updateStatus.message}</p>}
         </div>
@@ -402,12 +402,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <Button variant="soft" size="sm" onClick={handleExportData}><Download size={14} /> Export Data</Button>
             <Button variant="destructive" size="sm" onClick={() => { void clearHistory() }}><Trash2 size={14} /> Clear All History</Button>
           </div>
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
+          <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-5">
             <div className="flex items-start gap-3">
               <AlertTriangle size={18} className="mt-0.5 text-red-500" />
               <div>
-                <div className="mb-1 text-sm font-semibold text-red-700">Reset to Defaults</div>
-                <p className="mb-3 text-sm text-red-600">This will reset all settings. History will not be affected.</p>
+                <div className="mb-1 text-sm font-semibold text-red-500">Reset to Defaults</div>
+                <p className="mb-3 text-sm text-red-500/80">This will reset all settings. History will not be affected.</p>
                 <Button variant="destructive" size="sm" onClick={() => { void resetSettings() }}>Reset Settings</Button>
               </div>
             </div>
@@ -442,7 +442,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   return (
                     <button key={it.id} onClick={() => setActiveSection(it.id)}
                       className={`flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-left text-sm transition-all ${
-                        activeSection === it.id ? 'bg-chip-lav font-semibold text-accent-strong' : 'font-medium text-muted hover:bg-bg hover:text-ink'
+                        activeSection === it.id ? 'bg-accent/10 font-semibold text-accent' : 'font-medium text-muted hover:bg-bg hover:text-ink'
                       }`}>
                       <Icon size={16} /> {it.label}
                     </button>

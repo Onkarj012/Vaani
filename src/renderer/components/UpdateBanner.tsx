@@ -21,15 +21,15 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
       break;
     case "downloading":
       icon = <Download size={15} />;
-      toneClass = "bg-chip-sky text-[#2c7fb8]";
+      toneClass = "bg-accent/10 text-accent";
       break;
     case "ready":
       icon = <ArrowUpCircle size={15} />;
-      toneClass = "bg-chip-lav text-accent-strong";
+      toneClass = "bg-accent/10 text-accent";
       break;
     case "no-update":
       icon = <ArrowUpCircle size={15} />;
-      toneClass = "bg-chip-mint text-[#5a8a2a]";
+      toneClass = "bg-accent/10 text-accent";
       break;
     case "error":
       icon = <X size={15} />;

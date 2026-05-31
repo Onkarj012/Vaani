@@ -79,10 +79,10 @@ export default function Insights() {
   const { stats, weeklyActivity, historyEntries } = useVaaniUi()
 
   const statsCards = [
-    { label: 'Total Words', value: stats.totalWords.toLocaleString(), change: `${stats.wordsToday.toLocaleString()} today`, icon: Type, iconBg: 'bg-chip-mint text-[#5a8a2a]' },
-    { label: 'Total Sessions', value: stats.totalSessions.toLocaleString(), change: `${stats.sessionsToday} today`, icon: Zap, iconBg: 'bg-chip-lav text-accent-strong' },
-    { label: 'Current Streak', value: `${stats.streak} day${stats.streak === 1 ? '' : 's'}`, change: 'Keep it going', icon: RefreshCw, iconBg: 'bg-chip-peach text-[#c4684f]' },
-    { label: 'Accuracy', value: `${stats.accuracy}%`, change: 'Estimated', icon: Clock, iconBg: 'bg-chip-sky text-[#2c7fb8]' },
+    { label: 'Total Words', value: stats.totalWords.toLocaleString(), change: `${stats.wordsToday.toLocaleString()} today`, icon: Type, iconBg: 'bg-accent/10 text-accent' },
+    { label: 'Total Sessions', value: stats.totalSessions.toLocaleString(), change: `${stats.sessionsToday} today`, icon: Zap, iconBg: 'bg-accent/10 text-accent' },
+    { label: 'Current Streak', value: `${stats.streak} day${stats.streak === 1 ? '' : 's'}`, change: 'Keep it going', icon: RefreshCw, iconBg: 'bg-accent/10 text-accent' },
+    { label: 'Accuracy', value: `${stats.accuracy}%`, change: 'Estimated', icon: Clock, iconBg: 'bg-accent/10 text-accent' },
   ]
 
   const appUsageData = useMemo(() => computeAppUsageData(historyEntries), [historyEntries])
@@ -104,7 +104,7 @@ export default function Insights() {
           <Card key={stat.label} hover className="p-5">
             <div className="mb-4 flex items-center justify-between">
               <div className={`flex h-11 w-11 items-center justify-center rounded-full ${stat.iconBg}`}><stat.icon size={18} /></div>
-              <TrendingUp size={16} className="text-[#5a8a2a]" />
+              <TrendingUp size={16} className="text-accent" />
             </div>
             <div className="text-display text-3xl text-ink">{stat.value}</div>
             <div className="mt-1 text-sm text-muted">{stat.label}</div>

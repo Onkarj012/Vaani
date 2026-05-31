@@ -1,15 +1,15 @@
 import * as React from "react"
-import { cn } from "@/lib/utils"
+import { cn } from "@renderer/lib/utils"
 
 const tones = {
-  lav: "bg-chip-lav text-accent-strong",
-  sky: "bg-chip-sky text-[#2c7fb8]",
-  mint: "bg-chip-mint text-[#5a8a2a]",
-  blush: "bg-chip-blush text-[#b5559b]",
-  peach: "bg-chip-peach text-[#c4684f]",
-  butter: "bg-chip-butter text-[#9a7b1a]",
-  ink: "bg-ink text-bg",
-  surface: "bg-surface text-muted",
+  lav:    "bg-accent/10 text-accent",
+  sky:    "bg-accent/10 text-accent",
+  mint:   "bg-accent/10 text-accent",
+  blush:  "bg-accent/10 text-accent",
+  peach:  "bg-accent/10 text-accent",
+  butter: "bg-accent/10 text-accent",
+  ink:    "bg-ink text-bg",
+  surface:"bg-surface text-muted",
 } as const
 
 export interface TagProps extends React.HTMLAttributes<HTMLSpanElement> {

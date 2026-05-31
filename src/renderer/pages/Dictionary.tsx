@@ -137,7 +137,7 @@ export default function Dictionary() {
               {filtered.map((rule) => (
                 <div key={rule.word} className="group grid grid-cols-12 items-center gap-4 px-5 py-4 transition-colors hover:bg-surface">
                   <div className="col-span-3">
-                    <code className="rounded-lg bg-chip-lav px-2 py-1 font-mono text-sm font-semibold text-accent-strong">{rule.word}</code>
+                    <code className="rounded-lg bg-accent/10 px-2 py-1 font-mono text-sm font-semibold text-accent">{rule.word}</code>
                   </div>
                   <div className="col-span-6 text-sm text-ink/85">
                     {rule.replacement || <span className="italic text-faint">(remove word)</span>}
@@ -158,7 +158,7 @@ export default function Dictionary() {
       <motion.div variants={item}>
         <Card tone="sky" bordered={false} className="p-5">
           <div className="flex items-start gap-3">
-            <Wand2 size={18} className="mt-0.5 shrink-0 text-[#2c7fb8]" />
+            <Wand2 size={18} className="mt-0.5 shrink-0 text-accent" />
             <div>
               <div className="mb-1 text-sm font-semibold text-ink">What is Dictionary?</div>
               <p className="text-sm leading-relaxed text-muted">

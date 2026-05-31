@@ -74,7 +74,7 @@ function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: ()
                 onClick={onClose}
                 className={`flex items-center gap-3 rounded-full px-4 py-2.5 text-sm transition-all duration-200 ${
                   isActive
-                    ? 'bg-chip-lav font-semibold text-accent-strong'
+                    ? 'bg-accent/10 font-semibold text-accent'
                     : 'font-medium text-muted hover:bg-surface hover:text-ink'
                 }`}
               >

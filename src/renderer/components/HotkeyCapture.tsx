@@ -128,7 +128,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
           <KbdGroup>
             {displayParts.map((k, i) => (
               <span key={i} className="inline-flex items-center gap-1">
-                <Kbd className={cn(capturing && "border-accent bg-chip-lav text-accent-strong")}>{MOD_SYMBOL[k] ?? k}</Kbd>
+                <Kbd className={cn(capturing && "border-accent bg-accent/10 text-accent")}>{MOD_SYMBOL[k] ?? k}</Kbd>
                 {i < displayParts.length - 1 && <span className="text-[11px] text-faint">+</span>}
               </span>
             ))}

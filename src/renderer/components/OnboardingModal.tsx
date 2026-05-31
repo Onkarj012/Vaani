@@ -226,7 +226,7 @@ function WelcomeSlide() {
         src={mode === "dark" ? devanagariDarkUrl : devanagariLightUrl} alt="Vaani" className="mb-6 h-24 w-24" />
       <h1 className="text-display mb-3 text-4xl text-ink">Welcome to Vaani</h1>
       <p className="max-w-sm leading-relaxed text-muted">Your voice, perfectly transcribed. Premium macOS dictation powered by AI.</p>
-      <div className="mt-6 flex items-center gap-2 rounded-full bg-chip-lav px-4 py-2 text-sm font-medium text-accent-strong">
+      <div className="mt-6 flex items-center gap-2 rounded-full bg-accent/10 px-4 py-2 text-sm font-medium text-accent">
         <Zap size={14} /> Setup takes under a minute
       </div>
     </div>
@@ -235,13 +235,13 @@ function WelcomeSlide() {
 
 function HowItWorksSlide() {
   const steps = [
-    { icon: <Keyboard size={20} />, title: "Press your hotkey", desc: "Trigger dictation from anywhere on your Mac.", tone: "bg-chip-lav text-accent-strong" },
-    { icon: <Mic size={20} />, title: "Speak naturally", desc: "Talk at your normal pace. Vaani listens and understands.", tone: "bg-chip-mint text-[#5a8a2a]" },
-    { icon: <Type size={20} />, title: "Text appears instantly", desc: "Transcribed text is inserted right where your cursor is.", tone: "bg-chip-sky text-[#2c7fb8]" },
+    { icon: <Keyboard size={20} />, title: "Press your hotkey", desc: "Trigger dictation from anywhere on your Mac.", tone: "bg-accent/10 text-accent" },
+    { icon: <Mic size={20} />, title: "Speak naturally", desc: "Talk at your normal pace. Vaani listens and understands.", tone: "bg-accent/10 text-accent" },
+    { icon: <Type size={20} />, title: "Text appears instantly", desc: "Transcribed text is inserted right where your cursor is.", tone: "bg-accent/10 text-accent" },
   ];
   return (
     <div className="flex flex-col items-center text-center">
-      <SlideIcon tone="bg-chip-lav text-accent-strong"><Wand2 size={26} /></SlideIcon>
+      <SlideIcon tone="bg-accent/10 text-accent"><Wand2 size={26} /></SlideIcon>
       <h2 className="text-display mb-2 text-3xl text-ink">How it works</h2>
       <p className="mb-8 text-sm text-muted">Three simple steps. No clicking, no typing, just talk.</p>
       <div className="w-full space-y-3">
@@ -273,7 +273,7 @@ function PermissionsSlide({
   const showMicHint = micAttempted && !micGranted && micState !== "granted";
   return (
     <div className="flex flex-col items-center text-center">
-      <SlideIcon tone="bg-chip-mint text-[#5a8a2a]"><ShieldCheck size={26} /></SlideIcon>
+      <SlideIcon tone="bg-accent/10 text-accent"><ShieldCheck size={26} /></SlideIcon>
       <h2 className="text-display mb-2 text-3xl text-ink">Grant Permissions</h2>
       <p className="mb-6 text-sm text-muted">Vaani needs two macOS permissions to transcribe and insert text.</p>
       <div className="w-full space-y-3">
@@ -281,9 +281,9 @@ function PermissionsSlide({
         <PermissionRow icon={<Keyboard size={18} />} title="Accessibility" description="Allows Vaani to insert dictated text into the active app." granted={accessibilityGranted} disabled={busy} actionLabel="Enable" onAction={onRequestAccessibility} />
       </div>
       {showMicHint && (
-        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="mt-4 flex items-start gap-2 rounded-xl border border-chip-butter bg-chip-butter/50 px-4 py-3 text-left">
-          <AlertCircle size={16} className="mt-0.5 shrink-0 text-[#9a7b1a]" />
-          <p className="text-xs leading-relaxed text-[#9a7b1a]">If the system dialog did not appear, grant microphone access manually in <span className="font-semibold">System Settings → Privacy &amp; Security → Microphone</span>.</p>
+        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="mt-4 flex items-start gap-2 rounded-xl border border-accent/20 bg-accent/5 px-4 py-3 text-left">
+          <AlertCircle size={16} className="mt-0.5 shrink-0 text-accent" />
+          <p className="text-xs leading-relaxed text-accent">If the system dialog did not appear, grant microphone access manually in <span className="font-semibold">System Settings → Privacy &amp; Security → Microphone</span>.</p>
         </motion.div>
       )}
       {!allGranted && (
@@ -302,7 +302,7 @@ function PermissionsSlide({
         </div>
       )}
       {allGranted && (
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="mt-5 flex items-center gap-2 rounded-full bg-chip-mint px-4 py-2 text-sm font-semibold text-[#5a8a2a]">
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="mt-5 flex items-center gap-2 rounded-full bg-accent/10 px-4 py-2 text-sm font-semibold text-accent">
           <CheckCircle2 size={16} /> All permissions granted
         </motion.div>
       )}
@@ -327,7 +327,7 @@ function ProviderApiSlide({
 
   return (
     <div className="flex flex-col items-center text-center">
-      <SlideIcon tone="bg-chip-lav text-accent-strong"><Plug size={24} /></SlideIcon>
+      <SlideIcon tone="bg-accent/10 text-accent"><Plug size={24} /></SlideIcon>
       <h2 className="text-display mb-1 text-3xl text-ink">Choose Providers &amp; Add Keys</h2>
       <p className="mb-5 text-sm text-muted">Your keys stay on your device. Start with Groq — it&apos;s fast and free.</p>
 
@@ -371,7 +371,7 @@ function ProviderApiSlide({
         )}
 
         {isValid && (
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex items-center gap-2 rounded-xl bg-chip-mint px-3 py-2 text-xs font-medium text-[#5a8a2a]">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex items-center gap-2 rounded-xl bg-accent/10 px-3 py-2 text-xs font-medium text-accent">
             <CheckCircle2 size={13} /> API key saved — you&apos;re ready to dictate
           </motion.div>
         )}
@@ -427,7 +427,7 @@ function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onCha
 
   return (
     <div className="flex flex-col items-center text-center">
-      <SlideIcon tone="bg-chip-lav text-accent-strong"><Keyboard size={26} /></SlideIcon>
+      <SlideIcon tone="bg-accent/10 text-accent"><Keyboard size={26} /></SlideIcon>
       <h2 className="text-display mb-2 text-3xl text-ink">Your Shortcut</h2>
       <p className="mb-8 text-sm text-muted">Choose the key combination you will press to start dictating.</p>
 
@@ -452,7 +452,7 @@ function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onCha
             </div>
             <div className="flex min-h-[40px] items-center gap-1.5">
               {preview.length > 0 ? preview.map((k, i) => (
-                <span key={i} className="inline-flex min-w-[36px] items-center justify-center rounded-lg border border-accent bg-chip-lav px-2.5 py-1.5 font-mono text-sm font-bold text-accent-strong">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
+                <span key={i} className="inline-flex min-w-[36px] items-center justify-center rounded-lg border border-accent bg-accent/10 px-2.5 py-1.5 font-mono text-sm font-bold text-accent">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
               )) : <span className="text-xs text-faint">Hold modifiers (⌃⌥⇧⌘) then press a key</span>}
             </div>
           </div>
@@ -465,14 +465,14 @@ function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onCha
 
 function FeaturesSlide() {
   const features = [
-    { icon: <Sparkles size={18} />, title: "Smart Cleanup", desc: "Removes filler words and adds punctuation automatically.", tone: "bg-chip-lav text-accent-strong" },
-    { icon: <BookOpen size={18} />, title: "Custom Dictionary", desc: "Teach Vaani names, brands, and words you use often.", tone: "bg-chip-butter text-[#9a7b1a]" },
-    { icon: <FileText size={18} />, title: "Snippets", desc: "Type shortcuts like /address to expand full text blocks.", tone: "bg-chip-sky text-[#2c7fb8]" },
-    { icon: <BarChart3 size={18} />, title: "History & Insights", desc: "Track your dictation habits, word counts, and streaks.", tone: "bg-chip-mint text-[#5a8a2a]" },
+    { icon: <Sparkles size={18} />, title: "Smart Cleanup", desc: "Removes filler words and adds punctuation automatically.", tone: "bg-accent/10 text-accent" },
+    { icon: <BookOpen size={18} />, title: "Custom Dictionary", desc: "Teach Vaani names, brands, and words you use often.", tone: "bg-accent/10 text-accent" },
+    { icon: <FileText size={18} />, title: "Snippets", desc: "Type shortcuts like /address to expand full text blocks.", tone: "bg-accent/10 text-accent" },
+    { icon: <BarChart3 size={18} />, title: "History & Insights", desc: "Track your dictation habits, word counts, and streaks.", tone: "bg-accent/10 text-accent" },
   ];
   return (
     <div className="flex flex-col items-center text-center">
-      <SlideIcon tone="bg-chip-mint text-[#5a8a2a]"><Sparkles size={26} /></SlideIcon>
+      <SlideIcon tone="bg-accent/10 text-accent"><Sparkles size={26} /></SlideIcon>
       <h2 className="text-display mb-2 text-3xl text-ink">Power Features</h2>
       <p className="mb-8 text-sm text-muted">Explore these anytime from the sidebar.</p>
       <div className="grid w-full grid-cols-2 gap-3">
@@ -560,7 +560,7 @@ function DemoSlide({ primaryHotkey, dictationMode }: { primaryHotkey: string; di
 
   return (
     <div className="flex w-full flex-col items-center text-center">
-      <SlideIcon tone="bg-chip-lav text-accent-strong"><Keyboard size={24} /></SlideIcon>
+      <SlideIcon tone="bg-accent/10 text-accent"><Keyboard size={24} /></SlideIcon>
       <h2 className="text-display mb-1 text-3xl text-ink">Try Your Shortcut</h2>
       <p className="mb-4 text-sm text-muted">Press Record and speak your phrase — just like real dictation.</p>
 
@@ -579,7 +579,7 @@ function DemoSlide({ primaryHotkey, dictationMode }: { primaryHotkey: string; di
             <><Mic size={14} /> Record</>
           )}
         </button>
-        <p className={`mt-2 text-xs font-medium ${phase === "active" ? "animate-pulse text-accent" : phase === "transcribing" ? "text-muted" : transcription ? "text-[#5a8a2a]" : "text-faint"}`}>{statusLabel}</p>
+        <p className={`mt-2 text-xs font-medium ${phase === "active" ? "animate-pulse text-accent" : phase === "transcribing" ? "text-muted" : transcription ? "text-accent" : "text-faint"}`}>{statusLabel}</p>
       </div>
 
       <div className="mb-3 w-full text-left">
@@ -613,13 +613,13 @@ function ReadySlide() {
   return (
     <div className="flex flex-col items-center text-center">
       <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
-        className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-chip-mint text-[#5a8a2a]">
+        className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-accent/10 text-accent">
         <CheckCircle2 size={36} />
       </motion.div>
       <h2 className="text-display mb-2 text-3xl text-ink">You are all set!</h2>
       <p className="max-w-xs text-sm leading-relaxed text-muted">Press your hotkey anytime to start dictating. Vaani is ready when you are.</p>
       <div className="mt-8 flex items-center gap-3 rounded-2xl border border-line bg-surface px-5 py-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-chip-lav text-accent-strong"><History size={18} /></div>
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10 text-accent"><History size={18} /></div>
         <div className="text-left">
           <div className="text-sm font-medium text-ink">Reopen this guide</div>
           <div className="text-xs text-muted">Settings → Reset Onboarding</div>
@@ -642,7 +642,7 @@ function PermissionRow({
         <p className="text-xs leading-snug text-muted">{description}</p>
       </div>
       {granted ? (
-        <div className="flex items-center gap-1.5 rounded-full bg-chip-mint px-3 py-2 text-sm font-semibold text-[#5a8a2a]"><CheckCircle2 size={15} /> Enabled</div>
+        <div className="flex items-center gap-1.5 rounded-full bg-accent/10 px-3 py-2 text-sm font-semibold text-accent"><CheckCircle2 size={15} /> Enabled</div>
       ) : (
         <button onClick={onAction} disabled={disabled} className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50">
           {disabled && <Loader2 size={14} className="animate-spin-ui" />} {actionLabel}
