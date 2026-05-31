@@ -21,7 +21,14 @@ export function ColorModeProvider({ children }: { children: ReactNode }) {
   })
 
   useEffect(() => {
+    // Suppress all transitions while the theme class flips to avoid
+    // hundreds of elements animating simultaneously (causes lag).
+    const style = document.createElement('style')
+    style.textContent = '*,*::before,*::after{transition:none!important}'
+    document.head.appendChild(style)
     document.documentElement.classList.toggle('dark', mode === 'dark')
+    // One rAF is enough for the browser to apply the class before we re-enable transitions.
+    requestAnimationFrame(() => { document.head.removeChild(style) })
     try { localStorage.setItem('vaani-color-mode', mode) } catch { /* no-op */ }
   }, [mode])
 
