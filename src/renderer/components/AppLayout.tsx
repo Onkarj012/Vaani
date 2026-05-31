@@ -49,7 +49,7 @@ function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: ()
 
       <aside
         aria-hidden={isOpen ? undefined : true}
-        {...(!isOpen ? { inert: '' } : {})}
+        {...(!isOpen ? { inert: true } : {})}
         className={`fixed left-0 top-0 z-50 flex h-screen w-[264px] flex-col border-r border-line bg-bg transition-transform duration-300 ease-out lg:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
