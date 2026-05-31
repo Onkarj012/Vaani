@@ -26,10 +26,14 @@ export function Toggle({
         disabled && "opacity-40"
       )}
     >
+      {/* Knob: off = left (inset-x-[2px]), on = right (inset-x-[2px] from right) */}
       <motion.span
-        animate={{ x: checked ? 22 : 2 }}
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-        className="absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm"
+        layout
+        transition={{ type: "spring", stiffness: 700, damping: 35 }}
+        className={cn(
+          "absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow-sm",
+          checked ? "right-[3px]" : "left-[3px]"
+        )}
       />
     </button>
   )
