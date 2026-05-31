@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import { Check, ChevronDown } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn } from "@renderer/lib/utils"
 
 export interface SelectOption {
   value: string
@@ -21,6 +21,7 @@ export function Select({
   className?: string
 }) {
   const [open, setOpen] = useState(false)
+  const listboxId = useId()
   const current = options.find((o) => o.value === value)
 
   return (
@@ -28,6 +29,9 @@ export function Select({
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
         className="flex w-full items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 text-sm text-ink transition-colors hover:border-ink/20 focus:border-accent focus:outline-none"
       >
         {current?.label ?? value}
@@ -37,6 +41,8 @@ export function Select({
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
           <div
+            id={listboxId}
+            role="listbox"
             className={cn(
               "absolute left-0 right-0 z-30 max-h-56 overflow-y-auto rounded-2xl border border-line bg-bg p-1.5 shadow-card",
               dropUp ? "bottom-full mb-2" : "top-full mt-2"
@@ -46,10 +52,9 @@ export function Select({
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => {
-                  onChange(opt.value)
-                  setOpen(false)
-                }}
+                role="option"
+                aria-selected={value === opt.value}
+                onClick={() => { onChange(opt.value); setOpen(false) }}
                 className={cn(
                   "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface",
                   value === opt.value ? "font-semibold text-accent" : "text-ink"

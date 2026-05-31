@@ -126,6 +126,8 @@ export default function AppLayout() {
         <header className="flex h-14 shrink-0 items-center px-4 lg:hidden">
           <button
             onClick={() => setIsMobileMenuOpen(true)}
+            aria-label="Open navigation menu"
+            aria-expanded={isMobileMenuOpen}
             className="rounded-full p-2 text-ink transition-colors hover:bg-surface"
           >
             <Menu size={20} />

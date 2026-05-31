@@ -9,15 +9,24 @@ const ColorModeContext = createContext<{ mode: Mode; setMode: (m: Mode) => void;
 })
 
 export function ColorModeProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('vaani-color-mode') === 'dark' ? 'dark' : 'light'))
+  const [mode, setMode] = useState<Mode>(() => {
+    try {
+      const cur = localStorage.getItem('vaani-color-mode')
+      if (cur === 'dark' || cur === 'light') return cur
+      // Migrate from old ThemeContext key
+      const legacy = localStorage.getItem('vaani-theme')
+      if (legacy === 'dark' || legacy === 'light') return legacy
+    } catch { /* storage unavailable */ }
+    return 'light'
+  })
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', mode === 'dark')
-    localStorage.setItem('vaani-color-mode', mode)
+    try { localStorage.setItem('vaani-color-mode', mode) } catch { /* no-op */ }
   }, [mode])
 
   return (
-    <ColorModeContext.Provider value={{ mode, setMode, toggle: () => setMode(mode === 'light' ? 'dark' : 'light') }}>
+    <ColorModeContext.Provider value={{ mode, setMode, toggle: () => setMode((m) => (m === 'light' ? 'dark' : 'light')) }}>
       {children}
     </ColorModeContext.Provider>
   )

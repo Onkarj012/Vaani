@@ -22,9 +22,9 @@ import { useVaaniUi } from '../context/vaani-ui'
 import { useMemo, useState, useEffect } from 'react'
 import type { PermissionStatus, Settings } from '@shared/types'
 import { KNOWN_PROVIDERS } from '@shared/defaults'
-import { Card } from '@/components/ui/card'
-import { Tag } from '@/components/ui/tag'
-import { Button } from '@/components/ui/button'
+import { Card } from '@renderer/components/ui/card'
+import { Tag } from '@renderer/components/ui/tag'
+import { Button } from '@renderer/components/ui/button'
 
 const container = {
   hidden: { opacity: 0 },

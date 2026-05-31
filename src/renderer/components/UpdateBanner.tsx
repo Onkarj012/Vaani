@@ -16,7 +16,7 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
 
   switch (status) {
     case "checking":
-      icon = <RefreshCw size={15} className="animate-spin-meelo" />;
+      icon = <RefreshCw size={15} className="animate-spin-ui" />;
       toneClass = "bg-surface text-muted";
       break;
     case "downloading":

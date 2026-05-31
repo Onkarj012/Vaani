@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Trash2, Zap, X, Hash, Copy, Check, Terminal } from 'lucide-react'
 import { useVaaniUi } from '../context/vaani-ui'
-import { Card } from '@/components/ui/card'
-import { Input, Textarea } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Card } from '@renderer/components/ui/card'
+import { Input, Textarea } from '@renderer/components/ui/input'
+import { Button } from '@renderer/components/ui/button'
 
 const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } }
 const item = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }

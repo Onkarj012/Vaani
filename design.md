@@ -1,4 +1,4 @@
-# Design Reference — Meelo Creative Portfolio Template
+# Design Reference — Creative Portfolio Template
 
 > Source: [meelo-template.framer.website](https://meelo-template.framer.website/)
 > Reference file: `references/main.html`

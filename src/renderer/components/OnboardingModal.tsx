@@ -190,8 +190,13 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
 
             <div className="flex items-center gap-2">
               {Array.from({ length: TOTAL_SLIDES }).map((_, i) => (
-                <button key={i} onClick={() => { if (i <= slide + 1) { setDirection(i > slide ? 1 : -1); setSlide(i); } }}
-                  className={`h-2 rounded-full transition-all duration-300 ${i === slide ? "w-6 bg-accent" : i < slide ? "w-2 bg-accent/40" : "w-2 bg-line"}`} />
+                <button
+                  key={i}
+                  type="button"
+                  aria-label={`Go to step ${i + 1}`}
+                  onClick={() => { if (i <= slide + 1) { setDirection(i > slide ? 1 : -1); setSlide(i); } }}
+                  className={`h-2 rounded-full transition-all duration-300 ${i === slide ? "w-6 bg-accent" : i < slide ? "w-2 bg-accent/40" : "w-2 bg-line"}`}
+                />
               ))}
             </div>
 
@@ -569,7 +574,7 @@ function DemoSlide({ primaryHotkey, dictationMode }: { primaryHotkey: string; di
           {isRecording ? (
             <><span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" /></span> Stop</>
           ) : phase === "transcribing" ? (
-            <><Loader2 size={14} className="animate-spin-meelo" /> Transcribing…</>
+            <><Loader2 size={14} className="animate-spin-ui" /> Transcribing…</>
           ) : (
             <><Mic size={14} /> Record</>
           )}
@@ -590,7 +595,7 @@ function DemoSlide({ primaryHotkey, dictationMode }: { primaryHotkey: string; di
         <div className="w-full text-left">
           <label className="mb-1 block text-xs font-medium text-muted">Transcription</label>
           <div className="min-h-[52px] rounded-2xl border border-line bg-surface px-4 py-2.5 text-sm leading-relaxed text-ink">
-            {phase === "transcribing" ? <span className="inline-flex items-center gap-2 text-muted"><Loader2 size={14} className="animate-spin-meelo" /> Transcribing…</span> : transcription}
+            {phase === "transcribing" ? <span className="inline-flex items-center gap-2 text-muted"><Loader2 size={14} className="animate-spin-ui" /> Transcribing…</span> : transcription}
           </div>
         </div>
       )}
@@ -640,7 +645,7 @@ function PermissionRow({
         <div className="flex items-center gap-1.5 rounded-full bg-chip-mint px-3 py-2 text-sm font-semibold text-[#5a8a2a]"><CheckCircle2 size={15} /> Enabled</div>
       ) : (
         <button onClick={onAction} disabled={disabled} className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50">
-          {disabled && <Loader2 size={14} className="animate-spin-meelo" />} {actionLabel}
+          {disabled && <Loader2 size={14} className="animate-spin-ui" />} {actionLabel}
         </button>
       )}
     </div>

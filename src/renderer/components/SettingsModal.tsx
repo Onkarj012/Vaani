@@ -8,10 +8,10 @@ import { useVaaniUi } from '../context/vaani-ui'
 import { useColorMode } from '../context/color-mode'
 import { HotkeyCapture } from './HotkeyCapture'
 import { KNOWN_PROVIDERS } from '@shared/defaults'
-import { Select } from '@/components/ui/Select'
-import { Toggle } from '@/components/ui/toggle'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Select } from '@renderer/components/ui/Select'
+import { Toggle } from '@renderer/components/ui/toggle'
+import { Input } from '@renderer/components/ui/input'
+import { Button } from '@renderer/components/ui/button'
 
 const sidebarItems = [
   { id: 'api', label: 'API & Providers', icon: Plug },
@@ -110,7 +110,12 @@ function ApiKeyInput({ value, onChange, onBlur, placeholder }: { value: string; 
   return (
     <div className="relative">
       <Input type={visible ? 'text' : 'password'} value={value} onChange={(e) => onChange(e.target.value)} onBlur={onBlur} placeholder={placeholder} className="pr-11 font-mono" />
-      <button onClick={() => setVisible(!visible)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface">
+      <button
+        type="button"
+        aria-label={visible ? 'Hide API key' : 'Show API key'}
+        onClick={() => setVisible(!visible)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface"
+      >
         {visible ? <EyeOff size={15} /> : <Eye size={15} />}
       </button>
     </div>
@@ -381,7 +386,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <div className="text-xs text-faint">Current version: {appVersion ?? '—'}</div>
           </div>
           <Button variant="soft" size="sm" onClick={checkForUpdates} disabled={updateStatus.status === 'checking' || updateStatus.status === 'downloading'}>
-            <RefreshCw size={14} className={updateStatus.status === 'checking' || updateStatus.status === 'downloading' ? 'animate-spin-meelo' : ''} />
+            <RefreshCw size={14} className={updateStatus.status === 'checking' || updateStatus.status === 'downloading' ? 'animate-spin-ui' : ''} />
             {updateStatus.status === 'checking' ? 'Checking…' : updateStatus.status === 'downloading' ? 'Downloading…' : 'Check for Updates'}
           </Button>
           {updateStatus.status === 'ready' && <Button variant="accent" size="sm" onClick={() => restartAndInstall()}>Restart to Update</Button>}

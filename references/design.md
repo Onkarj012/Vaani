@@ -1,4 +1,4 @@
-# Meelo — Design System
+# Design System Reference
 
 Reference: [meelo-template.framer.website](https://meelo-template.framer.website/)  
 Style: Sleek, modern, minimal creative portfolio

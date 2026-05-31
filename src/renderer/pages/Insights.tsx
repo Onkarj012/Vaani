@@ -7,12 +7,12 @@ import {
 } from 'recharts'
 import { Zap, Type, RefreshCw, Clock, TrendingUp, BarChart3, Monitor, Calendar } from 'lucide-react'
 import { useVaaniUi } from '../context/vaani-ui'
-import { Card } from '@/components/ui/card'
+import { Card } from '@renderer/components/ui/card'
 
 const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.07 } } }
 const item = { hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: 0.5 } } }
 
-// Meelo data series — pastel-forward, readable on light + dark
+// Data series — pastel-forward, readable on light + dark
 const SERIES = ['#7575c8', '#5bb5d8', '#8cc152', '#f0a07a', '#e6c34d', '#d97fc1', '#b0b0b0']
 const GRID = 'rgba(136,136,136,0.18)'
 const AXIS = '#9a9a9a'

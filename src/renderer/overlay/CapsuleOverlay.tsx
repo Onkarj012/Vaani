@@ -53,7 +53,7 @@ function WaveformBars({ bars, accentColor }: { bars: number[]; accentColor: stri
   )
 }
 
-// ── Meelo light shell — clean white pill with a soft layered shadow so it reads
+
 //    over any background. ───────────────────────────────────────────────────────
 
 const PILL_STYLE: React.CSSProperties = {
@@ -126,10 +126,14 @@ export default function CapsuleOverlay() {
     // with staggered retries ensures the main process receives at least
     // one ready signal after all listeners are wired.
     bridge.sendReady()
-    setTimeout(() => bridge.sendReady(), 50)
-    setTimeout(() => bridge.sendReady(), 150)
+    const retry1 = window.setTimeout(() => bridge.sendReady(), 50)
+    const retry2 = window.setTimeout(() => bridge.sendReady(), 150)
 
-    return () => bridge.cleanup()
+    return () => {
+      window.clearTimeout(retry1)
+      window.clearTimeout(retry2)
+      bridge.cleanup()
+    }
   }, [])
 
   // 8-second auto-dismiss for prompts

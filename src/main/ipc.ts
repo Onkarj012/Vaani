@@ -170,7 +170,7 @@ export function registerIpcHandlers(opts: {
   ));
   ipcMain.handle(IpcChannel.RelaunchApp, () => {
     app.relaunch();
-    app.exit(0);
+    app.quit();
   });
 
   ipcMain.handle(IpcChannel.SubmitAudioClip, (_e, payload: RecorderSubmission) => dictation.submitAudioClip(payload));

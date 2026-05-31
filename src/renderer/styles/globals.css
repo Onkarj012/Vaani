@@ -1,8 +1,7 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ─── Meelo design system — light only ──────────────────────────────────────
-   Reference: meelo-template.framer.website
+/* ─── Vaani design system ────────────────────────────────────────────────────
    Sleek, editorial, minimal. Bold display type, soft pastels, gentle shadows. */
 
 @theme {
@@ -36,7 +35,7 @@
   --radius-card: 20px;
 
   /* Motion */
-  --ease-meelo: cubic-bezier(0.44, 0, 0.56, 1);
+  --ease-ui: cubic-bezier(0.44, 0, 0.56, 1);
 }
 
 @layer base {
@@ -105,13 +104,13 @@
       rgba(0, 0, 0, 0.02) 0px 10px 26px -4.5px;
   }
 
-  /* Borderless underline input (Meelo form style) */
+  /* Borderless underline input */
   .input-underline {
     border: 0;
     border-bottom: 2px solid var(--color-ink);
     border-radius: 0;
     background: transparent;
-    transition: border-color 0.2s var(--ease-meelo);
+    transition: border-color 0.2s var(--ease-ui);
   }
   .input-underline::placeholder {
     color: var(--color-faint);
@@ -140,11 +139,11 @@
   animation: float-y 4s ease-in-out infinite;
 }
 
-@keyframes spin-meelo {
+@keyframes spin-ui {
   to { transform: rotate(360deg); }
 }
-.animate-spin-meelo {
-  animation: spin-meelo 1s linear infinite;
+.animate-spin-ui {
+  animation: spin-ui 1s linear infinite;
 }
 
 /* ─── Dark mode ──────────────────────────────────────────────────────────────
