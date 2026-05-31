@@ -56,16 +56,17 @@ function WaveformBars({ bars, accentColor }: { bars: number[]; accentColor: stri
 
 //    over any background. ───────────────────────────────────────────────────────
 
+// ── Dark pill shell — near-black, soft border, layered shadow ────────────────
 const PILL_STYLE: React.CSSProperties = {
-  background: '#ffffff',
-  border: '1px solid rgba(0,0,0,0.07)',
-  boxShadow: 'rgba(0,0,0,0.18) 0px 1px 2px -0.5px, rgba(0,0,0,0.14) 0px 4px 10px -3px, rgba(0,0,0,0.10) 0px 12px 28px -6px',
+  background: 'rgba(18,18,20,0.97)',
+  border: '1px solid rgba(255,255,255,0.09)',
+  boxShadow: 'rgba(0,0,0,0.40) 0px 1px 2px -0.5px, rgba(0,0,0,0.30) 0px 4px 10px -3px, rgba(0,0,0,0.20) 0px 12px 28px -6px',
 }
 
 const PROMPT_STYLE: React.CSSProperties = {
-  background: '#ffffff',
-  border: '1px solid rgba(0,0,0,0.07)',
-  boxShadow: 'rgba(0,0,0,0.20) 0px 2px 4px -1px, rgba(0,0,0,0.14) 0px 8px 18px -5px, rgba(0,0,0,0.10) 0px 18px 40px -8px',
+  background: 'rgba(18,18,20,0.97)',
+  border: '1px solid rgba(255,255,255,0.09)',
+  boxShadow: 'rgba(0,0,0,0.50) 0px 2px 4px -1px, rgba(0,0,0,0.35) 0px 8px 18px -5px, rgba(0,0,0,0.20) 0px 18px 40px -8px',
 }
 
 // ── Main overlay ──────────────────────────────────────────────────────────────
@@ -223,7 +224,7 @@ export default function CapsuleOverlay() {
                   animate={{ rotate: 360 }}
                   transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                 >
-                  <Loader2 size={12} style={{ color: '#9a9a9a' }} />
+                  <Loader2 size={12} style={{ color: 'rgba(255,255,255,0.45)' }} />
                 </motion.div>
               </motion.div>
             )}
@@ -235,13 +236,13 @@ export default function CapsuleOverlay() {
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
                 className="flex items-center justify-center px-3 py-2"
-                style={{ background: '#e6f7d4', borderRadius: 11 }}
+                style={{ background: 'rgba(90,138,42,0.85)', borderRadius: 11 }}
               >
                 <motion.div
                   initial={{ scale: 0 }} animate={{ scale: 1 }}
                   transition={{ type: 'spring', stiffness: 520, damping: 18, delay: 0.05 }}
                 >
-                  <Check size={13} style={{ color: '#4f8a2f' }} strokeWidth={3} />
+                  <Check size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
                 </motion.div>
               </motion.div>
             )}
@@ -253,13 +254,13 @@ export default function CapsuleOverlay() {
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
                 className="flex items-center justify-center px-3 py-2"
-                style={{ background: '#ffe1e1', borderRadius: 11 }}
+                style={{ background: 'rgba(209,67,67,0.85)', borderRadius: 11 }}
               >
                 <motion.div
                   initial={{ scale: 0 }} animate={{ scale: 1 }}
                   transition={{ type: 'spring', stiffness: 520, damping: 18, delay: 0.05 }}
                 >
-                  <X size={13} style={{ color: '#d14343' }} strokeWidth={3} />
+                  <X size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
                 </motion.div>
               </motion.div>
             )}
@@ -290,27 +291,27 @@ export default function CapsuleOverlay() {
                 <div
                   style={{
                     borderRadius: 9,
-                    background: mode === 'prompt-dictionary' ? '#e3f2ff' : '#fff5c9',
+                    background: mode === 'prompt-dictionary' ? 'rgba(44,127,184,0.25)' : 'rgba(154,123,26,0.25)',
                   }}
                   className="w-7 h-7 flex items-center justify-center shrink-0"
                 >
                   {mode === 'prompt-dictionary'
-                    ? <BookOpen size={13} style={{ color: '#2c7fb8' }} />
-                    : <Layers size={13} style={{ color: '#9a7b1a' }} />
+                    ? <BookOpen size={13} style={{ color: '#7ec8f0' }} />
+                    : <Layers size={13} style={{ color: '#e6c34d' }} />
                   }
                 </div>
                 <div>
-                  <p className="text-[12px] font-bold leading-tight" style={{ color: '#1d1d1d' }}>
+                  <p className="text-[12px] font-bold leading-tight" style={{ color: '#f3f3f5' }}>
                     {mode === 'prompt-dictionary' ? 'New word detected' : 'Save as snippet?'}
                   </p>
-                  <p className="text-[10px] leading-tight" style={{ color: '#888888' }}>
+                  <p className="text-[10px] leading-tight" style={{ color: 'rgba(255,255,255,0.45)' }}>
                     {mode === 'prompt-dictionary' ? 'Add replacement rule?' : 'Trigger this phrase anytime'}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <svg width="18" height="18" className="shrink-0 -rotate-90">
-                  <circle cx="9" cy="9" r="7" fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="1.5" />
+                  <circle cx="9" cy="9" r="7" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" />
                   <motion.circle
                     cx="9" cy="9" r="7" fill="none"
                     stroke={accentColor}
@@ -320,7 +321,7 @@ export default function CapsuleOverlay() {
                     transition={{ duration: 1, ease: 'linear' }}
                   />
                 </svg>
-                <button onClick={handleSkip} className="transition-colors" style={{ color: '#bbbbbb' }}>
+                <button onClick={handleSkip} className="transition-colors" style={{ color: 'rgba(255,255,255,0.30)' }}>
                   <X size={13} />
                 </button>
               </div>
@@ -330,10 +331,10 @@ export default function CapsuleOverlay() {
             {mode === 'prompt-dictionary' && (
               <div
                 className="flex items-center gap-2 mb-3.5 px-3 py-2 rounded-xl"
-                style={{ background: '#f7f7f7' }}
+                style={{ background: 'rgba(255,255,255,0.07)' }}
               >
-                <code className="text-[12px] font-bold" style={{ color: '#555555' }}>&ldquo;{promptData.word ?? ''}&rdquo;</code>
-                <ChevronRight size={11} style={{ color: '#bbbbbb' }} />
+                <code className="text-[12px] font-bold" style={{ color: 'rgba(255,255,255,0.55)' }}>&ldquo;{promptData.word ?? ''}&rdquo;</code>
+                <ChevronRight size={11} style={{ color: 'rgba(255,255,255,0.25)' }} />
                 <code className="text-[12px] font-bold" style={{ color: accentColor }}>
                   &ldquo;{promptData.correction ?? ''}&rdquo;
                 </code>
@@ -343,10 +344,10 @@ export default function CapsuleOverlay() {
             {mode === 'prompt-snippet' && (
               <div
                 className="mb-3.5 px-3 py-2 rounded-xl"
-                style={{ background: '#f7f7f7' }}
+                style={{ background: 'rgba(255,255,255,0.07)' }}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px]" style={{ color: '#999999' }}>trigger:</span>
+                  <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.35)' }}>trigger:</span>
                   <code className="text-[11px] font-bold" style={{ color: accentColor }}>/{promptData.trigger ?? ''}</code>
                 </div>
               </div>
@@ -365,7 +366,7 @@ export default function CapsuleOverlay() {
               <motion.button
                 whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.94 }}
                 onClick={handleSkip}
-                style={{ borderRadius: 999, border: '1px solid rgba(0,0,0,0.12)', color: '#888888' }}
+                style={{ borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.45)' }}
                 className="flex-1 py-2 text-[12px] font-semibold"
               >
                 Skip
