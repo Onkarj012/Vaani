@@ -208,6 +208,7 @@ export interface VaaniAPI {
   requestMicrophonePermission: () => Promise<MacOSPermissionState>;
   requestAccessibilityPermission: () => Promise<MacOSPermissionState>;
   openPermissionSettings: (permission: keyof PermissionStatus) => Promise<void>;
+  relaunchApp: () => Promise<void>;
   onNavigate: (cb: (route: string) => void) => () => void;
   onUpdateNotification: (cb: (payload: UpdateNotificationPayload) => void) => () => void;
   checkForUpdates: () => Promise<{ available: boolean; version: string }>;

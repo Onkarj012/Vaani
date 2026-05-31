@@ -168,6 +168,10 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.OpenPermissionSettings, (_e, permission: keyof PermissionStatus) => (
     openPermissionSettings(permission)
   ));
+  ipcMain.handle(IpcChannel.RelaunchApp, () => {
+    app.relaunch();
+    app.quit();
+  });
 
   ipcMain.handle(IpcChannel.SubmitAudioClip, (_e, payload: RecorderSubmission) => dictation.submitAudioClip(payload));
   ipcMain.handle(IpcChannel.RecorderReady, () => {

@@ -60,10 +60,10 @@ class RendererErrorBoundary extends React.Component<React.PropsWithChildren, { m
   render(): React.ReactNode {
     if (this.state.message) {
       return (
-        <div className="flex min-h-screen items-center justify-center bg-background px-6 text-center text-foreground">
+        <div className="flex min-h-screen items-center justify-center bg-bg px-6 text-center text-ink">
           <div>
             <h1 className="text-base font-semibold">Vaani could not open this window.</h1>
-            <p className="mt-2 max-w-sm text-sm text-muted-foreground">{this.state.message}</p>
+            <p className="mt-2 max-w-sm text-sm text-muted">{this.state.message}</p>
           </div>
         </div>
       );
@@ -131,7 +131,7 @@ if (isOverlayMode && CapsuleOverlay) {
     <React.StrictMode>
       <HashRouter>
         <RendererErrorBoundary>
-          <React.Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-background" />}>
+          <React.Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-bg" />}>
             <AppRoot />
           </React.Suspense>
         </RendererErrorBoundary>

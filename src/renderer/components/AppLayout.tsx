@@ -8,20 +8,18 @@ import {
   BookOpen,
   Settings,
   Menu,
-  ChevronRight,
-  Moon,
-  Sun,
-  Sparkles,
   BarChart3,
+  Sun,
+  Moon,
 } from 'lucide-react'
-import { useTheme } from '../contexts/ThemeContext'
 import { useVaaniUi } from '../context/vaani-ui'
+import { useColorMode } from '../context/color-mode'
 import { useUpdateNotification } from '@renderer/hooks/useUpdateNotification'
 import SettingsModal from '@renderer/components/SettingsModal'
 import OnboardingModal from '@renderer/components/OnboardingModal'
 import UpdateBanner from '@renderer/components/UpdateBanner'
-import devanagariDarkUrl from '../../../assets/iconset/devanagari/devanagari_dark.svg?url'
 import devanagariLightUrl from '../../../assets/iconset/devanagari/devanagari_light.svg?url'
+import devanagariDarkUrl from '../../../assets/iconset/devanagari/devanagari_dark.svg?url'
 
 const navItems = [
   { path: '/app', label: 'Dashboard', icon: LayoutDashboard },
@@ -31,37 +29,9 @@ const navItems = [
   { path: '/app/insights', label: 'Insights', icon: BarChart3 },
 ]
 
-function VaaniIcon({ className = '' }: { className?: string }) {
-  const { theme } = useTheme()
-  return (
-    <img
-      src={theme === 'dark' ? devanagariDarkUrl : devanagariLightUrl}
-      className={className}
-      alt="Vaani"
-    />
-  )
-}
-
-function ThemeToggle() {
-  const { theme, toggleTheme } = useTheme()
-  return (
-    <motion.button
-      whileTap={{ scale: 0.95 }}
-      onClick={toggleTheme}
-      className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-800/50 transition-all text-left text-sm text-vaani-gray-600 dark:text-vaani-gray-300"
-    >
-      <AnimatePresence mode="wait">
-        <motion.div key={theme} initial={{ rotate: -90, scale: 0 }} animate={{ rotate: 0, scale: 1 }} exit={{ rotate: 90, scale: 0 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
-          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-        </motion.div>
-      </AnimatePresence>
-      {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-    </motion.button>
-  )
-}
-
 function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: () => void; onSettings: () => void }) {
   const location = useLocation()
+  const { mode, toggle } = useColorMode()
 
   return (
     <>
@@ -71,26 +41,28 @@ function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: ()
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 z-40 lg:hidden"
+            className="fixed inset-0 z-40 bg-black/30 lg:hidden"
             onClick={onClose}
           />
         )}
       </AnimatePresence>
 
-      <aside className={`fixed lg:fixed top-0 left-0 h-screen w-[280px] bg-white dark:bg-vaani-black border-r border-vaani-gray-200 dark:border-vaani-gray-800 z-50 flex flex-col transition-transform duration-300 ease-out lg:translate-x-0 pt-4 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 border-b border-vaani-gray-200 dark:border-vaani-gray-800 shrink-0">
-          <div className="flex items-center gap-3 group">
-            <motion.div whileHover={{ rotate: 10, scale: 1.1 }} transition={{ type: 'spring', stiffness: 300 }}>
-              <VaaniIcon className="w-10 h-10 transition-colors" />
-            </motion.div>
-            <div>
-              <span className="font-display text-2xl tracking-wide text-vaani-black dark:text-white transition-colors">VAANI</span>
-              <span className="block text-xs text-vaani-gray-500 -mt-1">Voice Dictation</span>
-            </div>
+      <aside
+        className={`fixed left-0 top-0 z-50 flex h-screen w-[264px] flex-col border-r border-line bg-bg transition-transform duration-300 ease-out lg:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        {/* Logo */}
+        <div className="flex items-center gap-3 px-7 pb-6 pt-12">
+          <img src={mode === 'dark' ? devanagariDarkUrl : devanagariLightUrl} className="h-9 w-9" alt="Vaani" />
+          <div className="leading-none">
+            <span className="text-display text-2xl text-ink">Vaani</span>
+            <span className="label-meta mt-1 block text-[9px] text-faint">Voice Dictation</span>
           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1 overflow-hidden">
+        {/* Nav */}
+        <nav className="flex-1 space-y-1 px-4">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path
             const Icon = item.icon
@@ -100,49 +72,35 @@ function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: ()
                 to={item.path}
                 end={item.path === '/app'}
                 onClick={onClose}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                className={`flex items-center gap-3 rounded-full px-4 py-2.5 text-sm transition-all duration-200 ${
                   isActive
-                    ? 'bg-vaani-pink text-white shadow-lg shadow-vaani-pink/20'
-                    : 'text-vaani-gray-500 dark:text-vaani-gray-400 hover:text-vaani-black dark:hover:text-white hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-800'
+                    ? 'bg-accent/10 font-semibold text-accent'
+                    : 'font-medium text-muted hover:bg-surface hover:text-ink'
                 }`}
               >
-                <motion.div whileHover={{ rotate: isActive ? 0 : 8, scale: isActive ? 1 : 1.1 }} transition={{ type: 'spring', stiffness: 300 }}>
-                  <Icon size={18} />
-                </motion.div>
+                <Icon size={17} />
                 {item.label}
-                {isActive && (
-                  <motion.div layoutId="sidebar-indicator" className="ml-auto">
-                    <ChevronRight size={14} />
-                  </motion.div>
-                )}
               </NavLink>
             )
           })}
         </nav>
 
-        <div className="p-4 border-t border-vaani-gray-200 dark:border-vaani-gray-800 space-y-3 shrink-0">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-3 px-4 py-3 bg-vaani-gray-100 dark:bg-vaani-gray-800/50 rounded-xl"
+        {/* Footer */}
+        <div className="space-y-2 px-4 pb-6">
+          <button
+            onClick={toggle}
+            className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-left text-sm font-medium text-muted transition-all hover:bg-surface hover:text-ink"
           >
-            <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 2, repeat: Infinity }} className="w-2 h-2 bg-vaani-lime rounded-full" />
-            <span className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">Ready to dictate</span>
-            <motion.div animate={{ rotate: [0, 15, -15, 0] }} transition={{ duration: 3, repeat: Infinity }} className="ml-auto">
-              <Sparkles size={14} className="text-vaani-lime" />
-            </motion.div>
-          </motion.div>
-
-          <div className="space-y-1">
-            <ThemeToggle />
-            <button
-              onClick={() => { onSettings(); onClose(); }}
-              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-800/50 transition-all text-left text-sm text-vaani-gray-600 dark:text-vaani-gray-300"
-            >
-              <Settings size={16} />
-              Settings
-            </button>
-          </div>
+            {mode === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            {mode === 'dark' ? 'Light Mode' : 'Dark Mode'}
+          </button>
+          <button
+            onClick={() => { onSettings(); onClose() }}
+            className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-left text-sm font-medium text-muted transition-all hover:bg-surface hover:text-ink"
+          >
+            <Settings size={17} />
+            Settings
+          </button>
         </div>
       </aside>
     </>
@@ -157,28 +115,28 @@ export default function AppLayout() {
   const onboardingOpen = !settingsLoading && !settings.onboardingCompleted
 
   return (
-    <div className="min-h-screen bg-vaani-gray-100 dark:bg-vaani-black flex relative">
+    <div className="relative flex min-h-screen bg-bg">
       <Sidebar
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
         onSettings={() => setIsSettingsOpen(true)}
       />
 
-      <div className="flex-1 pt-4 flex flex-col min-h-screen overflow-hidden lg:ml-[280px] relative z-10">
-        <header className="h-14 flex items-center px-4 lg:hidden shrink-0 pt-2">
+      <div className="relative z-10 flex min-h-screen flex-1 flex-col overflow-hidden lg:ml-[264px]">
+        <header className="flex h-14 shrink-0 items-center px-4 lg:hidden">
           <button
             onClick={() => setIsMobileMenuOpen(true)}
-            className="p-2 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-800 rounded-xl transition-colors"
+            aria-label="Open navigation menu"
+            aria-expanded={isMobileMenuOpen}
+            className="rounded-full p-2 text-ink transition-colors hover:bg-surface"
           >
-            <Menu size={20} className="text-vaani-black dark:text-white" />
+            <Menu size={20} />
           </button>
         </header>
 
         {notification && <UpdateBanner notification={notification} onDismiss={dismiss} />}
 
-        <main
-          className={`flex-1 p-6 lg:p-8 ${onboardingOpen ? "overflow-hidden touch-none" : "overflow-y-auto"}`}
-        >
+        <main className={`flex-1 px-6 py-8 lg:px-12 ${onboardingOpen ? 'touch-none overflow-hidden' : 'overflow-y-auto'}`}>
           <Outlet />
         </main>
       </div>

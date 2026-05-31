@@ -77,6 +77,13 @@ export class OverlayController {
         return;
       }
       log("overlay:show-existing", { loadReady: this.loadReady, visible: this.window.isVisible() });
+      // If the renderer isn't ready yet, go through presentWindow so the
+      // watchdog is armed and mode retries are scheduled — otherwise the
+      // fast-path showInactive() call leaves the window blank.
+      if (!this.loadReady) {
+        void this.presentWindow(frontmostBefore);
+        return;
+      }
       this.window.showInactive();
       if (this.pendingMode) {
         this.tryUpdateMode(this.pendingMode);
