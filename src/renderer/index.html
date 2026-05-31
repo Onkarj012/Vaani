@@ -7,14 +7,13 @@
   <meta name="description" content="Premium macOS voice dictation powered by Groq Whisper." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+  <!-- Cabinet Grotesk + General Sans (Fontshare) -->
+  <link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800,900&f[]=general-sans@400,500,600&display=swap" rel="stylesheet" />
+  <!-- DM Sans + Fragment Mono (Google) -->
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fragment+Mono:ital@0;1&display=swap" rel="stylesheet" />
   <script>
-    (function() {
-      const theme = localStorage.getItem('vaani-theme')
-      if (theme !== 'light') {
-        document.documentElement.classList.add('dark')
-      }
-    })()
+    (function () { try { if (localStorage.getItem('vaani-color-mode') === 'dark') document.documentElement.classList.add('dark'); } catch (e) {} })()
   </script>
 </head>
 <body>

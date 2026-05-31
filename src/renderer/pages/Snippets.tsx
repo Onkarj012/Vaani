@@ -1,29 +1,13 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Plus,
-  Trash2,
-  Zap,
-  X,
-  Hash,
-  Copy,
-  Check,
-  Terminal,
-} from 'lucide-react'
+import { Plus, Trash2, Zap, X, Hash, Copy, Check, Terminal } from 'lucide-react'
 import { useVaaniUi } from '../context/vaani-ui'
+import { Card } from '@/components/ui/card'
+import { Input, Textarea } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.05 },
-  },
-}
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
-}
+const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } }
+const item = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }
 
 export default function Snippets() {
   const { snippets, addSnippet, removeSnippet, settings, updateSettings } = useVaaniUi()
@@ -33,22 +17,14 @@ export default function Snippets() {
   const [newContent, setNewContent] = useState('')
   const [copiedTrigger, setCopiedTrigger] = useState<string | null>(null)
 
-  const filteredSnippets = snippets.filter((snippet) => {
-    const matchesSearch =
-      snippet.trigger.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      snippet.content.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesSearch
-  })
+  const filtered = snippets.filter(
+    (s) => s.trigger.toLowerCase().includes(searchQuery.toLowerCase()) || s.content.toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   const handleAdd = () => {
     if (!newTrigger.trim() || !newContent.trim()) return
-    void addSnippet({
-      trigger: newTrigger.startsWith('/') ? newTrigger.slice(1) : newTrigger,
-      content: newContent,
-    })
-    setNewTrigger('')
-    setNewContent('')
-    setIsAdding(false)
+    void addSnippet({ trigger: newTrigger.startsWith('/') ? newTrigger.slice(1) : newTrigger, content: newContent })
+    setNewTrigger(''); setNewContent(''); setIsAdding(false)
   }
 
   const handleCopy = (trigger: string, content: string) => {
@@ -58,217 +34,108 @@ export default function Snippets() {
   }
 
   return (
-    <motion.div
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-      className="max-w-5xl mx-auto space-y-6"
-    >
-      <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+    <motion.div variants={container} initial="hidden" animate="visible" className="mx-auto max-w-4xl space-y-7">
+      <motion.div variants={item} className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <h1 className="text-display text-4xl sm:text-5xl text-vaani-black dark:text-white mb-2">
-            SNIPPETS
-          </h1>
-          <p className="text-vaani-gray-500 dark:text-vaani-gray-400">
-            Slash commands that expand into full text.
-          </p>
+          <p className="label-meta mb-2 text-[11px] text-accent">✦ Shortcuts</p>
+          <h1 className="text-display text-5xl text-ink">Snippets</h1>
+          <p className="mt-3 text-muted">Slash commands that expand into full text.</p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => setIsAdding(true)}
-          className="flex items-center justify-center gap-2 bg-vaani-black dark:bg-white text-white dark:text-vaani-black px-5 py-2.5 rounded-full text-sm font-semibold hover:bg-vaani-gray-800 dark:hover:bg-vaani-gray-200 transition-colors"
-        >
-          <Plus size={16} />
-          New Snippet
-        </motion.button>
+        <Button onClick={() => setIsAdding(true)}><Plus size={16} />New Snippet</Button>
       </motion.div>
 
       {!settings.snippetsOnboarded && (
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-vaani-lime/5 dark:bg-vaani-lime/10 border border-vaani-lime/20 dark:border-vaani-lime/30 rounded-2xl p-6"
-        >
-          <div className="flex items-start justify-between gap-4 mb-4">
-            <div>
-              <h3 className="text-lg font-bold text-vaani-black dark:text-white mb-1">Snippets Tutorial</h3>
-              <p className="text-sm text-vaani-gray-600 dark:text-vaani-gray-400 leading-relaxed">
-                Snippets are slash commands that expand into longer text. Type <code className="bg-white dark:bg-vaani-gray-800 px-1.5 py-0.5 rounded text-xs font-mono">/email</code> and Vaani will replace it with your full email signature.
-              </p>
+        <motion.div variants={item}>
+          <Card tone="butter" bordered={false}>
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-display text-lg text-ink">Snippets tutorial</h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted">
+                  Snippets are slash commands that expand into longer text. Type{' '}
+                  <code className="rounded-md bg-bg px-1.5 py-0.5 font-mono text-xs">/email</code> and Vaani replaces it with your full signature.
+                </p>
+              </div>
+              <button onClick={() => updateSettings({ snippetsOnboarded: true })} className="shrink-0 text-xs font-semibold text-muted hover:text-ink">Dismiss</button>
             </div>
-            <button
-              onClick={() => updateSettings({ snippetsOnboarded: true })}
-              className="text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 hover:text-vaani-black dark:hover:text-white transition-colors shrink-0"
-            >
-              Dismiss
-            </button>
-          </div>
-          <div className="flex items-center gap-3">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                void addSnippet({
-                  trigger: 'sig',
-                  content: 'Best regards,\n[Your Name]\n[Your Title]\n[Your Company]',
-                });
-                void updateSettings({ snippetsOnboarded: true });
-              }}
-              className="px-4 py-2 bg-vaani-pink text-white rounded-full text-sm font-semibold hover:bg-vaani-pink/90 transition-colors"
-            >
-              Add /sig Example
-            </motion.button>
-            <button
-              onClick={() => updateSettings({ snippetsOnboarded: true })}
-              className="px-4 py-2 text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 hover:text-vaani-black dark:hover:text-white transition-colors"
-            >
-              Skip
-            </button>
-          </div>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="accent"
+                size="sm"
+                onClick={() => {
+                  void addSnippet({ trigger: 'sig', content: 'Best regards,\n[Your Name]\n[Your Title]\n[Your Company]' })
+                  void updateSettings({ snippetsOnboarded: true })
+                }}
+              >
+                Add /sig Example
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => updateSettings({ snippetsOnboarded: true })}>Skip</Button>
+            </div>
+          </Card>
         </motion.div>
       )}
 
       <AnimatePresence>
         {isAdding && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="bg-white dark:bg-vaani-gray-900/80 backdrop-blur-sm rounded-2xl border border-vaani-gray-200 dark:border-vaani-gray-800 p-6 space-y-4">
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+            <Card className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-vaani-black dark:text-white">New Snippet</h3>
-                <button onClick={() => setIsAdding(false)} className="p-2 hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-800 rounded-lg transition-colors">
-                  <X size={16} className="text-vaani-gray-500" />
-                </button>
+                <h3 className="text-display text-lg text-ink">New snippet</h3>
+                <button onClick={() => setIsAdding(false)} className="rounded-full p-2 text-muted hover:bg-surface"><X size={16} /></button>
               </div>
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">Trigger</label>
+                  <label className="mb-2 block text-sm font-medium text-muted">Trigger</label>
                   <div className="relative">
-                    <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-vaani-gray-400" />
-                    <input
-                      type="text"
-                      value={newTrigger}
-                      onChange={(e) => setNewTrigger(e.target.value)}
-                      placeholder="/trigger"
-                      className="w-full pl-9 pr-4 py-3 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
-                    />
+                    <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+                    <Input value={newTrigger} onChange={(e) => setNewTrigger(e.target.value)} placeholder="/trigger" className="pl-9" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">Content</label>
-                  <textarea
-                    value={newContent}
-                    onChange={(e) => setNewContent(e.target.value)}
-                    placeholder="Text to expand..."
-                    rows={3}
-                    className="w-full px-4 py-3 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all resize-none text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
-                  />
+                  <label className="mb-2 block text-sm font-medium text-muted">Content</label>
+                  <Textarea value={newContent} onChange={(e) => setNewContent(e.target.value)} placeholder="Text to expand…" rows={2} />
                 </div>
               </div>
               <div className="flex justify-end gap-2">
-                <button onClick={() => setIsAdding(false)} className="px-4 py-2 text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 hover:text-vaani-black dark:hover:text-white transition-colors">
-                  Cancel
-                </button>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleAdd}
-                  className="px-5 py-2 bg-vaani-pink text-white rounded-full text-sm font-semibold hover:bg-vaani-pink/90 transition-colors"
-                >
-                  Create Snippet
-                </motion.button>
+                <Button variant="ghost" size="sm" onClick={() => setIsAdding(false)}>Cancel</Button>
+                <Button variant="accent" size="sm" onClick={handleAdd}>Create Snippet</Button>
               </div>
-            </div>
+            </Card>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <motion.div variants={itemVariants} className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <input
-            type="text"
-            placeholder="Search snippets..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-4 pr-4 py-3 bg-white dark:bg-vaani-gray-900/80 backdrop-blur-sm border border-vaani-gray-200 dark:border-vaani-gray-800 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
-          />
-        </div>
+      <motion.div variants={item}>
+        <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search snippets…" />
       </motion.div>
 
-      <motion.div variants={itemVariants} className="space-y-3">
-        {filteredSnippets.length === 0 ? (
-          <div className="text-center py-20">
-            <Terminal size={48} className="mx-auto text-vaani-gray-300 dark:text-vaani-gray-700 mb-4" />
-            <h3 className="text-lg font-semibold text-vaani-black dark:text-white mb-2">No snippets found</h3>
-            <p className="text-sm text-vaani-gray-500 dark:text-vaani-gray-400">Create your first snippet to get started.</p>
+      <motion.div variants={item} className="space-y-3">
+        {filtered.length === 0 ? (
+          <div className="py-20 text-center">
+            <Terminal size={44} className="mx-auto mb-4 text-line" />
+            <h3 className="text-display text-xl text-ink">No snippets found</h3>
+            <p className="mt-2 text-sm text-muted">Create your first snippet to get started.</p>
           </div>
         ) : (
-          filteredSnippets.map((snippet, index) => (
-            <motion.div
-              key={snippet.trigger}
-              layout
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: index * 0.05 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="bg-white dark:bg-vaani-gray-900/80 backdrop-blur-sm rounded-2xl border border-vaani-gray-200 dark:border-vaani-gray-800 p-5 hover:shadow-md dark:hover:shadow-vaani-pink/5 transition-all group"
-            >
+          filtered.map((snippet) => (
+            <Card key={snippet.trigger} hover className="group p-5">
               <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-2">
-                    <code className="bg-vaani-gray-100 dark:bg-vaani-gray-800 px-2 py-1 rounded-lg text-sm font-mono font-semibold text-vaani-pink">
-                      /{snippet.trigger}
-                    </code>
-                    <span className="flex items-center gap-1 text-xs text-vaani-gray-400 dark:text-vaani-gray-500">
-                      <Zap size={10} />
-                      Snippet
-                    </span>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 flex items-center gap-3">
+                    <code className="rounded-lg bg-chip-lav px-2 py-1 font-mono text-sm font-semibold text-accent-strong">/{snippet.trigger}</code>
+                    <span className="label-meta flex items-center gap-1 text-[10px] text-faint"><Zap size={10} />Snippet</span>
                   </div>
-                  <p className="text-sm text-vaani-gray-600 dark:text-vaani-gray-400 leading-relaxed line-clamp-2">
-                    {snippet.content}
-                  </p>
+                  <p className="line-clamp-2 text-sm leading-relaxed text-muted">{snippet.content}</p>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => handleCopy(snippet.trigger, snippet.content)}
-                    className="p-2 hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-800 rounded-lg transition-colors"
-                  >
-                    {copiedTrigger === snippet.trigger ? (
-                      <Check size={14} className="text-vaani-lime" />
-                    ) : (
-                      <Copy size={14} className="text-vaani-gray-500 dark:text-vaani-gray-400" />
-                    )}
+                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button onClick={() => handleCopy(snippet.trigger, snippet.content)} className="rounded-lg p-2 text-muted transition-colors hover:bg-surface">
+                    {copiedTrigger === snippet.trigger ? <Check size={14} className="text-[#5a8a2a]" /> : <Copy size={14} />}
                   </button>
-                  <button
-                    onClick={() => removeSnippet(snippet.trigger)}
-                    className="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                  >
-                    <Trash2 size={14} className="text-vaani-gray-500 dark:text-vaani-gray-400 hover:text-red-500" />
-                  </button>
+                  <button onClick={() => removeSnippet(snippet.trigger)} className="rounded-lg p-2 text-muted transition-colors hover:bg-red-50 hover:text-red-500"><Trash2 size={14} /></button>
                 </div>
               </div>
-            </motion.div>
+            </Card>
           ))
         )}
-      </motion.div>
-
-      <motion.div
-        variants={itemVariants}
-        className="bg-vaani-lime/5 dark:bg-vaani-lime/10 border border-vaani-lime/20 dark:border-vaani-lime/30 rounded-2xl p-5"
-      >
-        <div className="flex items-start gap-3">
-          <Zap size={18} className="text-vaani-lime mt-0.5 shrink-0" />
-          <div>
-            <div className="text-sm font-semibold text-vaani-black dark:text-white mb-1">What are Snippets?</div>
-            <p className="text-sm text-vaani-gray-600 dark:text-vaani-gray-400 leading-relaxed">
-              Create slash-commands that expand into longer text. Perfect for repetitive content like email signatures, addresses, phone numbers, or boilerplate text you often dictate.
-            </p>
-          </div>
-        </div>
       </motion.div>
     </motion.div>
   )

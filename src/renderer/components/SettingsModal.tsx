@@ -1,32 +1,17 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Globe,
-  Mic,
-  Keyboard,
-  Type,
-  Palette,
-  Monitor,
-  Volume2,
-  Download,
-  Trash2,
-  Eye,
-  EyeOff,
-  ChevronRight,
-  Check,
-  Moon,
-  Sun,
-  AlertTriangle,
-  X,
-  Database,
-  HardDrive,
-  Plug,
-  RefreshCw,
+  Globe, Mic, Keyboard, Type, Palette, Monitor, Volume2, Download, Trash2,
+  Eye, EyeOff, Check, AlertTriangle, X, Database, HardDrive, Plug, RefreshCw, Sun, Moon,
 } from 'lucide-react'
-import { useTheme } from '../contexts/ThemeContext'
 import { useVaaniUi } from '../context/vaani-ui'
+import { useColorMode } from '../context/color-mode'
 import { HotkeyCapture } from './HotkeyCapture'
 import { KNOWN_PROVIDERS } from '@shared/defaults'
+import { Select } from '@/components/ui/Select'
+import { Toggle } from '@/components/ui/toggle'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 
 const sidebarItems = [
   { id: 'api', label: 'API & Providers', icon: Plug },
@@ -47,7 +32,7 @@ const sectionDescriptions: Record<string, string> = {
   dictation: 'Recording behavior and voice settings',
   hotkey: 'Global shortcuts for dictation',
   injection: 'How text is entered into apps',
-  appearance: 'Theme and accent colors',
+  appearance: 'Theme and accent color',
   system: 'Dock, startup, and behavior',
   audio: 'Silence detection and noise gate',
   updates: 'Check for app updates',
@@ -55,27 +40,13 @@ const sectionDescriptions: Record<string, string> = {
 }
 
 const languages = [
-  { value: 'auto', label: 'Auto-detect' },
-  { value: 'en', label: 'English' },
-  { value: 'hi', label: 'Hindi' },
-  { value: 'hinglish', label: 'Hinglish' },
-  { value: 'ta', label: 'Tamil' },
-  { value: 'pa', label: 'Punjabi' },
-  { value: 'mr', label: 'Marathi' },
-  { value: 'bn', label: 'Bengali' },
-  { value: 'gu', label: 'Gujarati' },
-  { value: 'te', label: 'Telugu' },
-  { value: 'kn', label: 'Kannada' },
-  { value: 'ml', label: 'Malayalam' },
-  { value: 'es', label: 'Spanish' },
-  { value: 'fr', label: 'French' },
-  { value: 'de', label: 'German' },
-  { value: 'ja', label: 'Japanese' },
-  { value: 'zh', label: 'Chinese' },
-  { value: 'ko', label: 'Korean' },
-  { value: 'ar', label: 'Arabic' },
-  { value: 'pt', label: 'Portuguese' },
-  { value: 'ru', label: 'Russian' },
+  { value: 'auto', label: 'Auto-detect' }, { value: 'en', label: 'English' }, { value: 'hi', label: 'Hindi' },
+  { value: 'hinglish', label: 'Hinglish' }, { value: 'ta', label: 'Tamil' }, { value: 'pa', label: 'Punjabi' },
+  { value: 'mr', label: 'Marathi' }, { value: 'bn', label: 'Bengali' }, { value: 'gu', label: 'Gujarati' },
+  { value: 'te', label: 'Telugu' }, { value: 'kn', label: 'Kannada' }, { value: 'ml', label: 'Malayalam' },
+  { value: 'es', label: 'Spanish' }, { value: 'fr', label: 'French' }, { value: 'de', label: 'German' },
+  { value: 'ja', label: 'Japanese' }, { value: 'zh', label: 'Chinese' }, { value: 'ko', label: 'Korean' },
+  { value: 'ar', label: 'Arabic' }, { value: 'pt', label: 'Portuguese' }, { value: 'ru', label: 'Russian' },
 ]
 
 const dictationModes = [
@@ -91,76 +62,57 @@ const injectionModes = [
 ]
 
 const accentColors = [
-  { id: '#FF006E', label: 'Pink', color: 'bg-[#FF006E]' },
-  { id: '#ADFF02', label: 'Lime', color: 'bg-[#ADFF02]' },
-  { id: '#00F5FF', label: 'Cyan', color: 'bg-[#00F5FF]' },
-  { id: '#9D4EDD', label: 'Purple', color: 'bg-[#9D4EDD]' },
-  { id: '#FFE600', label: 'Yellow', color: 'bg-[#FFE600]' },
-  { id: '#FF6B35', label: 'Orange', color: 'bg-[#FF6B35]' },
-  { id: '#FFFFFF', label: 'White', color: 'bg-white border-2 border-vaani-gray-200 dark:border-vaani-gray-600' },
-  { id: '#000000', label: 'Black', color: 'bg-black border-2 border-vaani-gray-700 dark:border-vaani-gray-500' },
-  { id: '#9CA3AF', label: 'Monochrome', color: 'bg-[#9CA3AF]' },
+  { id: '#7575c8', label: 'Purple' },
+  { id: '#5bb5d8', label: 'Blue' },
+  { id: '#8cc152', label: 'Green' },
+  { id: '#d97fc1', label: 'Pink' },
+  { id: '#f0a07a', label: 'Peach' },
+  { id: '#e6c34d', label: 'Yellow' },
+  { id: '#0099ff', label: 'Link' },
+  { id: '#1d1d1d', label: 'Ink' },
 ]
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <label className="mb-2 block text-sm font-medium text-muted">{children}</label>
+}
+
+function Row({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <div>
+        <div className="text-sm font-medium text-ink">{title}</div>
+        <div className="text-xs text-faint">{desc}</div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function OptionButton({ active, onClick, label, description }: { active: boolean; onClick: () => void; label: string; description: string }) {
   return (
     <button
-      onClick={() => onChange(!checked)}
-      className={`relative w-11 h-6 rounded-full transition-colors ${
-        checked ? 'bg-vaani-pink' : 'bg-vaani-gray-300 dark:bg-vaani-gray-600'
+      onClick={onClick}
+      className={`flex w-full items-center justify-between rounded-2xl border p-4 text-left transition-all ${
+        active ? 'border-accent bg-chip-lav/50' : 'border-line hover:border-ink/20'
       }`}
     >
-      <motion.div
-        animate={{ x: checked ? 22 : 2 }}
-        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-        className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
-      />
+      <div>
+        <div className="text-sm font-medium text-ink">{label}</div>
+        <div className="text-xs text-faint">{description}</div>
+      </div>
+      {active && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent"><Check size={12} className="text-white" /></span>}
     </button>
   )
 }
 
-function Select({
-  value,
-  onChange,
-  options,
-  dropUp = false,
-}: {
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string }[]
-  dropUp?: boolean
-}) {
-  const [isOpen, setIsOpen] = useState(false)
+function ApiKeyInput({ value, onChange, onBlur, placeholder }: { value: string; onChange: (v: string) => void; onBlur?: () => void; placeholder: string }) {
+  const [visible, setVisible] = useState(false)
   return (
     <div className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-4 py-2.5 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm text-vaani-black dark:text-white hover:border-vaani-gray-300 dark:hover:border-vaani-gray-500 transition-colors"
-      >
-        {options.find((o) => o.value === value)?.label ?? value}
-        <ChevronRight size={14} className={`text-vaani-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+      <Input type={visible ? 'text' : 'password'} value={value} onChange={(e) => onChange(e.target.value)} onBlur={onBlur} placeholder={placeholder} className="pr-11 font-mono" />
+      <button onClick={() => setVisible(!visible)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface">
+        {visible ? <EyeOff size={15} /> : <Eye size={15} />}
       </button>
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-          <div className={`absolute left-0 right-0 bg-white dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto ${
-            dropUp ? 'bottom-full mb-1' : 'top-full mt-1'
-          }`}>
-            {options.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => { onChange(opt.value); setIsOpen(false) }}
-                className={`w-full text-left px-4 py-2.5 text-sm hover:bg-vaani-gray-50 dark:hover:bg-vaani-gray-700 transition-colors flex items-center justify-between ${
-                  value === opt.value ? 'text-vaani-pink font-medium' : 'text-vaani-black dark:text-white'
-                }`}
-              >
-                {opt.label}
-                {value === opt.value && <Check size={14} />}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
     </div>
   )
 }
@@ -171,42 +123,33 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { theme, toggleTheme } = useTheme()
   const { settings, updateSettings, resetSettings, clearHistory, historyEntries, updateStatus, checkForUpdates, restartAndInstall } = useVaaniUi()
+  const { mode, setMode } = useColorMode()
   const [activeSection, setActiveSection] = useState('api')
   const [customHex, setCustomHex] = useState(settings.accentColor)
   const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [sttKey, setSttKey] = useState('')
+  const [llmKey, setLlmKey] = useState('')
 
   useEffect(() => {
     if (!isOpen) return
     void window.vaani.getAppVersion().then(setAppVersion).catch(() => setAppVersion(null))
   }, [isOpen])
 
-  // Track API keys for currently selected providers only
-  const [sttKey, setSttKey] = useState('')
-  const [sttKeyVisible, setSttKeyVisible] = useState(false)
-  const [llmKey, setLlmKey] = useState('')
-  const [llmKeyVisible, setLlmKeyVisible] = useState(false)
-
   useEffect(() => { setCustomHex(settings.accentColor) }, [settings.accentColor])
 
-  // Load keys for selected providers
   useEffect(() => {
     const pk = settings.providerApiKeys ?? []
-    const sttKeyEntry = pk.find(p => p.providerId === settings.transcriptionProvider)
-    setSttKey(sttKeyEntry?.key ?? (settings.transcriptionProvider === 'groq' ? settings.groqApiKey : ''))
-    const llmKeyEntry = pk.find(p => p.providerId === settings.formattingProvider)
-    setLlmKey(llmKeyEntry?.key ?? '')
+    setSttKey(pk.find((p) => p.providerId === settings.transcriptionProvider)?.key ?? (settings.transcriptionProvider === 'groq' ? settings.groqApiKey : ''))
+    setLlmKey(pk.find((p) => p.providerId === settings.formattingProvider)?.key ?? '')
   }, [settings.transcriptionProvider, settings.formattingProvider, settings.providerApiKeys, settings.groqApiKey])
 
   if (!isOpen) return null
 
   const saveProviderKey = (providerId: string, key: string) => {
     const current = settings.providerApiKeys ?? []
-    const existing = current.findIndex(p => p.providerId === providerId)
-    const next = existing >= 0
-      ? current.map((p, i) => i === existing ? { providerId, key } : p)
-      : [...current, { providerId, key }]
+    const existing = current.findIndex((p) => p.providerId === providerId)
+    const next = existing >= 0 ? current.map((p, i) => (i === existing ? { providerId, key } : p)) : [...current, { providerId, key }]
     void updateSettings({ providerApiKeys: next })
   }
 
@@ -219,139 +162,80 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     URL.revokeObjectURL(url)
   }
 
-  const sttProviders = KNOWN_PROVIDERS.filter(p => p.type === 'stt' || p.type === 'local-stt')
-  const llmProviders = KNOWN_PROVIDERS.filter(p => p.type === 'llm')
-  const activeStt = sttProviders.find(p => p.id === settings.transcriptionProvider)
-  const activeLlm = llmProviders.find(p => p.id === settings.formattingProvider)
+  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'stt' || p.type === 'local-stt')
+  const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'llm')
+  const activeStt = sttProviders.find((p) => p.id === settings.transcriptionProvider)
+  const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider)
   const activeLlmModels = activeLlm?.models ?? []
 
   const sectionContent = (
     <div className="space-y-6">
       {activeSection === 'api' && (
         <div className="space-y-5">
-          {/* Transcription Provider */}
           <div>
-            <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">
-              Transcription Provider
-            </label>
-            <Select value={settings.transcriptionProvider} onChange={(v) => updateSettings({ transcriptionProvider: v })}
-              options={sttProviders.map(p => ({ value: p.id, label: p.name }))} />
-            <p className="text-xs text-vaani-gray-400 mt-1.5">
-              {activeStt?.requiresApiKey === false
-                ? 'Runs entirely on-device — no API key needed.'
-                : 'Requires an API key.'}
-            </p>
+            <FieldLabel>Transcription Provider</FieldLabel>
+            <Select value={settings.transcriptionProvider} onChange={(v) => updateSettings({ transcriptionProvider: v })} options={sttProviders.map((p) => ({ value: p.id, label: p.name }))} />
+            <p className="mt-1.5 text-xs text-faint">{activeStt?.requiresApiKey === false ? 'Runs entirely on-device — no API key needed.' : 'Requires an API key.'}</p>
           </div>
 
-          {/* STT API key — only for the selected provider */}
           {activeStt?.requiresApiKey && (
             <div>
-              <label className="text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400">
-                {activeStt.name} API Key
-              </label>
-              <div className="relative mt-1">
-                <input
-                  type={sttKeyVisible ? 'text' : 'password'}
-                  value={sttKey}
-                  onChange={(e) => { setSttKey(e.target.value); saveProviderKey(settings.transcriptionProvider, e.target.value) }}
-                  onBlur={() => { if (settings.transcriptionProvider === 'groq') { void updateSettings({ groqApiKey: sttKey }) } }}
-                  placeholder={activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
-                  className="w-full pl-4 pr-12 py-2.5 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all font-mono text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
-                />
-                <button
-                  onClick={() => setSttKeyVisible(!sttKeyVisible)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-600 rounded-lg transition-colors"
-                >
-                  {sttKeyVisible ? <EyeOff size={14} className="text-vaani-gray-500" /> : <Eye size={14} className="text-vaani-gray-500" />}
-                </button>
-              </div>
+              <FieldLabel>{activeStt.name} API Key</FieldLabel>
+              <ApiKeyInput
+                value={sttKey}
+                onChange={(v) => { setSttKey(v); saveProviderKey(settings.transcriptionProvider, v) }}
+                onBlur={() => { if (settings.transcriptionProvider === 'groq') void updateSettings({ groqApiKey: sttKey }) }}
+                placeholder={activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
+              />
             </div>
           )}
 
-          <div className="h-px bg-vaani-gray-200 dark:bg-vaani-gray-700" />
+          <div className="h-px bg-line" />
 
-          {/* Formatting Provider */}
           <div>
-            <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">
-              Formatting Provider
-            </label>
-            <Select value={settings.formattingProvider} onChange={(v) => updateSettings({ formattingProvider: v })}
-              options={llmProviders.map(p => ({ value: p.id, label: p.name }))} />
+            <FieldLabel>Formatting Provider</FieldLabel>
+            <Select value={settings.formattingProvider} onChange={(v) => updateSettings({ formattingProvider: v })} options={llmProviders.map((p) => ({ value: p.id, label: p.name }))} />
           </div>
 
-          {/* LLM API key — only for selected provider */}
           {activeLlm?.requiresApiKey && (
             <div>
-              <label className="text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400">
-                {activeLlm.name} API Key
-              </label>
-              <div className="relative mt-1">
-                <input
-                  type={llmKeyVisible ? 'text' : 'password'}
-                  value={llmKey}
-                  onChange={(e) => { setLlmKey(e.target.value); saveProviderKey(settings.formattingProvider, e.target.value) }}
-                  placeholder={activeLlm.id === 'openai-llm' ? 'sk-...' : activeLlm.id === 'anthropic' ? 'sk-ant-...' : activeLlm.id === 'openrouter' ? 'sk-or-...' : 'gsk_...'}
-                  className="w-full pl-4 pr-12 py-2.5 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm outline-none focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 transition-all font-mono text-vaani-black dark:text-white placeholder:text-vaani-gray-400"
-                />
-                <button
-                  onClick={() => setLlmKeyVisible(!llmKeyVisible)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-600 rounded-lg transition-colors"
-                >
-                  {llmKeyVisible ? <EyeOff size={14} className="text-vaani-gray-500" /> : <Eye size={14} className="text-vaani-gray-500" />}
-                </button>
-              </div>
+              <FieldLabel>{activeLlm.name} API Key</FieldLabel>
+              <ApiKeyInput
+                value={llmKey}
+                onChange={(v) => { setLlmKey(v); saveProviderKey(settings.formattingProvider, v) }}
+                placeholder={activeLlm.id === 'openai-llm' ? 'sk-...' : activeLlm.id === 'anthropic' ? 'sk-ant-...' : activeLlm.id === 'openrouter' ? 'sk-or-...' : 'gsk_...'}
+              />
             </div>
           )}
 
-          {/* Formatting model selector */}
           {activeLlmModels.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">
-                Formatting Model
-              </label>
-              <Select value={settings.formattingModel} onChange={(v) => updateSettings({ formattingModel: v })}
-                options={activeLlmModels.map(m => ({ value: m.id, label: m.name }))} />
+              <FieldLabel>Formatting Model</FieldLabel>
+              <Select value={settings.formattingModel} onChange={(v) => updateSettings({ formattingModel: v })} options={activeLlmModels.map((m) => ({ value: m.id, label: m.name }))} />
             </div>
           )}
 
-          <div className="h-px bg-vaani-gray-200 dark:bg-vaani-gray-700" />
-
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <div className="text-sm font-medium text-vaani-black dark:text-white">Provider Failover</div>
-              <div className="text-xs text-vaani-gray-400">Try next provider on failure</div>
-            </div>
+          <div className="h-px bg-line" />
+          <Row title="Provider Failover" desc="Try next provider on failure">
             <Toggle checked={settings.failoverEnabled} onChange={(v) => updateSettings({ failoverEnabled: v })} />
-          </div>
-
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <div className="text-sm font-medium text-vaani-black dark:text-white">Offline Mode</div>
-              <div className="text-xs text-vaani-gray-400">Prefer offline processing when available</div>
-            </div>
-            <Select value={settings.offlineMode} onChange={(v) => updateSettings({ offlineMode: v as "auto" | "always-offline" | "always-online" })}
-              options={[
-                { value: 'auto', label: 'Auto' },
-                { value: 'always-offline', label: 'Prefer Offline' },
-                { value: 'always-online', label: 'Always Online' },
-              ]} dropUp />
+          </Row>
+          <div>
+            <FieldLabel>Offline Mode</FieldLabel>
+            <Select value={settings.offlineMode} onChange={(v) => updateSettings({ offlineMode: v as 'auto' | 'always-offline' | 'always-online' })}
+              options={[{ value: 'auto', label: 'Auto' }, { value: 'always-offline', label: 'Prefer Offline' }, { value: 'always-online', label: 'Always Online' }]} dropUp />
           </div>
 
           {settings.transcriptionProvider === 'local-whisper' && (
             <div>
-              <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">
-                Local Whisper Model
-              </label>
+              <FieldLabel>Local Whisper Model</FieldLabel>
               <Select value={settings.localWhisperModel} onChange={(v) => updateSettings({ localWhisperModel: v })}
                 options={[
                   { value: 'tiny.en', label: 'Tiny English (78 MB, fastest)' },
                   { value: 'base.en', label: 'Base English (147 MB)' },
                   { value: 'small.en', label: 'Small English (488 MB)' },
                   { value: 'medium.en', label: 'Medium English (1.5 GB, most accurate)' },
-                ]} />
-              <p className="text-xs text-vaani-gray-400 mt-1.5">
-                Models are downloaded on first use. Larger models are more accurate but slower.
-              </p>
+                ]} dropUp />
+              <p className="mt-1.5 text-xs text-faint">Models download on first use. Larger models are more accurate but slower.</p>
             </div>
           )}
         </div>
@@ -360,66 +244,48 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       {activeSection === 'language' && (
         <div className="space-y-4">
           <Select value={settings.language} onChange={(v) => updateSettings({ language: v })} options={languages} />
-          <div className="flex items-center justify-between py-3">
-            <div><div className="text-sm font-medium text-vaani-black dark:text-white">Smart Punctuation</div><div className="text-xs text-vaani-gray-400">Auto-add periods, commas, and capitalization</div></div>
+          <Row title="Smart Punctuation" desc="Auto-add periods, commas, and capitalization">
             <Toggle checked={settings.smartPunctuation} onChange={(v) => updateSettings({ smartPunctuation: v })} />
-          </div>
-          <div className="flex items-center justify-between py-3">
-            <div><div className="text-sm font-medium text-vaani-black dark:text-white">Cleanup</div><div className="text-xs text-vaani-gray-400">Remove filler words and apply corrections</div></div>
+          </Row>
+          <Row title="Cleanup" desc="Remove filler words and apply corrections">
             <Toggle checked={settings.cleanupEnabled} onChange={(v) => updateSettings({ cleanupEnabled: v })} />
-          </div>
+          </Row>
         </div>
       )}
 
       {activeSection === 'dictation' && (
         <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">Dictation Mode</label>
+            <FieldLabel>Dictation Mode</FieldLabel>
             <div className="space-y-2">
               {dictationModes.map((mode) => (
-                <button
-                  key={mode.id}
-                  onClick={() => updateSettings({ dictationMode: mode.id as typeof settings.dictationMode })}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left ${
-                    settings.dictationMode === mode.id ? 'border-vaani-pink bg-vaani-pink/5' : 'border-vaani-gray-200 dark:border-vaani-gray-700 hover:border-vaani-gray-300'
-                  }`}
-                >
-                  <div><div className="text-sm font-medium">{mode.label}</div><div className="text-xs text-vaani-gray-400">{mode.description}</div></div>
-                  {settings.dictationMode === mode.id && <div className="w-5 h-5 bg-vaani-pink rounded-full flex items-center justify-center"><Check size={12} className="text-white" /></div>}
-                </button>
+                <OptionButton key={mode.id} active={settings.dictationMode === mode.id} onClick={() => updateSettings({ dictationMode: mode.id as typeof settings.dictationMode })} label={mode.label} description={mode.description} />
               ))}
             </div>
           </div>
-
-          <div className="flex items-center justify-between py-3">
-            <div><div className="text-sm font-medium">Save Recordings</div><div className="text-xs text-vaani-gray-400">Save WAV files to disk for replay</div></div>
+          <Row title="Save Recordings" desc="Save WAV files to disk for replay">
             <Toggle checked={settings.saveRecordings} onChange={(v) => updateSettings({ saveRecordings: v })} />
-          </div>
-
-          <div className="flex items-center justify-between p-3 bg-vaani-gray-50 dark:bg-vaani-gray-800 rounded-xl">
+          </Row>
+          <div className="flex items-center justify-between rounded-2xl bg-surface p-4">
             <div className="flex items-center gap-3">
-              <Mic size={16} className="text-vaani-gray-500" />
-              <div><div className="text-sm">System Default Microphone</div><div className="text-xs text-vaani-gray-400">Vaani uses your system mic</div></div>
+              <Mic size={16} className="text-muted" />
+              <div><div className="text-sm text-ink">System Default Microphone</div><div className="text-xs text-faint">Vaani uses your system mic</div></div>
             </div>
-            <HardDrive size={14} className="text-vaani-gray-400" />
+            <HardDrive size={14} className="text-faint" />
           </div>
         </div>
       )}
 
       {activeSection === 'hotkey' && (
-        <div className="space-y-4">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">Primary Dictation Hotkey</label>
-              <HotkeyCapture value={settings.primaryHotkey} onChange={(v) => updateSettings({ primaryHotkey: v })} />
-              <p className="text-xs text-vaani-gray-400 mt-1.5 flex items-center gap-1.5">
-                <AlertTriangle size={10} /> Fn key detection is hardware-dependent. Test after changing.
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">Paste Latest Hotkey</label>
-              <HotkeyCapture value={settings.pasteLatestHotkey} onChange={(v) => updateSettings({ pasteLatestHotkey: v })} />
-            </div>
+        <div className="space-y-5">
+          <div>
+            <FieldLabel>Primary Dictation Hotkey</FieldLabel>
+            <HotkeyCapture value={settings.primaryHotkey} onChange={(v) => updateSettings({ primaryHotkey: v })} />
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-faint"><AlertTriangle size={10} /> Fn key detection is hardware-dependent. Test after changing.</p>
+          </div>
+          <div>
+            <FieldLabel>Paste Latest Hotkey</FieldLabel>
+            <HotkeyCapture value={settings.pasteLatestHotkey} onChange={(v) => updateSettings({ pasteLatestHotkey: v })} />
           </div>
         </div>
       )}
@@ -428,158 +294,116 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <div className="space-y-4">
           <div className="space-y-2">
             {injectionModes.map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => updateSettings({ injectionMode: mode.id as typeof settings.injectionMode })}
-                className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left ${settings.injectionMode === mode.id ? 'border-vaani-pink bg-vaani-pink/5' : 'border-vaani-gray-200 dark:border-vaani-gray-700 hover:border-vaani-gray-300'}`}
-              >
-                <div><div className="text-sm font-medium">{mode.label}</div><div className="text-xs text-vaani-gray-400">{mode.description}</div></div>
-                {settings.injectionMode === mode.id && <div className="w-5 h-5 bg-vaani-pink rounded-full flex items-center justify-center"><Check size={12} className="text-white" /></div>}
-              </button>
+              <OptionButton key={mode.id} active={settings.injectionMode === mode.id} onClick={() => updateSettings({ injectionMode: mode.id as typeof settings.injectionMode })} label={mode.label} description={mode.description} />
             ))}
           </div>
-          <div className="flex items-center justify-between py-3">
-            <div><div className="text-sm font-medium">Paste Mode</div><div className="text-xs text-vaani-gray-400">Animated typing or instant paste</div></div>
-            <Select value={settings.pasteMode} onChange={(v) => updateSettings({ pasteMode: v as 'instant' | 'animated' })}
-              options={[{ value: 'animated', label: 'Animated' }, { value: 'instant', label: 'Instant' }]} />
+          <div>
+            <FieldLabel>Paste Mode</FieldLabel>
+            <Select value={settings.pasteMode} onChange={(v) => updateSettings({ pasteMode: v as 'instant' | 'animated' })} options={[{ value: 'animated', label: 'Animated' }, { value: 'instant', label: 'Instant' }]} dropUp />
           </div>
         </div>
       )}
 
       {activeSection === 'appearance' && (
-        <div className="space-y-6">
+        <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">Theme</label>
-            <div className="flex items-center gap-2">
-              <button onClick={() => { if (theme === 'dark') toggleTheme(); updateSettings({ colorMode: 'light' }) }}
-                className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${theme === 'light' ? 'border-vaani-pink bg-vaani-pink/5' : 'border-vaani-gray-200 dark:border-vaani-gray-700 hover:border-vaani-gray-300'}`}>
-                <Sun size={16} /> <span className="text-sm font-medium">Light</span>
+            <FieldLabel>Theme</FieldLabel>
+            <div className="flex gap-2">
+              <button onClick={() => setMode('light')}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-all ${mode === 'light' ? 'border-accent bg-chip-lav/50 text-ink' : 'border-line text-muted hover:border-ink/20'}`}>
+                <Sun size={16} /> Light
               </button>
-              <button onClick={() => { if (theme === 'light') toggleTheme(); updateSettings({ colorMode: 'dark' }) }}
-                className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${theme === 'dark' ? 'border-vaani-pink bg-vaani-pink/5' : 'border-vaani-gray-200 dark:border-vaani-gray-700 hover:border-vaani-gray-300'}`}>
-                <Moon size={16} /> <span className="text-sm font-medium">Dark</span>
+              <button onClick={() => setMode('dark')}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-all ${mode === 'dark' ? 'border-accent bg-chip-lav/50 text-ink' : 'border-line text-muted hover:border-ink/20'}`}>
+                <Moon size={16} /> Dark
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-vaani-gray-600 dark:text-vaani-gray-300 mb-2">Accent Color</label>
+            <FieldLabel>Accent Color</FieldLabel>
             <div className="flex flex-wrap items-center gap-3">
               {accentColors.map((color) => (
                 <button key={color.id} onClick={() => updateSettings({ accentColor: color.id })}
-                  className={`w-10 h-10 ${color.color} rounded-xl transition-all ${settings.accentColor === color.id ? 'ring-2 ring-vaani-black dark:ring-white ring-offset-2 scale-110' : 'hover:scale-105'}`}
-                  title={color.label} />
+                  className={`h-10 w-10 rounded-full transition-all ${settings.accentColor === color.id ? 'ring-2 ring-ink ring-offset-2' : 'hover:scale-105'}`}
+                  style={{ backgroundColor: color.id }} title={color.label} />
               ))}
             </div>
-            <div className="mt-3 flex items-center gap-3">
-              <input type="text" value={customHex} onChange={(e) => setCustomHex(e.target.value)}
+            <div className="mt-4 flex items-center gap-3">
+              <Input value={customHex} onChange={(e) => setCustomHex(e.target.value)}
                 onBlur={(e) => { const val = e.target.value; if (/^#[0-9A-Fa-f]{6}$/.test(val)) updateSettings({ accentColor: val }); else setCustomHex(settings.accentColor) }}
-                placeholder="#7C3AED" className="w-32 pl-3 pr-3 py-2 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm outline-none focus:border-vaani-pink font-mono uppercase" />
-              <div className="w-8 h-8 rounded-lg border border-vaani-gray-200 dark:border-vaani-gray-600" style={{ backgroundColor: settings.accentColor }} />
+                placeholder="#7575C8" className="w-36 font-mono uppercase" />
+              <div className="h-9 w-9 rounded-lg border border-line" style={{ backgroundColor: settings.accentColor }} />
             </div>
+            <p className="mt-3 text-xs text-faint">Accent color tints highlights and the recording capsule.</p>
           </div>
         </div>
       )}
 
       {activeSection === 'system' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div><div className="text-sm font-medium">Show in Dock</div><div className="text-xs text-vaani-gray-400">Display app icon in macOS dock</div></div>
+        <div className="space-y-2">
+          <Row title="Show in Dock" desc="Display app icon in macOS dock">
             <Toggle checked={settings.showInDock} onChange={(v) => updateSettings({ showInDock: v })} />
-          </div>
-          <div className="h-px bg-vaani-gray-200 dark:bg-vaani-gray-700" />
-          <div className="flex items-center justify-between">
-            <div><div className="text-sm font-medium">Launch at Login</div><div className="text-xs text-vaani-gray-400">Start Vaani when you log in</div></div>
+          </Row>
+          <div className="h-px bg-line" />
+          <Row title="Launch at Login" desc="Start Vaani when you log in">
             <Toggle checked={settings.launchAtLogin} onChange={(v) => updateSettings({ launchAtLogin: v })} />
+          </Row>
+        </div>
+      )}
+
+      {activeSection === 'audio' && (
+        <div className="space-y-6">
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-sm font-medium text-ink">Minimum Clip Duration</label>
+              <span className="text-xs text-faint">{settings.minClipDuration}s</span>
+            </div>
+            <input type="range" min="0.1" max="3" step="0.1" value={settings.minClipDuration}
+              onChange={(e) => updateSettings({ minClipDuration: Number(e.target.value) })}
+              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-line accent-[#7575c8]" />
+          </div>
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-sm font-medium text-ink">Silence Threshold</label>
+              <span className="text-xs text-faint">{Math.round(settings.silenceThreshold * 100)}%</span>
+            </div>
+            <input type="range" min="0" max="1" step="0.01" value={settings.silenceThreshold}
+              onChange={(e) => updateSettings({ silenceThreshold: Number(e.target.value) })}
+              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-line accent-[#7575c8]" />
           </div>
         </div>
       )}
 
       {activeSection === 'updates' && (
-        <div className="space-y-4">
-          <div className="space-y-3">
-            <div>
-              <div className="text-sm font-medium text-vaani-black dark:text-white">App Updates</div>
-              <div className="text-xs text-vaani-gray-400">Current version: {appVersion ?? '—'}</div>
-            </div>
-            <button
-              onClick={checkForUpdates}
-              disabled={updateStatus.status === 'checking' || updateStatus.status === 'downloading'}
-              className="flex items-center gap-2 px-4 py-2.5 bg-vaani-gray-100 dark:bg-vaani-gray-800 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {(updateStatus.status === 'checking' || updateStatus.status === 'downloading') ? (
-                <RefreshCw size={14} className="animate-spin" />
-              ) : (
-                <RefreshCw size={14} />
-              )}
-              {updateStatus.status === 'checking' ? 'Checking…' :
-               updateStatus.status === 'downloading' ? 'Downloading…' :
-               'Check for Updates'}
-            </button>
-            {updateStatus.status === 'ready' && (
-              <button
-                onClick={() => restartAndInstall()}
-                className="flex items-center gap-2 px-4 py-2.5 bg-vaani-pink text-white hover:bg-vaani-pink/90 rounded-xl text-sm font-medium transition-colors"
-              >
-                Restart to Update
-              </button>
-            )}
-            {updateStatus.status === 'idle' && updateStatus.available === false && (
-              <p className="text-xs text-green-600 dark:text-green-400">Vaani is up to date</p>
-            )}
-            {updateStatus.status === 'available' && (
-              <p className="text-xs text-vaani-pink">{updateStatus.message}</p>
-            )}
-            {updateStatus.status === 'error' && (
-              <p className="text-xs text-red-500">{updateStatus.message}</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {activeSection === 'audio' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Minimum Clip Duration</label>
-              <span className="text-xs text-vaani-gray-400">{settings.minClipDuration}s</span>
-            </div>
-            <input type="range" min="0.1" max="3" step="0.1" value={settings.minClipDuration}
-              onChange={(e) => updateSettings({ minClipDuration: Number(e.target.value) })}
-              className="w-full h-1.5 bg-vaani-gray-200 dark:bg-vaani-gray-700 rounded-full appearance-none cursor-pointer accent-vaani-pink" />
+            <div className="text-sm font-medium text-ink">App Updates</div>
+            <div className="text-xs text-faint">Current version: {appVersion ?? '—'}</div>
           </div>
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Silence Threshold</label>
-              <span className="text-xs text-vaani-gray-400">{Math.round(settings.silenceThreshold * 100)}%</span>
-            </div>
-            <input type="range" min="0" max="1" step="0.01" value={settings.silenceThreshold}
-              onChange={(e) => updateSettings({ silenceThreshold: Number(e.target.value) })}
-              className="w-full h-1.5 bg-vaani-gray-200 dark:bg-vaani-gray-700 rounded-full appearance-none cursor-pointer accent-vaani-pink" />
-          </div>
+          <Button variant="soft" size="sm" onClick={checkForUpdates} disabled={updateStatus.status === 'checking' || updateStatus.status === 'downloading'}>
+            <RefreshCw size={14} className={updateStatus.status === 'checking' || updateStatus.status === 'downloading' ? 'animate-spin-meelo' : ''} />
+            {updateStatus.status === 'checking' ? 'Checking…' : updateStatus.status === 'downloading' ? 'Downloading…' : 'Check for Updates'}
+          </Button>
+          {updateStatus.status === 'ready' && <Button variant="accent" size="sm" onClick={() => restartAndInstall()}>Restart to Update</Button>}
+          {updateStatus.status === 'idle' && updateStatus.available === false && <p className="text-xs text-[#5a8a2a]">Vaani is up to date</p>}
+          {updateStatus.status === 'available' && <p className="text-xs text-accent">{updateStatus.message}</p>}
+          {updateStatus.status === 'error' && <p className="text-xs text-red-500">{updateStatus.message}</p>}
         </div>
       )}
 
       {activeSection === 'data' && (
         <div className="space-y-6">
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button onClick={handleExportData} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-vaani-gray-100 dark:bg-vaani-gray-800 hover:bg-vaani-gray-200 dark:hover:bg-vaani-gray-700 rounded-xl text-sm font-medium transition-colors">
-                <Download size={14} /> Export Data
-              </button>
-              <button onClick={() => { void clearHistory() }} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-xl text-sm font-medium text-red-600 transition-colors">
-                <Trash2 size={14} /> Clear All History
-              </button>
-            </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button variant="soft" size="sm" onClick={handleExportData}><Download size={14} /> Export Data</Button>
+            <Button variant="destructive" size="sm" onClick={() => { void clearHistory() }}><Trash2 size={14} /> Clear All History</Button>
           </div>
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-6">
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
             <div className="flex items-start gap-3">
-              <AlertTriangle size={18} className="text-red-500 mt-0.5" />
+              <AlertTriangle size={18} className="mt-0.5 text-red-500" />
               <div>
-                <div className="text-sm font-semibold text-red-700 dark:text-red-400 mb-1">Reset to Defaults</div>
-                <p className="text-sm text-red-600 dark:text-red-300 mb-3">This will reset all settings. History will not be affected.</p>
-                <button onClick={() => { void resetSettings() }} className="px-4 py-2 bg-white dark:bg-vaani-gray-800 border border-red-200 dark:border-red-700 rounded-xl text-sm font-medium text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
-                  Reset Settings
-                </button>
+                <div className="mb-1 text-sm font-semibold text-red-700">Reset to Defaults</div>
+                <p className="mb-3 text-sm text-red-600">This will reset all settings. History will not be affected.</p>
+                <Button variant="destructive" size="sm" onClick={() => { void resetSettings() }}>Reset Settings</Button>
               </div>
             </div>
           </div>
@@ -593,47 +417,44 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       {isOpen && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
           onClick={onClose}
         >
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="w-full max-w-4xl h-[80vh] bg-white dark:bg-vaani-gray-900 rounded-3xl shadow-2xl overflow-hidden flex"
+            initial={{ opacity: 0, scale: 0.97, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97, y: 16 }}
+            transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+            className="flex h-[80vh] w-full max-w-4xl overflow-hidden rounded-[20px] bg-bg shadow-card"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="w-64 bg-vaani-gray-50 dark:bg-vaani-gray-800/50 border-r border-vaani-gray-200 dark:border-vaani-gray-700 flex flex-col shrink-0">
-              <div className="p-6 border-b border-vaani-gray-200 dark:border-vaani-gray-700">
-                <h2 className="text-xl font-bold text-vaani-black dark:text-white">Settings</h2>
-                <p className="text-xs text-vaani-gray-400 mt-1">Configure Vaani</p>
+            <div className="flex w-60 shrink-0 flex-col border-r border-line bg-surface">
+              <div className="px-6 pb-4 pt-6">
+                <h2 className="text-display text-2xl text-ink">Settings</h2>
+                <p className="label-meta mt-1 text-[9px] text-faint">Configure Vaani</p>
               </div>
-              <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-                {sidebarItems.map((item) => {
-                  const Icon = item.icon
+              <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-3">
+                {sidebarItems.map((it) => {
+                  const Icon = it.icon
                   return (
-                    <button key={item.id} onClick={() => setActiveSection(item.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
-                        activeSection === item.id ? 'bg-vaani-pink text-white' : 'text-vaani-gray-600 dark:text-vaani-gray-300 hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-700/50'
-                      }`}
-                    >
-                      <Icon size={16} /> {item.label}
+                    <button key={it.id} onClick={() => setActiveSection(it.id)}
+                      className={`flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-left text-sm transition-all ${
+                        activeSection === it.id ? 'bg-chip-lav font-semibold text-accent-strong' : 'font-medium text-muted hover:bg-bg hover:text-ink'
+                      }`}>
+                      <Icon size={16} /> {it.label}
                     </button>
                   )
                 })}
               </nav>
             </div>
-            <div className="flex-1 flex flex-col min-w-0">
-              <div className="flex items-center justify-between p-6 border-b border-vaani-gray-200 dark:border-vaani-gray-700">
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-center justify-between border-b border-line px-7 py-5">
                 <div>
-                  <h3 className="text-xl font-bold">{sidebarItems.find((s) => s.id === activeSection)?.label}</h3>
-                  <p className="text-xs text-vaani-gray-400 mt-1">{sectionDescriptions[activeSection]}</p>
+                  <h3 className="text-display text-xl text-ink">{sidebarItems.find((s) => s.id === activeSection)?.label}</h3>
+                  <p className="mt-0.5 text-xs text-faint">{sectionDescriptions[activeSection]}</p>
                 </div>
-                <button onClick={onClose} className="p-2 hover:bg-vaani-gray-100 dark:hover:bg-vaani-gray-700 rounded-xl transition-colors">
-                  <X size={18} className="text-vaani-gray-500" />
-                </button>
+                <button onClick={onClose} className="rounded-full p-2 text-muted transition-colors hover:bg-surface"><X size={18} /></button>
               </div>
-              <div className="flex-1 overflow-y-auto p-6">
-                <motion.div key={activeSection} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.2 }}>
+              <div className="flex-1 overflow-y-auto px-7 py-6">
+                <motion.div key={activeSection} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.2 }}>
                   {sectionContent}
                 </motion.div>
               </div>
