@@ -126,8 +126,9 @@ export default function Dashboard() {
   const [checklistDismissed, setChecklistDismissed] = useState(false)
 
   useEffect(() => {
-    void window.vaani.getPermissionStatus().then(setPermissions)
-    const id = window.setInterval(() => { void window.vaani.getPermissionStatus().then(setPermissions) }, 3000)
+    const poll = () => { window.vaani.getPermissionStatus().then(setPermissions).catch(() => {}) }
+    poll()
+    const id = window.setInterval(poll, 3000)
     return () => window.clearInterval(id)
   }, [])
 
