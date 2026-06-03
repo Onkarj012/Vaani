@@ -12,7 +12,7 @@ declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const logPath = join(tmpdir(), "claude-vaani-startup.log");
+const logPath = join(tmpdir(), "vaani-startup.log");
 
 const CAPSULE_BOTTOM_MARGIN = 16;
 // Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)

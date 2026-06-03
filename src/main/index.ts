@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import { autoUpdater } from "electron-updater";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -20,7 +20,7 @@ import { error } from "@main/log";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
-const logPath = join(tmpdir(), "claude-vaani-startup.log");
+const logPath = join(tmpdir(), "vaani-startup.log");
 const MAIN_RENDERER_READY_TIMEOUT_MS = 5_000;
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -310,6 +310,14 @@ async function loadWindowUrl(win: BrowserWindow): Promise<void> {
 
 async function bootstrap(): Promise<void> {
   log("bootstrap:start");
+
+  // Migrate legacy data directory (.claude_vaani → .vaani)
+  const home = app.getPath("home");
+  const oldDir = join(home, ".claude_vaani");
+  const newDir = join(home, ".vaani");
+  if (existsSync(oldDir) && !existsSync(newDir)) {
+    try { renameSync(oldDir, newDir); log("migration:data-dir"); } catch { /* best-effort */ }
+  }
 
   const settings = new SettingsStore();
   settingsStore = settings;
