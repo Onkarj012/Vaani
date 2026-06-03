@@ -211,6 +211,7 @@ export interface VaaniAPI {
   relaunchApp: () => Promise<void>;
   onNavigate: (cb: (route: string) => void) => () => void;
   onUpdateNotification: (cb: (payload: UpdateNotificationPayload) => void) => () => void;
+  getUpdateStatus: () => Promise<UpdateNotificationPayload | null>;
   checkForUpdates: () => Promise<{ available: boolean; version: string }>;
   quitAndInstall: () => void;
   restartAndInstall: () => Promise<void>;

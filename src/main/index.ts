@@ -4,6 +4,7 @@ import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import type { UpdateNotificationPayload } from "@shared/types";
 import { DictationService } from "./dictation";
 import { HotkeyManager } from "./hotkeys";
 import { registerIpcHandlers } from "./ipc";
@@ -38,6 +39,7 @@ let mainWindowOpenRequested = false;
 let mainWindowReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDockVisible: boolean | null = null;
 let suppressDashboardActivationUntil = 0;
+export let cachedUpdateStatus: UpdateNotificationPayload | null = null;
 let trayController: TrayController = {
   updateStatus: () => undefined,
   setOfflineMode: () => undefined,
@@ -423,19 +425,32 @@ async function bootstrap(): Promise<void> {
       debug: (msg) => log("updater:debug", msg)
     };
     autoUpdater.setFeedURL({ provider: "github", owner: "Onkarj012", repo: "Vaani" });
+
+    function sendUpdateNotification(payload: import("@shared/types").UpdateNotificationPayload): void {
+      cachedUpdateStatus = payload;
+      mainWindow?.webContents.send(IpcChannel.UpdateNotification, payload);
+    }
+
     autoUpdater.on("checking-for-update", () => log("updater:checking"));
     autoUpdater.on("update-available", (info) => {
       log("updater:available", { version: info.version });
-      mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+      sendUpdateNotification({
         version: info.version,
         status: "downloading",
         message: `Update ${info.version} downloading…`,
       });
     });
-    autoUpdater.on("update-not-available", (info) => log("updater:not-available", { version: info.version }));
+    autoUpdater.on("update-not-available", (info) => {
+      log("updater:not-available", { version: info.version });
+      // Only clear the cached status if we're not already in a "ready" state
+      // (a re-check after download-complete would incorrectly send no-update)
+      if (cachedUpdateStatus?.status !== "ready") {
+        cachedUpdateStatus = null;
+      }
+    });
     autoUpdater.on("update-downloaded", (info) => {
       log("updater:downloaded", { version: info.version });
-      mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+      sendUpdateNotification({
         version: info.version,
         status: "ready",
         message: `Vaani ${info.version} ready — restart to update`,
@@ -444,7 +459,7 @@ async function bootstrap(): Promise<void> {
     autoUpdater.on("error", (error) => log("updater:event-error", { message: error.message }));
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+    autoUpdater.checkForUpdates().catch((err) => {
       log("updater:check-error", { message: err instanceof Error ? err.message : String(err) });
     });
   }

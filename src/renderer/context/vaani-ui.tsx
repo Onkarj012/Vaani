@@ -167,14 +167,21 @@ export function VaaniUiProvider({
         message: payload.message,
       });
     });
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    // Run a quiet update check on startup
-    void window.vaani.checkForUpdates().catch(() => {
-      // Ignore startup check failures
+    // Hydrate from main-process cache so we never miss an event that fired before the renderer mounted
+    void window.vaani.getUpdateStatus().then((cached) => {
+      if (!cached || cached.status === "no-update") return;
+      setUpdateStatus((prev) => {
+        // Don't overwrite if a live event already updated us past idle
+        if (prev.status !== "idle") return prev;
+        return {
+          available: cached.status === "downloading" || cached.status === "ready",
+          version: cached.version ?? "",
+          status: cached.status === "downloading" ? "downloading" : cached.status === "ready" ? "ready" : "idle",
+          message: cached.message,
+        };
+      });
     });
+    return unsub;
   }, []);
 
   const checkForUpdates = useCallback(async () => {
