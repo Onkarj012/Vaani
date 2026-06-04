@@ -434,7 +434,7 @@ async function bootstrap(): Promise<void> {
     };
     autoUpdater.setFeedURL({ provider: "github", owner: "Onkarj012", repo: "Vaani" });
 
-    function sendUpdateNotification(payload: import("@shared/types").UpdateNotificationPayload): void {
+    function sendUpdateNotification(payload: UpdateNotificationPayload): void {
       cachedUpdateStatus = payload;
       mainWindow?.webContents.send(IpcChannel.UpdateNotification, payload);
     }
@@ -450,9 +450,8 @@ async function bootstrap(): Promise<void> {
     });
     autoUpdater.on("update-not-available", (info) => {
       log("updater:not-available", { version: info.version });
-      // Only clear the cached status if we're not already in a "ready" state
-      // (a re-check after download-complete would incorrectly send no-update)
-      if (cachedUpdateStatus?.status !== "ready") {
+      // Don't clear cache if a download is in progress or already ready
+      if (cachedUpdateStatus?.status !== "ready" && cachedUpdateStatus?.status !== "downloading") {
         cachedUpdateStatus = null;
       }
     });
@@ -464,7 +463,16 @@ async function bootstrap(): Promise<void> {
         message: `Vaani ${info.version} ready — restart to update`,
       });
     });
-    autoUpdater.on("error", (error) => log("updater:event-error", { message: error.message }));
+    autoUpdater.on("error", (err) => {
+      log("updater:event-error", { message: err.message });
+      // Clear a stuck "downloading" cache so renderers don't show a perpetual banner
+      if (cachedUpdateStatus?.status === "downloading") {
+        sendUpdateNotification({
+          status: "error",
+          message: `Update failed: ${err.message}`,
+        });
+      }
+    });
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.checkForUpdates().catch((err) => {
