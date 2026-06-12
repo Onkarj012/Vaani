@@ -20,6 +20,7 @@ import { nativeBridge } from "./nativeBridge";
 import { RecorderWindowController } from "./recorderWindow";
 import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
+import { cachedUpdateStatus } from "./index";
 
 function isNewerVersion(latest: string, current: string): boolean {
   const parse = (v: string) => {
@@ -294,6 +295,8 @@ export function registerIpcHandlers(opts: {
   });
 
   ipcMain.handle(IpcChannel.GetAppVersion, () => app.getVersion());
+
+  ipcMain.handle(IpcChannel.GetUpdateStatus, () => cachedUpdateStatus);
 
   ipcMain.on(IpcChannel.QuitAndInstall, () => {
     autoUpdater.quitAndInstall();

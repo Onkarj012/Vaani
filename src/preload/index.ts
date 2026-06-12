@@ -34,6 +34,7 @@ const api: VaaniAPI = {
   relaunchApp: () => ipcRenderer.invoke(IpcChannel.RelaunchApp),
   onNavigate: (cb) => subscribe<{ route: string }>(IpcChannel.Navigation, ({ route }) => cb(route)),
   onUpdateNotification: (cb) => subscribe<UpdateNotificationPayload>(IpcChannel.UpdateNotification, cb),
+  getUpdateStatus: () => ipcRenderer.invoke(IpcChannel.GetUpdateStatus),
   checkForUpdates: () => ipcRenderer.invoke(IpcChannel.CheckForUpdates),
   quitAndInstall: () => ipcRenderer.send(IpcChannel.QuitAndInstall),
   restartAndInstall: async () => {

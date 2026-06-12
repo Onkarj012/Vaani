@@ -16,6 +16,11 @@ export function useUpdateNotification() {
         timeoutId = setTimeout(() => setNotification(null), 4000);
       }
     });
+    // Hydrate from main-process cache so we never miss an event that fired before mount
+    void window.vaani.getUpdateStatus().then((cached) => {
+      if (!cached || cached.status === "no-update") return;
+      setNotification((prev) => prev ?? cached);
+    });
     return () => {
       unsub();
       if (timeoutId) clearTimeout(timeoutId);
