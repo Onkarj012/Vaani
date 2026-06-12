@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
-import { ColorModeProvider } from './context/color-mode'
+import { ColorModeProvider } from '@renderer/context/color-mode'
 import AppLayout from './components/AppLayout'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'

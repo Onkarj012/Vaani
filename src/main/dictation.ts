@@ -242,7 +242,7 @@ export class DictationService {
     try {
       let transcriptionTimer: ReturnType<typeof setTimeout> | null = null;
       const transcription = await Promise.race([
-        this.transcription.transcribe(trimmedClip).then(r => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } return r; }),
+        this.transcription.transcribe(trimmedClip).finally(() => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } }),
         new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS); }),
       ]);
       if (!this.isCurrentSession(payload.sessionId)) return;
@@ -252,7 +252,7 @@ export class DictationService {
       try {
         let formattingTimer: ReturnType<typeof setTimeout> | null = null;
         formattedText = await Promise.race([
-          this.transcription.formatTranscript(transcription.rawText).then(r => { if (formattingTimer) { clearTimeout(formattingTimer); formattingTimer = null; } return r; }),
+          this.transcription.formatTranscript(transcription.rawText).finally(() => { if (formattingTimer) { clearTimeout(formattingTimer); formattingTimer = null; } }),
           new Promise<never>((_, reject) => { formattingTimer = setTimeout(() => reject(new Error("Formatting timed out.")), FORMATTING_TIMEOUT_MS); }),
         ]);
       } catch {

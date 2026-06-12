@@ -199,9 +199,10 @@ export class OverlayController {
       this.endPrompt();
       onResponse(args.accepted);
     };
-    this.window?.webContents.ipc.once("capsule:snippet-response", responseHandler);
+    const promptWindow = this.window;
+    promptWindow?.webContents.ipc.once("capsule:snippet-response", responseHandler);
     // Store remover so endPrompt/recover can clean it up
-    this.pendingPromptRemover = () => this.window?.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
+    this.pendingPromptRemover = () => promptWindow?.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
   }
 
   showDictionaryPrompt(word: string, correction: string, onResponse: (accepted: boolean) => void): void {

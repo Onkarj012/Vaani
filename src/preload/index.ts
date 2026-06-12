@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IpcChannel } from "@shared/ipc";
+import { assertValidWhisperModelName } from "@shared/whisperModels";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type { DictationState, UpdateNotificationPayload, VaaniAPI } from "@shared/types";
 
@@ -47,7 +48,10 @@ const api: VaaniAPI = {
   testApiKey: (providerId, apiKey) => ipcRenderer.invoke(IpcChannel.TestApiKey, providerId, apiKey),
   getProviderStatus: () => ipcRenderer.invoke(IpcChannel.GetProviderStatus),
   whisperListModels: () => ipcRenderer.invoke(IpcChannel.WhisperListModels),
-  whisperLoadModel: (modelName) => ipcRenderer.invoke(IpcChannel.WhisperLoadModel, modelName),
+  whisperLoadModel: (modelName) => {
+    assertValidWhisperModelName(modelName);
+    return ipcRenderer.invoke(IpcChannel.WhisperLoadModel, modelName);
+  },
   whisperFreeModel: () => ipcRenderer.invoke(IpcChannel.WhisperFreeModel),
   whisperIsModelLoaded: () => ipcRenderer.invoke(IpcChannel.WhisperIsModelLoaded),
 };

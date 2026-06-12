@@ -1,6 +1,6 @@
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
-import { normalizeDeepgramLanguage, resolveReportedLanguage } from "../language";
+import { normalizeDeepgramLanguage, resolveReportedLanguage } from "@main/providers/language";
 
 const STT_TIMEOUT_MS = 20_000;
 

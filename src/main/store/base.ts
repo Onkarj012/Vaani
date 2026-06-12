@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -16,5 +16,10 @@ export async function writeJsonFile<T>(filePath: string, data: T): Promise<void>
   await mkdir(dir, { recursive: true });
   const tmp = join(dir, `.tmp-${randomBytes(6).toString("hex")}`);
   await writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
-  await rename(tmp, filePath);
+  try {
+    await rename(tmp, filePath);
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined);
+    throw err;
+  }
 }

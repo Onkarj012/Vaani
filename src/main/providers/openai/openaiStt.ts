@@ -1,6 +1,6 @@
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
-import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "../language";
+import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
 
 const STT_TIMEOUT_MS = 20_000;
 function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = STT_TIMEOUT_MS): Promise<Response> {

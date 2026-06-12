@@ -1,6 +1,6 @@
 import type { TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
-import { resolveReportedLanguage } from "../language";
+import { resolveReportedLanguage } from "@main/providers/language";
 
 /**
  * Local Whisper provider using the native whisper.cpp addon.

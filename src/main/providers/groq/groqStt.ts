@@ -2,7 +2,7 @@ import Groq from "groq-sdk";
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { debug, error } from "@main/log";
-import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "../language";
+import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;

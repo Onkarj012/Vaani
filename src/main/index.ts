@@ -15,6 +15,7 @@ import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
+import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { getProviderRegistry } from "./providers";
 import { loadWhisperModel } from "./providers/local/whisperCpp";
 import { error } from "@main/log";
@@ -425,7 +426,13 @@ async function bootstrap(): Promise<void> {
       if ("offlineMode" in patch) trayController.setOfflineMode(patch.offlineMode === "always-offline");
       if ("localWhisperModel" in patch && patch.localWhisperModel) {
         const modelsDir = join(homedir(), ".vaani", "models");
-        loadWhisperModel(join(modelsDir, `ggml-${patch.localWhisperModel}.bin`));
+        try {
+          assertValidWhisperModelName(patch.localWhisperModel);
+          const ok = loadWhisperModel(join(modelsDir, `ggml-${patch.localWhisperModel}.bin`));
+          if (!ok) error("whisper", `Failed to load local model ${patch.localWhisperModel}`);
+        } catch (err) {
+          error("whisper", `Invalid local model ${patch.localWhisperModel}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     }
   });

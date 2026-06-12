@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { autoUpdater } from "electron-updater";
 import { IpcChannel } from "@shared/ipc";
+import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { KNOWN_PROVIDERS } from "@shared/defaults";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
@@ -345,6 +346,7 @@ export function registerIpcHandlers(opts: {
   });
 
   ipcMain.handle(IpcChannel.WhisperLoadModel, (_e, modelName: string) => {
+    assertValidWhisperModelName(modelName);
     const modelsDir = join(homedir(), ".vaani", "models");
     const modelPath = join(modelsDir, `ggml-${modelName}.bin`);
     return loadWhisperModel(modelPath);
