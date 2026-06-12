@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, session } from "electron";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync, existsSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { UpdateNotificationPayload } from "@shared/types";
 import { DictationService } from "./dictation";
@@ -15,7 +15,9 @@ import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
+import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { getProviderRegistry } from "./providers";
+import { loadWhisperModel } from "./providers/local/whisperCpp";
 import { error } from "@main/log";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +55,10 @@ function log(label: string, data?: unknown): void {
   } catch {
     // best-effort logging
   }
+}
+
+export function setCachedUpdateStatus(payload: UpdateNotificationPayload | null): void {
+  cachedUpdateStatus = payload;
 }
 
 function showMainWindow(): void {
@@ -417,6 +423,17 @@ async function bootstrap(): Promise<void> {
       }
       if ("capsuleDesign" in patch && patch.capsuleDesign) overlayController?.setCapsuleDesign(patch.capsuleDesign);
       if ("showInDock" in patch) syncAppPresentation();
+      if ("offlineMode" in patch) trayController.setOfflineMode(patch.offlineMode === "always-offline");
+      if ("localWhisperModel" in patch && patch.localWhisperModel) {
+        const modelsDir = join(homedir(), ".vaani", "models");
+        try {
+          assertValidWhisperModelName(patch.localWhisperModel);
+          const ok = loadWhisperModel(join(modelsDir, `ggml-${patch.localWhisperModel}.bin`));
+          if (!ok) error("whisper", `Failed to load local model ${patch.localWhisperModel}`);
+        } catch (err) {
+          error("whisper", `Invalid local model ${patch.localWhisperModel}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     }
   });
 

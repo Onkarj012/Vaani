@@ -1,5 +1,3 @@
-console.log("[main] main.tsx loading...");
-
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter } from "react-router-dom";
@@ -13,8 +11,6 @@ if (isOverlayMode) {
 } else {
   import("./styles/globals.css");
 }
-
-console.log("[main] imports complete");
 
 // Lazy imports based on mode
 const App = isOverlayMode ? null : React.lazy(() => import("./App"));
@@ -107,14 +103,12 @@ function AppRoot() {
   );
 }
 
-console.log("[main] attempting to mount React, overlay mode:", isOverlayMode);
 const root = document.getElementById("root");
 if (!root) {
   console.error("[main] #root element not found");
   throw new Error("Root element not found");
 }
 
-console.log("[main] mounting to #root");
 if (isOverlayMode && CapsuleOverlay) {
   // Overlay mode - render just the capsule, no providers needed
   createRoot(root).render(
@@ -124,7 +118,6 @@ if (isOverlayMode && CapsuleOverlay) {
       </React.Suspense>
     </React.StrictMode>
   );
-  console.log("[main] CapsuleOverlay mounted");
 } else if (App) {
   // Normal dashboard mode
   createRoot(root).render(
@@ -138,7 +131,6 @@ if (isOverlayMode && CapsuleOverlay) {
       </HashRouter>
     </React.StrictMode>
   );
-  console.log("[main] React mounted");
 }
 
 

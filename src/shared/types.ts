@@ -188,6 +188,7 @@ export interface UpdateNotificationPayload {
   version?: string;
   status: UpdateStatus;
   message: string;
+  installable?: boolean;
 }
 
 export interface VaaniAPI {
@@ -219,7 +220,11 @@ export interface VaaniAPI {
   reportRendererReady: () => void;
   reportRendererError: (payload: { message: string; stack?: string }) => void;
   testApiKey: (providerId: string, apiKey: string) => Promise<{ valid: boolean; message: string }>;
-  getProviderStatus: () => Promise<{ id: string; name: string; available: boolean; configured: boolean }[]>;
+  getProviderStatus: () => Promise<{ id: string; name: string; available: boolean; configured: boolean; type: string }[]>;
+  whisperListModels: () => Promise<string[]>;
+  whisperLoadModel: (modelName: string) => Promise<boolean>;
+  whisperFreeModel: () => Promise<void>;
+  whisperIsModelLoaded: () => Promise<boolean>;
   demoTranscribe: (clip: AudioClip) => Promise<string>;
 }
 

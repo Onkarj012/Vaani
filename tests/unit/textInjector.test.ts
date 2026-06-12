@@ -1,62 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS } from "@shared/defaults";
+import { describe, expect, it } from "vitest";
+import { isClipboardOnlyTarget, shouldPreferClipboardInjection } from "../../src/main/injection/policy";
 
-const axInjectMock = vi.fn();
-const clipInjectMock = vi.fn();
-
-vi.mock("@main/injection/accessibility", () => ({
-  AccessibilityTextInjector: class {
-    inject = axInjectMock;
-  }
-}), { virtual: true });
-
-vi.mock("@main/injection/clipboard", () => ({
-  ClipboardTextInjector: class {
-    inject = clipInjectMock;
-  }
-}), { virtual: true });
-
-vi.mock("@main/nativeBridge", () => ({
-  nativeBridge: {}
-}), { virtual: true });
-
-describe("TextInjector", () => {
-  beforeEach(() => {
-    axInjectMock.mockReset();
-    clipInjectMock.mockReset();
-  });
-
-  it.skip("does not fall back to AX for clipboard-only editor targets", async () => {
-    const { TextInjector } = await import("@main/injection");
-    clipInjectMock.mockResolvedValue({ success: false, reason: "insertion_failed" });
-    axInjectMock.mockResolvedValue({ success: true, method: "ax" });
-
-    const injector = new TextInjector(() => ({ ...DEFAULT_SETTINGS, injectionMode: "auto" }));
-    const result = await injector.inject("hello world", {
+describe("TextInjector policy", () => {
+  it("uses clipboard-only insertion for apps that cannot be safely confirmed through AX", () => {
+    const target = {
       appBundleId: "net.whatsapp.WhatsApp",
-      appName: "WhatsApp",
-      selection: null
-    });
+      appName: "WhatsApp"
+    };
 
-    expect(result).toEqual({ success: false, reason: "insertion_failed" });
-    expect(clipInjectMock).toHaveBeenCalledTimes(1);
-    expect(axInjectMock).not.toHaveBeenCalled();
+    expect(isClipboardOnlyTarget(target)).toBe(true);
+    expect(shouldPreferClipboardInjection("hello world", target)).toBe(true);
   });
 
-  it.skip("still falls back to AX for native editors when clipboard is only preferred by text shape", async () => {
-    const { TextInjector } = await import("@main/injection");
-    clipInjectMock.mockResolvedValue({ success: false, reason: "insertion_failed" });
-    axInjectMock.mockResolvedValue({ success: true, method: "ax" });
-
-    const injector = new TextInjector(() => ({ ...DEFAULT_SETTINGS, injectionMode: "auto" }));
-    const result = await injector.inject("hello\nworld", {
+  it("prefers clipboard insertion for multiline text in native editors", () => {
+    expect(shouldPreferClipboardInjection("hello\nworld", {
       appBundleId: "com.apple.TextEdit",
-      appName: "TextEdit",
-      selection: null
-    });
+      appName: "TextEdit"
+    })).toBe(true);
+  });
 
-    expect(result).toEqual({ success: true, method: "ax" });
-    expect(clipInjectMock).toHaveBeenCalledTimes(1);
-    expect(axInjectMock).toHaveBeenCalledTimes(1);
+  it("prefers the UTF-8 clipboard path for multilingual text before AX insertion", () => {
+    expect(shouldPreferClipboardInjection("मेरा नाम ओंकार है.", {
+      appBundleId: "com.apple.TextEdit",
+      appName: "TextEdit"
+    })).toBe(true);
   });
 });

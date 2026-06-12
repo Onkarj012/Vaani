@@ -9,6 +9,12 @@ import { activateTargetApp, isTargetFrontmost } from "./target";
 
 const exec = promisify(execFile);
 let consecutiveFailures = 0;
+const UTF8_CLIPBOARD_ENV = {
+  ...process.env,
+  LANG: "en_US.UTF-8",
+  LC_ALL: "en_US.UTF-8",
+  LC_CTYPE: "UTF-8"
+};
 
 export class ClipboardTextInjector {
   async inject(text: string, target?: InjectionTarget): Promise<InjectionResult> {
@@ -185,7 +191,7 @@ async function releaseModifiers(): Promise<void> {
 
 async function readClipboardText(): Promise<string> {
   try {
-    const result = await exec("pbpaste", []);
+    const result = await exec("pbpaste", [], { env: UTF8_CLIPBOARD_ENV, encoding: "utf8" });
     return result.stdout;
   } catch {
     return clipboard.readText();
@@ -193,8 +199,13 @@ async function readClipboardText(): Promise<string> {
 }
 
 async function writeClipboardText(text: string): Promise<void> {
+  if (/[^\x00-\x7F]/.test(text)) {
+    clipboard.writeText(text);
+    if (clipboard.readText() === text) return;
+  }
+
   try {
-    execFileSync("pbcopy", [], { input: text, encoding: "utf8" });
+    execFileSync("pbcopy", [], { input: text, encoding: "utf8", env: UTF8_CLIPBOARD_ENV });
   } catch {
     clipboard.writeText(text);
   }
@@ -302,5 +313,3 @@ async function moveCaretToEndForBrowserTarget(_target?: InjectionTarget): Promis
   // Let the browser handle cursor position naturally.
   return;
 }
-
-

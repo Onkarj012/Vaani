@@ -113,6 +113,12 @@ export class RecorderWindowController {
 
   private sendOrQueue(channel: IpcChannel.StartRecording | IpcChannel.StopRecording, sessionId: string): boolean {
     if (!this.isReady()) {
+      // Don't overwrite a pending start with a stop — the recorder hasn't even
+      // started yet, so a stop would be meaningless and would leave the session
+      // stuck. Drop the stop; the recorder will fail/timeout naturally.
+      if (channel === IpcChannel.StopRecording && this.pendingCommand?.channel === IpcChannel.StartRecording) {
+        return true;
+      }
       this.pendingCommand = { channel, sessionId };
       void this.init();
       return true;

@@ -1,5 +1,6 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { ColorModeProvider } from './context/color-mode'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { ColorModeProvider } from '@renderer/context/color-mode'
 import AppLayout from './components/AppLayout'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
@@ -8,6 +9,14 @@ import Dictionary from './pages/Dictionary'
 import Insights from './pages/Insights'
 
 function App() {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    return window.vaani.onNavigate((route) => {
+      navigate(route)
+    })
+  }, [navigate])
+
   return (
     <ColorModeProvider>
       <Routes>

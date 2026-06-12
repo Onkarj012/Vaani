@@ -10,6 +10,7 @@ interface UpdateBannerProps {
 export default function UpdateBanner({ notification, onDismiss }: UpdateBannerProps) {
   const { status, version, message } = notification;
   const isDismissable = status === "no-update" || status === "error";
+  const canInstall = status === "ready" && version && notification.installable !== false;
 
   let icon: React.ReactNode;
   let toneClass: string;
@@ -54,7 +55,7 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
             <span className="truncate font-medium">{message}</span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {status === "ready" && version && (
+            {canInstall && (
               <button
                 onClick={() => window.vaani.quitAndInstall()}
                 className="rounded-full bg-ink px-3 py-1 text-xs font-semibold text-bg transition-opacity hover:opacity-90"
