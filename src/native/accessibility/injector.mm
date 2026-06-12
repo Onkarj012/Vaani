@@ -1,4 +1,5 @@
 #include <napi.h>
+#include <atomic>
 #include <vector>
 #include <unistd.h>
 #import <AppKit/AppKit.h>
@@ -8,6 +9,33 @@
 
 namespace {
 constexpr AXValueType kRangeType = static_cast<AXValueType>(kAXValueCFRangeType);
+
+// macOS caches AXIsProcessTrusted() per-process, so a poll keeps seeing the
+// stale value the process saw at launch — the user grants Accessibility but the
+// app still reports "not granted" until restart. Observing the system
+// "com.apple.accessibility.api" notification and re-querying after a short delay
+// is the documented way to pick up the change live.
+std::atomic<bool> g_axTrusted{false};
+std::atomic<bool> g_axObserverInstalled{false};
+
+void EnsureAxTrustObserver() {
+  if (g_axObserverInstalled.exchange(true)) {
+    return;
+  }
+  g_axTrusted.store(AXIsProcessTrusted());
+  [[NSDistributedNotificationCenter defaultCenter]
+      addObserverForName:@"com.apple.accessibility.api"
+                  object:nil
+                   queue:[NSOperationQueue mainQueue]
+              usingBlock:^(NSNotification*) {
+                // Querying immediately returns the old cached value; a small
+                // delay lets the run loop flush it before we re-read.
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(250 * NSEC_PER_MSEC)),
+                               dispatch_get_main_queue(), ^{
+                                 g_axTrusted.store(AXIsProcessTrusted());
+                               });
+              }];
+}
 
 Napi::Object SuccessResult(Napi::Env env) {
   Napi::Object result = Napi::Object::New(env);
@@ -260,7 +288,13 @@ AudioDeviceID FindBuiltInInputDeviceID() {
 }
 
 Napi::Boolean IsAccessibilityTrusted(const Napi::CallbackInfo& info) {
-  return Napi::Boolean::New(info.Env(), AXIsProcessTrusted());
+  EnsureAxTrustObserver();
+  // A direct read returning true is always reliable; a false read may be the
+  // stale per-process cache, so fall back to the observer-maintained value.
+  if (AXIsProcessTrusted()) {
+    g_axTrusted.store(true);
+  }
+  return Napi::Boolean::New(info.Env(), g_axTrusted.load());
 }
 
 Napi::Object InjectText(const Napi::CallbackInfo& info) {

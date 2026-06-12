@@ -23,6 +23,7 @@ import { RecorderWindowController } from "./recorderWindow";
 import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { loadWhisperModel, freeWhisperModel, listDownloadedModels, isModelLoaded } from "./providers/local/whisperCpp";
+import { cachedUpdateStatus } from "./index";
 
 function isNewerVersion(latest: string, current: string): boolean {
   const parse = (v: string) => {
@@ -171,6 +172,10 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.OpenPermissionSettings, (_e, permission: keyof PermissionStatus) => (
     openPermissionSettings(permission)
   ));
+  ipcMain.handle(IpcChannel.RelaunchApp, () => {
+    app.relaunch();
+    app.quit();
+  });
 
   ipcMain.handle(IpcChannel.SubmitAudioClip, (_e, payload: RecorderSubmission) => dictation.submitAudioClip(payload));
   ipcMain.handle(IpcChannel.RecorderReady, () => {
@@ -293,6 +298,8 @@ export function registerIpcHandlers(opts: {
   });
 
   ipcMain.handle(IpcChannel.GetAppVersion, () => app.getVersion());
+
+  ipcMain.handle(IpcChannel.GetUpdateStatus, () => cachedUpdateStatus);
 
   ipcMain.on(IpcChannel.QuitAndInstall, () => {
     autoUpdater.quitAndInstall();

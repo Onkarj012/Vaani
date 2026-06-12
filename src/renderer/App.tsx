@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
-import { useVaaniUi } from './context/vaani-ui'
-import { ThemeProvider } from './contexts/ThemeContext'
+import { ColorModeProvider } from './context/color-mode'
 import AppLayout from './components/AppLayout'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
@@ -10,7 +9,6 @@ import Dictionary from './pages/Dictionary'
 import Insights from './pages/Insights'
 
 function App() {
-  const { settings } = useVaaniUi()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -20,7 +18,7 @@ function App() {
   }, [navigate])
 
   return (
-    <ThemeProvider colorMode={settings.colorMode}>
+    <ColorModeProvider>
       <Routes>
         <Route path="/" element={<Navigate to="/app" replace />} />
         <Route path="/app" element={<AppLayout />}>
@@ -32,7 +30,7 @@ function App() {
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
-    </ThemeProvider>
+    </ColorModeProvider>
   )
 }
 

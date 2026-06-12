@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { Kbd, KbdGroup } from "@/components/ui/Kbd";
 
 interface HotkeyCaptureProps {
-  value:    string;
+  value: string;
   onChange: (human: string) => void;
   disabled?: boolean;
 }
@@ -106,7 +106,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
   const displayParts = preview.length > 0 ? preview : parseCombo(value);
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <button
         ref={btnRef}
         disabled={disabled}
@@ -116,28 +116,20 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); beginCapture(); }
         }}
         className={cn(
-          "w-fit inline-flex items-center gap-1.5 px-3 py-2.5 border-2 outline-none transition-all rounded-xl",
-          capturing
-            ? "bg-vaani-gray-50 dark:bg-vaani-gray-800 border-vaani-pink"
-            : "bg-vaani-gray-50 dark:bg-vaani-gray-800 border-vaani-gray-200 dark:border-vaani-gray-700 hover:border-vaani-gray-300 dark:hover:border-vaani-gray-600",
+          "inline-flex w-fit items-center gap-1.5 rounded-2xl border bg-surface px-4 py-3 outline-none transition-all",
+          capturing ? "border-accent" : "border-line hover:border-ink/20",
           disabled && "cursor-not-allowed opacity-40"
         )}
         title={capturing ? "Press any key combination…" : "Click to change hotkey"}
       >
         {capturing && preview.length === 0 ? (
-          <span className="text-[11px] font-bold uppercase tracking-widest text-vaani-pink">
-            Press any key…
-          </span>
+          <span className="label-meta text-[11px] text-accent">Press any key…</span>
         ) : (
           <KbdGroup>
             {displayParts.map((k, i) => (
               <span key={i} className="inline-flex items-center gap-1">
-                <Kbd className={cn(capturing && "border-vaani-pink text-vaani-pink bg-vaani-pink/10 dark:bg-vaani-pink/20")}>
-                  {MOD_SYMBOL[k] ?? k}
-                </Kbd>
-                {i < displayParts.length - 1 && (
-                  <span className="text-[11px] text-vaani-gray-500 dark:text-vaani-gray-400">+</span>
-                )}
+                <Kbd className={cn(capturing && "border-accent bg-accent/10 text-accent")}>{MOD_SYMBOL[k] ?? k}</Kbd>
+                {i < displayParts.length - 1 && <span className="text-[11px] text-faint">+</span>}
               </span>
             ))}
           </KbdGroup>
@@ -148,7 +140,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
         <button
           type="button"
           onClick={() => { onChange("Fn"); stopCapture(); }}
-          className="self-start text-[9px] font-bold uppercase tracking-widest border px-2 py-0.5 cursor-pointer rounded-md bg-white dark:bg-vaani-gray-900 border-vaani-gray-200 dark:border-vaani-gray-700 text-vaani-gray-500 dark:text-vaani-gray-400 hover:bg-vaani-gray-50 dark:hover:bg-vaani-gray-800 transition-colors"
+          className="label-meta w-fit cursor-pointer rounded-lg border border-line bg-bg px-2 py-1 text-[9px] text-muted transition-colors hover:bg-surface"
         >
           Use Fn key
         </button>

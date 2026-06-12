@@ -41,6 +41,7 @@ export const enum IpcChannel {
   // App lifecycle / diagnostics
   RendererReady = "app:renderer-ready",
   RendererError = "app:renderer-error",
+  RelaunchApp = "app:relaunch",
 
   // Phase 1: Providers
   TestApiKey = "providers:test-api-key",
@@ -49,6 +50,7 @@ export const enum IpcChannel {
   // Updater notifications
   UpdateNotification = "updater:notification",
   CheckForUpdates = "updater:check",
+  GetUpdateStatus = "updater:get-status",
   QuitAndInstall = "updater:quit-and-install",
 
   // App info

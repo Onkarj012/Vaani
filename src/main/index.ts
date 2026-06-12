@@ -1,9 +1,10 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import { autoUpdater } from "electron-updater";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import type { UpdateNotificationPayload } from "@shared/types";
 import { DictationService } from "./dictation";
 import { HotkeyManager } from "./hotkeys";
 import { registerIpcHandlers } from "./ipc";
@@ -20,7 +21,7 @@ import { error } from "@main/log";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
-const logPath = join(tmpdir(), "claude-vaani-startup.log");
+const logPath = join(tmpdir(), "vaani-startup.log");
 const MAIN_RENDERER_READY_TIMEOUT_MS = 5_000;
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -39,6 +40,7 @@ let mainWindowOpenRequested = false;
 let mainWindowReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDockVisible: boolean | null = null;
 let suppressDashboardActivationUntil = 0;
+export let cachedUpdateStatus: UpdateNotificationPayload | null = null;
 let trayController: TrayController = {
   updateStatus: () => undefined,
   setOfflineMode: () => undefined,
@@ -310,6 +312,14 @@ async function loadWindowUrl(win: BrowserWindow): Promise<void> {
 async function bootstrap(): Promise<void> {
   log("bootstrap:start");
 
+  // Migrate legacy data directory (.claude_vaani → .vaani)
+  const home = app.getPath("home");
+  const oldDir = join(home, ".claude_vaani");
+  const newDir = join(home, ".vaani");
+  if (existsSync(oldDir) && !existsSync(newDir)) {
+    try { renameSync(oldDir, newDir); log("migration:data-dir"); } catch { /* best-effort */ }
+  }
+
   const settings = new SettingsStore();
   settingsStore = settings;
   const history = new HistoryStore();
@@ -429,28 +439,49 @@ async function bootstrap(): Promise<void> {
       debug: (msg) => log("updater:debug", msg)
     };
     autoUpdater.setFeedURL({ provider: "github", owner: "Onkarj012", repo: "Vaani" });
+
+    function sendUpdateNotification(payload: UpdateNotificationPayload): void {
+      cachedUpdateStatus = payload;
+      mainWindow?.webContents.send(IpcChannel.UpdateNotification, payload);
+    }
+
     autoUpdater.on("checking-for-update", () => log("updater:checking"));
     autoUpdater.on("update-available", (info) => {
       log("updater:available", { version: info.version });
-      mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+      sendUpdateNotification({
         version: info.version,
         status: "downloading",
         message: `Update ${info.version} downloading…`,
       });
     });
-    autoUpdater.on("update-not-available", (info) => log("updater:not-available", { version: info.version }));
+    autoUpdater.on("update-not-available", (info) => {
+      log("updater:not-available", { version: info.version });
+      // Don't clear cache if a download is in progress or already ready
+      if (cachedUpdateStatus?.status !== "ready" && cachedUpdateStatus?.status !== "downloading") {
+        cachedUpdateStatus = null;
+      }
+    });
     autoUpdater.on("update-downloaded", (info) => {
       log("updater:downloaded", { version: info.version });
-      mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+      sendUpdateNotification({
         version: info.version,
         status: "ready",
         message: `Vaani ${info.version} ready — restart to update`,
       });
     });
-    autoUpdater.on("error", (error) => log("updater:event-error", { message: error.message }));
+    autoUpdater.on("error", (err) => {
+      log("updater:event-error", { message: err.message });
+      // Clear a stuck "downloading" cache so renderers don't show a perpetual banner
+      if (cachedUpdateStatus?.status === "downloading") {
+        sendUpdateNotification({
+          status: "error",
+          message: `Update failed: ${err.message}`,
+        });
+      }
+    });
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+    autoUpdater.checkForUpdates().catch((err) => {
       log("updater:check-error", { message: err instanceof Error ? err.message : String(err) });
     });
   }

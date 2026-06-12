@@ -12,7 +12,7 @@ declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const logPath = join(tmpdir(), "claude-vaani-startup.log");
+const logPath = join(tmpdir(), "vaani-startup.log");
 
 const CAPSULE_BOTTOM_MARGIN = 16;
 // Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)
@@ -78,6 +78,13 @@ export class OverlayController {
         return;
       }
       log("overlay:show-existing", { loadReady: this.loadReady, visible: this.window.isVisible() });
+      // If the renderer isn't ready yet, go through presentWindow so the
+      // watchdog is armed and mode retries are scheduled — otherwise the
+      // fast-path showInactive() call leaves the window blank.
+      if (!this.loadReady) {
+        void this.presentWindow(frontmostBefore);
+        return;
+      }
       this.window.showInactive();
       if (this.pendingMode) {
         this.tryUpdateMode(this.pendingMode);

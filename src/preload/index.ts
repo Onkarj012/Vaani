@@ -31,8 +31,10 @@ const api: VaaniAPI = {
   requestMicrophonePermission: () => ipcRenderer.invoke(IpcChannel.RequestMicrophonePermission),
   requestAccessibilityPermission: () => ipcRenderer.invoke(IpcChannel.RequestAccessibilityPermission),
   openPermissionSettings: (permission) => ipcRenderer.invoke(IpcChannel.OpenPermissionSettings, permission),
+  relaunchApp: () => ipcRenderer.invoke(IpcChannel.RelaunchApp),
   onNavigate: (cb) => subscribe<{ route: string }>(IpcChannel.Navigation, ({ route }) => cb(route)),
   onUpdateNotification: (cb) => subscribe<UpdateNotificationPayload>(IpcChannel.UpdateNotification, cb),
+  getUpdateStatus: () => ipcRenderer.invoke(IpcChannel.GetUpdateStatus),
   checkForUpdates: () => ipcRenderer.invoke(IpcChannel.CheckForUpdates),
   quitAndInstall: () => ipcRenderer.send(IpcChannel.QuitAndInstall),
   restartAndInstall: async () => {

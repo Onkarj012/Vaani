@@ -1,5 +1,3 @@
-console.log("[main] main.tsx loading...");
-
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter } from "react-router-dom";
@@ -13,8 +11,6 @@ if (isOverlayMode) {
 } else {
   import("./styles/globals.css");
 }
-
-console.log("[main] imports complete");
 
 // Lazy imports based on mode
 const App = isOverlayMode ? null : React.lazy(() => import("./App"));
@@ -60,10 +56,10 @@ class RendererErrorBoundary extends React.Component<React.PropsWithChildren, { m
   render(): React.ReactNode {
     if (this.state.message) {
       return (
-        <div className="flex min-h-screen items-center justify-center bg-background px-6 text-center text-foreground">
+        <div className="flex min-h-screen items-center justify-center bg-bg px-6 text-center text-ink">
           <div>
             <h1 className="text-base font-semibold">Vaani could not open this window.</h1>
-            <p className="mt-2 max-w-sm text-sm text-muted-foreground">{this.state.message}</p>
+            <p className="mt-2 max-w-sm text-sm text-muted">{this.state.message}</p>
           </div>
         </div>
       );
@@ -107,14 +103,12 @@ function AppRoot() {
   );
 }
 
-console.log("[main] attempting to mount React, overlay mode:", isOverlayMode);
 const root = document.getElementById("root");
 if (!root) {
   console.error("[main] #root element not found");
   throw new Error("Root element not found");
 }
 
-console.log("[main] mounting to #root");
 if (isOverlayMode && CapsuleOverlay) {
   // Overlay mode - render just the capsule, no providers needed
   createRoot(root).render(
@@ -124,21 +118,19 @@ if (isOverlayMode && CapsuleOverlay) {
       </React.Suspense>
     </React.StrictMode>
   );
-  console.log("[main] CapsuleOverlay mounted");
 } else if (App) {
   // Normal dashboard mode
   createRoot(root).render(
     <React.StrictMode>
       <HashRouter>
         <RendererErrorBoundary>
-          <React.Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-background" />}>
+          <React.Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-bg" />}>
             <AppRoot />
           </React.Suspense>
         </RendererErrorBoundary>
       </HashRouter>
     </React.StrictMode>
   );
-  console.log("[main] React mounted");
 }
 
 

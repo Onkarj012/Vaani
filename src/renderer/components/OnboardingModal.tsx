@@ -2,37 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { blobToClip } from "@renderer/hooks/useAudioRecorder";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Mic,
-  Keyboard,
-  ShieldCheck,
-  CheckCircle2,
-  Sparkles,
-  BookOpen,
-  FileText,
-  BarChart3,
-  ChevronRight,
-  ChevronLeft,
-  X,
-  ArrowRight,
-  Zap,
-  Volume2,
-  Type,
-  Wand2,
-  History,
-  Loader2,
-  AlertCircle,
-  Pencil,
-  Eye,
-  EyeOff,
-  Plug,
+  Mic, Keyboard, ShieldCheck, CheckCircle2, Sparkles, BookOpen, FileText,
+  BarChart3, ChevronRight, ChevronLeft, X, ArrowRight, Zap, Volume2, Type,
+  Wand2, History, Loader2, AlertCircle, Pencil, Eye, EyeOff, Plug,
 } from "lucide-react";
-import type { DictationMode, PermissionStatus, Settings } from "@shared/types";
-import type { MacOSPermissionState } from "@shared/types";
+import type { DictationMode, PermissionStatus, Settings, MacOSPermissionState } from "@shared/types";
 import { KNOWN_PROVIDERS } from "@shared/defaults";
-import devanagariDarkUrl from "../../../assets/iconset/devanagari/devanagari_dark.svg?url";
 import devanagariLightUrl from "../../../assets/iconset/devanagari/devanagari_light.svg?url";
+import devanagariDarkUrl from "../../../assets/iconset/devanagari/devanagari_dark.svg?url";
+import { useColorMode } from "../context/color-mode";
+import { Select } from "@/components/ui/Select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 const EXCLUDED_LLM_KEY_PROVIDERS = new Set(["openai-llm", "openrouter", "groq-llm"]);
+const TOTAL_SLIDES = 8;
 
 interface OnboardingModalProps {
   settings: Settings;
@@ -40,141 +24,73 @@ interface OnboardingModalProps {
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
 }
 
-const TOTAL_SLIDES = 8;
-
 const slideVariants = {
-  enter: (direction: number) => ({
-    x: direction > 0 ? 60 : -60,
-    opacity: 0,
-    scale: 0.97,
-  }),
-  center: {
-    x: 0,
-    opacity: 1,
-    scale: 1,
-  },
-  exit: (direction: number) => ({
-    x: direction < 0 ? 60 : -60,
-    opacity: 0,
-    scale: 0.97,
-  }),
+  enter: (d: number) => ({ x: d > 0 ? 60 : -60, opacity: 0, scale: 0.97 }),
+  center: { x: 0, opacity: 1, scale: 1 },
+  exit: (d: number) => ({ x: d < 0 ? 60 : -60, opacity: 0, scale: 0.97 }),
 };
 
-export default function OnboardingModal({
-  settings,
-  onComplete,
-  updateSettings,
-}: OnboardingModalProps) {
+export default function OnboardingModal({ settings, onComplete, updateSettings }: OnboardingModalProps) {
   const [slide, setSlide] = useState(0);
   const [direction, setDirection] = useState(0);
-  const [permissions, setPermissions] = useState<PermissionStatus>({
-    microphone: "unknown",
-    accessibility: "unknown",
-  });
+  const [permissions, setPermissions] = useState<PermissionStatus>({ microphone: "unknown", accessibility: "unknown" });
   const [busy, setBusy] = useState(false);
   const [micAttempted, setMicAttempted] = useState(false);
   const [apiKey, setApiKey] = useState(() => {
-    const entry = (settings.providerApiKeys ?? []).find(k => k.providerId === settings.transcriptionProvider);
+    const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === settings.transcriptionProvider);
     return entry?.key ?? (settings.transcriptionProvider === "groq" ? settings.groqApiKey ?? "" : "");
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const [llmApiKey, setLlmApiKey] = useState(() => {
-    const entry = (settings.providerApiKeys ?? []).find(k => k.providerId === settings.formattingProvider);
+    const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === settings.formattingProvider);
     return entry?.key ?? "";
   });
   const [showLlmApiKey, setShowLlmApiKey] = useState(false);
-  const [, setIsDark] = useState(() =>
-    document.documentElement.classList.contains("dark")
-  );
-
-  // Observe theme changes for child slides
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains("dark"));
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => observer.disconnect();
-  }, []);
 
   function upsertProviderKey(providerId: string, key: string) {
     const current = settings.providerApiKeys ?? [];
     const idx = current.findIndex((k) => k.providerId === providerId);
-    const nextKeys =
-      idx >= 0
-        ? current.map((k, i) => (i === idx ? { providerId, key } : k))
-        : [...current, { providerId, key }];
-    return nextKeys;
+    return idx >= 0 ? current.map((k, i) => (i === idx ? { providerId, key } : k)) : [...current, { providerId, key }];
   }
 
   async function refreshPermissions() {
-    const next = await window.vaani.getPermissionStatus();
-    setPermissions(next);
+    setPermissions(await window.vaani.getPermissionStatus());
   }
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
+    return () => { document.body.style.overflow = prev; };
   }, []);
 
   useEffect(() => {
     void refreshPermissions();
-    const id = window.setInterval(() => {
-      void refreshPermissions();
-    }, 1500);
+    const id = window.setInterval(() => { void refreshPermissions(); }, 1500);
     return () => window.clearInterval(id);
   }, []);
 
   const goNext = useCallback(() => {
-    if (slide < TOTAL_SLIDES - 1) {
-      setDirection(1);
-      setSlide((s) => s + 1);
-    }
+    if (slide < TOTAL_SLIDES - 1) { setDirection(1); setSlide((s) => s + 1); }
   }, [slide]);
-
   const goBack = useCallback(() => {
-    if (slide > 0) {
-      setDirection(-1);
-      setSlide((s) => s - 1);
-    }
+    if (slide > 0) { setDirection(-1); setSlide((s) => s - 1); }
   }, [slide]);
 
   async function requestMicrophone() {
-    setBusy(true);
-    setMicAttempted(true);
+    setBusy(true); setMicAttempted(true);
     try {
-      const before = permissions.microphone;
       const microphone = await window.vaani.requestMicrophonePermission();
-      setPermissions((current) => ({ ...current, microphone }));
-      // If status didn't change and wasn't already granted, the system dialog
-      // may not have appeared (common in unsigned dev builds on macOS).
-      if (microphone === before && microphone !== "granted") {
-        // eslint-disable-next-line no-console
-        console.warn(
-          "[onboarding] Microphone permission status did not change after request."
-        );
-      }
-    } finally {
-      setBusy(false);
-    }
+      setPermissions((c) => ({ ...c, microphone }));
+    } finally { setBusy(false); }
   }
 
   async function requestAccessibility() {
     setBusy(true);
     try {
       const accessibility = await window.vaani.requestAccessibilityPermission();
-      setPermissions((current) => ({ ...current, accessibility }));
-      if (accessibility !== "granted") {
-        await window.vaani.openPermissionSettings("accessibility");
-      }
-    } finally {
-      setBusy(false);
-    }
+      setPermissions((c) => ({ ...c, accessibility }));
+      if (accessibility !== "granted") await window.vaani.openPermissionSettings("accessibility");
+    } finally { setBusy(false); }
   }
 
   const micGranted = permissions.microphone === "granted";
@@ -192,21 +108,11 @@ export default function OnboardingModal({
       busy={busy}
       micAttempted={micAttempted}
       onRequestMicrophone={() => {
-        if (
-          permissions.microphone === "denied" ||
-          permissions.microphone === "restricted"
-        ) {
-          void window.vaani.openPermissionSettings("microphone");
-        } else {
-          void requestMicrophone();
-        }
+        if (permissions.microphone === "denied" || permissions.microphone === "restricted") void window.vaani.openPermissionSettings("microphone");
+        else void requestMicrophone();
       }}
-      onRequestAccessibility={() => {
-        void requestAccessibility();
-      }}
-      onCheckAgain={() => {
-        void refreshPermissions();
-      }}
+      onRequestAccessibility={() => { void requestAccessibility(); }}
+      onCheckAgain={() => { void refreshPermissions(); }}
     />,
     <ProviderApiSlide
       key="api"
@@ -217,18 +123,13 @@ export default function OnboardingModal({
       showLlmApiKey={showLlmApiKey}
       onKeyChange={(v) => {
         setApiKey(v);
-        void updateSettings({
-          providerApiKeys: upsertProviderKey(settings.transcriptionProvider, v),
-          ...(settings.transcriptionProvider === "groq" ? { groqApiKey: v } : {}),
-        });
+        void updateSettings({ providerApiKeys: upsertProviderKey(settings.transcriptionProvider, v), ...(settings.transcriptionProvider === "groq" ? { groqApiKey: v } : {}) });
       }}
       onToggleShow={() => setShowApiKey(!showApiKey)}
       onProviderChange={(v) => {
         void updateSettings({ transcriptionProvider: v });
         const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === v);
-        setApiKey(
-          entry?.key ?? (v === "groq" ? settings.groqApiKey ?? "" : "")
-        );
+        setApiKey(entry?.key ?? (v === "groq" ? settings.groqApiKey ?? "" : ""));
       }}
       onLlmKeyChange={(v) => {
         setLlmApiKey(v);
@@ -241,148 +142,68 @@ export default function OnboardingModal({
         setLlmApiKey(entry?.key ?? "");
       }}
     />,
-    <HotkeySlide
-      key="hotkey"
-      primaryHotkey={settings.primaryHotkey}
-      onChange={(v) => updateSettings({ primaryHotkey: v })}
-    />,
+    <HotkeySlide key="hotkey" primaryHotkey={settings.primaryHotkey} onChange={(v) => updateSettings({ primaryHotkey: v })} />,
     <FeaturesSlide key="features" />,
-    <DemoSlide
-      key="demo"
-      primaryHotkey={settings.primaryHotkey}
-      dictationMode={settings.dictationMode}
-    />,
-    <ReadySlide key="ready" onComplete={onComplete} />,
+    <DemoSlide key="demo" primaryHotkey={settings.primaryHotkey} dictationMode={settings.dictationMode} />,
+    <ReadySlide key="ready" />,
   ];
 
   const isLastSlide = slide === TOTAL_SLIDES - 1;
   const isFirstSlide = slide === 0;
 
-  // Determine if next should be disabled
-  const selectedSttProvider = KNOWN_PROVIDERS.find(
-    (p) =>
-      p.id === settings.transcriptionProvider &&
-      (p.type === "stt" || p.type === "local-stt")
-  );
+  const selectedSttProvider = KNOWN_PROVIDERS.find((p) => p.id === settings.transcriptionProvider && (p.type === "stt" || p.type === "local-stt"));
   const requiresApiKey = selectedSttProvider?.requiresApiKey !== false;
   const hasRequiredSttKey = !requiresApiKey || !!apiKey.trim();
-
-  const selectedLlmProvider = KNOWN_PROVIDERS.find(
-    (p) => p.id === settings.formattingProvider && p.type === "llm"
-  );
+  const selectedLlmProvider = KNOWN_PROVIDERS.find((p) => p.id === settings.formattingProvider && p.type === "llm");
   const llmRequiresKey = selectedLlmProvider?.requiresApiKey !== false;
   const llmNeedsOnboardingKey = llmRequiresKey && !EXCLUDED_LLM_KEY_PROVIDERS.has(selectedLlmProvider?.id ?? "");
   const hasRequiredLlmKey = !llmNeedsOnboardingKey || !!llmApiKey.trim();
   const hasRequiredApiKey = hasRequiredSttKey && hasRequiredLlmKey;
 
-  const nextDisabled =
-    (slide === 2 && !canContinueFromPermissions) ||
-    (slide === 3 && !hasRequiredApiKey) ||
-    busy;
+  const nextDisabled = (slide === 2 && !canContinueFromPermissions) || (slide === 3 && !hasRequiredApiKey) || busy;
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-vaani-black/80 p-4 backdrop-blur-lg overscroll-none"
-      onWheel={(e) => e.preventDefault()}
-    >
+    <div className="fixed inset-0 z-[60] flex items-center justify-center overscroll-none bg-black/50 p-4 backdrop-blur-md" onWheel={(e) => e.preventDefault()}>
       <motion.div
-        initial={{ opacity: 0, scale: 0.92, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
+        initial={{ opacity: 0, scale: 0.93, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 28 }}
-        className="relative flex h-[min(90vh,780px)] w-full max-w-[760px] flex-col overflow-hidden rounded-3xl border border-vaani-gray-200 bg-white shadow-2xl dark:border-vaani-gray-800 dark:bg-vaani-gray-900"
+        className="relative flex h-[min(90vh,780px)] w-full max-w-[760px] flex-col overflow-hidden rounded-[20px] bg-bg shadow-card"
       >
-        {/* Skip button */}
-        <button
-          onClick={() => {
-            void onComplete();
-          }}
-          className="absolute top-5 right-5 z-10 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-vaani-gray-500 transition-colors hover:bg-vaani-gray-100 hover:text-vaani-gray-700 dark:text-vaani-gray-400 dark:hover:bg-vaani-gray-800 dark:hover:text-vaani-gray-200"
-        >
-          Skip
-          <X size={14} />
+        <button onClick={() => { void onComplete(); }} className="absolute right-5 top-5 z-10 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface hover:text-ink">
+          Skip <X size={14} />
         </button>
+        <div className="label-meta absolute left-5 top-5 z-10 text-[10px] text-faint">{slide + 1} / {TOTAL_SLIDES}</div>
 
-        {/* Slide counter */}
-        <div className="absolute top-5 left-5 z-10 text-xs font-medium text-vaani-gray-400 dark:text-vaani-gray-500">
-          {slide + 1} / {TOTAL_SLIDES}
-        </div>
-
-        {/* Slide content */}
-          <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-8 pt-14 pb-6">
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-8 pb-6 pt-14">
           <AnimatePresence mode="wait" custom={direction}>
-            <motion.div
-              key={slide}
-              custom={direction}
-              variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={{ type: "spring", stiffness: 400, damping: 32 }}
-              className="w-full"
-            >
+            <motion.div key={slide} custom={direction} variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ type: "spring", stiffness: 400, damping: 32 }} className="w-full">
               {slidesContent[slide]}
             </motion.div>
           </AnimatePresence>
         </div>
 
-        {/* Bottom navigation */}
-        <div className="border-t border-vaani-gray-100 px-8 py-5 dark:border-vaani-gray-800 shrink-0">
+        <div className="shrink-0 border-t border-line px-8 py-5">
           <div className="flex items-center justify-between">
-            {/* Back button */}
-            <button
-              onClick={goBack}
-              disabled={isFirstSlide}
-              className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium text-vaani-gray-500 transition-all hover:bg-vaani-gray-100 disabled:cursor-not-allowed disabled:opacity-30 dark:text-vaani-gray-400 dark:hover:bg-vaani-gray-800"
-            >
-              <ChevronLeft size={16} />
-              Back
+            <button onClick={goBack} disabled={isFirstSlide} className="flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-medium text-muted transition-all hover:bg-surface disabled:cursor-not-allowed disabled:opacity-30">
+              <ChevronLeft size={16} /> Back
             </button>
 
-            {/* Progress dots */}
             <div className="flex items-center gap-2">
               {Array.from({ length: TOTAL_SLIDES }).map((_, i) => (
                 <button
                   key={i}
-                  onClick={() => {
-                    // Only allow jumping to visited slides or next available
-                    if (i <= slide + 1) {
-                      setDirection(i > slide ? 1 : -1);
-                      setSlide(i);
-                    }
-                  }}
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    i === slide
-                      ? "w-6 bg-vaani-pink"
-                      : i < slide
-                      ? "w-2 bg-vaani-pink/50"
-                      : "w-2 bg-vaani-gray-200 dark:bg-vaani-gray-700"
-                  }`}
+                  type="button"
+                  aria-label={`Go to step ${i + 1}`}
+                  onClick={() => { if (i <= slide + 1) { setDirection(i > slide ? 1 : -1); setSlide(i); } }}
+                  className={`h-2 rounded-full transition-all duration-300 ${i === slide ? "w-6 bg-accent" : i < slide ? "w-2 bg-accent/40" : "w-2 bg-line"}`}
                 />
               ))}
             </div>
 
-            {/* Next / Done button */}
             {isLastSlide ? (
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                onClick={() => {
-                  void onComplete();
-                }}
-                className="flex items-center gap-2 rounded-xl bg-vaani-pink px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-vaani-pink/25 transition-all hover:shadow-vaani-pink/40"
-              >
-                Start Dictating
-                <Sparkles size={16} />
-              </motion.button>
+              <Button variant="accent" size="sm" onClick={() => { void onComplete(); }}>Start Dictating <Sparkles size={16} /></Button>
             ) : (
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                onClick={goNext}
-                disabled={nextDisabled}
-                className="flex items-center gap-2 rounded-xl bg-vaani-black px-5 py-2.5 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-40 hover:opacity-90 dark:bg-white dark:text-vaani-black"
-              >
-                {slide === 2 || slide === 3 ? "Continue" : "Next"}
-                <ChevronRight size={16} />
-              </motion.button>
+              <Button size="sm" onClick={goNext} disabled={nextDisabled}>{slide === 2 || slide === 3 ? "Continue" : "Next"} <ChevronRight size={16} /></Button>
             )}
           </div>
         </div>
@@ -391,137 +212,48 @@ export default function OnboardingModal({
   );
 }
 
-/* ─── Slide 1: Welcome ─────────────────────────────────────────────────────── */
+/* ─── Slides ─────────────────────────────────────────────────────────────── */
+
+function SlideIcon({ tone, children }: { tone: string; children: React.ReactNode }) {
+  return <div className={`mb-6 flex h-14 w-14 items-center justify-center rounded-2xl ${tone}`}>{children}</div>;
+}
 
 function WelcomeSlide() {
-  const [isDark, setIsDark] = useState(() =>
-    document.documentElement.classList.contains("dark")
-  );
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains("dark"));
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => observer.disconnect();
-  }, []);
-
+  const { mode } = useColorMode()
   return (
     <div className="flex flex-col items-center text-center">
-      <motion.div
-        initial={{ scale: 0, rotate: -20 }}
-        animate={{ scale: 1, rotate: 0 }}
-        transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
-        className="mb-6"
-      >
-        <img
-          src={isDark ? devanagariDarkUrl : devanagariLightUrl}
-          alt="Vaani"
-          className="h-24 w-24"
-        />
-      </motion.div>
-
-      <motion.h1
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="mb-3 text-3xl font-bold tracking-tight text-vaani-black dark:text-white"
-      >
-        Welcome to Vaani
-      </motion.h1>
-
-      <motion.p
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="max-w-sm text-base leading-relaxed text-vaani-gray-500 dark:text-vaani-gray-400"
-      >
-        Your voice, perfectly transcribed. Premium macOS dictation powered by
-        AI.
-      </motion.p>
-
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="mt-6 flex items-center gap-2 rounded-full bg-vaani-pink/10 px-4 py-2 text-sm font-medium text-vaani-pink dark:bg-vaani-pink/20"
-      >
-        <Zap size={14} />
-        Setup takes under a minute
-      </motion.div>
+      <motion.img initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
+        src={mode === "dark" ? devanagariDarkUrl : devanagariLightUrl} alt="Vaani" className="mb-6 h-24 w-24" />
+      <h1 className="text-display mb-3 text-4xl text-ink">Welcome to Vaani</h1>
+      <p className="max-w-sm leading-relaxed text-muted">Your voice, perfectly transcribed. Premium macOS dictation powered by AI.</p>
+      <div className="mt-6 flex items-center gap-2 rounded-full bg-accent/10 px-4 py-2 text-sm font-medium text-accent">
+        <Zap size={14} /> Setup takes under a minute
+      </div>
     </div>
   );
 }
 
-/* ─── Slide 2: How It Works ────────────────────────────────────────────────── */
-
 function HowItWorksSlide() {
   const steps = [
-    {
-      icon: <Keyboard size={22} />,
-      title: "Press your hotkey",
-      desc: "Trigger dictation from anywhere on your Mac.",
-      color: "bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20",
-    },
-    {
-      icon: <Mic size={22} />,
-      title: "Speak naturally",
-      desc: "Talk at your normal pace. Vaani listens and understands.",
-      color: "bg-vaani-lime/20 text-vaani-black dark:text-vaani-lime dark:bg-vaani-lime/20",
-    },
-    {
-      icon: <Type size={22} />,
-      title: "Text appears instantly",
-      desc: "Transcribed text is inserted right where your cursor is.",
-      color: "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-    },
+    { icon: <Keyboard size={20} />, title: "Press your hotkey", desc: "Trigger dictation from anywhere on your Mac.", tone: "bg-accent/10 text-accent" },
+    { icon: <Mic size={20} />, title: "Speak naturally", desc: "Talk at your normal pace. Vaani listens and understands.", tone: "bg-accent/10 text-accent" },
+    { icon: <Type size={20} />, title: "Text appears instantly", desc: "Transcribed text is inserted right where your cursor is.", tone: "bg-accent/10 text-accent" },
   ];
-
   return (
     <div className="flex flex-col items-center text-center">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20"
-      >
-        <Wand2 size={26} />
-      </motion.div>
-
-      <h2 className="mb-2 text-2xl font-bold text-vaani-black dark:text-white">
-        How it works
-      </h2>
-      <p className="mb-8 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-        Three simple steps. No clicking, no typing, just talk.
-      </p>
-
+      <SlideIcon tone="bg-accent/10 text-accent"><Wand2 size={26} /></SlideIcon>
+      <h2 className="text-display mb-2 text-3xl text-ink">How it works</h2>
+      <p className="mb-8 text-sm text-muted">Three simple steps. No clicking, no typing, just talk.</p>
       <div className="w-full space-y-3">
-        {steps.map((step, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.15 * i }}
-            className="flex items-center gap-4 rounded-2xl border border-vaani-gray-100 bg-vaani-gray-50/50 p-4 text-left dark:border-vaani-gray-800 dark:bg-vaani-gray-900/50"
-          >
-            <div
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${step.color}`}
-            >
-              {step.icon}
-            </div>
+        {steps.map((s, i) => (
+          <motion.div key={i} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.12 * i }}
+            className="flex items-center gap-4 rounded-2xl border border-line bg-surface p-4 text-left">
+            <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${s.tone}`}>{s.icon}</div>
             <div>
-              <div className="text-sm font-semibold text-vaani-black dark:text-white">
-                {step.title}
-              </div>
-              <div className="text-xs text-vaani-gray-500 dark:text-vaani-gray-400">
-                {step.desc}
-              </div>
+              <div className="text-sm font-semibold text-ink">{s.title}</div>
+              <div className="text-xs text-muted">{s.desc}</div>
             </div>
-            <div className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-vaani-gray-200 text-xs font-bold text-vaani-gray-600 dark:bg-vaani-gray-700 dark:text-vaani-gray-300">
-              {i + 1}
-            </div>
+            <div className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-bg font-mono text-xs font-bold text-muted">{i + 1}</div>
           </motion.div>
         ))}
       </div>
@@ -529,289 +261,109 @@ function HowItWorksSlide() {
   );
 }
 
-/* ─── Slide 3: Permissions ─────────────────────────────────────────────────── */
-
 function PermissionsSlide({
-  micGranted,
-  accessibilityGranted,
-  micState,
-  busy,
-  micAttempted,
-  onRequestMicrophone,
-  onRequestAccessibility,
-  onCheckAgain,
+  micGranted, accessibilityGranted, micState, busy, micAttempted,
+  onRequestMicrophone, onRequestAccessibility, onCheckAgain,
 }: {
-  micGranted: boolean;
-  accessibilityGranted: boolean;
-  micState: MacOSPermissionState;
-  busy: boolean;
-  micAttempted: boolean;
-  onRequestMicrophone: () => void;
-  onRequestAccessibility: () => void;
-  onCheckAgain: () => void;
+  micGranted: boolean; accessibilityGranted: boolean; micState: MacOSPermissionState;
+  busy: boolean; micAttempted: boolean;
+  onRequestMicrophone: () => void; onRequestAccessibility: () => void; onCheckAgain: () => void;
 }) {
   const allGranted = micGranted && accessibilityGranted;
   const showMicHint = micAttempted && !micGranted && micState !== "granted";
-
   return (
     <div className="flex flex-col items-center text-center">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-vaani-lime/20 text-vaani-black dark:text-vaani-lime dark:bg-vaani-lime/20"
-      >
-        <ShieldCheck size={26} />
-      </motion.div>
-
-      <h2 className="mb-2 text-2xl font-bold text-vaani-black dark:text-white">
-        Grant Permissions
-      </h2>
-      <p className="mb-6 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-        Vaani needs two macOS permissions to transcribe and insert text.
-      </p>
-
+      <SlideIcon tone="bg-accent/10 text-accent"><ShieldCheck size={26} /></SlideIcon>
+      <h2 className="text-display mb-2 text-3xl text-ink">Grant Permissions</h2>
+      <p className="mb-6 text-sm text-muted">Vaani needs two macOS permissions to transcribe and insert text.</p>
       <div className="w-full space-y-3">
-        <PermissionRow
-          icon={<Mic size={18} />}
-          title="Microphone"
-          description="Allows Vaani to record your voice when you press the hotkey."
-          granted={micGranted}
-          disabled={busy}
-          actionLabel={micState === "denied" ? "Open Settings" : "Enable"}
-          onAction={onRequestMicrophone}
-        />
-        <PermissionRow
-          icon={<Keyboard size={18} />}
-          title="Accessibility"
-          description="Allows Vaani to insert dictated text into the active app."
-          granted={accessibilityGranted}
-          disabled={busy}
-          actionLabel="Enable"
-          onAction={onRequestAccessibility}
-        />
+        <PermissionRow icon={<Mic size={18} />} title="Microphone" description="Allows Vaani to record your voice when you press the hotkey." granted={micGranted} disabled={busy} actionLabel={micState === "denied" ? "Open Settings" : "Enable"} onAction={onRequestMicrophone} />
+        <PermissionRow icon={<Keyboard size={18} />} title="Accessibility" description="Allows Vaani to insert dictated text into the active app." granted={accessibilityGranted} disabled={busy} actionLabel="Enable" onAction={onRequestAccessibility} />
       </div>
-
       {showMicHint && (
-        <motion.div
-          initial={{ opacity: 0, y: 5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left dark:border-amber-900/40 dark:bg-amber-900/20"
-        >
-          <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-300">
-            If the system dialog did not appear, you may need to grant microphone access manually in{" "}
-            <span className="font-semibold">System Settings → Privacy & Security → Microphone</span>.
-          </p>
+        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="mt-4 flex items-start gap-2 rounded-xl border border-accent/20 bg-accent/5 px-4 py-3 text-left">
+          <AlertCircle size={16} className="mt-0.5 shrink-0 text-accent" />
+          <p className="text-xs leading-relaxed text-accent">If the system dialog did not appear, grant microphone access manually in <span className="font-semibold">System Settings → Privacy &amp; Security → Microphone</span>.</p>
         </motion.div>
       )}
-
       {!allGranted && (
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          onClick={onCheckAgain}
-          className="mt-4 flex items-center gap-2 text-xs font-medium text-vaani-gray-500 transition-colors hover:text-vaani-gray-700 dark:text-vaani-gray-400 dark:hover:text-vaani-gray-200"
-        >
-          <ArrowRight size={12} className="rotate-[-45deg]" />
-          Check again
-        </motion.button>
+        <div className="mt-4 flex flex-col items-center gap-3">
+          <button onClick={onCheckAgain} className="flex items-center gap-2 text-xs font-medium text-muted transition-colors hover:text-ink">
+            <ArrowRight size={12} className="rotate-[-45deg]" /> Check again
+          </button>
+          {!accessibilityGranted && (
+            <div className="flex w-full flex-col items-center gap-2 rounded-xl border border-line bg-surface px-4 py-3 text-center">
+              <p className="text-xs leading-relaxed text-muted">
+                Already enabled Accessibility but it still shows here? macOS sometimes only detects it after a restart.
+              </p>
+              <Button variant="soft" size="sm" onClick={() => { void window.vaani.relaunchApp() }}>Restart Vaani</Button>
+            </div>
+          )}
+        </div>
       )}
-
       {allGranted && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="mt-5 flex items-center gap-2 rounded-full bg-vaani-lime/15 px-4 py-2 text-sm font-semibold text-vaani-black dark:text-vaani-lime"
-        >
-          <CheckCircle2 size={16} />
-          All permissions granted
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="mt-5 flex items-center gap-2 rounded-full bg-accent/10 px-4 py-2 text-sm font-semibold text-accent">
+          <CheckCircle2 size={16} /> All permissions granted
         </motion.div>
       )}
     </div>
   );
 }
 
-/* ─── Slide 4: Provider + API Key ───────────────────────────────────────────── */
-
 function ProviderApiSlide({
-  settings,
-  apiKey,
-  showApiKey,
-  llmApiKey,
-  showLlmApiKey,
-  onKeyChange,
-  onToggleShow,
-  onProviderChange,
-  onLlmKeyChange,
-  onToggleLlmShow,
-  onLlmProviderChange,
+  settings, apiKey, showApiKey, llmApiKey, showLlmApiKey,
+  onKeyChange, onToggleShow, onProviderChange, onLlmKeyChange, onToggleLlmShow, onLlmProviderChange,
 }: {
-  settings: Settings;
-  apiKey: string;
-  showApiKey: boolean;
-  llmApiKey: string;
-  showLlmApiKey: boolean;
-  onKeyChange: (v: string) => void;
-  onToggleShow: () => void;
-  onProviderChange: (v: string) => void;
-  onLlmKeyChange: (v: string) => void;
-  onToggleLlmShow: () => void;
-  onLlmProviderChange: (v: string) => void;
+  settings: Settings; apiKey: string; showApiKey: boolean; llmApiKey: string; showLlmApiKey: boolean;
+  onKeyChange: (v: string) => void; onToggleShow: () => void; onProviderChange: (v: string) => void;
+  onLlmKeyChange: (v: string) => void; onToggleLlmShow: () => void; onLlmProviderChange: (v: string) => void;
 }) {
   const isValid = apiKey.trim().length > 0;
-  const sttProviders = KNOWN_PROVIDERS.filter(p => p.type === 'stt' || p.type === 'local-stt');
-  const activeProvider = sttProviders.find(p => p.id === settings.transcriptionProvider);
-  const [provOpen, setProvOpen] = useState(false);
-
-  const llmProviders = KNOWN_PROVIDERS.filter(p => p.type === 'llm');
-  const activeLlm = llmProviders.find(p => p.id === settings.formattingProvider);
-  const [llmProvOpen, setLlmProvOpen] = useState(false);
-
+  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === "stt" || p.type === "local-stt");
+  const activeProvider = sttProviders.find((p) => p.id === settings.transcriptionProvider);
+  const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === "llm");
+  const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider);
   const showLlmKeyInput = activeLlm?.requiresApiKey !== false && !EXCLUDED_LLM_KEY_PROVIDERS.has(activeLlm?.id ?? "");
 
   return (
     <div className="flex flex-col items-center text-center">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20"
-      >
-        <Plug size={22} />
-      </motion.div>
+      <SlideIcon tone="bg-accent/10 text-accent"><Plug size={24} /></SlideIcon>
+      <h2 className="text-display mb-1 text-3xl text-ink">Choose Providers &amp; Add Keys</h2>
+      <p className="mb-5 text-sm text-muted">Your keys stay on your device. Start with Groq — it&apos;s fast and free.</p>
 
-      <h2 className="mb-1 text-2xl font-bold text-vaani-black dark:text-white">
-        Choose Providers &amp; Add Keys
-      </h2>
-      <p className="mb-5 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-        Your keys stay on your device. Start with Groq — it's fast and free.
-      </p>
-
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="w-full space-y-3"
-      >
-        {/* Transcription Provider selector */}
+      <div className="w-full space-y-3 text-left">
         <div>
-          <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1 text-left">
-            Transcription Provider
-          </label>
-          <div className="relative">
-            <button
-              onClick={() => setProvOpen(!provOpen)}
-              className="w-full flex items-center justify-between px-4 py-2.5 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm text-vaani-black dark:text-white hover:border-vaani-gray-300 transition-colors"
-            >
-              {activeProvider?.name ?? 'Select provider'}
-              <ChevronRight size={14} className={`text-vaani-gray-400 transition-transform ${provOpen ? 'rotate-90' : ''}`} />
-            </button>
-            {provOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setProvOpen(false)} />
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto">
-                  {sttProviders.map((p) => (
-                    <button key={p.id}
-                      onClick={() => { onProviderChange(p.id); setProvOpen(false) }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-vaani-gray-50 dark:hover:bg-vaani-gray-700 transition-colors flex items-center justify-between ${
-                        settings.transcriptionProvider === p.id ? 'text-vaani-pink font-medium' : 'text-vaani-black dark:text-white'
-                      }`}
-                    >
-                      {p.name}
-                      {settings.transcriptionProvider === p.id && <CheckCircle2 size={14} className="text-vaani-pink" />}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+          <label className="mb-1 block text-xs font-medium text-muted">Transcription Provider</label>
+          <Select value={settings.transcriptionProvider} onChange={onProviderChange} options={sttProviders.map((p) => ({ value: p.id, label: p.name }))} />
         </div>
 
-        {/* STT API key input */}
         {activeProvider?.requiresApiKey !== false && (
           <div>
-            <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1 text-left">
-              {activeProvider?.name ?? 'Provider'} API Key
-            </label>
+            <label className="mb-1 block text-xs font-medium text-muted">{activeProvider?.name ?? "Provider"} API Key</label>
             <div className="relative">
-              <input
-                type={showApiKey ? "text" : "password"}
-                value={apiKey}
-                onChange={(e) => onKeyChange(e.target.value)}
-                placeholder={activeProvider?.id === 'openai' ? 'sk-...' : activeProvider?.id === 'deepgram' ? 'Token...' : 'gsk_...'}
-                autoComplete="off"
-                spellCheck={false}
-                className="w-full rounded-xl border border-vaani-gray-200 bg-vaani-gray-50 px-4 py-2.5 pr-11 text-sm text-vaani-black outline-none transition-all focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 dark:border-vaani-gray-700 dark:bg-vaani-gray-800 dark:text-white placeholder:text-vaani-gray-400"
-              />
-              <button
-                type="button"
-                onClick={onToggleShow}
-                aria-label={showApiKey ? "Hide API key" : "Show API key"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-vaani-gray-400 hover:text-vaani-gray-600 dark:hover:text-vaani-gray-200 transition-colors"
-              >
+              <Input type={showApiKey ? "text" : "password"} value={apiKey} onChange={(e) => onKeyChange(e.target.value)} autoComplete="off" spellCheck={false}
+                placeholder={activeProvider?.id === "openai" ? "sk-..." : activeProvider?.id === "deepgram" ? "Token..." : "gsk_..."} className="pr-11 font-mono" />
+              <button type="button" onClick={onToggleShow} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
                 {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
         )}
 
-        <div className="h-px bg-vaani-gray-100 dark:bg-vaani-gray-800" />
+        <div className="h-px bg-line" />
 
-        {/* Formatting Provider selector */}
         <div>
-          <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1 text-left">
-            Formatting Provider
-          </label>
-          <div className="relative">
-            <button
-              onClick={() => setLlmProvOpen(!llmProvOpen)}
-              className="w-full flex items-center justify-between px-4 py-2.5 bg-vaani-gray-50 dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl text-sm text-vaani-black dark:text-white hover:border-vaani-gray-300 transition-colors"
-            >
-              {activeLlm?.name ?? 'Select provider'}
-              <ChevronRight size={14} className={`text-vaani-gray-400 transition-transform ${llmProvOpen ? 'rotate-90' : ''}`} />
-            </button>
-            {llmProvOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setLlmProvOpen(false)} />
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-vaani-gray-800 border border-vaani-gray-200 dark:border-vaani-gray-700 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto">
-                  {llmProviders.map((p) => (
-                    <button key={p.id}
-                      onClick={() => { onLlmProviderChange(p.id); setLlmProvOpen(false) }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-vaani-gray-50 dark:hover:bg-vaani-gray-700 transition-colors flex items-center justify-between ${
-                        settings.formattingProvider === p.id ? 'text-vaani-pink font-medium' : 'text-vaani-black dark:text-white'
-                      }`}
-                    >
-                      {p.name}
-                      {settings.formattingProvider === p.id && <CheckCircle2 size={14} className="text-vaani-pink" />}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+          <label className="mb-1 block text-xs font-medium text-muted">Formatting Provider</label>
+          <Select value={settings.formattingProvider} onChange={onLlmProviderChange} options={llmProviders.map((p) => ({ value: p.id, label: p.name }))} />
         </div>
 
-        {/* LLM API key input — only for non-excluded providers */}
         {showLlmKeyInput && (
           <div>
-            <label className="block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400 mb-1 text-left">
-              {activeLlm?.name ?? 'Provider'} API Key
-            </label>
+            <label className="mb-1 block text-xs font-medium text-muted">{activeLlm?.name ?? "Provider"} API Key</label>
             <div className="relative">
-              <input
-                type={showLlmApiKey ? "text" : "password"}
-                value={llmApiKey}
-                onChange={(e) => onLlmKeyChange(e.target.value)}
-                placeholder={activeLlm?.id === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
-                autoComplete="off"
-                spellCheck={false}
-                className="w-full rounded-xl border border-vaani-gray-200 bg-vaani-gray-50 px-4 py-2.5 pr-11 text-sm text-vaani-black outline-none transition-all focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 dark:border-vaani-gray-700 dark:bg-vaani-gray-800 dark:text-white placeholder:text-vaani-gray-400"
-              />
-              <button
-                type="button"
-                onClick={onToggleLlmShow}
-                aria-label={showLlmApiKey ? "Hide LLM API key" : "Show LLM API key"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-vaani-gray-400 hover:text-vaani-gray-600 dark:hover:text-vaani-gray-200 transition-colors"
-              >
+              <Input type={showLlmApiKey ? "text" : "password"} value={llmApiKey} onChange={(e) => onLlmKeyChange(e.target.value)} autoComplete="off" spellCheck={false}
+                placeholder={activeLlm?.id === "anthropic" ? "sk-ant-..." : "sk-..."} className="pr-11 font-mono" />
+              <button type="button" onClick={onToggleLlmShow} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
                 {showLlmApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
@@ -819,95 +371,54 @@ function ProviderApiSlide({
         )}
 
         {isValid && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex items-center gap-2 rounded-xl bg-vaani-lime/10 px-3 py-2 text-xs font-medium text-vaani-black dark:text-vaani-lime"
-          >
-            <CheckCircle2 size={13} />
-            API key saved — you're ready to dictate
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex items-center gap-2 rounded-xl bg-accent/10 px-3 py-2 text-xs font-medium text-accent">
+            <CheckCircle2 size={13} /> API key saved — you&apos;re ready to dictate
           </motion.div>
         )}
 
-        <div className="rounded-xl border border-vaani-gray-100 bg-vaani-gray-50/50 p-4 text-left dark:border-vaani-gray-800 dark:bg-vaani-gray-900/50">
-          <p className="mb-2 text-xs font-semibold text-vaani-gray-600 dark:text-vaani-gray-300">
-            How to get a Groq key (free)
-          </p>
-          <ol className="space-y-1 text-xs text-vaani-gray-500 dark:text-vaani-gray-400 list-decimal list-inside">
-            <li>Go to <span className="font-medium text-vaani-gray-700 dark:text-vaani-gray-200">console.groq.com</span></li>
+        <div className="rounded-xl border border-line bg-surface p-4">
+          <p className="mb-2 text-xs font-semibold text-ink">How to get a Groq key (free)</p>
+          <ol className="list-inside list-decimal space-y-1 text-xs text-muted">
+            <li>Go to <span className="font-medium text-ink">console.groq.com</span></li>
             <li>Sign up or log in</li>
-            <li>Navigate to <span className="font-medium text-vaani-gray-700 dark:text-vaani-gray-200">API Keys</span> and create one</li>
+            <li>Navigate to <span className="font-medium text-ink">API Keys</span> and create one</li>
             <li>Paste it above</li>
           </ol>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }
 
-/* ─── Slide 5: Hotkey Setup ────────────────────────────────────────────────── */
-
-const HOTKEY_MOD_SYMBOL: Record<string, string> = {
-  Cmd: "⌘", Ctrl: "⌃", Option: "⌥", Shift: "⇧",
-};
+const HOTKEY_MOD_SYMBOL: Record<string, string> = { Cmd: "⌘", Ctrl: "⌃", Option: "⌥", Shift: "⇧" };
 const HOTKEY_MODIFIER_KEYS = new Set(["Meta", "Control", "Alt", "Shift"]);
-const HOTKEY_MODIFIER_LABEL: Record<string, string> = {
-  Meta: "Cmd", Control: "Ctrl", Alt: "Option", Shift: "Shift",
-};
+const HOTKEY_MODIFIER_LABEL: Record<string, string> = { Meta: "Cmd", Control: "Ctrl", Alt: "Option", Shift: "Shift" };
 
-function HotkeySlide({
-  primaryHotkey,
-  onChange,
-}: {
-  primaryHotkey: string;
-  onChange: (v: string) => void;
-}) {
+function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onChange: (v: string) => void }) {
   const [isEditing, setIsEditing] = useState(false);
   const [preview, setPreview] = useState<string[]>([]);
 
-  const stopEditing = useCallback(() => {
-    void window.vaani.setHotkeyCapture(false);
-    setIsEditing(false);
-    setPreview([]);
-  }, []);
-
-  const startEditing = useCallback(() => {
-    void window.vaani.setHotkeyCapture(true);
-    setPreview([]);
-    setIsEditing(true);
-  }, []);
+  const stopEditing = useCallback(() => { void window.vaani.setHotkeyCapture(false); setIsEditing(false); setPreview([]); }, []);
+  const startEditing = useCallback(() => { void window.vaani.setHotkeyCapture(true); setPreview([]); setIsEditing(true); }, []);
 
   useEffect(() => {
     if (!isEditing) return;
-
     const onKeyDown = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       if (e.key === "Escape") { stopEditing(); return; }
-
       const mods: string[] = [];
       if (e.metaKey) mods.push("Cmd");
       if (e.ctrlKey) mods.push("Ctrl");
       if (e.altKey) mods.push("Option");
       if (e.shiftKey) mods.push("Shift");
-
-      if (HOTKEY_MODIFIER_KEYS.has(e.key)) {
-        setPreview([HOTKEY_MODIFIER_LABEL[e.key] ?? e.key]);
-        return;
-      }
-
+      if (HOTKEY_MODIFIER_KEYS.has(e.key)) { setPreview([HOTKEY_MODIFIER_LABEL[e.key] ?? e.key]); return; }
       const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-      const parts = [...mods, key];
-      onChange(parts.join("+"));
+      onChange([...mods, key].join("+"));
       stopEditing();
     };
-
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("blur", stopEditing);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("blur", stopEditing);
-    };
+    return () => { window.removeEventListener("keydown", onKeyDown, true); window.removeEventListener("blur", stopEditing); };
   }, [isEditing, onChange, stopEditing]);
 
   useEffect(() => () => { void window.vaani.setHotkeyCapture(false); }, []);
@@ -916,153 +427,61 @@ function HotkeySlide({
 
   return (
     <div className="flex flex-col items-center text-center">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20"
-      >
-        <Keyboard size={26} />
-      </motion.div>
+      <SlideIcon tone="bg-accent/10 text-accent"><Keyboard size={26} /></SlideIcon>
+      <h2 className="text-display mb-2 text-3xl text-ink">Your Shortcut</h2>
+      <p className="mb-8 text-sm text-muted">Choose the key combination you will press to start dictating.</p>
 
-      <h2 className="mb-2 text-2xl font-bold text-vaani-black dark:text-white">
-        Your Shortcut
-      </h2>
-      <p className="mb-8 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-        Choose the key combination you will press to start dictating.
-      </p>
-
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-        className="w-full rounded-2xl border border-vaani-gray-100 bg-vaani-gray-50/50 p-5 dark:border-vaani-gray-800 dark:bg-vaani-gray-900/50"
-      >
+      <div className="w-full rounded-2xl border border-line bg-surface p-5">
         {!isEditing ? (
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               {displayKeys.map((k, i) => (
                 <span key={i} className="inline-flex items-center gap-1">
-                  <span className="inline-flex items-center justify-center rounded-lg border-2 border-vaani-gray-300 bg-vaani-gray-100 px-2.5 py-1.5 text-sm font-bold text-vaani-black dark:border-vaani-gray-600 dark:bg-vaani-gray-800 dark:text-white min-w-[36px]">
-                    {HOTKEY_MOD_SYMBOL[k] ?? k}
-                  </span>
-                  {i < displayKeys.length - 1 && (
-                    <span className="text-xs text-vaani-gray-400 dark:text-vaani-gray-500">+</span>
-                  )}
+                  <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg border border-line bg-bg px-2.5 py-1.5 font-mono text-sm font-bold text-ink">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
+                  {i < displayKeys.length - 1 && <span className="text-xs text-faint">+</span>}
                 </span>
               ))}
             </div>
-            <button
-              onClick={startEditing}
-              className="flex items-center gap-1.5 rounded-xl bg-vaani-gray-100 px-3 py-2 text-sm font-medium text-vaani-gray-600 transition-colors hover:bg-vaani-gray-200 dark:bg-vaani-gray-800 dark:text-vaani-gray-300 dark:hover:bg-vaani-gray-700"
-            >
-              <Pencil size={14} />
-              Change
-            </button>
+            <Button variant="soft" size="sm" onClick={startEditing}><Pencil size={14} /> Change</Button>
           </div>
         ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-vaani-pink">
-                Press your new shortcut…
-              </p>
-              <button
-                onClick={stopEditing}
-                className="text-xs text-vaani-gray-400 hover:text-vaani-gray-600 dark:hover:text-vaani-gray-200 transition-colors"
-              >
-                Cancel
-              </button>
+              <p className="text-sm font-semibold text-accent">Press your new shortcut…</p>
+              <button onClick={stopEditing} className="text-xs text-muted transition-colors hover:text-ink">Cancel</button>
             </div>
             <div className="flex min-h-[40px] items-center gap-1.5">
-              {preview.length > 0 ? (
-                preview.map((k, i) => (
-                  <span key={i} className="inline-flex items-center justify-center rounded-lg border-2 border-vaani-pink bg-vaani-pink/10 px-2.5 py-1.5 text-sm font-bold text-vaani-pink min-w-[36px]">
-                    {HOTKEY_MOD_SYMBOL[k] ?? k}
-                  </span>
-                ))
-              ) : (
-                <span className="text-xs text-vaani-gray-400 dark:text-vaani-gray-500">
-                  Hold modifiers (⌃⌥⇧⌘) then press a key
-                </span>
-              )}
+              {preview.length > 0 ? preview.map((k, i) => (
+                <span key={i} className="inline-flex min-w-[36px] items-center justify-center rounded-lg border border-accent bg-accent/10 px-2.5 py-1.5 font-mono text-sm font-bold text-accent">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
+              )) : <span className="text-xs text-faint">Hold modifiers (⌃⌥⇧⌘) then press a key</span>}
             </div>
           </div>
         )}
-        <p className="mt-3 text-xs text-vaani-gray-400 dark:text-vaani-gray-500 text-left">
-          <Volume2 size={10} className="inline mr-1" />
-          You can also change this anytime in Settings
-        </p>
-      </motion.div>
+        <p className="mt-3 text-left text-xs text-faint"><Volume2 size={10} className="mr-1 inline" /> You can also change this anytime in Settings</p>
+      </div>
     </div>
   );
 }
 
-/* ─── Slide 6: Features ────────────────────────────────────────────────────── */
-
 function FeaturesSlide() {
   const features = [
-    {
-      icon: <Sparkles size={18} />,
-      title: "Smart Cleanup",
-      desc: "Removes filler words and adds punctuation automatically.",
-      color: "bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20",
-    },
-    {
-      icon: <BookOpen size={18} />,
-      title: "Custom Dictionary",
-      desc: "Teach Vaani names, brands, and words you use often.",
-      color: "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
-    },
-    {
-      icon: <FileText size={18} />,
-      title: "Snippets",
-      desc: "Type shortcuts like /address to expand full text blocks.",
-      color: "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-    },
-    {
-      icon: <BarChart3 size={18} />,
-      title: "History & Insights",
-      desc: "Track your dictation habits, word counts, and streaks.",
-      color: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400",
-    },
+    { icon: <Sparkles size={18} />, title: "Smart Cleanup", desc: "Removes filler words and adds punctuation automatically.", tone: "bg-accent/10 text-accent" },
+    { icon: <BookOpen size={18} />, title: "Custom Dictionary", desc: "Teach Vaani names, brands, and words you use often.", tone: "bg-accent/10 text-accent" },
+    { icon: <FileText size={18} />, title: "Snippets", desc: "Type shortcuts like /address to expand full text blocks.", tone: "bg-accent/10 text-accent" },
+    { icon: <BarChart3 size={18} />, title: "History & Insights", desc: "Track your dictation habits, word counts, and streaks.", tone: "bg-accent/10 text-accent" },
   ];
-
   return (
     <div className="flex flex-col items-center text-center">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-vaani-lime/20 text-vaani-black dark:text-vaani-lime dark:bg-vaani-lime/20"
-      >
-        <Sparkles size={26} />
-      </motion.div>
-
-      <h2 className="mb-2 text-2xl font-bold text-vaani-black dark:text-white">
-        Power Features
-      </h2>
-      <p className="mb-8 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-        Explore these anytime from the sidebar.
-      </p>
-
+      <SlideIcon tone="bg-accent/10 text-accent"><Sparkles size={26} /></SlideIcon>
+      <h2 className="text-display mb-2 text-3xl text-ink">Power Features</h2>
+      <p className="mb-8 text-sm text-muted">Explore these anytime from the sidebar.</p>
       <div className="grid w-full grid-cols-2 gap-3">
         {features.map((f, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 * i }}
-            className="flex flex-col items-start rounded-2xl border border-vaani-gray-100 bg-vaani-gray-50/50 p-4 text-left dark:border-vaani-gray-800 dark:bg-vaani-gray-900/50"
-          >
-            <div
-              className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${f.color}`}
-            >
-              {f.icon}
-            </div>
-            <div className="text-sm font-semibold text-vaani-black dark:text-white">
-              {f.title}
-            </div>
-            <div className="mt-1 text-xs leading-relaxed text-vaani-gray-500 dark:text-vaani-gray-400">
-              {f.desc}
-            </div>
+          <motion.div key={i} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 * i }}
+            className="flex flex-col items-start rounded-2xl border border-line bg-surface p-4 text-left">
+            <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${f.tone}`}>{f.icon}</div>
+            <div className="text-sm font-semibold text-ink">{f.title}</div>
+            <div className="mt-1 text-xs leading-relaxed text-muted">{f.desc}</div>
           </motion.div>
         ))}
       </div>
@@ -1070,17 +489,11 @@ function FeaturesSlide() {
   );
 }
 
-/* ─── Slide 7: Demo ────────────────────────────────────────────────────────── */
-
 const DEMO_EXAMPLE_PHRASE = "Vaani makes dictation feel effortless.";
 
 function demoHotkeyHint(mode: DictationMode): string {
-  if (mode === "push-to-talk") {
-    return "Hold your shortcut while you speak, then release.";
-  }
-  if (mode === "toggle-double") {
-    return "Double-press your shortcut to start, speak, then double-press again to stop.";
-  }
+  if (mode === "push-to-talk") return "Hold your shortcut while you speak, then release.";
+  if (mode === "toggle-double") return "Double-press your shortcut to start, speak, then double-press again to stop.";
   return "Press your shortcut to start, speak, then press again to stop.";
 }
 
@@ -1089,35 +502,21 @@ function HotkeyBadges({ keys }: { keys: string[] }) {
     <div className="flex flex-wrap items-center justify-center gap-1.5">
       {keys.map((k, i) => (
         <span key={i} className="inline-flex items-center gap-1">
-          {i > 0 && (
-            <span className="text-xs font-medium text-vaani-gray-400 dark:text-vaani-gray-500">
-              +
-            </span>
-          )}
-          <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg border-2 border-vaani-gray-200 bg-white px-2.5 py-1.5 text-sm font-bold text-vaani-black dark:border-vaani-gray-600 dark:bg-vaani-gray-800 dark:text-white">
-            {HOTKEY_MOD_SYMBOL[k] ?? k}
-          </span>
+          {i > 0 && <span className="text-xs font-medium text-faint">+</span>}
+          <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg border border-line bg-bg px-2.5 py-1.5 font-mono text-sm font-bold text-ink">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
         </span>
       ))}
     </div>
   );
 }
 
-function DemoSlide({
-  primaryHotkey,
-  dictationMode,
-}: {
-  primaryHotkey: string;
-  dictationMode: DictationMode;
-}) {
+function DemoSlide({ primaryHotkey, dictationMode }: { primaryHotkey: string; dictationMode: DictationMode }) {
   const [practicePhrase, setPracticePhrase] = useState("");
   const [transcription, setTranscription] = useState("");
   const [phase, setPhase] = useState<"idle" | "active" | "transcribing">("idle");
   const [error, setError] = useState("");
-
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
   const displayKeys = primaryHotkey.split("+").filter(Boolean);
 
   const startRecording = useCallback(async () => {
@@ -1127,18 +526,13 @@ function DemoSlide({
       const recorder = new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       const chunks: Blob[] = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
       recorder.onstop = async () => {
         setPhase("transcribing");
         try {
           const blob = new Blob(chunks, { type: recorder.mimeType });
           const clip = await blobToClip(blob);
-          const text = await window.vaani.demoTranscribe(clip);
-          setTranscription(text);
+          setTranscription(await window.vaani.demoTranscribe(clip));
         } catch (err) {
           setError(err instanceof Error ? err.message : "Demo transcription failed");
         } finally {
@@ -1147,272 +541,111 @@ function DemoSlide({
           streamRef.current = null;
         }
       };
-
       recorder.start();
-      setPhase("active");
-      setError("");
-      setTranscription("");
+      setPhase("active"); setError(""); setTranscription("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not access microphone");
     }
   }, []);
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback(() => { mediaRecorderRef.current?.stop(); }, []);
+
+  useEffect(() => () => {
     mediaRecorderRef.current?.stop();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
   }, []);
 
-  useEffect(() => {
-    return () => {
-      mediaRecorderRef.current?.stop();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
-
-  const statusLabel =
-    phase === "active"
-      ? "Listening…"
-      : phase === "transcribing"
-      ? "Transcribing…"
-      : transcription
-      ? "Done — try again anytime"
-      : "Press Record to try your shortcut";
-
+  const statusLabel = phase === "active" ? "Listening…" : phase === "transcribing" ? "Transcribing…" : transcription ? "Done — try again anytime" : "Press Record to try your shortcut";
   const isRecording = phase === "active";
 
   return (
     <div className="flex w-full flex-col items-center text-center">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20"
-      >
-        <Keyboard size={24} />
-      </motion.div>
+      <SlideIcon tone="bg-accent/10 text-accent"><Keyboard size={24} /></SlideIcon>
+      <h2 className="text-display mb-1 text-3xl text-ink">Try Your Shortcut</h2>
+      <p className="mb-4 text-sm text-muted">Press Record and speak your phrase — just like real dictation.</p>
 
-      <h2 className="mb-1 text-2xl font-bold text-vaani-black dark:text-white">
-        Try Your Shortcut
-      </h2>
-      <p className="mb-4 text-sm text-vaani-gray-500 dark:text-vaani-gray-400">
-        Press Record and speak your phrase — just like real dictation.
-      </p>
-
-      <div className="mb-4 w-full rounded-2xl border border-vaani-gray-100 bg-vaani-gray-50/50 p-4 dark:border-vaani-gray-800 dark:bg-vaani-gray-900/50">
+      <div className="mb-4 w-full rounded-2xl border border-line bg-surface p-4">
         <HotkeyBadges keys={displayKeys} />
-        <p className="mt-3 text-xs leading-relaxed text-vaani-gray-500 dark:text-vaani-gray-400">
-          {demoHotkeyHint(dictationMode)}
-        </p>
-
-        <button
-          type="button"
-          onClick={isRecording ? stopRecording : startRecording}
-          disabled={phase === "transcribing"}
-          className={`mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all ${
-            isRecording
-              ? "bg-red-500 text-white shadow-lg shadow-red-500/25 hover:bg-red-600"
-              : phase === "transcribing"
-              ? "cursor-wait bg-vaani-gray-200 text-vaani-gray-500 dark:bg-vaani-gray-700 dark:text-vaani-gray-400"
-              : "bg-vaani-pink text-white shadow-lg shadow-vaani-pink/25 hover:bg-vaani-pink/90"
-          }`}
-        >
+        <p className="mt-3 text-xs leading-relaxed text-muted">{demoHotkeyHint(dictationMode)}</p>
+        <button type="button" onClick={isRecording ? stopRecording : startRecording} disabled={phase === "transcribing"}
+          className={`mt-3 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+            isRecording ? "bg-red-500 text-white hover:bg-red-600" : phase === "transcribing" ? "cursor-wait bg-line text-faint" : "bg-accent text-white hover:bg-accent-strong"
+          }`}>
           {isRecording ? (
-            <>
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
-              </span>
-              Stop
-            </>
+            <><span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" /></span> Stop</>
           ) : phase === "transcribing" ? (
-            <>
-              <Loader2 size={14} className="animate-spin" />
-              Transcribing…
-            </>
+            <><Loader2 size={14} className="animate-spin-ui" /> Transcribing…</>
           ) : (
-            <>
-              <Mic size={14} />
-              Record
-            </>
+            <><Mic size={14} /> Record</>
           )}
         </button>
-
-        <p
-          className={`mt-2 text-xs font-medium ${
-            phase === "active"
-              ? "animate-pulse text-vaani-pink"
-              : phase === "transcribing"
-              ? "text-vaani-gray-500 dark:text-vaani-gray-400"
-              : transcription
-              ? "text-vaani-lime dark:text-vaani-lime"
-              : "text-vaani-gray-400 dark:text-vaani-gray-500"
-          }`}
-        >
-          {phase === "transcribing" && (
-            <Loader2 size={12} className="mr-1 inline animate-spin" />
-          )}
-          {statusLabel}
-        </p>
+        <p className={`mt-2 text-xs font-medium ${phase === "active" ? "animate-pulse text-accent" : phase === "transcribing" ? "text-muted" : transcription ? "text-accent" : "text-faint"}`}>{statusLabel}</p>
       </div>
 
       <div className="mb-3 w-full text-left">
         <div className="mb-1 flex items-center justify-between">
-          <label className="text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400">
-            Phrase to dictate
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              setPracticePhrase(DEMO_EXAMPLE_PHRASE);
-              setTranscription("");
-              setError("");
-            }}
-            className="text-xs font-medium text-vaani-pink transition-colors hover:text-vaani-pink/80"
-          >
-            Use example
-          </button>
+          <label className="text-xs font-medium text-muted">Phrase to dictate</label>
+          <button type="button" onClick={() => { setPracticePhrase(DEMO_EXAMPLE_PHRASE); setTranscription(""); setError(""); }} className="text-xs font-medium text-accent transition-colors hover:text-accent-strong">Use example</button>
         </div>
-        <textarea
-          value={practicePhrase}
-          onChange={(e) => setPracticePhrase(e.target.value)}
-          placeholder={DEMO_EXAMPLE_PHRASE}
-          rows={2}
-          className="w-full resize-none rounded-xl border border-vaani-gray-200 bg-white px-4 py-2.5 text-sm text-vaani-black outline-none transition-all placeholder:text-vaani-gray-400 focus:border-vaani-pink focus:ring-2 focus:ring-vaani-pink/20 dark:border-vaani-gray-700 dark:bg-vaani-gray-800 dark:text-white"
-        />
-        <p className="mt-1 text-xs text-vaani-gray-400 dark:text-vaani-gray-500">
-          Type your own phrase or use the example, then press Record.
-        </p>
+        <textarea value={practicePhrase} onChange={(e) => setPracticePhrase(e.target.value)} placeholder={DEMO_EXAMPLE_PHRASE} rows={2}
+          className="w-full resize-none rounded-2xl border border-line bg-bg px-4 py-2.5 text-sm text-ink outline-none transition-all placeholder:text-faint focus:border-accent" />
       </div>
 
       {(transcription || phase === "transcribing") && (
         <div className="w-full text-left">
-          <label className="mb-1 block text-xs font-medium text-vaani-gray-500 dark:text-vaani-gray-400">
-            Transcription
-          </label>
-          <div className="min-h-[52px] rounded-xl border border-vaani-gray-100 bg-vaani-gray-50/80 px-4 py-2.5 text-sm leading-relaxed text-vaani-black dark:border-vaani-gray-800 dark:bg-vaani-gray-900/80 dark:text-white">
-            {phase === "transcribing" ? (
-              <span className="inline-flex items-center gap-2 text-vaani-gray-500 dark:text-vaani-gray-400">
-                <Loader2 size={14} className="animate-spin" />
-                Transcribing…
-              </span>
-            ) : (
-              transcription
-            )}
+          <label className="mb-1 block text-xs font-medium text-muted">Transcription</label>
+          <div className="min-h-[52px] rounded-2xl border border-line bg-surface px-4 py-2.5 text-sm leading-relaxed text-ink">
+            {phase === "transcribing" ? <span className="inline-flex items-center gap-2 text-muted"><Loader2 size={14} className="animate-spin-ui" /> Transcribing…</span> : transcription}
           </div>
         </div>
       )}
 
       {error && (
-        <motion.div
-          initial={{ opacity: 0, y: 5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-3 w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left dark:border-red-900/40 dark:bg-red-900/20"
-        >
-          <p className="text-xs leading-relaxed text-red-700 dark:text-red-300">{error}</p>
+        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="mt-3 w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-left">
+          <p className="text-xs leading-relaxed text-red-600">{error}</p>
         </motion.div>
       )}
     </div>
   );
 }
 
-/* ─── Slide 8: Ready ───────────────────────────────────────────────────────── */
-
-function ReadySlide({ onComplete: _onComplete }: { onComplete: () => Promise<void> }) {
+function ReadySlide() {
   return (
     <div className="flex flex-col items-center text-center">
-      <motion.div
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
-        className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-vaani-lime/20 text-vaani-black dark:text-vaani-lime dark:bg-vaani-lime/20"
-      >
+      <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
+        className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-accent/10 text-accent">
         <CheckCircle2 size={36} />
       </motion.div>
-
-      <motion.h2
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="mb-2 text-2xl font-bold text-vaani-black dark:text-white"
-      >
-        You are all set!
-      </motion.h2>
-
-      <motion.p
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="max-w-xs text-sm leading-relaxed text-vaani-gray-500 dark:text-vaani-gray-400"
-      >
-        Press your hotkey anytime to start dictating. Vaani is ready when you
-        are.
-      </motion.p>
-
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="mt-8 flex items-center gap-3 rounded-2xl border border-vaani-gray-100 bg-vaani-gray-50/50 px-5 py-4 dark:border-vaani-gray-800 dark:bg-vaani-gray-900/50"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-vaani-pink/10 text-vaani-pink dark:bg-vaani-pink/20">
-          <History size={18} />
-        </div>
+      <h2 className="text-display mb-2 text-3xl text-ink">You are all set!</h2>
+      <p className="max-w-xs text-sm leading-relaxed text-muted">Press your hotkey anytime to start dictating. Vaani is ready when you are.</p>
+      <div className="mt-8 flex items-center gap-3 rounded-2xl border border-line bg-surface px-5 py-4">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10 text-accent"><History size={18} /></div>
         <div className="text-left">
-          <div className="text-sm font-medium text-vaani-black dark:text-white">
-            Reopen this guide
-          </div>
-          <div className="text-xs text-vaani-gray-500 dark:text-vaani-gray-400">
-            Settings → Reset Onboarding
-          </div>
+          <div className="text-sm font-medium text-ink">Reopen this guide</div>
+          <div className="text-xs text-muted">Settings → Reset Onboarding</div>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }
 
-/* ─── Permission Row (reused) ──────────────────────────────────────────────── */
-
 function PermissionRow({
-  icon,
-  title,
-  description,
-  granted,
-  disabled,
-  actionLabel,
-  onAction,
+  icon, title, description, granted, disabled, actionLabel, onAction,
 }: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  granted: boolean;
-  disabled: boolean;
-  actionLabel: string;
-  onAction: () => void;
+  icon: React.ReactNode; title: string; description: string; granted: boolean; disabled: boolean; actionLabel: string; onAction: () => void;
 }) {
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-vaani-gray-100 bg-white p-4 dark:border-vaani-gray-800 dark:bg-vaani-gray-900/30">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-vaani-gray-100 text-vaani-gray-600 dark:bg-vaani-gray-800 dark:text-vaani-gray-300">
-        {icon}
-      </div>
+    <div className="flex items-center gap-4 rounded-2xl border border-line bg-bg p-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface text-muted">{icon}</div>
       <div className="min-w-0 flex-1 text-left">
-        <div className="text-sm font-semibold text-vaani-black dark:text-white">
-          {title}
-        </div>
-        <p className="text-xs leading-snug text-vaani-gray-500 dark:text-vaani-gray-400">
-          {description}
-        </p>
+        <div className="text-sm font-semibold text-ink">{title}</div>
+        <p className="text-xs leading-snug text-muted">{description}</p>
       </div>
       {granted ? (
-        <div className="flex items-center gap-1.5 rounded-lg bg-vaani-lime/15 px-3 py-2 text-sm font-semibold text-vaani-black dark:text-vaani-lime">
-          <CheckCircle2 size={15} />
-          Enabled
-        </div>
+        <div className="flex items-center gap-1.5 rounded-full bg-accent/10 px-3 py-2 text-sm font-semibold text-accent"><CheckCircle2 size={15} /> Enabled</div>
       ) : (
-        <button
-          onClick={onAction}
-          disabled={disabled}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-vaani-pink px-3 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
-        >
-          {disabled && <Loader2 size={14} className="animate-spin" />}
-          {actionLabel}
+        <button onClick={onAction} disabled={disabled} className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50">
+          {disabled && <Loader2 size={14} className="animate-spin-ui" />} {actionLabel}
         </button>
       )}
     </div>

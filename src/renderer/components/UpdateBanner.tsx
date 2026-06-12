@@ -12,39 +12,32 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
   const isDismissable = status === "no-update" || status === "error";
 
   let icon: React.ReactNode;
-  let bgClass: string;
-  let textClass: string;
+  let toneClass: string;
 
   switch (status) {
     case "checking":
-      icon = <RefreshCw size={16} className="animate-spin" />;
-      bgClass = "bg-vaani-gray-100 dark:bg-vaani-gray-800 border-vaani-gray-200 dark:border-vaani-gray-700";
-      textClass = "text-vaani-gray-600 dark:text-vaani-gray-300";
+      icon = <RefreshCw size={15} className="animate-spin-ui" />;
+      toneClass = "bg-surface text-muted";
       break;
     case "downloading":
-      icon = <Download size={16} className="animate-bounce" />;
-      bgClass = "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800";
-      textClass = "text-blue-700 dark:text-blue-300";
+      icon = <Download size={15} />;
+      toneClass = "bg-accent/10 text-accent";
       break;
     case "ready":
-      icon = <ArrowUpCircle size={16} />;
-      bgClass = "bg-vaani-pink/10 border-vaani-pink/30";
-      textClass = "text-vaani-pink";
+      icon = <ArrowUpCircle size={15} />;
+      toneClass = "bg-accent/10 text-accent";
       break;
     case "no-update":
-      icon = <ArrowUpCircle size={16} />;
-      bgClass = "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800";
-      textClass = "text-green-700 dark:text-green-300";
+      icon = <ArrowUpCircle size={15} />;
+      toneClass = "bg-accent/10 text-accent";
       break;
     case "error":
-      icon = <X size={16} />;
-      bgClass = "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800";
-      textClass = "text-red-700 dark:text-red-300";
+      icon = <X size={15} />;
+      toneClass = "bg-red-50 text-red-600";
       break;
     default:
       icon = null;
-      bgClass = "bg-vaani-gray-100 dark:bg-vaani-gray-800 border-vaani-gray-200 dark:border-vaani-gray-700";
-      textClass = "text-vaani-gray-600 dark:text-vaani-gray-300";
+      toneClass = "bg-surface text-muted";
   }
 
   return (
@@ -53,28 +46,24 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
         initial={{ opacity: 0, y: -12, height: 0 }}
         animate={{ opacity: 1, y: 0, height: "auto" }}
         exit={{ opacity: 0, y: -12, height: 0 }}
-        className="mx-6 lg:mx-8"
+        className="mx-6 mt-4 lg:mx-12"
       >
-        <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border ${bgClass} ${textClass} text-sm`}>
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className={`flex items-center justify-between gap-3 rounded-2xl px-4 py-2.5 text-sm ${toneClass}`}>
+          <div className="flex min-w-0 items-center gap-2.5">
             {icon}
-            <span className="truncate">{message}</span>
+            <span className="truncate font-medium">{message}</span>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
             {status === "ready" && version && (
               <button
                 onClick={() => window.vaani.quitAndInstall()}
-                className="px-3 py-1 bg-vaani-pink text-white rounded-lg text-xs font-medium hover:bg-vaani-pink/90 transition-colors"
+                className="rounded-full bg-ink px-3 py-1 text-xs font-semibold text-bg transition-opacity hover:opacity-90"
               >
                 Restart
               </button>
             )}
             {isDismissable && (
-              <button
-                onClick={onDismiss}
-                aria-label="Dismiss update notification"
-                className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-              >
+              <button onClick={onDismiss} aria-label="Dismiss" className="rounded-full p-1 transition-colors hover:bg-ink/10">
                 <X size={14} />
               </button>
             )}

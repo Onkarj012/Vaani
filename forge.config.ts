@@ -33,12 +33,12 @@ const config: ForgeConfig = {
   },
   packagerConfig: {
     asar: true,
-    appBundleId: "com.claudevaani.app",
+    appBundleId: "com.onkarj012.vaani",
     appCategoryType: "public.app-category.productivity",
     icon: "assets/icon",
     name: "Vaani",
     executableName: "Vaani",
-    appCopyright: "© 2025 Anthropic",
+    appCopyright: "© 2026 Onkarj012",
     darwinDarkModeSupport: true,
     extendInfo: {
       NSMicrophoneUsageDescription: "Vaani uses the microphone to record your speech for dictation.",
@@ -68,7 +68,7 @@ const config: ForgeConfig = {
   },
   makers: [
     new MakerZIP({}, ["darwin"]),
-new MakerDMG({
+    new MakerDMG({
       format: "ULFO"
     })
   ],
