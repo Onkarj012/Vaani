@@ -17,6 +17,29 @@ import { Button } from "@/components/ui/button";
 
 const EXCLUDED_LLM_KEY_PROVIDERS = new Set(["openai-llm", "openrouter", "groq-llm"]);
 const TOTAL_SLIDES = 8;
+const ONBOARDING_LANGUAGES = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "en", label: "English" },
+  { value: "hi", label: "Hindi" },
+  { value: "hinglish", label: "Hinglish" },
+  { value: "ta", label: "Tamil" },
+  { value: "pa", label: "Punjabi" },
+  { value: "mr", label: "Marathi" },
+  { value: "bn", label: "Bengali" },
+  { value: "gu", label: "Gujarati" },
+  { value: "te", label: "Telugu" },
+  { value: "kn", label: "Kannada" },
+  { value: "ml", label: "Malayalam" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "ja", label: "Japanese" },
+  { value: "zh", label: "Chinese" },
+  { value: "ko", label: "Korean" },
+  { value: "ar", label: "Arabic" },
+  { value: "pt", label: "Portuguese" },
+  { value: "ru", label: "Russian" },
+];
 
 interface OnboardingModalProps {
   settings: Settings;
@@ -141,6 +164,7 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
         const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === v);
         setLlmApiKey(entry?.key ?? "");
       }}
+      onLanguageChange={(v) => { void updateSettings({ language: v }); }}
     />,
     <HotkeySlide key="hotkey" primaryHotkey={settings.primaryHotkey} onChange={(v) => updateSettings({ primaryHotkey: v })} />,
     <FeaturesSlide key="features" />,
@@ -294,7 +318,7 @@ function PermissionsSlide({
           {!accessibilityGranted && (
             <div className="flex w-full flex-col items-center gap-2 rounded-xl border border-line bg-surface px-4 py-3 text-center">
               <p className="text-xs leading-relaxed text-muted">
-                Already enabled Accessibility but it still shows here? macOS sometimes only detects it after a restart.
+                Already enabled Accessibility? Click Check again. Vaani will refresh the shortcut automatically; restart only if macOS is still stuck.
               </p>
               <Button variant="soft" size="sm" onClick={() => { void window.vaani.relaunchApp() }}>Restart Vaani</Button>
             </div>
@@ -312,11 +336,12 @@ function PermissionsSlide({
 
 function ProviderApiSlide({
   settings, apiKey, showApiKey, llmApiKey, showLlmApiKey,
-  onKeyChange, onToggleShow, onProviderChange, onLlmKeyChange, onToggleLlmShow, onLlmProviderChange,
+  onKeyChange, onToggleShow, onProviderChange, onLlmKeyChange, onToggleLlmShow, onLlmProviderChange, onLanguageChange,
 }: {
   settings: Settings; apiKey: string; showApiKey: boolean; llmApiKey: string; showLlmApiKey: boolean;
   onKeyChange: (v: string) => void; onToggleShow: () => void; onProviderChange: (v: string) => void;
   onLlmKeyChange: (v: string) => void; onToggleLlmShow: () => void; onLlmProviderChange: (v: string) => void;
+  onLanguageChange: (v: string) => void;
 }) {
   const isValid = apiKey.trim().length > 0;
   const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === "stt" || p.type === "local-stt");
@@ -332,6 +357,12 @@ function ProviderApiSlide({
       <p className="mb-5 text-sm text-muted">Your keys stay on your device. Start with Groq — it&apos;s fast and free.</p>
 
       <div className="w-full space-y-3 text-left">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted">Spoken Language</label>
+          <Select value={settings.language} onChange={onLanguageChange} options={ONBOARDING_LANGUAGES} />
+          <p className="mt-1.5 text-xs text-faint">Use Auto-detect for mixed languages, or choose Hindi/Hinglish for better names and phrasing.</p>
+        </div>
+
         <div>
           <label className="mb-1 block text-xs font-medium text-muted">Transcription Provider</label>
           <Select value={settings.transcriptionProvider} onChange={onProviderChange} options={sttProviders.map((p) => ({ value: p.id, label: p.name }))} />

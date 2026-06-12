@@ -12,10 +12,6 @@ vi.mock("@main/store/settings", () => ({
   SettingsStore: class SettingsStoreMock {}
 }));
 
-vi.mock("@main/injection", () => ({
-  TextInjector: class TextInjectorMock {}
-}));
-
 vi.mock("@main/injection/accessibility", () => ({
   AccessibilityTextInjector: class AccessibilityTextInjectorMock {}
 }));

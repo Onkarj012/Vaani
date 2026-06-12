@@ -188,6 +188,7 @@ export interface UpdateNotificationPayload {
   version?: string;
   status: UpdateStatus;
   message: string;
+  installable?: boolean;
 }
 
 export interface VaaniAPI {

@@ -82,6 +82,10 @@ export class HotkeyManager {
     this.register();
   }
 
+  isPrimaryHotkeyActive(): boolean {
+    return this.usingNativeMonitor;
+  }
+
   setCaptureActive(active: boolean): void {
     if (this.captureActive === active) return;
     this.captureActive = active;

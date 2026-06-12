@@ -2,23 +2,11 @@ import Groq from "groq-sdk";
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { debug, error } from "@main/log";
+import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "../language";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
 const ATTEMPT_TIMEOUT_MS = 15_000;
-
-const TRANSCRIPTION_PROMPT: Record<string, string> = {
-  default: "",
-  hi: "नमस्ते। यह हिंदी में लिखा गया प्रतिलेख है।",
-  hinglish: "Namaste. Yeh Hinglish mein likha gaya transcript hai."
-};
-
-function buildPrompt(language: string | undefined, customPrompt: string | undefined): string {
-  return [
-    TRANSCRIPTION_PROMPT[language as keyof typeof TRANSCRIPTION_PROMPT] || TRANSCRIPTION_PROMPT.default,
-    customPrompt?.trim() ?? ""
-  ].filter(Boolean).join("\n");
-}
 
 function createWavBuffer(audio: AudioClip): Buffer {
   const dataSize = audio.pcmData.length * 2;
@@ -67,10 +55,8 @@ export const GroqSttProvider: TranscriptionProvider = {
     const arrayBuffer = wavBuffer.buffer.slice(wavBuffer.byteOffset, wavBuffer.byteOffset + wavBuffer.byteLength) as ArrayBuffer;
     const file = new File([arrayBuffer], "recording.wav", { type: "audio/wav" });
 
-    const isHinglish = options.language === "hinglish";
-    const languageCode = isHinglish ? undefined : options.language === "auto" ? undefined : options.language;
-    const whisperLang = options.language === "hinglish" ? "hi" : languageCode;
-    const prompt = buildPrompt(options.language, options.prompt);
+    const whisperLang = normalizeWhisperLanguage(options.language);
+    const prompt = buildTranscriptionPrompt(options.language, options.prompt);
 
     let lastError: Error | null = null;
 
@@ -97,7 +83,7 @@ export const GroqSttProvider: TranscriptionProvider = {
         return {
           rawText,
           formattedText: rawText,
-          language: options.language === "auto" ? "en" : (options.language ?? "en"),
+          language: resolveReportedLanguage(options.language),
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

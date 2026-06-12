@@ -11,7 +11,8 @@ import type {
   PermissionStatus,
   RecorderFailure,
   RecorderSubmission,
-  Settings
+  Settings,
+  UpdateNotificationPayload
 } from "@shared/types";
 import { DictationService } from "./dictation";
 import { HistoryStore } from "./store/history";
@@ -23,7 +24,7 @@ import { RecorderWindowController } from "./recorderWindow";
 import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { loadWhisperModel, freeWhisperModel, listDownloadedModels, isModelLoaded } from "./providers/local/whisperCpp";
-import { cachedUpdateStatus } from "./index";
+import { cachedUpdateStatus, setCachedUpdateStatus } from "./index";
 
 function isNewerVersion(latest: string, current: string): boolean {
   const parse = (v: string) => {
@@ -84,6 +85,29 @@ export function registerIpcHandlers(opts: {
   onSettingsUpdated?: (settings: Settings, patch: Partial<Settings>) => void;
 }): void {
   const { mainWindow, dictation, history, settings, hotkeys, recorder, credentials, onSettingsUpdated } = opts;
+  let lastAccessibilityGranted = getPermissionStatus().accessibility === "granted";
+  let lastPermissionHotkeyRefresh = 0;
+
+  function refreshPermissionStatus(): PermissionStatus {
+    const current = getPermissionStatus();
+    const accessibilityGranted = current.accessibility === "granted";
+    const shouldRefreshHotkeys =
+      accessibilityGranted &&
+      (!lastAccessibilityGranted || !hotkeys.isPrimaryHotkeyActive()) &&
+      Date.now() - lastPermissionHotkeyRefresh > 5_000;
+
+    lastAccessibilityGranted = accessibilityGranted;
+    if (shouldRefreshHotkeys) {
+      lastPermissionHotkeyRefresh = Date.now();
+      hotkeys.reregister();
+    }
+    return current;
+  }
+
+  function sendUpdateNotification(payload: UpdateNotificationPayload): void {
+    setCachedUpdateStatus(payload);
+    mainWindow?.webContents.send(IpcChannel.UpdateNotification, payload);
+  }
 
   ipcMain.handle(IpcChannel.GetDictationState, () => dictation.getState());
   ipcMain.handle(IpcChannel.GetHistory, () => history.getAll());
@@ -158,16 +182,18 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.ShowDictionaryPrompt, (_e, suggestions: DictionarySuggestion[]) => (
     dictation.showDictionarySuggestions(suggestions)
   ));
-  ipcMain.handle(IpcChannel.GetPermissionStatus, () => getPermissionStatus());
+  ipcMain.handle(IpcChannel.GetPermissionStatus, () => refreshPermissionStatus());
   ipcMain.handle(IpcChannel.RequestMicrophonePermission, async () => {
     await systemPreferences.askForMediaAccess("microphone");
     return normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone"));
   });
   ipcMain.handle(IpcChannel.RequestAccessibilityPermission, () => {
     systemPreferences.isTrustedAccessibilityClient(true);
-    const trusted = nativeBridge.isAccessibilityTrusted?.()
-      ?? systemPreferences.isTrustedAccessibilityClient(false);
-    return trusted ? "granted" : "denied";
+    const status = refreshPermissionStatus();
+    if (status.accessibility !== "granted") {
+      return status.accessibility;
+    }
+    return status.accessibility;
   });
   ipcMain.handle(IpcChannel.OpenPermissionSettings, (_e, permission: keyof PermissionStatus) => (
     openPermissionSettings(permission)
@@ -245,13 +271,13 @@ export function registerIpcHandlers(opts: {
         const available = !!latestVersion && isNewerVersion(latestVersion, currentVersion);
         const version = latestVersion || currentVersion;
         if (available) {
-          mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+          sendUpdateNotification({
             version,
             status: "downloading",
             message: `Update ${version} downloading…`,
           });
         } else {
-          mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+          sendUpdateNotification({
             version,
             status: "no-update",
             message: "You're on the latest version",
@@ -276,8 +302,15 @@ export function registerIpcHandlers(opts: {
       const currentVersion = app.getVersion();
       const available = !!latestVersion && isNewerVersion(latestVersion, currentVersion);
       const version = latestVersion || currentVersion;
-      if (!available) {
-        mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+      if (available) {
+        sendUpdateNotification({
+          version,
+          status: "ready",
+          message: `Vaani ${version} is available on GitHub`,
+          installable: false,
+        });
+      } else {
+        sendUpdateNotification({
           version,
           status: "no-update",
           message: "You're on the latest version",
@@ -289,7 +322,7 @@ export function registerIpcHandlers(opts: {
         return { available: false, version: app.getVersion() };
       }
       const message = err instanceof Error ? err.message : "Update check failed";
-      mainWindow?.webContents.send(IpcChannel.UpdateNotification, {
+      sendUpdateNotification({
         status: "error",
         message,
       });

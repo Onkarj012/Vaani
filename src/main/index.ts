@@ -56,6 +56,10 @@ function log(label: string, data?: unknown): void {
   }
 }
 
+export function setCachedUpdateStatus(payload: UpdateNotificationPayload | null): void {
+  cachedUpdateStatus = payload;
+}
+
 function showMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     log("window:show-missing");

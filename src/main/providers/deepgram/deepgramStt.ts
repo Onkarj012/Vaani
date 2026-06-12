@@ -1,11 +1,8 @@
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
+import { normalizeDeepgramLanguage, resolveReportedLanguage } from "../language";
 
 const STT_TIMEOUT_MS = 20_000;
-const DEEPGRAM_LANGUAGE_ALIASES: Record<string, string> = {
-  hinglish: "hi",
-  zh: "zh-CN"
-};
 
 function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = STT_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
@@ -75,15 +72,10 @@ export const DeepgramSttProvider: TranscriptionProvider = {
 
     const rawText = data.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() ?? "";
     if (!rawText) throw new Error("No speech detected.");
-    return { rawText, formattedText: rawText, language: options.language ?? "en" };
+    return { rawText, formattedText: rawText, language: resolveReportedLanguage(options.language) };
   },
 
   async isAvailable(): Promise<boolean> {
     return true;
   },
 };
-
-function normalizeDeepgramLanguage(language: string | undefined): string | null {
-  if (!language || language === "auto") return null;
-  return DEEPGRAM_LANGUAGE_ALIASES[language] ?? language;
-}
