@@ -5,6 +5,16 @@ import { useEffect, useState } from "react";
 // Check if this is being loaded as overlay mode
 const isOverlayMode = new URLSearchParams(window.location.search).get("mode") === "overlay";
 
+if (!isOverlayMode) {
+  try {
+    if (localStorage.getItem("vaani-color-mode") === "dark") {
+      document.documentElement.classList.add("dark");
+    }
+  } catch {
+    // Ignore storage access errors during bootstrap.
+  }
+}
+
 // Load appropriate CSS based on mode
 if (isOverlayMode) {
   import("./overlay/overlay.css");

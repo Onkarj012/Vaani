@@ -168,31 +168,26 @@ export class OverlayController {
   // ── Prompts ──────────────────────────────────────────────────────────────
 
   showSnippetPrompt(trigger: string, onResponse: (accepted: boolean) => void): void {
+    void this.showSnippetPromptAsync(trigger, onResponse).catch(() => {
+      this.endPrompt();
+      onResponse(false);
+    });
+  }
+
+  showDictionaryPrompt(word: string, correction: string, onResponse: (accepted: boolean) => void): void {
+    void this.showDictionaryPromptAsync(word, correction, onResponse).catch(() => {
+      this.endPrompt();
+      onResponse(false);
+    });
+  }
+
+  private async showSnippetPromptAsync(trigger: string, onResponse: (accepted: boolean) => void): Promise<void> {
     this.promptActive = true;
     this.clearPromptDismissTimer();
-    this.show();
-
-    const showUI = async () => {
-      if (!this.window || this.window.isDestroyed()) return;
-      await this.resizeWindow(true);
-      this.window.setIgnoreMouseEvents(false);
-      this.window.setFocusable(true);
-      this.window.focus();
-      this.window.webContents.send("capsule:show-snippet", { trigger });
-      this.promptDismissTimer = setTimeout(() => {
-        this.endPrompt();
-        onResponse(false);
-      }, 8000);
-    };
-
-    if (this.loadReady) {
-      void showUI();
-    } else {
-      const check = setInterval(() => {
-        if (this.loadReady) { clearInterval(check); void showUI(); }
-      }, 50);
-      setTimeout(() => clearInterval(check), 5000);
-    }
+    const frontmostBefore = nativeBridge.getFrontmostApplication?.();
+    await this.ensureWindow();
+    await this.waitForLoadReady(5_000);
+    if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
 
     const responseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
       this.clearPromptDismissTimer();
@@ -200,45 +195,41 @@ export class OverlayController {
       onResponse(args.accepted);
     };
     const promptWindow = this.window;
-    promptWindow?.webContents.ipc.once("capsule:snippet-response", responseHandler);
+    promptWindow.webContents.ipc.once("capsule:snippet-response", responseHandler);
     // Store remover so endPrompt/recover can clean it up
-    this.pendingPromptRemover = () => promptWindow?.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
+    this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
+
+    await this.showPromptWindow(frontmostBefore);
+    this.window.webContents.send("capsule:show-snippet", { trigger });
+    this.promptDismissTimer = setTimeout(() => {
+      this.endPrompt();
+      onResponse(false);
+    }, 8000);
   }
 
-  showDictionaryPrompt(word: string, correction: string, onResponse: (accepted: boolean) => void): void {
+  private async showDictionaryPromptAsync(word: string, correction: string, onResponse: (accepted: boolean) => void): Promise<void> {
     this.promptActive = true;
     this.clearPromptDismissTimer();
-    this.show();
-
-    const showUI = async () => {
-      if (!this.window || this.window.isDestroyed()) return;
-      await this.resizeWindow(true);
-      this.window.setIgnoreMouseEvents(false);
-      this.window.setFocusable(true);
-      this.window.focus();
-      this.window.webContents.send("capsule:show-dictionary", { word, correction });
-      this.promptDismissTimer = setTimeout(() => {
-        this.endPrompt();
-        onResponse(false);
-      }, 8000);
-    };
-
-    if (this.loadReady) {
-      void showUI();
-    } else {
-      const check = setInterval(() => {
-        if (this.loadReady) { clearInterval(check); void showUI(); }
-      }, 50);
-      setTimeout(() => clearInterval(check), 5000);
-    }
+    const frontmostBefore = nativeBridge.getFrontmostApplication?.();
+    await this.ensureWindow();
+    await this.waitForLoadReady(5_000);
+    if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
 
     const dictResponseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
       this.clearPromptDismissTimer();
       this.endPrompt();
       onResponse(args.accepted);
     };
-    this.window?.webContents.ipc.once("capsule:dictionary-response", dictResponseHandler);
-    this.pendingPromptRemover = () => this.window?.webContents.ipc.removeListener("capsule:dictionary-response", dictResponseHandler);
+    const promptWindow = this.window;
+    promptWindow.webContents.ipc.once("capsule:dictionary-response", dictResponseHandler);
+    this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:dictionary-response", dictResponseHandler);
+
+    await this.showPromptWindow(frontmostBefore);
+    this.window.webContents.send("capsule:show-dictionary", { word, correction });
+    this.promptDismissTimer = setTimeout(() => {
+      this.endPrompt();
+      onResponse(false);
+    }, 8000);
   }
 
   hideExpanded(): void {
@@ -284,6 +275,35 @@ export class OverlayController {
     const targetX = Math.round(x + width  / 2 - targetW / 2);
     const targetY = Math.round(y + height - targetH - CAPSULE_BOTTOM_MARGIN);
     this.window.setBounds({ x: targetX, y: targetY, width: targetW, height: targetH });
+  }
+
+  private async showPromptWindow(
+    frontmostBefore: { bundleId?: string; name?: string } | null | undefined
+  ): Promise<void> {
+    if (!this.window || this.window.isDestroyed()) return;
+    await this.resizeWindow(true);
+    this.window.setIgnoreMouseEvents(false);
+    this.window.setFocusable(true);
+    this.window.focus();
+    void this.restoreFocusIfNeeded(frontmostBefore);
+  }
+
+  private waitForLoadReady(timeoutMs: number): Promise<void> {
+    if (this.loadReady) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      const check = setInterval(() => {
+        if (this.loadReady) {
+          clearInterval(check);
+          resolve();
+          return;
+        }
+        if (Date.now() - startedAt >= timeoutMs) {
+          clearInterval(check);
+          reject(new Error("Overlay renderer did not become ready."));
+        }
+      }, 50);
+    });
   }
 
   private endPrompt(): void {

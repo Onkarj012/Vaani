@@ -1,5 +1,6 @@
 import Groq from "groq-sdk";
 import type { FormattingProvider } from "../types";
+import { validateBearerEndpoint } from "../validation";
 
 const FORMATTING_MODEL = "llama-3.1-8b-instant";
 const MIN_WORDS_FOR_FORMATTING = 4;
@@ -194,5 +195,9 @@ export const GroqLlmProvider: FormattingProvider = {
 
   async isAvailable(): Promise<boolean> {
     return true;
+  },
+
+  async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
+    return validateBearerEndpoint("Groq", "https://api.groq.com/openai/v1/models", apiKey);
   },
 };

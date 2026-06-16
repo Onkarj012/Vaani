@@ -1,4 +1,5 @@
 import type { FormattingProvider } from "../types";
+import { validateBearerEndpoint } from "../validation";
 
 const MIN_WORDS_FOR_FORMATTING = 4;
 const LLM_TIMEOUT_MS = 20_000;
@@ -66,5 +67,9 @@ export const OpenAILlmProvider: FormattingProvider = {
 
   async isAvailable(): Promise<boolean> {
     return true;
+  },
+
+  async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
+    return validateBearerEndpoint("OpenAI", "https://api.openai.com/v1/models", apiKey);
   },
 };

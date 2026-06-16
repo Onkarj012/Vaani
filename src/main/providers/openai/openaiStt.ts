@@ -1,6 +1,7 @@
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
+import { unavailableValidation, validateBearerEndpoint } from "../validation";
 
 const STT_TIMEOUT_MS = 20_000;
 function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = STT_TIMEOUT_MS): Promise<Response> {
@@ -79,6 +80,10 @@ export const OpenAISttProvider: TranscriptionProvider = {
   async isAvailable(): Promise<boolean> {
     return true;
   },
+
+  async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
+    return validateBearerEndpoint("OpenAI", "https://api.openai.com/v1/models", apiKey);
+  },
 };
 
 export const OpenAISttCompatibleProvider: TranscriptionProvider = {
@@ -127,5 +132,9 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
 
   async isAvailable(): Promise<boolean> {
     return true;
+  },
+
+  async validateApiKey(): Promise<{ valid: boolean; message: string }> {
+    return unavailableValidation("OpenAI Compatible");
   },
 };

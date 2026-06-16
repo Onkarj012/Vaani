@@ -333,7 +333,7 @@ async function bootstrap(): Promise<void> {
   // Initialize credentials store and migrate legacy API keys
   credentialsStore = new CredentialsStore();
   const initSettings = settings.get();
-  const migrationPatch = credentialsStore.migrateFromSettings(initSettings);
+  const migrationPatch = await credentialsStore.migrateFromSettings(initSettings);
   if (Object.keys(migrationPatch).length > 0) {
     settings.update(migrationPatch);
     log("credentials:migrated");

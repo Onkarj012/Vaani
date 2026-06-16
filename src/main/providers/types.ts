@@ -1,5 +1,10 @@
 import type { AudioClip, TranscriptionResult, TranscriptionOptions, FormattingOptions } from "@shared/types";
 
+export interface ApiKeyValidationResult {
+  valid: boolean;
+  message: string;
+}
+
 export interface TranscriptionProvider {
   readonly id: string;
   readonly name: string;
@@ -7,6 +12,7 @@ export interface TranscriptionProvider {
   readonly models: { id: string; name: string }[];
   transcribe(clip: AudioClip, options: TranscriptionOptions & { apiKey?: string; baseUrl?: string }): Promise<TranscriptionResult>;
   isAvailable(): Promise<boolean>;
+  validateApiKey?(apiKey: string): Promise<ApiKeyValidationResult>;
 }
 
 export interface FormattingProvider {
@@ -16,6 +22,7 @@ export interface FormattingProvider {
   readonly models: { id: string; name: string }[];
   format(rawText: string, options: FormattingOptions & { apiKey?: string }): Promise<string>;
   isAvailable(): Promise<boolean>;
+  validateApiKey?(apiKey: string): Promise<ApiKeyValidationResult>;
 }
 
 export type AnyProvider = TranscriptionProvider | FormattingProvider;

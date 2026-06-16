@@ -1,6 +1,7 @@
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { normalizeDeepgramLanguage, resolveReportedLanguage } from "@main/providers/language";
+import { validateBearerEndpoint } from "../validation";
 
 const STT_TIMEOUT_MS = 20_000;
 
@@ -77,5 +78,9 @@ export const DeepgramSttProvider: TranscriptionProvider = {
 
   async isAvailable(): Promise<boolean> {
     return true;
+  },
+
+  async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
+    return validateBearerEndpoint("Deepgram", "https://api.deepgram.com/v1/projects", apiKey, "Token");
   },
 };

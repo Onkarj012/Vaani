@@ -6,6 +6,7 @@ import { readJsonFile, writeJsonFile } from "./base";
 
 export class HistoryStore {
   private readonly filePath: string;
+  private pendingMutation: Promise<void> = Promise.resolve();
 
   constructor(filePath = join(app.getPath("home"), APP_DATA_DIR, "history.json")) {
     this.filePath = filePath;
@@ -17,18 +18,24 @@ export class HistoryStore {
   }
 
   async append(entry: DictationEntry): Promise<void> {
-    const history = await this.getAll();
-    const next = [entry, ...history].slice(0, HISTORY_LIMIT);
-    await writeJsonFile(this.filePath, next);
+    await this.enqueueMutation(async () => {
+      const history = await this.getAll();
+      const next = [entry, ...history].slice(0, HISTORY_LIMIT);
+      await writeJsonFile(this.filePath, next);
+    });
   }
 
   async delete(id: string): Promise<void> {
-    const history = await this.getAll();
-    await writeJsonFile(this.filePath, history.filter(e => e.id !== id));
+    await this.enqueueMutation(async () => {
+      const history = await this.getAll();
+      await writeJsonFile(this.filePath, history.filter(e => e.id !== id));
+    });
   }
 
   async clear(): Promise<void> {
-    await writeJsonFile(this.filePath, []);
+    await this.enqueueMutation(async () => {
+      await writeJsonFile(this.filePath, []);
+    });
   }
 
   async getById(id: string): Promise<DictationEntry | undefined> {
@@ -42,24 +49,32 @@ export class HistoryStore {
   }
 
   async updateById(id: string, updater: (entry: DictationEntry) => DictationEntry): Promise<DictationEntry | undefined> {
-    const history = await this.getAll();
     let updatedEntry: DictationEntry | undefined;
+    await this.enqueueMutation(async () => {
+      const history = await this.getAll();
 
-    const next = history.map((entry) => {
-      if (entry.id !== id) {
-        return entry;
+      const next = history.map((entry) => {
+        if (entry.id !== id) {
+          return entry;
+        }
+
+        updatedEntry = updater(entry);
+        return updatedEntry;
+      });
+
+      if (!updatedEntry) {
+        return;
       }
 
-      updatedEntry = updater(entry);
-      return updatedEntry;
+      await writeJsonFile(this.filePath, next);
     });
-
-    if (!updatedEntry) {
-      return undefined;
-    }
-
-    await writeJsonFile(this.filePath, next);
     return updatedEntry;
+  }
+
+  private enqueueMutation(operation: () => Promise<void>): Promise<void> {
+    const run = this.pendingMutation.catch(() => undefined).then(operation);
+    this.pendingMutation = run.catch(() => undefined);
+    return run;
   }
 }
 

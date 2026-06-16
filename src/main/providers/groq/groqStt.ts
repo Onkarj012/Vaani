@@ -3,6 +3,7 @@ import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { debug, error } from "@main/log";
 import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
+import { validateBearerEndpoint } from "../validation";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
@@ -102,6 +103,10 @@ export const GroqSttProvider: TranscriptionProvider = {
 
   async isAvailable(): Promise<boolean> {
     return true;
+  },
+
+  async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
+    return validateBearerEndpoint("Groq", "https://api.groq.com/openai/v1/models", apiKey);
   },
 };
 
