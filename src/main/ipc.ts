@@ -18,7 +18,7 @@ import type {
 import { DictationService } from "./dictation";
 import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
-import { CredentialsStore } from "./store/credentials";
+import { CredentialsStore, sanitizeSettingsForRenderer } from "./store/credentials";
 import { HotkeyManager } from "./hotkeys";
 import { nativeBridge } from "./nativeBridge";
 import { RecorderWindowController } from "./recorderWindow";
@@ -26,6 +26,7 @@ import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { loadWhisperModel, freeWhisperModel, listDownloadedModels, isModelLoaded } from "./providers/local/whisperCpp";
 import { cachedUpdateStatus, setCachedUpdateStatus } from "./index";
+import { validateSubmittedApiKey } from "./providers/apiKeyValidation";
 
 function isNewerVersion(latest: string, current: string): boolean {
   const parse = (v: string) => {
@@ -133,49 +134,50 @@ export function registerIpcHandlers(opts: {
     clipboard.writeText(text);
     return true;
   });
-  ipcMain.handle(IpcChannel.GetSettings, () => settings.get());
+  ipcMain.handle(IpcChannel.GetSettings, () => sanitizeSettingsForRenderer(settings.get()));
 
-  ipcMain.handle(IpcChannel.UpdateSettings, (_e, patch) => {
-    if ("formattingProvider" in patch && typeof patch.formattingProvider === "string" && !("formattingModel" in patch)) {
-      const provider = KNOWN_PROVIDERS.find((candidate) => candidate.id === patch.formattingProvider);
-      if (provider?.type === "llm") {
-        patch = { ...patch, formattingModel: provider.defaultModel };
+  ipcMain.handle(IpcChannel.UpdateSettings, async (_e, patch: Partial<Settings>) => {
+    const credentialPatch = patch;
+    let settingsPatch: Partial<Settings> = { ...patch };
+
+    if (credentials) {
+      for (const pk of credentialPatch.providerApiKeys ?? []) {
+        if (!pk.providerId) continue;
+        if (pk.key) {
+          await credentials.set(pk.providerId, pk.key);
+        }
+      }
+      if (credentialPatch.groqApiKey) {
+        await credentials.set("groq", credentialPatch.groqApiKey);
+      }
+      if ("groqApiKey" in settingsPatch) {
+        settingsPatch.groqApiKey = "";
+      }
+      if ("providerApiKeys" in settingsPatch) {
+        settingsPatch.providerApiKeys = (settingsPatch.providerApiKeys ?? []).map((pk) => ({ providerId: pk.providerId, key: "" }));
       }
     }
 
-    const updated = settings.update(patch);
-    if ("primaryHotkey" in patch || "pasteLatestHotkey" in patch) {
+    if ("formattingProvider" in settingsPatch && typeof settingsPatch.formattingProvider === "string" && !("formattingModel" in settingsPatch)) {
+      const provider = KNOWN_PROVIDERS.find((candidate) => candidate.id === settingsPatch.formattingProvider);
+      if (provider?.type === "llm") {
+        settingsPatch = { ...settingsPatch, formattingModel: provider.defaultModel };
+      }
+    }
+
+    const updated = settings.update(settingsPatch);
+    if ("primaryHotkey" in settingsPatch || "pasteLatestHotkey" in settingsPatch) {
       hotkeys.reregister();
     }
-    // Keep in-memory credentials cache in sync with saved API keys
-    if (credentials) {
-      const allKeys = new Set<string>();
-      for (const pk of updated.providerApiKeys ?? []) {
-        if (pk.providerId && pk.key) {
-          credentials.set(pk.providerId, pk.key);
-          allKeys.add(pk.providerId);
-        }
-      }
-      if (updated.groqApiKey) {
-        credentials.set("groq", updated.groqApiKey);
-        allKeys.add("groq");
-      }
-      // Remove credentials that are no longer present in settings
-      for (const entry of credentials.getAll()) {
-        if (!allKeys.has(entry.key)) {
-          credentials.delete(entry.key);
-        }
-      }
-    }
     // Update provider registry when provider or key settings change
-    if ("transcriptionProvider" in patch) {
+    if ("transcriptionProvider" in settingsPatch) {
       getProviderRegistry().setActiveTranscription(updated.transcriptionProvider);
     }
-    if ("formattingProvider" in patch) {
+    if ("formattingProvider" in settingsPatch) {
       getProviderRegistry().setActiveFormatting(updated.formattingProvider);
     }
-    onSettingsUpdated?.(updated, patch);
-    return updated;
+    onSettingsUpdated?.(updated, settingsPatch);
+    return sanitizeSettingsForRenderer(updated);
   });
   ipcMain.handle(IpcChannel.SetHotkeyCapture, (_e, active: boolean) => {
     hotkeys.setCaptureActive(active);
@@ -219,17 +221,9 @@ export function registerIpcHandlers(opts: {
   });
 
   // Phase 1: Provider API key testing
-  ipcMain.handle(IpcChannel.TestApiKey, async (_e, providerId: string, _apiKey: string) => {
-    try {
-      const registry = getProviderRegistry();
-      const provider = registry.getTranscription(providerId) || registry.getFormatting(providerId);
-      if (!provider) return { valid: false, message: `Provider "${providerId}" not found.` };
-
-      const available = await provider.isAvailable();
-      return { valid: available, message: available ? `${provider.name} is available.` : `${provider.name} is not available.` };
-    } catch (error) {
-      return { valid: false, message: error instanceof Error ? error.message : "Test failed." };
-    }
+  ipcMain.handle(IpcChannel.TestApiKey, async (_e, providerId: string, apiKey: string) => {
+    const registry = getProviderRegistry();
+    return validateSubmittedApiKey(providerId, apiKey, (id) => registry.getTranscription(id) || registry.getFormatting(id));
   });
 
   ipcMain.handle(IpcChannel.GetProviderStatus, async () => {
@@ -238,15 +232,15 @@ export function registerIpcHandlers(opts: {
     const currentSettings = settings.get();
     const providerApiKeys = currentSettings.providerApiKeys ?? [];
 
-    return statuses.map(s => ({
+    return Promise.all(statuses.map(async (s) => ({
       id: s.id,
       name: s.name,
       available: s.available,
       configured: providerApiKeys.some(pk => pk.providerId === s.id && pk.key)
         || (s.id === "groq" && !!currentSettings.groqApiKey)
-        || (credentials ? !!credentials.get(s.id) : false),
+        || (credentials ? !!(await credentials.get(s.id)) : false),
       type: s.type,
-    }));
+    })));
   });
 
   // Capsule overlay: open last history entry for editing

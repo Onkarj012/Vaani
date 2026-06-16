@@ -32,7 +32,7 @@ export default function History() {
   }
 
   return (
-    <motion.div variants={container} initial="hidden" animate="visible" className="mx-auto max-w-4xl space-y-7">
+    <motion.div variants={container} initial="hidden" animate="visible" className="mx-auto max-w-6xl space-y-7">
       <motion.div variants={item} className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="label-meta mb-2 text-[11px] text-accent">✦ Archive</p>

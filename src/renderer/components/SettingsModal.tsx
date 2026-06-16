@@ -12,6 +12,7 @@ import { Select } from '@renderer/components/ui/Select'
 import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
+import { createExportPayload } from '@renderer/exportData'
 
 const sidebarItems = [
   { id: 'api', label: 'API & Providers', icon: Plug },
@@ -159,7 +160,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }
 
   const handleExportData = () => {
-    const data = { exportedAt: new Date().toISOString(), settings, history: historyEntries }
+    const data = createExportPayload(settings, historyEntries)
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

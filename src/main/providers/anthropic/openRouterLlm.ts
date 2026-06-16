@@ -1,5 +1,6 @@
 import type { FormattingProvider } from "../types";
 import { MIN_WORDS_FOR_FORMATTING, FORMATTING_PROMPT } from "../formatting-constants";
+import { validateBearerEndpoint } from "../validation";
 
 export const OpenRouterLlmProvider: FormattingProvider = {
   id: "openrouter",
@@ -48,5 +49,12 @@ export const OpenRouterLlmProvider: FormattingProvider = {
 
   async isAvailable(): Promise<boolean> {
     return true;
+  },
+
+  async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
+    return validateBearerEndpoint("OpenRouter", "https://openrouter.ai/api/v1/models", apiKey, "Bearer", {
+      "HTTP-Referer": "https://vaani.app",
+      "X-Title": "Vaani",
+    });
   },
 };

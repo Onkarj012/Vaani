@@ -1,5 +1,6 @@
 import type { FormattingProvider } from "../types";
 import { MIN_WORDS_FOR_FORMATTING, FORMATTING_PROMPT } from "../formatting-constants";
+import { validateBearerEndpoint } from "../validation";
 
 export const AnthropicLlmProvider: FormattingProvider = {
   id: "anthropic",
@@ -44,5 +45,11 @@ export const AnthropicLlmProvider: FormattingProvider = {
 
   async isAvailable(): Promise<boolean> {
     return true;
+  },
+
+  async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
+    return validateBearerEndpoint("Anthropic", "https://api.anthropic.com/v1/models", apiKey, "x-api-key", {
+      "anthropic-version": "2023-06-01",
+    });
   },
 };

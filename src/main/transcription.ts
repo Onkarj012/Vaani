@@ -15,7 +15,7 @@ export class TranscriptionService {
     const registry = getProviderRegistry();
     const primaryId = settings.transcriptionProvider || "groq";
 
-    const chain = this.buildSttChain(settings, primaryId, registry);
+    const chain = await this.buildSttChain(settings, primaryId, registry);
     if (chain.length === 0) {
       throw new Error(`Transcription provider "${primaryId}" is not available or has no API key configured. Check Settings → API & Providers.`);
     }
@@ -44,31 +44,31 @@ export class TranscriptionService {
     throw lastError;
   }
 
-  private buildSttChain(
+  private async buildSttChain(
     settings: Settings,
     primaryId: string,
     registry: ReturnType<typeof getProviderRegistry>
-  ): { id: string; provider: TranscriptionProvider; apiKey: string }[] {
+  ): Promise<{ id: string; provider: TranscriptionProvider; apiKey: string }[]> {
     const chain: { id: string; provider: TranscriptionProvider; apiKey: string }[] = [];
 
-    const tryAdd = (id: string) => {
+    const tryAdd = async (id: string) => {
       if (chain.some(e => e.id === id)) return;
       const provider = registry.getTranscription(id);
       if (!provider) {
         return;
       }
-      const apiKey = this.resolveApiKey(settings, id);
+      const apiKey = await this.resolveApiKey(settings, id);
       if (provider.requiresApiKey && !apiKey) {
         return;
       }
       chain.push({ id, provider, apiKey: apiKey ?? "" });
     };
 
-    tryAdd(primaryId);
+    await tryAdd(primaryId);
 
     if (settings.failoverEnabled) {
       for (const fallbackId of ["groq", "openai", "deepgram"]) {
-        if (fallbackId !== primaryId) tryAdd(fallbackId);
+        if (fallbackId !== primaryId) await tryAdd(fallbackId);
       }
     }
 
@@ -84,7 +84,7 @@ export class TranscriptionService {
 
     if (!provider) return rawText;
 
-    const apiKey = this.resolveApiKey(settings, llmId);
+    const apiKey = await this.resolveApiKey(settings, llmId);
     if (provider.requiresApiKey && !apiKey) return rawText;
 
     try {
@@ -98,10 +98,14 @@ export class TranscriptionService {
     }
   }
 
-  private resolveApiKey(settings: Settings, providerId: string): string | null {
+  private async resolveApiKey(settings: Settings, providerId: string): Promise<string | null> {
+    const candidateIds = providerId === "groq-llm" ? ["groq-llm", "groq"] : [providerId];
+
     if (this.credentials) {
-      const key = this.credentials.get(providerId);
-      if (key) return key;
+      for (const id of candidateIds) {
+        const key = await this.credentials.get(id);
+        if (key) return key;
+      }
     }
 
     if ((providerId === "groq" || providerId === "groq-llm") && settings.groqApiKey) {

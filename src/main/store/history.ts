@@ -6,60 +6,91 @@ import { readJsonFile, writeJsonFile } from "./base";
 
 export class HistoryStore {
   private readonly filePath: string;
+  private pendingMutation: Promise<void> = Promise.resolve();
+  private cache: DictationEntry[] | null = null;
 
   constructor(filePath = join(app.getPath("home"), APP_DATA_DIR, "history.json")) {
     this.filePath = filePath;
   }
 
   async getAll(): Promise<DictationEntry[]> {
-    const raw = await readJsonFile<unknown>(this.filePath, []);
-    return normalizeHistory(raw);
+    return (await this.ensureLoaded()).map((entry) => ({ ...entry }));
   }
 
   async append(entry: DictationEntry): Promise<void> {
-    const history = await this.getAll();
-    const next = [entry, ...history].slice(0, HISTORY_LIMIT);
-    await writeJsonFile(this.filePath, next);
+    await this.enqueueMutation(async () => {
+      const history = await this.ensureLoaded();
+      const next = [entry, ...history].slice(0, HISTORY_LIMIT);
+      await writeJsonFile(this.filePath, next);
+      this.cache = next;
+    });
   }
 
   async delete(id: string): Promise<void> {
-    const history = await this.getAll();
-    await writeJsonFile(this.filePath, history.filter(e => e.id !== id));
+    await this.enqueueMutation(async () => {
+      const history = await this.ensureLoaded();
+      const next = history.filter(e => e.id !== id);
+      await writeJsonFile(this.filePath, next);
+      this.cache = next;
+    });
   }
 
   async clear(): Promise<void> {
-    await writeJsonFile(this.filePath, []);
+    await this.enqueueMutation(async () => {
+      await writeJsonFile(this.filePath, []);
+      this.cache = [];
+    });
   }
 
   async getById(id: string): Promise<DictationEntry | undefined> {
-    const history = await this.getAll();
-    return history.find(e => e.id === id);
+    const history = await this.ensureLoaded();
+    const found = history.find(e => e.id === id);
+    return found ? { ...found } : undefined;
   }
 
   async getLatest(): Promise<DictationEntry | undefined> {
-    const history = await this.getAll();
-    return history[0];
+    const history = await this.ensureLoaded();
+    const latest = history[0];
+    return latest ? { ...latest } : undefined;
   }
 
   async updateById(id: string, updater: (entry: DictationEntry) => DictationEntry): Promise<DictationEntry | undefined> {
-    const history = await this.getAll();
     let updatedEntry: DictationEntry | undefined;
+    await this.enqueueMutation(async () => {
+      const history = await this.ensureLoaded();
 
-    const next = history.map((entry) => {
-      if (entry.id !== id) {
-        return entry;
+      const next = history.map((entry) => {
+        if (entry.id !== id) {
+          return entry;
+        }
+
+        updatedEntry = updater(entry);
+        return updatedEntry;
+      });
+
+      if (!updatedEntry) {
+        return;
       }
 
-      updatedEntry = updater(entry);
-      return updatedEntry;
+      await writeJsonFile(this.filePath, next);
+      this.cache = next;
     });
-
-    if (!updatedEntry) {
-      return undefined;
-    }
-
-    await writeJsonFile(this.filePath, next);
     return updatedEntry;
+  }
+
+  private async ensureLoaded(): Promise<DictationEntry[]> {
+    if (this.cache) {
+      return this.cache;
+    }
+    const raw = await readJsonFile<unknown>(this.filePath, []);
+    this.cache = normalizeHistory(raw);
+    return this.cache;
+  }
+
+  private enqueueMutation(operation: () => Promise<void>): Promise<void> {
+    const run = this.pendingMutation.catch(() => undefined).then(operation);
+    this.pendingMutation = run.catch(() => undefined);
+    return run;
   }
 }
 

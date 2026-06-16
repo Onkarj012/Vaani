@@ -21,7 +21,7 @@ vi.mock("electron", () => ({
       setPermissionRequestHandler: () => {}
     }
   }
-}), { virtual: true });
+}));
 
 function createDictationService() {
   const overlay = {
@@ -62,16 +62,16 @@ function createDictationService() {
   };
 
   const transcription = {
-    transcribe: vi.fn(async () => ({ rawText: "open get hub", language: "en" })),
+    transcribe: vi.fn(async () => ({ rawText: "open get hub", formattedText: "open get hub", language: "en" })),
     formatTranscript: vi.fn(async (text: string) => text)
   };
 
   const injector = {
-    inject: vi.fn(async () => ({ success: true, method: "clipboard" as const }))
+    inject: vi.fn(async () => ({ success: true, method: "clipboard" } as const))
   };
 
   const appDetector = {
-    getContext: vi.fn(() => ({ appBundleId: "com.apple.TextEdit", appName: "TextEdit" }))
+    getContext: vi.fn(() => ({ appBundleId: "com.apple.TextEdit", appName: "TextEdit", context: "default" as const }))
   };
 
   const service = new DictationService(
@@ -211,7 +211,7 @@ describe("DictationService", () => {
 
   it("prompts to save a snippet when the edited text is a phrase, not a word correction", async () => {
     const { service, overlay, settings, transcription } = createDictationService();
-    transcription.transcribe.mockResolvedValue({ rawText: "my email", language: "en" });
+    transcription.transcribe.mockResolvedValue({ rawText: "my email", formattedText: "my email", language: "en" });
     const nativeBridge = await import("@main/nativeBridge");
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("my email")
@@ -237,7 +237,7 @@ describe("DictationService", () => {
 
   it("waits for editing to settle before suggesting OSL to Vercel as a dictionary rule", async () => {
     const { service, overlay, transcription } = createDictationService();
-    transcription.transcribe.mockResolvedValue({ rawText: "OSL", language: "en" });
+    transcription.transcribe.mockResolvedValue({ rawText: "OSL", formattedText: "OSL", language: "en" });
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
       .mockReturnValueOnce("OSL")
@@ -272,7 +272,7 @@ describe("DictationService", () => {
 
   it("does not suggest snippets for ordinary phrase edits", async () => {
     const { service, overlay, transcription } = createDictationService();
-    transcription.transcribe.mockResolvedValue({ rawText: "sentence", language: "en" });
+    transcription.transcribe.mockResolvedValue({ rawText: "sentence", formattedText: "sentence", language: "en" });
     const nativeBridge = await import("@main/nativeBridge");
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("sentence")
@@ -295,7 +295,7 @@ describe("DictationService", () => {
 
   it("does not treat punctuation-heavy prose as snippet content", async () => {
     const { service, overlay, transcription } = createDictationService();
-    transcription.transcribe.mockResolvedValue({ rawText: "sentence", language: "en" });
+    transcription.transcribe.mockResolvedValue({ rawText: "sentence", formattedText: "sentence", language: "en" });
     const nativeBridge = await import("@main/nativeBridge");
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("sentence")

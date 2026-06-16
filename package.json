@@ -1,7 +1,7 @@
 {
   "name": "vaani",
   "productName": "Vaani",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Premium macOS voice dictation powered by Groq Whisper.",
   "main": ".vite/build/main.js",
   "gypfile": true,
@@ -14,12 +14,12 @@
     "url": "https://github.com/Onkarj012/Vaani/issues"
   },
   "scripts": {
-    "build:native": "npx node-gyp rebuild",
-    "dev": "npm run build:native && node scripts/dev.js",
-    "build": "npm run build:native && electron-forge package",
-    "make": "npm run build:native && electron-forge make",
+    "build:native": "bunx node-gyp rebuild",
+    "dev": "bun run build:native && node scripts/dev.js",
+    "build": "bun run build:native && electron-forge package",
+    "make": "bun run build:native && electron-forge make",
     "generate:update-metadata": "node scripts/generate-latest-mac-yml.js",
-    "publish": "npm run build:native && electron-forge publish",
+    "publish": "bun run build:native && electron-forge publish",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
