@@ -7,51 +7,55 @@ import { readJsonFile, writeJsonFile } from "./base";
 export class HistoryStore {
   private readonly filePath: string;
   private pendingMutation: Promise<void> = Promise.resolve();
+  private cache: DictationEntry[] | null = null;
 
   constructor(filePath = join(app.getPath("home"), APP_DATA_DIR, "history.json")) {
     this.filePath = filePath;
   }
 
   async getAll(): Promise<DictationEntry[]> {
-    const raw = await readJsonFile<unknown>(this.filePath, []);
-    return normalizeHistory(raw);
+    return [...await this.ensureLoaded()];
   }
 
   async append(entry: DictationEntry): Promise<void> {
     await this.enqueueMutation(async () => {
-      const history = await this.getAll();
+      const history = await this.ensureLoaded();
       const next = [entry, ...history].slice(0, HISTORY_LIMIT);
       await writeJsonFile(this.filePath, next);
+      this.cache = next;
     });
   }
 
   async delete(id: string): Promise<void> {
     await this.enqueueMutation(async () => {
-      const history = await this.getAll();
-      await writeJsonFile(this.filePath, history.filter(e => e.id !== id));
+      const history = await this.ensureLoaded();
+      const next = history.filter(e => e.id !== id);
+      await writeJsonFile(this.filePath, next);
+      this.cache = next;
     });
   }
 
   async clear(): Promise<void> {
     await this.enqueueMutation(async () => {
       await writeJsonFile(this.filePath, []);
+      this.cache = [];
     });
   }
 
   async getById(id: string): Promise<DictationEntry | undefined> {
-    const history = await this.getAll();
+    const history = await this.ensureLoaded();
     return history.find(e => e.id === id);
   }
 
   async getLatest(): Promise<DictationEntry | undefined> {
-    const history = await this.getAll();
+    const history = await this.ensureLoaded();
     return history[0];
   }
 
   async updateById(id: string, updater: (entry: DictationEntry) => DictationEntry): Promise<DictationEntry | undefined> {
     let updatedEntry: DictationEntry | undefined;
     await this.enqueueMutation(async () => {
-      const history = await this.getAll();
+      const history = await this.ensureLoaded();
 
       const next = history.map((entry) => {
         if (entry.id !== id) {
@@ -67,8 +71,18 @@ export class HistoryStore {
       }
 
       await writeJsonFile(this.filePath, next);
+      this.cache = next;
     });
     return updatedEntry;
+  }
+
+  private async ensureLoaded(): Promise<DictationEntry[]> {
+    if (this.cache) {
+      return this.cache;
+    }
+    const raw = await readJsonFile<unknown>(this.filePath, []);
+    this.cache = normalizeHistory(raw);
+    return this.cache;
   }
 
   private enqueueMutation(operation: () => Promise<void>): Promise<void> {

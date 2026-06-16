@@ -79,7 +79,7 @@ describe("OverlayController prompt handling", () => {
     await Promise.resolve();
 
     const win = windows[0];
-    expect(win).toBeDefined();
+    if (!win) throw new Error("Expected overlay window to be created.");
     win.webContents.ipc.handlers.get("capsule:ready")?.();
 
     await vi.advanceTimersByTimeAsync(50);
@@ -87,7 +87,11 @@ describe("OverlayController prompt handling", () => {
 
     expect(win.webContents.ipc.once).toHaveBeenCalledWith("capsule:snippet-response", expect.any(Function));
     expect(win.webContents.send).toHaveBeenCalledWith("capsule:show-snippet", { trigger: "email" });
-    expect(win.webContents.ipc.once.mock.invocationCallOrder[0]).toBeLessThan(win.webContents.send.mock.invocationCallOrder[0]);
+    const listenerOrder = win.webContents.ipc.once.mock.invocationCallOrder[0];
+    const sendOrder = win.webContents.send.mock.invocationCallOrder[0];
+    expect(listenerOrder).toBeDefined();
+    expect(sendOrder).toBeDefined();
+    expect(listenerOrder as number).toBeLessThan(sendOrder as number);
 
     win.webContents.ipc.handlers.get("capsule:snippet-response")?.({}, { accepted: true });
     expect(onResponse).toHaveBeenCalledWith(true);

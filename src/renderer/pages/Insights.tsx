@@ -87,6 +87,12 @@ export default function Insights() {
 
   const appUsageData = useMemo(() => computeAppUsageData(historyEntries), [historyEntries])
   const hourlyData = useMemo(() => computeHourlyData(historyEntries), [historyEntries])
+  const recentActivityData = useMemo(() => (
+    historyEntries.slice(0, 20).map((entry, i) => ({
+      index: i + 1,
+      words: entry.cleanedText.split(/\s+/).filter(Boolean).length,
+    }))
+  ), [historyEntries])
 
   return (
     <motion.div variants={container} initial="hidden" animate="visible" className="mx-auto max-w-6xl space-y-8">
@@ -186,7 +192,7 @@ export default function Insights() {
           </div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={historyEntries.slice(0, 20).map((entry, i) => ({ index: i + 1, words: entry.cleanedText.split(/\s+/).filter(Boolean).length }))}>
+              <LineChart data={recentActivityData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
                 <XAxis dataKey="index" stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />

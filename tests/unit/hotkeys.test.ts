@@ -173,7 +173,9 @@ describe("HotkeyManager", () => {
     dateNowSpy.mockReturnValue(100);
     callback(true);
 
-    const escapeHandler = registerMock.mock.calls.find(([accelerator]) => accelerator === "Escape")?.[1] as (() => void);
+    const registeredShortcuts = registerMock.mock.calls as unknown as Array<[string, () => void]>;
+    const escapeHandler = registeredShortcuts.find(([accelerator]) => accelerator === "Escape")?.[1];
+    if (!escapeHandler) throw new Error("Escape handler was not registered.");
     escapeHandler();
 
     expect(onCancel).toHaveBeenCalledTimes(1);

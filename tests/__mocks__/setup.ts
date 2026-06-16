@@ -36,4 +36,4 @@ vi.mock("electron", () => ({
   contextBridge: { exposeInMainWorld: () => {} },
   screen: { getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) },
   session: { defaultSession: { setPermissionRequestHandler: () => {} } }
-}), { virtual: true });
+}));

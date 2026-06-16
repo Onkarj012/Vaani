@@ -108,6 +108,7 @@ export class OverlayController {
   }
 
   hide(): void {
+    log("overlay:hide-requested", { promptActive: this.promptActive, hasWindow: !!this.window, loadReady: this.loadReady });
     if (this.promptActive) return;
     if (this.window && !this.window.isDestroyed()) {
       this.tryUpdateMode("idle");
@@ -117,6 +118,7 @@ export class OverlayController {
       const w = this.window;
       this.hideTimer = setTimeout(() => {
         if (w && !w.isDestroyed() && this.window === w) {
+          log("overlay:hide-commit");
           w.hide();
         }
         this.hideTimer = null;
@@ -182,6 +184,7 @@ export class OverlayController {
   }
 
   private async showSnippetPromptAsync(trigger: string, onResponse: (accepted: boolean) => void): Promise<void> {
+    log("overlay:prompt-snippet-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
     this.promptActive = true;
     this.clearPromptDismissTimer();
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
@@ -208,6 +211,7 @@ export class OverlayController {
   }
 
   private async showDictionaryPromptAsync(word: string, correction: string, onResponse: (accepted: boolean) => void): Promise<void> {
+    log("overlay:prompt-dictionary-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
     this.promptActive = true;
     this.clearPromptDismissTimer();
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
@@ -239,6 +243,7 @@ export class OverlayController {
   }
 
   destroy(): void {
+    log("overlay:destroy-requested", { hasWindow: !!this.window, loadReady: this.loadReady, pendingMode: this.pendingMode });
     this.clearHideTimer();
     this.clearPromptDismissTimer();
     this.pendingPromptRemover?.();
@@ -281,6 +286,7 @@ export class OverlayController {
     frontmostBefore: { bundleId?: string; name?: string } | null | undefined
   ): Promise<void> {
     if (!this.window || this.window.isDestroyed()) return;
+    log("overlay:prompt-window-show", { loadReady: this.loadReady });
     await this.resizeWindow(true);
     this.window.setIgnoreMouseEvents(false);
     this.window.setFocusable(true);
@@ -290,16 +296,19 @@ export class OverlayController {
 
   private waitForLoadReady(timeoutMs: number): Promise<void> {
     if (this.loadReady) return Promise.resolve();
+    log("overlay:wait-ready", { timeoutMs });
     return new Promise((resolve, reject) => {
       const startedAt = Date.now();
       const check = setInterval(() => {
         if (this.loadReady) {
           clearInterval(check);
+          log("overlay:wait-ready-complete", { elapsedMs: Date.now() - startedAt });
           resolve();
           return;
         }
         if (Date.now() - startedAt >= timeoutMs) {
           clearInterval(check);
+          log("overlay:wait-ready-timeout", { elapsedMs: Date.now() - startedAt });
           reject(new Error("Overlay renderer did not become ready."));
         }
       }, 50);
@@ -307,6 +316,7 @@ export class OverlayController {
   }
 
   private endPrompt(): void {
+    log("overlay:prompt-end", { hasWindow: !!this.window });
     this.promptActive = false;
     this.pendingPromptRemover?.();
     this.pendingPromptRemover = null;

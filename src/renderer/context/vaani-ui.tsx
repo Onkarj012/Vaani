@@ -9,6 +9,17 @@ import {
 } from "react";
 import type { DictationEntry, DictationState, Settings, UpdateNotificationPayload } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
+import {
+  computeEntryFacts,
+  countWords,
+  createHistoryHaystack,
+  deriveStats,
+  deriveWeeklyActivity,
+  mapDictionaryItems,
+  type DictionaryItemView,
+  type StatsView,
+  type WeeklyActivityView,
+} from "@renderer/lib/historyDerivations";
 
 export type ThemeId = "aurora";
 
@@ -30,15 +41,6 @@ export interface WordHistoryView {
   app: string;
 }
 
-export interface DictionaryItemView {
-  id: number;
-  word: string;
-  pronunciation: string | null;
-  category: "Technical" | "Brand" | "Correction";
-  replacement: string | null;
-  usageCount: number;
-}
-
 export interface UserDictionaryView {
   word: string;
   replacement: string;
@@ -48,20 +50,6 @@ export interface UserDictionaryView {
 export interface SnippetView {
   trigger: string;
   content: string;
-}
-
-interface StatsView {
-  wordsToday: number;
-  sessionsToday: number;
-  streak: number;
-  accuracy: number;
-  totalWords: number;
-  totalSessions: number;
-}
-
-interface WeeklyActivityView {
-  day: string;
-  words: number;
 }
 
 interface UpdateState {
@@ -274,11 +262,13 @@ export function VaaniUiProvider({
 
   const historyItems = useMemo(() => mapHistoryItems(history.entries), [history.entries]);
   const wordHistory = useMemo(() => mapWordHistory(history.entries), [history.entries]);
-  const stats = useMemo(() => deriveStats(history.entries), [history.entries]);
-  const weeklyActivity = useMemo(() => deriveWeeklyActivity(history.entries), [history.entries]);
+  const entryFacts = useMemo(() => computeEntryFacts(history.entries), [history.entries]);
+  const historyHaystack = useMemo(() => createHistoryHaystack(history.entries), [history.entries]);
+  const stats = useMemo(() => deriveStats(entryFacts), [entryFacts]);
+  const weeklyActivity = useMemo(() => deriveWeeklyActivity(entryFacts), [entryFacts]);
   const dictionaryItems = useMemo(
-    () => mapDictionaryItems(settings.customCorrections ?? [], history.entries),
-    [history.entries, settings.customCorrections]
+    () => mapDictionaryItems(settings.customCorrections ?? [], historyHaystack),
+    [historyHaystack, settings.customCorrections]
   );
   const userDictionary = useMemo(
     () => mapUserDictionary(settings.customCorrections ?? []),
@@ -401,100 +391,12 @@ function mapWordHistory(entries: DictationEntry[]): WordHistoryView[] {
     }));
 }
 
-function mapDictionaryItems(
-  corrections: Array<{ spoken: string; written: string }>,
-  entries: DictationEntry[]
-): DictionaryItemView[] {
-  const haystack = entries.map((entry) => entry.cleanedText.toLowerCase()).join(" ");
-  return corrections.map(({ spoken, written }, index) => {
-    const normalized = spoken.trim();
-    const escaped = escapeRegExp(normalized.toLowerCase());
-    const usageCount = normalized ? (haystack.match(new RegExp(`\\b${escaped}\\b`, "g"))?.length ?? 0) : 0;
-    return {
-      id: index + 1,
-      word: normalized,
-      pronunciation: null,
-      category: "Correction" as const,
-      replacement: written.trim(),
-      usageCount
-    };
-  });
-}
-
 function mapUserDictionary(corrections: Array<{ spoken: string; written: string }>): UserDictionaryView[] {
   return corrections.map(({ spoken, written }) => ({
     word: spoken,
     replacement: written,
     category: "correction" as const
   }));
-}
-
-function deriveStats(entries: DictationEntry[]): StatsView {
-  const now = new Date();
-  const totalWords = entries.reduce((sum, entry) => sum + countWords(entry.cleanedText), 0);
-  const todayEntries = entries.filter((entry) => {
-    const utcDate = new Date(entry.timestamp);
-    const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
-    return isSameDay(localDate, now);
-  });
-
-  const successfulInjections = entries.filter((entry) => entry.injectionStatus === "injected").length;
-  const accuracy = entries.length > 0 ? Math.round((successfulInjections / entries.length) * 100) : 0;
-
-  return {
-    wordsToday: todayEntries.reduce((sum, entry) => sum + countWords(entry.cleanedText), 0),
-    sessionsToday: todayEntries.length,
-    streak: deriveStreak(entries),
-    accuracy,
-    totalWords,
-    totalSessions: entries.length
-  };
-}
-
-function deriveWeeklyActivity(entries: DictationEntry[]): WeeklyActivityView[] {
-  const end = startOfDay(new Date());
-  const days = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(end);
-    date.setDate(end.getDate() - (6 - index));
-    return date;
-  });
-
-  return days.map((date) => ({
-    day: date.toLocaleDateString("en-US", { weekday: "short" }),
-    words: entries
-      .filter((entry) => {
-        const utcDate = new Date(entry.timestamp);
-        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
-        return isSameDay(localDate, date);
-      })
-      .reduce((sum, entry) => sum + countWords(entry.cleanedText), 0)
-  }));
-}
-
-function deriveStreak(entries: DictationEntry[]): number {
-  const uniqueDays = Array.from(new Set(entries.map((entry) => {
-    const utcDate = new Date(entry.timestamp);
-    const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
-    return startOfDay(localDate).toISOString();
-  }))).sort().reverse();
-  let streak = 0;
-  let cursor = startOfDay(new Date());
-
-  for (const dayIso of uniqueDays) {
-    const day = new Date(dayIso);
-    if (day.getTime() === cursor.getTime()) {
-      streak += 1;
-      cursor = new Date(cursor);
-      cursor.setDate(cursor.getDate() - 1);
-      continue;
-    }
-
-    if (day.getTime() < cursor.getTime()) {
-      break;
-    }
-  }
-
-  return streak;
 }
 
 function formatDisplayTime(timestamp: string): string {
@@ -571,11 +473,6 @@ function normalizeTerminalApp(appName: string | null): string {
   return normalizeAppName(appName).replace(/\s+/g, "_").toUpperCase();
 }
 
-function countWords(text: string): number {
-  const words = text.trim().match(/\S+/g);
-  return words?.length ?? 0;
-}
-
 function isSameDay(left: Date, right: Date): boolean {
   return left.getFullYear() === right.getFullYear()
     && left.getMonth() === right.getMonth()
@@ -584,8 +481,4 @@ function isSameDay(left: Date, right: Date): boolean {
 
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

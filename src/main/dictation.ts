@@ -28,6 +28,7 @@ import { CredentialsStore } from "./store/credentials";
 import { cleanupText } from "./text/cleanup";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { TranscriptionService } from "./transcription";
+import { SessionTimers } from "./dictation/sessionTimers";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
@@ -61,15 +62,7 @@ export class DictationService {
   private readonly injector: Pick<TextInjector, "inject">;
   private readonly appDetector: Pick<AppDetector, "getContext">;
   private readonly createSessionId: () => string;
-  private resetTimer: ReturnType<typeof setTimeout> | null = null;
-  private finalizationTimer: ReturnType<typeof setTimeout> | null = null;
-  private audioFrameTimer: ReturnType<typeof setTimeout> | null = null;
-  private recorderStartTimer: ReturnType<typeof setTimeout> | null = null;
-  private staleSessionTimer: ReturnType<typeof setTimeout> | null = null;
-  private uptimeLogTimer: ReturnType<typeof setTimeout> | null = null;
-  private editWatchTimer: ReturnType<typeof setInterval> | null = null;
-  private editWatchTimeout: ReturnType<typeof setTimeout> | null = null;
-  private editPromptTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly timers = new SessionTimers();
   private pendingEditPromptKey: string | null = null;
   private activeSessionId: string | null = null;
   private activeTarget: AppContextResult | null = null;
@@ -95,7 +88,7 @@ export class DictationService {
   }
 
   private startUptimeLogging(): void {
-    this.uptimeLogTimer = setInterval(() => {
+    this.timers.setInterval("uptimeLog", () => {
       const uptimeHrs = Math.round(process.uptime() / 3600);
       debug("dictation", `uptime checkpoint: ${uptimeHrs}h, state=${this.state.status}, session=${this.activeSessionId ?? "none"}`);
     }, UPTIME_LOG_INTERVAL_MS);
@@ -103,7 +96,7 @@ export class DictationService {
 
   private armStaleSessionGuard(sessionId: string): void {
     this.clearStaleSessionTimer();
-    this.staleSessionTimer = setTimeout(() => {
+    this.timers.setTimeout("staleSession", () => {
       if (this.isCurrentSession(sessionId) && this.state.status !== "idle") {
         debug("dictation", `stale session guard fired: status=${this.state.status}, forcing reset`);
         this.resetToIdle();
@@ -146,7 +139,7 @@ export class DictationService {
     }
 
     this.clearRecorderStartTimer();
-    this.recorderStartTimer = setTimeout(() => {
+    this.timers.setTimeout("recorderStart", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "starting") {
         this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.");
       }
@@ -181,7 +174,7 @@ export class DictationService {
       this.failSession(sessionId, "Recording could not be finalized.");
       return;
     }
-    this.finalizationTimer = setTimeout(() => {
+    this.timers.setTimeout("finalization", () => {
       this.failSession(sessionId, "Recording did not finalize. Please try again.");
     }, FINALIZATION_TIMEOUT_MS);
   }
@@ -195,7 +188,7 @@ export class DictationService {
     this.setState({ status: "recording", sessionId });
     this.rearmStaleSessionGuard();
     this.clearAudioFrameTimer();
-    this.audioFrameTimer = setTimeout(() => {
+    this.timers.setTimeout("audioFrame", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "recording") {
         this.recorder?.stopRecording(sessionId);
         this.failSession(sessionId, "Microphone opened, but no live audio frames arrived.");
@@ -479,7 +472,7 @@ export class DictationService {
     if (!isExternalTarget(target) || !nativeBridge.getFocusedValue) return;
 
     const initialValue = safeFocusedValue();
-    this.editWatchTimer = setInterval(() => {
+    this.timers.setInterval("editWatch", () => {
       if (!sameTarget(target, this.appDetector.getContext())) return;
 
       const currentValue = safeFocusedValue();
@@ -491,7 +484,7 @@ export class DictationService {
       this.scheduleEditPrompt(insertedText, correctedCandidate);
     }, EDIT_WATCH_INTERVAL_MS);
 
-    this.editWatchTimeout = setTimeout(() => this.clearEditWatch(), EDIT_WATCH_TIMEOUT_MS);
+    this.timers.setTimeout("editWatchTimeout", () => this.clearEditWatch(), EDIT_WATCH_TIMEOUT_MS);
   }
 
   private scheduleEditPrompt(insertedText: string, correctedCandidate: string): void {
@@ -499,7 +492,7 @@ export class DictationService {
     if (this.pendingEditPromptKey === key) return;
     this.clearEditPromptTimer();
     this.pendingEditPromptKey = key;
-    this.editPromptTimer = setTimeout(() => {
+    this.timers.setTimeout("editPrompt", () => {
       this.clearEditWatch();
       const suggestions = detectDictionarySuggestions(insertedText, correctedCandidate);
       if (suggestions.length > 0 && !isSnippetLikeContent(correctedCandidate)) {
@@ -540,7 +533,7 @@ export class DictationService {
 
   private scheduleReset(timeoutMs: number): void {
     this.clearResetTimer();
-    this.resetTimer = setTimeout(() => this.resetToIdle(), timeoutMs);
+    this.timers.setTimeout("reset", () => this.resetToIdle(), timeoutMs);
   }
 
   private clearTimers(): void {
@@ -551,35 +544,23 @@ export class DictationService {
     this.clearStaleSessionTimer();
   }
 
-  private clearResetTimer(): void { if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = null; } }
-  private clearFinalizationTimer(): void { if (this.finalizationTimer) { clearTimeout(this.finalizationTimer); this.finalizationTimer = null; } }
-  private clearAudioFrameTimer(): void { if (this.audioFrameTimer) { clearTimeout(this.audioFrameTimer); this.audioFrameTimer = null; } }
-  private clearRecorderStartTimer(): void { if (this.recorderStartTimer) { clearTimeout(this.recorderStartTimer); this.recorderStartTimer = null; } }
-  private clearStaleSessionTimer(): void { if (this.staleSessionTimer) { clearTimeout(this.staleSessionTimer); this.staleSessionTimer = null; } }
+  private clearResetTimer(): void { this.timers.clear("reset"); }
+  private clearFinalizationTimer(): void { this.timers.clear("finalization"); }
+  private clearAudioFrameTimer(): void { this.timers.clear("audioFrame"); }
+  private clearRecorderStartTimer(): void { this.timers.clear("recorderStart"); }
+  private clearStaleSessionTimer(): void { this.timers.clear("staleSession"); }
   private clearEditWatch(): void {
-    if (this.editWatchTimer) {
-      clearInterval(this.editWatchTimer);
-      this.editWatchTimer = null;
-    }
-    if (this.editWatchTimeout) {
-      clearTimeout(this.editWatchTimeout);
-      this.editWatchTimeout = null;
-    }
+    this.timers.clear("editWatch");
+    this.timers.clear("editWatchTimeout");
     this.clearEditPromptTimer();
   }
   private clearEditPromptTimer(): void {
-    if (this.editPromptTimer) {
-      clearTimeout(this.editPromptTimer);
-      this.editPromptTimer = null;
-    }
+    this.timers.clear("editPrompt");
     this.pendingEditPromptKey = null;
   }
 
   clearUptimeLogging(): void {
-    if (this.uptimeLogTimer) {
-      clearInterval(this.uptimeLogTimer);
-      this.uptimeLogTimer = null;
-    }
+    this.timers.clear("uptimeLog");
   }
 
   destroy(): void {

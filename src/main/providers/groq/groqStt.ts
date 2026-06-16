@@ -1,36 +1,14 @@
 import Groq from "groq-sdk";
-import type { AudioClip, TranscriptionResult } from "@shared/types";
+import type { TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { debug, error } from "@main/log";
 import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
 import { validateBearerEndpoint } from "../validation";
+import { createWavBuffer } from "@main/providers/shared/audioUtils";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
 const ATTEMPT_TIMEOUT_MS = 15_000;
-
-function createWavBuffer(audio: AudioClip): Buffer {
-  const dataSize = audio.pcmData.length * 2;
-  const buf = Buffer.alloc(44 + dataSize);
-  buf.write("RIFF", 0);
-  buf.writeUInt32LE(36 + dataSize, 4);
-  buf.write("WAVE", 8);
-  buf.write("fmt ", 12);
-  buf.writeUInt32LE(16, 16);
-  buf.writeUInt16LE(1, 20);
-  buf.writeUInt16LE(1, 22);
-  buf.writeUInt32LE(audio.sampleRate, 24);
-  buf.writeUInt32LE(audio.sampleRate * 2, 28);
-  buf.writeUInt16LE(2, 32);
-  buf.writeUInt16LE(16, 34);
-  buf.write("data", 36);
-  buf.writeUInt32LE(dataSize, 40);
-  for (let i = 0; i < audio.pcmData.length; i++) {
-    const s = Math.max(-1, Math.min(1, audio.pcmData[i] ?? 0));
-    buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
-  }
-  return buf;
-}
 
 function delay(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));

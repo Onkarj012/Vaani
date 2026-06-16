@@ -1,7 +1,8 @@
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Optionally switch to built-in mic if a Bluetooth device is active on startup.
@@ -74,7 +75,7 @@ export async function setAudioInputDevice(deviceName: string): Promise<boolean> 
   }
 
   try {
-    await execAsync(`SwitchAudioSource -t input -s "${deviceName}" 2>/dev/null`);
+    await execFileAsync("SwitchAudioSource", ["-t", "input", "-s", deviceName]);
     return true;
   } catch {
     return false;

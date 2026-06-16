@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Settings } from "@shared/types";
+import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { cleanupText } from "@main/text/cleanup";
 
 function createSettings(overrides: Partial<Settings> = {}): Settings {
   return {
+    ...DEFAULT_SETTINGS,
     groqApiKey: "test-key",
     primaryHotkey: "Cmd+D",
     pasteLatestHotkey: "Ctrl+Cmd+V",
@@ -15,7 +17,7 @@ function createSettings(overrides: Partial<Settings> = {}): Settings {
     snippets: [],
     injectionMode: "auto",
     pasteMode: "instant",
-    theme: "signal",
+    theme: "aurora",
     launchAtLogin: false,
     showInDock: true,
     minClipDuration: 0.5,

@@ -17,28 +17,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: '20'
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm install
+        run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: bun run typecheck
 
       - name: Test
-        run: npm test
+        run: bun run test
 
       - name: Build native module
-        run: npm run build:native
+        run: bun run build:native
 
       - name: Make distributables
-        run: npm run make
+        run: bun run make
 
       - name: Generate update metadata
-        run: npm run generate:update-metadata
+        run: bun run generate:update-metadata
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
