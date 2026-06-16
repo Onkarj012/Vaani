@@ -203,7 +203,7 @@ export class OverlayController {
     this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
 
     await this.showPromptWindow(frontmostBefore);
-    this.window.webContents.send("capsule:show-snippet", { trigger });
+    promptWindow.webContents.send("capsule:show-snippet", { trigger });
     this.promptDismissTimer = setTimeout(() => {
       this.endPrompt();
       onResponse(false);
@@ -229,7 +229,7 @@ export class OverlayController {
     this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:dictionary-response", dictResponseHandler);
 
     await this.showPromptWindow(frontmostBefore);
-    this.window.webContents.send("capsule:show-dictionary", { word, correction });
+    promptWindow.webContents.send("capsule:show-dictionary", { word, correction });
     this.promptDismissTimer = setTimeout(() => {
       this.endPrompt();
       onResponse(false);

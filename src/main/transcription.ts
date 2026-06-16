@@ -99,9 +99,13 @@ export class TranscriptionService {
   }
 
   private async resolveApiKey(settings: Settings, providerId: string): Promise<string | null> {
+    const candidateIds = providerId === "groq-llm" ? ["groq-llm", "groq"] : [providerId];
+
     if (this.credentials) {
-      const key = await this.credentials.get(providerId);
-      if (key) return key;
+      for (const id of candidateIds) {
+        const key = await this.credentials.get(id);
+        if (key) return key;
+      }
     }
 
     if ((providerId === "groq" || providerId === "groq-llm") && settings.groqApiKey) {

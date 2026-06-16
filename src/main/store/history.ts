@@ -14,7 +14,7 @@ export class HistoryStore {
   }
 
   async getAll(): Promise<DictationEntry[]> {
-    return [...await this.ensureLoaded()];
+    return (await this.ensureLoaded()).map((entry) => ({ ...entry }));
   }
 
   async append(entry: DictationEntry): Promise<void> {
@@ -44,12 +44,14 @@ export class HistoryStore {
 
   async getById(id: string): Promise<DictationEntry | undefined> {
     const history = await this.ensureLoaded();
-    return history.find(e => e.id === id);
+    const found = history.find(e => e.id === id);
+    return found ? { ...found } : undefined;
   }
 
   async getLatest(): Promise<DictationEntry | undefined> {
     const history = await this.ensureLoaded();
-    return history[0];
+    const latest = history[0];
+    return latest ? { ...latest } : undefined;
   }
 
   async updateById(id: string, updater: (entry: DictationEntry) => DictationEntry): Promise<DictationEntry | undefined> {

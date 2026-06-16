@@ -37,13 +37,12 @@ export function countWords(text: string): number {
 
 export function computeEntryFacts(entries: DictationEntry[]): EntryFacts[] {
   return entries.map((entry) => {
-    const utcDate = new Date(entry.timestamp);
-    const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+    const date = new Date(entry.timestamp);
     return {
       wordCount: countWords(entry.cleanedText),
-      localDayIso: startOfDay(localDate).toISOString(),
+      localDayIso: startOfDay(date).toISOString(),
       injected: entry.injectionStatus === "injected",
-      timestamp: utcDate.getTime(),
+      timestamp: date.getTime(),
     };
   });
 }
