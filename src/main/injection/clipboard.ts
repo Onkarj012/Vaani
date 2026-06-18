@@ -9,6 +9,8 @@ import { activateTargetApp, isTargetFrontmost } from "./target";
 
 const exec = promisify(execFile);
 let consecutiveFailures = 0;
+const CLIPBOARD_RESTORE_DELAY_MS = 1_200;
+let restoreGeneration = 0;
 const UTF8_CLIPBOARD_ENV = {
   ...process.env,
   LANG: "en_US.UTF-8",
@@ -19,6 +21,7 @@ const UTF8_CLIPBOARD_ENV = {
 export class ClipboardTextInjector {
   async inject(text: string, target?: InjectionTarget): Promise<InjectionResult> {
     const original = await readClipboardText();
+    const generation = ++restoreGeneration;
     try {
       await writeClipboardText(text);
       await delay(180);
@@ -35,21 +38,6 @@ export class ClipboardTextInjector {
         await ensureTargetReady(target);
         await moveCaretToEndForBrowserTarget(target);
         const ok = await this.pasteWithAppleScript(target);
-        // For clipboard-only targets, immediately restore the original clipboard
-        // to prevent the app from re-firing a paste with the same content.
-        // This closes the window where a second cmd+v or app-triggered paste duplicates.
-        if (ok) {
-          // Small delay to let the paste complete, then immediately clear
-          await delay(80);
-          if (original !== text) {
-            await writeClipboardText(original);
-          } else {
-            // Even if text matches original, briefly clear to break any paste loops
-            await writeClipboardText("");
-            await delay(50);
-            await writeClipboardText(original);
-          }
-        }
         if (ok) {
           consecutiveFailures = 0;
           return { success: true, method: "clipboard" };
@@ -105,10 +93,7 @@ export class ClipboardTextInjector {
       return { success: false, reason: "insertion_failed" };
     } finally {
       if (original !== text) {
-        // Restore quickly (400ms) to minimize the window where, if the app re-fires
-        // a paste, it gets the dictated text a second time. For non-clipboard-only
-        // targets, this is faster than the previous 750ms to reduce double-paste risk.
-        void restoreClipboardAfterDelay(original, text, 400);
+        void restoreClipboardAfterDelay(original, text, CLIPBOARD_RESTORE_DELAY_MS, generation);
       }
     }
   }
@@ -211,8 +196,10 @@ async function writeClipboardText(text: string): Promise<void> {
   }
 }
 
-async function restoreClipboardAfterDelay(original: string, injected: string, delayMs: number): Promise<void> {
+async function restoreClipboardAfterDelay(original: string, injected: string, delayMs: number, generation: number): Promise<void> {
   await delay(delayMs);
+  // A newer injection started after this one; let it own the clipboard.
+  if (generation !== restoreGeneration) return;
   const current = await readClipboardText();
   // Only restore if clipboard still contains our injected text.
   // If it's different, something else changed it (user copied something else).

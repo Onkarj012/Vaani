@@ -182,7 +182,7 @@ export interface RecorderCommand {
 
 // ─── IPC API types ───────────────────────────────────────────────────────────
 
-export type UpdateStatus = "checking" | "downloading" | "ready" | "no-update" | "error";
+export type UpdateStatus = "checking" | "available" | "downloading" | "ready" | "no-update" | "error";
 
 export interface UpdateNotificationPayload {
   version?: string;
@@ -216,6 +216,7 @@ export interface VaaniAPI {
   checkForUpdates: () => Promise<{ available: boolean; version: string }>;
   quitAndInstall: () => void;
   restartAndInstall: () => Promise<void>;
+  openReleasesPage: () => void;
   getAppVersion: () => Promise<string>;
   reportRendererReady: () => void;
   reportRendererError: (payload: { message: string; stack?: string }) => void;

@@ -378,12 +378,19 @@ async function bootstrap(): Promise<void> {
   dictationService = dictation;
 
   try {
-    trayController = createTray(
-      () => showMainWindow(),
-      () => { mutableApp.isQuitting = true; app.quit(); },
-      () => dictation.beginHotkeySession(),
-      () => { void dictation.pasteLatestEntry(); }
-    );
+    trayController = createTray({
+      openMainWindow: () => showMainWindow(),
+      quit: () => { mutableApp.isQuitting = true; app.quit(); },
+      startDictation: () => dictation.beginHotkeySession(),
+      pasteLatest: () => { void dictation.pasteLatestEntry(); },
+      getRecentHistory: async () => {
+        const entries = await history.getAll();
+        return entries.slice(0, 10).map((e) => ({ id: e.id, cleanedText: e.cleanedText }));
+      },
+      reinjectEntry: (id) => dictation.reinjectEntry(id),
+      getLanguage: () => settings.get().language,
+      setLanguage: (language) => { settings.update({ language }); },
+    });
     trayReady = true;
   } catch (error) {
     log("tray:error", { message: error instanceof Error ? error.message : String(error) });
@@ -456,42 +463,36 @@ async function bootstrap(): Promise<void> {
       mainWindow?.webContents.send(IpcChannel.UpdateNotification, payload);
     }
 
+    // Notify-only: unsigned builds cannot self-install, so we never download or
+    // install in-app. We detect a newer release and point the user to GitHub.
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+
     autoUpdater.on("checking-for-update", () => log("updater:checking"));
     autoUpdater.on("update-available", (info) => {
       log("updater:available", { version: info.version });
       sendUpdateNotification({
         version: info.version,
-        status: "downloading",
-        message: `Update ${info.version} downloading…`,
+        status: "available",
+        message: `Vaani ${info.version} is available — download from GitHub`,
+        installable: false,
       });
     });
     autoUpdater.on("update-not-available", (info) => {
       log("updater:not-available", { version: info.version });
-      // Don't clear cache if a download is in progress or already ready
-      if (cachedUpdateStatus?.status !== "ready" && cachedUpdateStatus?.status !== "downloading") {
+      if (cachedUpdateStatus?.status !== "available") {
         cachedUpdateStatus = null;
       }
     });
-    autoUpdater.on("update-downloaded", (info) => {
-      log("updater:downloaded", { version: info.version });
-      sendUpdateNotification({
-        version: info.version,
-        status: "ready",
-        message: `Vaani ${info.version} ready — restart to update`,
-      });
-    });
     autoUpdater.on("error", (err) => {
       log("updater:event-error", { message: err.message });
-      // Clear a stuck "downloading" cache so renderers don't show a perpetual banner
-      if (cachedUpdateStatus?.status === "downloading") {
+      if (cachedUpdateStatus?.status === "checking") {
         sendUpdateNotification({
           status: "error",
-          message: `Update failed: ${err.message}`,
+          message: `Update check failed: ${err.message}`,
         });
       }
     });
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.checkForUpdates().catch((err) => {
       log("updater:check-error", { message: err instanceof Error ? err.message : String(err) });
     });

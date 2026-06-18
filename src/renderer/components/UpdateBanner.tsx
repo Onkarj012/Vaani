@@ -9,8 +9,9 @@ interface UpdateBannerProps {
 
 export default function UpdateBanner({ notification, onDismiss }: UpdateBannerProps) {
   const { status, version, message } = notification;
-  const isDismissable = status === "no-update" || status === "error";
+  const isDismissable = status === "no-update" || status === "error" || status === "available";
   const canInstall = status === "ready" && version && notification.installable !== false;
+  const canDownload = status === "available";
 
   let icon: React.ReactNode;
   let toneClass: string;
@@ -19,6 +20,10 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
     case "checking":
       icon = <RefreshCw size={15} className="animate-spin-ui" />;
       toneClass = "bg-surface text-muted";
+      break;
+    case "available":
+      icon = <ArrowUpCircle size={15} />;
+      toneClass = "bg-accent/10 text-accent";
       break;
     case "downloading":
       icon = <Download size={15} />;
@@ -61,6 +66,15 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
                 className="rounded-full bg-ink px-3 py-1 text-xs font-semibold text-bg transition-opacity hover:opacity-90"
               >
                 Restart
+              </button>
+            )}
+            {canDownload && (
+              <button
+                onClick={() => window.vaani.openReleasesPage()}
+                className="flex items-center gap-1 rounded-full bg-ink px-3 py-1 text-xs font-semibold text-bg transition-opacity hover:opacity-90"
+              >
+                <Download size={13} />
+                Download
               </button>
             )}
             {isDismissable && (

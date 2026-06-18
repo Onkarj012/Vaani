@@ -268,8 +268,9 @@ export function registerIpcHandlers(opts: {
         if (available) {
           sendUpdateNotification({
             version,
-            status: "downloading",
-            message: `Update ${version} downloading…`,
+            status: "available",
+            message: `Vaani ${version} is available — download from GitHub`,
+            installable: false,
           });
         } else {
           sendUpdateNotification({
@@ -300,8 +301,8 @@ export function registerIpcHandlers(opts: {
       if (available) {
         sendUpdateNotification({
           version,
-          status: "ready",
-          message: `Vaani ${version} is available on GitHub`,
+          status: "available",
+          message: `Vaani ${version} is available — download from GitHub`,
           installable: false,
         });
       } else {
@@ -331,6 +332,10 @@ export function registerIpcHandlers(opts: {
 
   ipcMain.on(IpcChannel.QuitAndInstall, () => {
     autoUpdater.quitAndInstall();
+  });
+
+  ipcMain.on(IpcChannel.OpenReleasesPage, () => {
+    void shell.openExternal("https://github.com/Onkarj012/Vaani/releases/latest");
   });
 
   // Local Whisper model management

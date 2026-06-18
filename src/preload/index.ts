@@ -38,6 +38,7 @@ const api: VaaniAPI = {
   getUpdateStatus: () => ipcRenderer.invoke(IpcChannel.GetUpdateStatus),
   checkForUpdates: () => ipcRenderer.invoke(IpcChannel.CheckForUpdates),
   quitAndInstall: () => ipcRenderer.send(IpcChannel.QuitAndInstall),
+  openReleasesPage: () => ipcRenderer.send(IpcChannel.OpenReleasesPage),
   restartAndInstall: async () => {
     ipcRenderer.send(IpcChannel.QuitAndInstall);
   },

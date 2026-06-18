@@ -1,4 +1,5 @@
 import type { AudioClip, AudioVisualFrame, RecorderCommand, RecorderFailure, RecorderSubmission } from "@shared/types";
+import { selectRecorderDeviceId } from "./deviceSelection";
 
 const TARGET_SAMPLE_RATE = 16_000;
 const FRAME_REPORT_INTERVAL_MS = 50;
@@ -159,14 +160,8 @@ async function reportFailure(sessionId: string, message: string): Promise<void> 
 async function chooseMicDevice(): Promise<ConstrainDOMString | undefined> {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const inputs = devices.filter(
-      device => device.kind === "audioinput" && device.deviceId && device.deviceId !== "default" && device.deviceId !== "communications"
-    );
-    const builtIn = inputs.find(device => {
-      const label = device.label.toLowerCase();
-      return label.includes("built-in") || label.includes("macbook") || label.includes("internal");
-    }) ?? inputs[0];
-    return builtIn?.deviceId ? { exact: builtIn.deviceId } : undefined;
+    const deviceId = selectRecorderDeviceId(devices);
+    return deviceId ? { exact: deviceId } : undefined;
   } catch {
     return undefined;
   }

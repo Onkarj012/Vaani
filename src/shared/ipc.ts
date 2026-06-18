@@ -52,6 +52,7 @@ export const enum IpcChannel {
   CheckForUpdates = "updater:check",
   GetUpdateStatus = "updater:get-status",
   QuitAndInstall = "updater:quit-and-install",
+  OpenReleasesPage = "updater:open-releases",
 
   // App info
   GetAppVersion = "app:get-version",

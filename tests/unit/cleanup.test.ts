@@ -111,6 +111,41 @@ describe("cleanupText", () => {
     expect(result).toBe("My address is here.");
   });
 
+  it("normalizes a common standalone number to a digit", () => {
+    expect(cleanupText({
+      rawText: "I need ten apples",
+      settings: createSettings()
+    })).toBe("I need 10 apples.");
+  });
+
+  it("normalizes a compound number with a percent phrase", () => {
+    expect(cleanupText({
+      rawText: "Set the limit to twenty five percent",
+      settings: createSettings()
+    })).toBe("Set the limit to 25%.");
+  });
+
+  it("normalizes a simple dollar amount phrase", () => {
+    expect(cleanupText({
+      rawText: "The budget is ten dollars",
+      settings: createSettings()
+    })).toBe("The budget is $10.");
+  });
+
+  it("leaves the idiomatic standalone 'one' as a word", () => {
+    expect(cleanupText({
+      rawText: "I have one more thing",
+      settings: createSettings()
+    })).toBe("I have one more thing.");
+  });
+
+  it("does not normalize numbers when cleanup is disabled", () => {
+    expect(cleanupText({
+      rawText: "I need ten apples",
+      settings: createSettings({ cleanupEnabled: false })
+    })).toBe("I need ten apples");
+  });
+
   it("expands snippets in multiline text", () => {
     const result = cleanupText({
       rawText: "contact me\n/email\nthanks",

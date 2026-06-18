@@ -1,3 +1,7 @@
+import { isLanguageSupportedByProvider } from "@shared/defaults";
+
+export { isLanguageSupportedByProvider };
+
 const LANGUAGE_CONTEXT: Record<string, string> = {
   auto: "Transcribe the speech exactly in the language or languages spoken. Preserve the original script, names, punctuation, and mixed-language phrasing. Do not translate to English.",
   en: "This is English dictation. Preserve names, product terms, punctuation, and sentence structure.",
@@ -32,4 +36,21 @@ export function normalizeDeepgramLanguage(language: string | undefined): string 
 export function resolveReportedLanguage(language: string | undefined): string | null {
   if (!language || language === "auto") return null;
   return language;
+}
+
+// Resolve the language a given provider/model should actually receive, honoring
+// what each provider can support. Unsupported pairs fall back to auto-detect
+// (undefined for Whisper-style, null for Deepgram) instead of silently passing
+// a code the provider cannot use.
+export function resolveLanguageForProvider(
+  language: string | undefined,
+  providerId: string,
+  modelId?: string,
+): string | null | undefined {
+  const effective = language ?? "auto";
+  if (providerId === "deepgram") {
+    return isLanguageSupportedByProvider(effective, providerId) ? normalizeDeepgramLanguage(language) : null;
+  }
+  if (!isLanguageSupportedByProvider(effective, providerId, modelId)) return undefined;
+  return normalizeWhisperLanguage(language);
 }

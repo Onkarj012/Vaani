@@ -7,7 +7,7 @@ import {
 import { useVaaniUi } from '../context/vaani-ui'
 import { useColorMode } from '../context/color-mode'
 import { HotkeyCapture } from './HotkeyCapture'
-import { KNOWN_PROVIDERS } from '@shared/defaults'
+import { KNOWN_PROVIDERS, SUPPORTED_LANGUAGES, isLanguageSupportedByProvider } from '@shared/defaults'
 import { Select } from '@renderer/components/ui/Select'
 import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
@@ -40,15 +40,7 @@ const sectionDescriptions: Record<string, string> = {
   data: 'Export, clear history, and reset settings',
 }
 
-const languages = [
-  { value: 'auto', label: 'Auto-detect' }, { value: 'en', label: 'English' }, { value: 'hi', label: 'Hindi' },
-  { value: 'hinglish', label: 'Hinglish' }, { value: 'ta', label: 'Tamil' }, { value: 'pa', label: 'Punjabi' },
-  { value: 'mr', label: 'Marathi' }, { value: 'bn', label: 'Bengali' }, { value: 'gu', label: 'Gujarati' },
-  { value: 'te', label: 'Telugu' }, { value: 'kn', label: 'Kannada' }, { value: 'ml', label: 'Malayalam' },
-  { value: 'es', label: 'Spanish' }, { value: 'fr', label: 'French' }, { value: 'de', label: 'German' },
-  { value: 'ja', label: 'Japanese' }, { value: 'zh', label: 'Chinese' }, { value: 'ko', label: 'Korean' },
-  { value: 'ar', label: 'Arabic' }, { value: 'pt', label: 'Portuguese' }, { value: 'ru', label: 'Russian' },
-]
+const languages = SUPPORTED_LANGUAGES.map((l) => ({ value: l.value, label: l.label }))
 
 const dictationModes = [
   { id: 'toggle', label: 'Toggle', description: 'Press once to start recording, press again to stop' },
@@ -250,6 +242,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       {activeSection === 'language' && (
         <div className="space-y-4">
           <Select value={settings.language} onChange={(v) => updateSettings({ language: v })} options={languages} />
+          {!isLanguageSupportedByProvider(settings.language, settings.transcriptionProvider, settings.localWhisperModel) && (
+            <p className="flex items-start gap-2 text-xs text-amber-500">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              {settings.transcriptionProvider === 'local-whisper'
+                ? 'The selected local model is English-only. Choose a cloud transcription provider for this language.'
+                : 'The selected transcription provider does not support this language. Vaani will fall back to auto-detect.'}
+            </p>
+          )}
           <Row title="Smart Punctuation" desc="Auto-add periods, commas, and capitalization">
             <Toggle checked={settings.smartPunctuation} onChange={(v) => updateSettings({ smartPunctuation: v })} />
           </Row>
@@ -275,7 +275,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="flex items-center justify-between rounded-2xl bg-surface p-4">
             <div className="flex items-center gap-3">
               <Mic size={16} className="text-muted" />
-              <div><div className="text-sm text-ink">System Default Microphone</div><div className="text-xs text-faint">Vaani uses your system mic</div></div>
+              <div><div className="text-sm text-ink">Automatic Microphone</div><div className="text-xs text-faint">Prefers built-in/physical mics and skips virtual loopback inputs</div></div>
             </div>
             <HardDrive size={14} className="text-faint" />
           </div>
