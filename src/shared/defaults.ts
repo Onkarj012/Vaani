@@ -47,6 +47,60 @@ export const DEFAULT_SETTINGS: Settings = {
   snippetsOnboarded: false,
 };
 
+// ─── Language metadata (shared by main provider chain + renderer UI) ─────────
+
+export interface LanguageInfo {
+  value: string;
+  label: string;
+  // Whisper-style multilingual STT (Groq/OpenAI Whisper, multilingual local models).
+  whisper: boolean;
+  // Deepgram Nova language-code support.
+  deepgram: boolean;
+  // Supported by English-only local Whisper models (.en).
+  localEn: boolean;
+}
+
+export const SUPPORTED_LANGUAGES: LanguageInfo[] = [
+  { value: "auto", label: "Auto-detect", whisper: true, deepgram: true, localEn: true },
+  { value: "en", label: "English", whisper: true, deepgram: true, localEn: true },
+  { value: "hi", label: "Hindi", whisper: true, deepgram: true, localEn: false },
+  { value: "hinglish", label: "Hinglish", whisper: true, deepgram: false, localEn: false },
+  { value: "ta", label: "Tamil", whisper: true, deepgram: true, localEn: false },
+  { value: "pa", label: "Punjabi", whisper: true, deepgram: false, localEn: false },
+  { value: "mr", label: "Marathi", whisper: true, deepgram: false, localEn: false },
+  { value: "bn", label: "Bengali", whisper: true, deepgram: false, localEn: false },
+  { value: "gu", label: "Gujarati", whisper: true, deepgram: false, localEn: false },
+  { value: "te", label: "Telugu", whisper: true, deepgram: false, localEn: false },
+  { value: "kn", label: "Kannada", whisper: true, deepgram: false, localEn: false },
+  { value: "ml", label: "Malayalam", whisper: true, deepgram: false, localEn: false },
+  { value: "es", label: "Spanish", whisper: true, deepgram: true, localEn: false },
+  { value: "fr", label: "French", whisper: true, deepgram: true, localEn: false },
+  { value: "de", label: "German", whisper: true, deepgram: true, localEn: false },
+  { value: "ja", label: "Japanese", whisper: true, deepgram: true, localEn: false },
+  { value: "zh", label: "Chinese", whisper: true, deepgram: true, localEn: false },
+  { value: "ko", label: "Korean", whisper: true, deepgram: true, localEn: false },
+  { value: "ar", label: "Arabic", whisper: true, deepgram: true, localEn: false },
+  { value: "pt", label: "Portuguese", whisper: true, deepgram: true, localEn: false },
+  { value: "ru", label: "Russian", whisper: true, deepgram: true, localEn: false },
+];
+
+// Pure support check used by both the provider chain and the Settings UI.
+export function isLanguageSupportedByProvider(
+  language: string,
+  providerId: string,
+  modelId?: string,
+): boolean {
+  if (language === "auto") return true;
+  const info = SUPPORTED_LANGUAGES.find((l) => l.value === language);
+  if (!info) return false;
+  if (providerId === "deepgram") return info.deepgram;
+  if (providerId === "local-whisper") {
+    const englishOnly = !modelId || modelId.endsWith(".en");
+    return englishOnly ? info.localEn : info.whisper;
+  }
+  return info.whisper;
+}
+
 export const HISTORY_LIMIT = 2000;
 export const SUCCESS_RESET_MS = 600;
 export const ERROR_RESET_MS = 1_800;
