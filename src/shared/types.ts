@@ -91,6 +91,7 @@ export interface AppProfile {
 export interface ProviderApiKey {
   providerId: string;
   key: string;
+  hasKey?: boolean;
 }
 
 export interface Settings {
@@ -216,6 +217,7 @@ export interface VaaniAPI {
   requestMicrophonePermission: () => Promise<MacOSPermissionState>;
   requestAccessibilityPermission: () => Promise<MacOSPermissionState>;
   openPermissionSettings: (permission: keyof PermissionStatus) => Promise<void>;
+  onPermissionStatusChanged: (cb: (status: PermissionStatus) => void) => () => void;
   relaunchApp: () => Promise<void>;
   onNavigate: (cb: (route: string) => void) => () => void;
   onUpdateNotification: (cb: (payload: UpdateNotificationPayload) => void) => () => void;

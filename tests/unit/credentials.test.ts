@@ -38,6 +38,16 @@ describe("CredentialsStore", () => {
     expect(sanitized.providerApiKeys).toEqual([{ providerId: "openai", key: "" }]);
   });
 
+  it("has() returns true after set and false for unknown key", async () => {
+    const backend = new MemoryCredentialBackend();
+    const store = new CredentialsStore(backend);
+    expect(await store.has("groq")).toBe(false);
+    await store.set("groq", "gsk_secret");
+    expect(await store.has("groq")).toBe(true);
+    await store.delete("groq");
+    expect(await store.has("groq")).toBe(false);
+  });
+
   it("redacts credentials from export payloads", () => {
     const payload = createExportPayload({
       ...DEFAULT_SETTINGS,

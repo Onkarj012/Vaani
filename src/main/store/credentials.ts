@@ -96,6 +96,13 @@ export class CredentialsStore {
     this.cache.delete(key);
   }
 
+  async has(key: string): Promise<boolean> {
+    if (this.cache.has(key)) return true;
+    const val = await this.backend.get(key);
+    if (val) this.cache.set(key, val);
+    return !!val;
+  }
+
   async getAll(): Promise<Array<Pick<CredentialEntry, "key">>> {
     const keys = new Set([...this.cache.keys(), ...(await this.backend.listKeys())]);
     return Array.from(keys).map((key) => ({ key }));

@@ -88,6 +88,7 @@ export class OverlayController {
       this.window.showInactive();
       if (this.pendingMode) {
         this.tryUpdateMode(this.pendingMode);
+        setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 80);
       }
       if (this.pendingBars) {
         this.updateBars(this.pendingBars);

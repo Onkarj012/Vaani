@@ -62,9 +62,7 @@ function normalizeMediaStatus(status: string): MacOSPermissionState {
 }
 
 function getPermissionStatus(): PermissionStatus {
-  const accessibilityTrusted = nativeBridge.isAccessibilityTrusted?.()
-    ?? systemPreferences.isTrustedAccessibilityClient(false);
-
+  const accessibilityTrusted = systemPreferences.isTrustedAccessibilityClient(false);
   return {
     microphone: normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone")),
     accessibility: accessibilityTrusted ? "granted" : "denied"
@@ -134,7 +132,28 @@ export function registerIpcHandlers(opts: {
     clipboard.writeText(text);
     return true;
   });
-  ipcMain.handle(IpcChannel.GetSettings, () => sanitizeSettingsForRenderer(settings.get()));
+  ipcMain.handle(IpcChannel.GetSettings, async () => {
+    const s = settings.get();
+    const sanitized = sanitizeSettingsForRenderer(s);
+    if (credentials) {
+      sanitized.providerApiKeys = await Promise.all(
+        (s.providerApiKeys ?? []).map(async (pk) => ({
+          providerId: pk.providerId,
+          key: '',
+          hasKey: await credentials.has(pk.providerId),
+        }))
+      );
+      const groqIdx = sanitized.providerApiKeys.findIndex((pk) => pk.providerId === 'groq');
+      const groqHasKey = await credentials.has('groq');
+      if (groqIdx >= 0) {
+        const existing = sanitized.providerApiKeys[groqIdx]!;
+        sanitized.providerApiKeys[groqIdx] = { providerId: existing.providerId, key: '', hasKey: groqHasKey };
+      } else if (groqHasKey) {
+        sanitized.providerApiKeys.push({ providerId: 'groq', key: '', hasKey: true });
+      }
+    }
+    return sanitized;
+  });
 
   ipcMain.handle(IpcChannel.UpdateSettings, async (_e, patch: Partial<Settings>) => {
     const credentialPatch = patch;
@@ -177,7 +196,25 @@ export function registerIpcHandlers(opts: {
       getProviderRegistry().setActiveFormatting(updated.formattingProvider);
     }
     onSettingsUpdated?.(updated, settingsPatch);
-    return sanitizeSettingsForRenderer(updated);
+    const sanitized = sanitizeSettingsForRenderer(updated);
+    if (credentials) {
+      sanitized.providerApiKeys = await Promise.all(
+        (updated.providerApiKeys ?? []).map(async (pk) => ({
+          providerId: pk.providerId,
+          key: '',
+          hasKey: await credentials.has(pk.providerId),
+        }))
+      );
+      const groqIdx = sanitized.providerApiKeys.findIndex((pk) => pk.providerId === 'groq');
+      const groqHasKey = await credentials.has('groq');
+      if (groqIdx >= 0) {
+        const existing = sanitized.providerApiKeys[groqIdx]!;
+        sanitized.providerApiKeys[groqIdx] = { providerId: existing.providerId, key: '', hasKey: groqHasKey };
+      } else if (groqHasKey) {
+        sanitized.providerApiKeys.push({ providerId: 'groq', key: '', hasKey: true });
+      }
+    }
+    return sanitized;
   });
   ipcMain.handle(IpcChannel.SetHotkeyCapture, (_e, active: boolean) => {
     hotkeys.setCaptureActive(active);

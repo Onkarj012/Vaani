@@ -37,6 +37,7 @@ export const enum IpcChannel {
   RequestMicrophonePermission = "permissions:request-microphone",
   RequestAccessibilityPermission = "permissions:request-accessibility",
   OpenPermissionSettings = "permissions:open-settings",
+  PermissionStatusPush = "permissions:status-push",
 
   // App lifecycle / diagnostics
   RendererReady = "app:renderer-ready",

@@ -43,6 +43,12 @@
     scroll-behavior: smooth;
   }
 
+  *, *::before, *::after {
+    transition-property: color, background-color, border-color;
+    transition-timing-function: ease;
+    transition-duration: 200ms;
+  }
+
   body {
     font-family: var(--font-body);
     background-color: var(--color-bg);
