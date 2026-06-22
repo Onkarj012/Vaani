@@ -27,11 +27,11 @@ describe("transcription language helpers", () => {
   });
 
   it("builds prompts with only user vocabulary — no instruction strings", () => {
-    expect(buildTranscriptionPrompt("auto", "")).toBe("");
-    expect(buildTranscriptionPrompt("hinglish", "Use Vaani spelling.")).toBe("Use Vaani spelling.");
-    expect(buildTranscriptionPrompt("en", "GitHub Claude RAG")).toBe("GitHub Claude RAG");
+    expect(buildTranscriptionPrompt("")).toBe("");
+    expect(buildTranscriptionPrompt("Use Vaani spelling.")).toBe("Use Vaani spelling.");
+    expect(buildTranscriptionPrompt("GitHub Claude RAG")).toBe("GitHub Claude RAG");
     const long = "x".repeat(700);
-    expect(buildTranscriptionPrompt("auto", long)).toHaveLength(600);
+    expect(buildTranscriptionPrompt(long)).toHaveLength(600);
   });
 
   it("keeps Hinglish prompt-driven for Whisper without a single language code", () => {

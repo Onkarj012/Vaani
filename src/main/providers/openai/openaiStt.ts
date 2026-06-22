@@ -24,7 +24,7 @@ export const OpenAISttProvider: TranscriptionProvider = {
     if (language) {
       formData.append("language", language);
     }
-    const prompt = buildTranscriptionPrompt(options.language, options.prompt);
+    const prompt = buildTranscriptionPrompt(options.prompt);
     if (prompt) {
       formData.append("prompt", prompt);
     }
@@ -78,7 +78,7 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
     if (language) {
       formData.append("language", language);
     }
-    const prompt = buildTranscriptionPrompt(options.language, options.prompt);
+    const prompt = buildTranscriptionPrompt(options.prompt);
     if (prompt) {
       formData.append("prompt", prompt);
     }

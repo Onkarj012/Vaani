@@ -150,13 +150,15 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const addAppProfile = () => {
     const bundleId = newProfileBundleId.trim();
     if (!bundleId) return;
+    const existingProfiles = settings.appProfiles ?? [];
+    if (existingProfiles.some((p) => p.appBundleIds.includes(bundleId))) return;
     const profile = {
       id: crypto.randomUUID(),
       name: newProfileName.trim() || bundleId,
       appBundleIds: [bundleId],
       language: newProfileLanguage,
     };
-    void updateSettings({ appProfiles: [...(settings.appProfiles ?? []), profile] });
+    void updateSettings({ appProfiles: [...existingProfiles, profile] });
     setNewProfileName('');
     setNewProfileBundleId('');
     setNewProfileLanguage('auto');
@@ -289,6 +291,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     options={languages}
                   />
                   <button
+                    aria-label="Delete profile"
                     onClick={() => {
                       const next = (settings.appProfiles ?? []).filter((p) => p.id !== profile.id);
                       void updateSettings({ appProfiles: next });

@@ -7,7 +7,7 @@ const MAX_PROMPT_CHARS = 600;
 // Whisper's `prompt` field is a text-prior, not an instruction field. Passing
 // imperative instructions biases decoding and causes dropped or condensed output
 // on longer audio. Only user-supplied vocabulary/context is safe here.
-export function buildTranscriptionPrompt(_language: string | undefined, customPrompt: string | undefined): string {
+export function buildTranscriptionPrompt(customPrompt: string | undefined): string {
   return (customPrompt?.trim() ?? "").slice(0, MAX_PROMPT_CHARS);
 }
 

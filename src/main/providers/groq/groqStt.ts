@@ -35,7 +35,7 @@ export const GroqSttProvider: TranscriptionProvider = {
     const file = new File([arrayBuffer], "recording.wav", { type: "audio/wav" });
 
     const whisperLang = normalizeWhisperLanguage(options.language);
-    const prompt = buildTranscriptionPrompt(options.language, options.prompt);
+    const prompt = buildTranscriptionPrompt(options.prompt);
 
     let lastError: Error | null = null;
 

@@ -89,7 +89,10 @@ export default function CapsuleOverlay() {
 
     bridge.onMode((m) => {
       switch (m) {
-        case 'pressed':      setMode('pressed'); break
+        case 'pressed':
+          setDetectedLang(null)
+          setMode('pressed')
+          break
         case 'recording':
           setBars(Array(BAR_COUNT).fill(0.08))
           setMode('recording')
@@ -249,7 +252,7 @@ export default function CapsuleOverlay() {
                   <Check size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
                 </motion.div>
                 {detectedLang && (
-                  <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 10, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-white/75">
                     {detectedLang}
                   </span>
                 )}

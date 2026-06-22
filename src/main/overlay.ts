@@ -32,6 +32,7 @@ export class OverlayController {
   private showWatchdog: ReturnType<typeof setTimeout> | null = null;
   private pendingMode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error" | null = null;
   private pendingBars: number[] | null = null;
+  private pendingLang: string | null = null;
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingPromptRemover: (() => void) | null = null;
@@ -149,9 +150,11 @@ export class OverlayController {
 
   setSuccess(detectedLanguage?: string | null): void {
     this.pendingMode = "done";
+    this.pendingLang = detectedLanguage ?? null;
     this.show();
     if (detectedLanguage && this.loadReady && this.window && !this.window.isDestroyed()) {
       this.window.webContents.send("capsule:set-lang", detectedLanguage);
+      this.pendingLang = null;
     }
   }
 
@@ -568,6 +571,10 @@ export class OverlayController {
         setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 150);
       }
       if (this.pendingBars) this.updateBars(this.pendingBars);
+      if (this.pendingLang && this.window && !this.window.isDestroyed()) {
+        this.window.webContents.send("capsule:set-lang", this.pendingLang);
+        this.pendingLang = null;
+      }
     });
 
     // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
@@ -580,6 +587,10 @@ export class OverlayController {
           this.loadReady = true;
           if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
           if (this.pendingBars) this.updateBars(this.pendingBars);
+          if (this.pendingLang && !this.window.isDestroyed()) {
+            this.window.webContents.send("capsule:set-lang", this.pendingLang);
+            this.pendingLang = null;
+          }
         }
       }, 200);
     });
