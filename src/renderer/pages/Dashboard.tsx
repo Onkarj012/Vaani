@@ -147,6 +147,15 @@ export default function Dashboard() {
     poll()
     const id = window.setInterval(poll, 3000)
     const unsub = window.vaani.onPermissionStatusChanged?.((status) => {
+      const prev = prevPermissionsRef.current
+      if (prev) {
+        if (prev.accessibility === 'granted' && status.accessibility !== 'granted') {
+          setPermissionLostWarning('Accessibility permission was revoked. Dictation hotkeys won\'t work until re-granted.')
+        }
+        if (prev.microphone === 'granted' && status.microphone !== 'granted') {
+          setPermissionLostWarning('Microphone permission was revoked. Dictation won\'t work until re-granted.')
+        }
+      }
       prevPermissionsRef.current = status
       setPermissions(status)
     })

@@ -69,6 +69,27 @@ function getPermissionStatus(): PermissionStatus {
   };
 }
 
+async function buildRendererApiKeys(
+  providerApiKeys: Array<{ providerId: string; key: string }>,
+  credentials: CredentialsStore
+): Promise<Array<{ providerId: string; key: string; hasKey: boolean }>> {
+  const mapped = await Promise.all(
+    providerApiKeys.map(async (pk) => ({
+      providerId: pk.providerId,
+      key: '',
+      hasKey: await credentials.has(pk.providerId),
+    }))
+  );
+  const hasGroq = mapped.some((pk) => pk.providerId === 'groq');
+  if (!hasGroq) {
+    const groqHasKey = await credentials.has('groq');
+    if (groqHasKey) {
+      mapped.push({ providerId: 'groq', key: '', hasKey: true });
+    }
+  }
+  return mapped;
+}
+
 async function openPermissionSettings(permission: keyof PermissionStatus): Promise<void> {
   const pane = permission === "microphone" ? "Privacy_Microphone" : "Privacy_Accessibility";
   await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`);
@@ -136,21 +157,7 @@ export function registerIpcHandlers(opts: {
     const s = settings.get();
     const sanitized = sanitizeSettingsForRenderer(s);
     if (credentials) {
-      sanitized.providerApiKeys = await Promise.all(
-        (s.providerApiKeys ?? []).map(async (pk) => ({
-          providerId: pk.providerId,
-          key: '',
-          hasKey: await credentials.has(pk.providerId),
-        }))
-      );
-      const groqIdx = sanitized.providerApiKeys.findIndex((pk) => pk.providerId === 'groq');
-      const groqHasKey = await credentials.has('groq');
-      if (groqIdx >= 0) {
-        const existing = sanitized.providerApiKeys[groqIdx]!;
-        sanitized.providerApiKeys[groqIdx] = { providerId: existing.providerId, key: '', hasKey: groqHasKey };
-      } else if (groqHasKey) {
-        sanitized.providerApiKeys.push({ providerId: 'groq', key: '', hasKey: true });
-      }
+      sanitized.providerApiKeys = await buildRendererApiKeys(s.providerApiKeys ?? [], credentials);
     }
     return sanitized;
   });
@@ -198,21 +205,7 @@ export function registerIpcHandlers(opts: {
     onSettingsUpdated?.(updated, settingsPatch);
     const sanitized = sanitizeSettingsForRenderer(updated);
     if (credentials) {
-      sanitized.providerApiKeys = await Promise.all(
-        (updated.providerApiKeys ?? []).map(async (pk) => ({
-          providerId: pk.providerId,
-          key: '',
-          hasKey: await credentials.has(pk.providerId),
-        }))
-      );
-      const groqIdx = sanitized.providerApiKeys.findIndex((pk) => pk.providerId === 'groq');
-      const groqHasKey = await credentials.has('groq');
-      if (groqIdx >= 0) {
-        const existing = sanitized.providerApiKeys[groqIdx]!;
-        sanitized.providerApiKeys[groqIdx] = { providerId: existing.providerId, key: '', hasKey: groqHasKey };
-      } else if (groqHasKey) {
-        sanitized.providerApiKeys.push({ providerId: 'groq', key: '', hasKey: true });
-      }
+      sanitized.providerApiKeys = await buildRendererApiKeys(updated.providerApiKeys ?? [], credentials);
     }
     return sanitized;
   });
