@@ -184,3 +184,12 @@ export function cleanupText({ rawText, settings }: TextCleanupInput): string {
 
   return normalizeWhitespace(ensurePunctuation);
 }
+
+// Deterministic formatting without requiring full Settings — used as LLM fallback.
+export function deterministicFormat(text: string): string {
+  const deduped = collapseAdjacentDuplicateWords(text);
+  const numbered = normalizeCommonNumbers(deduped);
+  const capitalized = capitalizeSentences(numbered);
+  const ensured = /[.?!]$/.test(capitalized.trim()) ? capitalized : `${capitalized}.`;
+  return normalizeWhitespace(ensured);
+}

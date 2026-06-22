@@ -233,9 +233,10 @@ export class DictationService {
     this.setState({ status: "transcribing", sessionId: payload.sessionId });
 
     try {
+      const perAppLang = resolvePerAppLanguage(settings.appProfiles ?? [], this.activeTarget?.appBundleId ?? null);
       let transcriptionTimer: ReturnType<typeof setTimeout> | null = null;
       const transcription = await Promise.race([
-        this.transcription.transcribe(trimmedClip).finally(() => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } }),
+        this.transcription.transcribe(trimmedClip, perAppLang ? { languageOverride: perAppLang } : undefined).finally(() => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } }),
         new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS); }),
       ]);
       if (!this.isCurrentSession(payload.sessionId)) return;
@@ -267,7 +268,8 @@ export class DictationService {
         durationSeconds: trimmedClip.durationSeconds,
         appBundleId: target.appBundleId,
         appName: target.appName,
-        language: transcription.language
+        language: transcription.language,
+        detectedLanguage: transcription.detectedLanguage ?? null,
       };
 
       const injectionTarget = {
@@ -292,11 +294,11 @@ export class DictationService {
 
       if (injection.success) {
         await this.history.append({ ...entryBase, injectionStatus: "injected", injectionMethod: injection.method });
-        this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor");
+        this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor", transcription.detectedLanguage);
         this.watchForManualEdits(cleanedText, target);
       } else {
         await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
-        this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history");
+        this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage);
       }
     } catch (error) {
       if (!this.isCurrentSession(payload.sessionId)) return;
@@ -506,10 +508,10 @@ export class DictationService {
     }, EDIT_PROMPT_IDLE_MS);
   }
 
-  private completeSession(sessionId: string, outcome: DictationCompletionOutcome, text: string, message: string): void {
+  private completeSession(sessionId: string, outcome: DictationCompletionOutcome, text: string, message: string, detectedLanguage?: string | null): void {
     if (!this.isCurrentSession(sessionId)) return;
     this.clearAudioFrameTimer();
-    this.setState({ status: "completed", sessionId, outcome, text, message });
+    this.setState({ status: "completed", sessionId, outcome, text, message, detectedLanguage });
     this.scheduleReset(SUCCESS_RESET_MS);
   }
 
@@ -600,7 +602,7 @@ export class DictationService {
     } else if (state.status === "transcribing") {
       this.updateTrayStatus("Transcribing…"); this.overlay.setProcessing();
     } else if (state.status === "completed") {
-      this.updateTrayStatus(state.outcome === "saved" ? "Saved" : "Done"); this.overlay.setSuccess();
+      this.updateTrayStatus(state.outcome === "saved" ? "Saved" : "Done"); this.overlay.setSuccess(state.detectedLanguage);
     } else if (state.status === "error") {
       this.updateTrayStatus("Error"); this.overlay.setError();
     } else {
@@ -704,4 +706,11 @@ function buildSnippetTrigger(content: string, existing: Array<{ trigger: string 
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function resolvePerAppLanguage(appProfiles: import("@shared/types").AppProfile[], bundleId: string | null): string | null {
+  if (!bundleId || appProfiles.length === 0) return null;
+  const id = bundleId.toLowerCase();
+  const profile = appProfiles.find(p => p.appBundleIds.some(b => b.toLowerCase() === id));
+  return profile?.language ?? null;
 }

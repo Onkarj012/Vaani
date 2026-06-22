@@ -22,6 +22,8 @@ export const DeepgramSttProvider: TranscriptionProvider = {
     const language = normalizeDeepgramLanguage(options.language);
     if (language) {
       url += `&language=${encodeURIComponent(language)}`;
+    } else {
+      url += "&detect_language=true";
     }
 
     const response = await fetchWithTimeout(url, {
@@ -38,12 +40,23 @@ export const DeepgramSttProvider: TranscriptionProvider = {
     }
 
     const data = await response.json() as {
-      results?: { channels?: { alternatives?: { transcript: string }[] }[] };
+      results?: {
+        channels?: {
+          alternatives?: { transcript: string }[];
+          detected_language?: string;
+        }[];
+      };
     };
 
     const rawText = data.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() ?? "";
     if (!rawText) throw new Error("No speech detected.");
-    return { rawText, formattedText: rawText, language: resolveReportedLanguage(options.language) };
+    const detectedLanguage = data.results?.channels?.[0]?.detected_language ?? null;
+    return {
+      rawText,
+      formattedText: rawText,
+      language: resolveReportedLanguage(options.language),
+      detectedLanguage,
+    };
   },
 
   async isAvailable(): Promise<boolean> {

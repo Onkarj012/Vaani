@@ -147,9 +147,12 @@ export class OverlayController {
     this.show();
   }
 
-  setSuccess(): void {
+  setSuccess(detectedLanguage?: string | null): void {
     this.pendingMode = "done";
     this.show();
+    if (detectedLanguage && this.loadReady && this.window && !this.window.isDestroyed()) {
+      this.window.webContents.send("capsule:set-lang", detectedLanguage);
+    }
   }
 
   setError(): void {

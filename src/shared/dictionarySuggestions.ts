@@ -3,6 +3,11 @@ export interface DictionarySuggestion {
   written: string;
 }
 
+// Maximum normalized edit distance (Levenshtein / max-len) to accept a mishear.
+// Keeps genuine homophones/typos (git hub→GitHub ≈ 0.14) while rejecting
+// unrelated rewrites and pure deletions (world there→there ≈ 0.55).
+const MAX_EDIT_RATIO = 0.5;
+
 export function detectDictionarySuggestions(originalText: string, correctedText: string): DictionarySuggestion[] {
   const originalTokens = tokenize(originalText);
   const correctedTokens = tokenize(correctedText);
@@ -15,7 +20,7 @@ export function detectDictionarySuggestions(originalText: string, correctedText:
   while (originalIndex < originalTokens.length && correctedIndex < correctedTokens.length) {
     const spoken = originalTokens[originalIndex];
     const written = correctedTokens[correctedIndex];
-    if (!spoken || !written || spoken === written) {
+    if (!spoken || !written || spoken.toLowerCase() === written.toLowerCase()) {
       originalIndex += 1;
       correctedIndex += 1;
       continue;
@@ -56,7 +61,15 @@ export function detectDictionarySuggestions(originalText: string, correctedText:
     return [];
   }
 
-  return dedupeSuggestions(suggestions);
+  const deduped = dedupeSuggestions(suggestions);
+
+  // Gate: exactly one substitution, both sides non-empty, phonetically close.
+  if (deduped.length !== 1) return [];
+  const only = deduped[0];
+  if (!only || !only.spoken || !only.written) return [];
+  if (normalizedEditDistance(only.spoken, only.written) > MAX_EDIT_RATIO) return [];
+
+  return deduped;
 }
 
 function tokenize(text: string): string[] {
@@ -91,4 +104,30 @@ function suffixesMatch(
   }
 
   return originalSuffix.every((token, index) => token === correctedSuffix[index]);
+}
+
+function editDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const prev = new Array<number>(n + 1);
+  const curr = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      curr[j] = a[i - 1] === b[j - 1]
+        ? (prev[j - 1] ?? 0)
+        : 1 + Math.min(prev[j] ?? 0, curr[j - 1] ?? 0, prev[j - 1] ?? 0);
+    }
+    for (let j = 0; j <= n; j++) prev[j] = curr[j] ?? 0;
+  }
+  return prev[n] ?? 0;
+}
+
+function normalizedEditDistance(a: string, b: string): number {
+  const al = a.toLowerCase();
+  const bl = b.toLowerCase();
+  const maxLen = Math.max(al.length, bl.length);
+  if (maxLen === 0) return 0;
+  return editDistance(al, bl) / maxLen;
 }

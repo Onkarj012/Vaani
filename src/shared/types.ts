@@ -25,6 +25,7 @@ export type DictationState =
       outcome: DictationCompletionOutcome;
       text: string;
       message: string;
+      detectedLanguage?: string | null;
     }
   | {
       status: "error";
@@ -60,6 +61,8 @@ export interface DictationEntry {
   injectionStatus: DictationCompletionOutcome;
   injectionMethod: InjectionMethod | null;
   language: string | null;
+  /** Provider-detected language when auto-detect is used. */
+  detectedLanguage?: string | null;
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
@@ -131,6 +134,8 @@ export interface Settings {
   // Onboarding tracking
   dictionaryOnboarded: boolean;
   snippetsOnboarded: boolean;
+  // Per-app language/provider overrides
+  appProfiles?: AppProfile[];
 }
 
 export type MacOSPermissionState = "not-determined" | "granted" | "denied" | "restricted" | "unknown";
@@ -146,6 +151,8 @@ export interface TranscriptionResult {
   rawText: string;
   formattedText: string;
   language: string | null;
+  /** Provider-detected language (from verbose_json / Deepgram response). Null when unknown. */
+  detectedLanguage?: string | null;
 }
 
 export interface TranscriptionOptions {

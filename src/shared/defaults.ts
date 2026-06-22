@@ -45,6 +45,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // Onboarding tracking
   dictionaryOnboarded: false,
   snippetsOnboarded: false,
+  // Per-app overrides
+  appProfiles: [],
 };
 
 // ─── Language metadata (shared by main provider chain + renderer UI) ─────────
