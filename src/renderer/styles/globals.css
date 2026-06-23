@@ -84,6 +84,20 @@
 }
 
 @layer utilities {
+  /* Theme cross-fade resilience.
+     The universal `*` rule transitions color/background/border for the dark-mode
+     cross-fade, but any element carrying a Tailwind transition-* utility
+     (transition-transform/opacity/shadow) overwrites transition-property entirely
+     and loses the color cross-fade. Re-add the color properties for those
+     utilities. The doubled class selector (specificity 0,2,0) plus utilities-layer
+     placement guarantees this wins over Tailwind's single-class utility. */
+  .transition-transform.transition-transform,
+  .transition-opacity.transition-opacity,
+  .transition-shadow.transition-shadow {
+    transition-property:
+      transform, opacity, box-shadow, color, background-color, border-color;
+  }
+
   /* Editorial display heading */
   .text-display {
     font-family: var(--font-display);
