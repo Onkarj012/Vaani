@@ -179,10 +179,19 @@ describe("applySnippets — spoken marker", () => {
       expected: "My address is hi@example.com.",
     },
     {
-      name: "slash marker expands",
+      name: "slash marker no longer expands (spoken 'slash' is ordinary speech)",
       raw: "send to slash email now",
       snippets: [{ trigger: "email", content: "hi@example.com" }],
-      expected: "Send to hi@example.com now.",
+      expected: "Send to slash email now.",
+    },
+    {
+      name: "inserted content is not re-expanded (no double-expansion)",
+      raw: "use snippet greeting here",
+      snippets: [
+        { trigger: "greeting", content: "say snippet email to start" },
+        { trigger: "email", content: "hi@example.com" },
+      ],
+      expected: "Use say snippet email to start here.",
     },
     {
       name: "case-insensitive marker",

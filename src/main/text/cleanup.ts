@@ -143,18 +143,27 @@ function applyCorrections(text: string, corrections: Array<{ spoken: string; wri
 }
 
 function applySnippets(text: string, snippets: Array<{ trigger: string; content: string }>): string {
-  return [...snippets]
-    .sort((left, right) => right.trigger.trim().length - left.trigger.trim().length)
-    .reduce((currentText, { trigger, content }) => {
-      const t = trigger.trim();
-      if (!t) return currentText;
-      const escaped = escapeRegExp(t);
-      const typedPattern = new RegExp(`(^|\\s)/${escaped}(?=\\s|$|[,.!?;:])`, "gi");
-      const spokenPattern = new RegExp(`(^|[\\s,.!?;:])(?:snippet|slash)\\s+${escaped}(?=\\s|$|[,.!?;:])`, "gi");
-      let result = currentText.replace(typedPattern, (_, prefix) => `${prefix}${content}`);
-      result = result.replace(spokenPattern, (_, prefix) => `${prefix}${content}`);
-      return result;
-    }, text);
+  // Longest-trigger-first so overlapping triggers resolve to the longest match.
+  const ordered = [...snippets]
+    .map(({ trigger, content }) => ({ trigger: trigger.trim(), content }))
+    .filter(({ trigger }) => trigger.length > 0)
+    .sort((left, right) => right.trigger.length - left.trigger.length);
+
+  if (ordered.length === 0) return text;
+
+  // Build a single combined regex over all triggers. Scanning the ORIGINAL text
+  // exactly once means content inserted by one match is never re-scanned by a
+  // later pass, eliminating double-expansion of natural-language snippet bodies.
+  const alternation = ordered.map(({ trigger }) => escapeRegExp(trigger)).join("|");
+  const typedAlt = new RegExp(`(^|\\s)/(${alternation})(?=\\s|$|[,.!?;:])`, "gi");
+  const spokenAlt = new RegExp(`(^|[\\s,.!?;:])snippet\\s+(${alternation})(?=\\s|$|[,.!?;:])`, "gi");
+
+  const byTrigger = new Map(ordered.map(({ trigger, content }) => [trigger.toLowerCase(), content]));
+  const lookup = (raw: string): string => byTrigger.get(raw.toLowerCase()) ?? raw;
+
+  let result = text.replace(typedAlt, (_match, prefix: string, name: string) => `${prefix}${lookup(name)}`);
+  result = result.replace(spokenAlt, (_match, prefix: string, name: string) => `${prefix}${lookup(name)}`);
+  return result;
 }
 
 export function cleanupText({ rawText, settings }: TextCleanupInput): string {
