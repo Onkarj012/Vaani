@@ -143,14 +143,36 @@ function applyCorrections(text: string, corrections: Array<{ spoken: string; wri
 }
 
 function applySnippets(text: string, snippets: Array<{ trigger: string; content: string }>): string {
-  return [...snippets]
-    .sort((left, right) => right.trigger.trim().length - left.trigger.trim().length)
-    .reduce((currentText, { trigger, content }) => {
-      const t = trigger.trim();
-      if (!t) return currentText;
-      const pattern = new RegExp(`(^|\\s)/${escapeRegExp(t)}(?=\\s|$|[,.!?])`, "gi");
-      return currentText.replace(pattern, (_, prefix) => `${prefix}${content}`);
-    }, text);
+  // Longest-trigger-first so overlapping triggers resolve to the longest match.
+  const ordered = [...snippets]
+    .map(({ trigger, content }) => ({ trigger: trigger.trim(), content }))
+    .filter(({ trigger }) => trigger.length > 0)
+    .sort((left, right) => right.trigger.length - left.trigger.length);
+
+  if (ordered.length === 0) return text;
+
+  // Match BOTH the typed (`/name`) and spoken (`snippet name`) forms in a single
+  // combined regex and replace in ONE pass over the original text. A single pass
+  // means content inserted by any match is never re-scanned, eliminating
+  // cross-form cascade (e.g. a typed snippet whose body contains `snippet name`
+  // expanding again on a separate spoken pass).
+  const alternation = ordered.map(({ trigger }) => escapeRegExp(trigger)).join("|");
+  const combined = new RegExp(
+    `(^|\\s)/(${alternation})(?=\\s|$|[,.!?;:])` +
+      `|(^|[\\s,.!?;:])snippet\\s+(${alternation})(?=\\s|$|[,.!?;:])`,
+    "gi",
+  );
+
+  const byTrigger = new Map(ordered.map(({ trigger, content }) => [trigger.toLowerCase(), content]));
+  const lookup = (raw: string): string => byTrigger.get(raw.toLowerCase()) ?? raw;
+
+  return text.replace(
+    combined,
+    (_match, typedPrefix: string, typedName: string, spokenPrefix: string, spokenName: string) =>
+      typedName !== undefined
+        ? `${typedPrefix}${lookup(typedName)}`
+        : `${spokenPrefix}${lookup(spokenName)}`,
+  );
 }
 
 export function cleanupText({ rawText, settings }: TextCleanupInput): string {

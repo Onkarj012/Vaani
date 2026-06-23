@@ -157,3 +157,114 @@ describe("cleanupText", () => {
     expect(result).toBe("Contact me.\nOnkarj012@gmail.com.\nThanks.");
   });
 });
+
+describe("applySnippets — spoken marker", () => {
+  const cases: Array<{ name: string; raw: string; snippets: Array<{ trigger: string; content: string }>; expected: string }> = [
+    {
+      name: "snippet marker at start",
+      raw: "snippet email is the best way",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Hi@example.com is the best way.",
+    },
+    {
+      name: "snippet marker mid-sentence",
+      raw: "contact me at snippet email please",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Contact me at hi@example.com please.",
+    },
+    {
+      name: "snippet marker at end",
+      raw: "my address is snippet email",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "My address is hi@example.com.",
+    },
+    {
+      name: "slash marker no longer expands (spoken 'slash' is ordinary speech)",
+      raw: "send to slash email now",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Send to slash email now.",
+    },
+    {
+      name: "inserted content is not re-expanded (no double-expansion)",
+      raw: "use snippet greeting here",
+      snippets: [
+        { trigger: "greeting", content: "say snippet email to start" },
+        { trigger: "email", content: "hi@example.com" },
+      ],
+      expected: "Use say snippet email to start here.",
+    },
+    {
+      name: "typed snippet body containing spoken marker is not re-expanded (no cross-form cascade)",
+      raw: "use /greeting here",
+      snippets: [
+        { trigger: "greeting", content: "say snippet email to start" },
+        { trigger: "email", content: "hi@example.com" },
+      ],
+      expected: "Use say snippet email to start here.",
+    },
+    {
+      name: "case-insensitive marker",
+      raw: "use SNIPPET Email here",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Use hi@example.com here.",
+    },
+    {
+      name: "case-insensitive trigger name",
+      raw: "use snippet EMAIL here",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Use hi@example.com here.",
+    },
+    {
+      name: "unknown name leaves transcript unchanged",
+      raw: "use snippet unknown here",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Use snippet unknown here.",
+    },
+    {
+      name: "multiple snippets expand",
+      raw: "from snippet name to snippet email",
+      snippets: [
+        { trigger: "name", content: "Alice" },
+        { trigger: "email", content: "alice@example.com" },
+      ],
+      expected: "From Alice to alice@example.com.",
+    },
+    {
+      name: "longest name wins on overlap",
+      raw: "use snippet emailsig now",
+      snippets: [
+        { trigger: "email", content: "SHORT" },
+        { trigger: "emailsig", content: "LONG" },
+      ],
+      expected: "Use LONG now.",
+    },
+    {
+      name: "no trigger residue remains",
+      raw: "snippet sig at end",
+      snippets: [{ trigger: "sig", content: "Best regards" }],
+      expected: "Best regards at end.",
+    },
+    {
+      name: "typed slash form still works (regression)",
+      raw: "contact /email for info",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Contact hi@example.com for info.",
+    },
+    {
+      name: "spoken marker after punctuation",
+      raw: "hello, snippet email please",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Hello, hi@example.com please.",
+    },
+  ]
+
+  for (const { name, raw, snippets, expected } of cases) {
+    it(name, () => {
+      const result = cleanupText({
+        rawText: raw,
+        settings: createSettings({ snippets }),
+      })
+      expect(result).toBe(expected)
+    })
+  }
+})
