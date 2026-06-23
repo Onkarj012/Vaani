@@ -35,7 +35,7 @@ export const GroqSttProvider: TranscriptionProvider = {
     const file = new File([arrayBuffer], "recording.wav", { type: "audio/wav" });
 
     const whisperLang = normalizeWhisperLanguage(options.language);
-    const prompt = buildTranscriptionPrompt(options.language, options.prompt);
+    const prompt = buildTranscriptionPrompt(options.prompt);
 
     let lastError: Error | null = null;
 
@@ -50,6 +50,7 @@ export const GroqSttProvider: TranscriptionProvider = {
           model: options.model || "whisper-large-v3-turbo",
           language: whisperLang,
           temperature: options.temperature ?? 0,
+          response_format: "verbose_json",
           ...(prompt ? { prompt } : {}),
         }, { signal: controller.signal });
         clearTimeout(attemptTimer);
@@ -59,10 +60,13 @@ export const GroqSttProvider: TranscriptionProvider = {
 
         if (!rawText) throw new Error("No speech detected in the recording.");
 
+        const detectedLanguage = (response as unknown as { language?: string }).language ?? null;
+
         return {
           rawText,
           formattedText: rawText,
           language: resolveReportedLanguage(options.language),
+          detectedLanguage: detectedLanguage || null,
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

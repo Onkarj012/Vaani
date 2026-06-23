@@ -128,6 +128,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [sttKey, setSttKey] = useState('')
   const [llmKey, setLlmKey] = useState('')
+  const [newProfileName, setNewProfileName] = useState('')
+  const [newProfileBundleId, setNewProfileBundleId] = useState('')
+  const [newProfileLanguage, setNewProfileLanguage] = useState('auto')
 
   useEffect(() => {
     if (!isOpen) return
@@ -143,6 +146,24 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }, [settings.transcriptionProvider, settings.formattingProvider, settings.providerApiKeys, settings.groqApiKey])
 
   if (!isOpen) return null
+
+  const addAppProfile = () => {
+    const bundleId = newProfileBundleId.trim();
+    if (!bundleId) return;
+    const existingProfiles = settings.appProfiles ?? [];
+    const bundleIdLower = bundleId.toLowerCase();
+    if (existingProfiles.some((p) => p.appBundleIds.some((id) => id.toLowerCase() === bundleIdLower))) return;
+    const profile = {
+      id: crypto.randomUUID(),
+      name: newProfileName.trim() || bundleId,
+      appBundleIds: [bundleId],
+      language: newProfileLanguage,
+    };
+    void updateSettings({ appProfiles: [...existingProfiles, profile] });
+    setNewProfileName('');
+    setNewProfileBundleId('');
+    setNewProfileLanguage('auto');
+  };
 
   const saveProviderKey = (providerId: string, key: string) => {
     const current = settings.providerApiKeys ?? []
@@ -250,6 +271,47 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 : 'The selected transcription provider does not support this language. Vaani will fall back to auto-detect.'}
             </p>
           )}
+
+          {/* Per-app language overrides */}
+          <div className="mt-2">
+            <FieldLabel>Per-App Language</FieldLabel>
+            <p className="mb-2 text-xs text-faint">Override the default language for a specific app using its bundle ID.</p>
+            <div className="space-y-2">
+              {(settings.appProfiles ?? []).map((profile) => (
+                <div key={profile.id} className="flex items-center gap-2 rounded-xl border border-line p-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-ink">{profile.name}</div>
+                    <div className="truncate text-xs text-faint">{profile.appBundleIds.join(', ')}</div>
+                  </div>
+                  <Select
+                    value={profile.language ?? 'auto'}
+                    onChange={(v) => {
+                      const next = (settings.appProfiles ?? []).map((p) => p.id === profile.id ? { ...p, language: v } : p);
+                      void updateSettings({ appProfiles: next });
+                    }}
+                    options={languages}
+                  />
+                  <button
+                    aria-label="Delete profile"
+                    onClick={() => {
+                      const next = (settings.appProfiles ?? []).filter((p) => p.id !== profile.id);
+                      void updateSettings({ appProfiles: next });
+                    }}
+                    className="shrink-0 rounded-lg p-1 text-faint transition-colors hover:text-ink"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <Input placeholder="App name" value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)} />
+              <Input placeholder="Bundle ID (e.g. com.tinyspeck.slackmacgap)" value={newProfileBundleId} onChange={(e) => setNewProfileBundleId(e.target.value)} />
+              <Select value={newProfileLanguage} onChange={setNewProfileLanguage} options={languages} />
+              <Button variant="outline" onClick={addAppProfile}>Add</Button>
+            </div>
+          </div>
+
           <Row title="Smart Punctuation" desc="Auto-add periods, commas, and capitalization">
             <Toggle checked={settings.smartPunctuation} onChange={(v) => updateSettings({ smartPunctuation: v })} />
           </Row>

@@ -235,12 +235,13 @@ describe("DictationService", () => {
     });
   });
 
-  it("waits for editing to settle before suggesting OSL to Vercel as a dictionary rule", async () => {
+  it("waits for editing to settle before suggesting a dictionary rule (settle timing test)", async () => {
     const { service, overlay, transcription } = createDictationService();
-    transcription.transcribe.mockResolvedValue({ rawText: "OSL", formattedText: "OSL", language: "en" });
+    // "versel" is a realistic Whisper mishear of "Vercel" (close edit distance)
+    transcription.transcribe.mockResolvedValue({ rawText: "versel", formattedText: "versel", language: "en" });
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
-      .mockReturnValueOnce("OSL")
+      .mockReturnValueOnce("versel")
       .mockReturnValueOnce("Ve")
       .mockReturnValueOnce("Verc")
       .mockReturnValue("Vercel");
@@ -267,7 +268,7 @@ describe("DictationService", () => {
     vi.advanceTimersByTime(2_000);
     await Promise.resolve();
 
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("OSL", "Vercel", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Versel", "Vercel", expect.any(Function));
   });
 
   it("does not suggest snippets for ordinary phrase edits", async () => {

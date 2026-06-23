@@ -3,6 +3,8 @@ import { getProviderRegistry } from "./providers";
 import type { TranscriptionProvider } from "./providers/types";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
+import { preservesContentWords } from "@shared/contentGuard";
+import { deterministicFormat } from "@main/text/cleanup";
 
 export class TranscriptionService {
   constructor(
@@ -10,7 +12,7 @@ export class TranscriptionService {
     private readonly credentials?: CredentialsStore
   ) {}
 
-  async transcribe(clip: AudioClip): Promise<TranscriptionResult> {
+  async transcribe(clip: AudioClip, options?: { languageOverride?: string }): Promise<TranscriptionResult> {
     const settings = this.settingsProvider();
     const registry = getProviderRegistry();
     const primaryId = settings.transcriptionProvider || "groq";
@@ -22,12 +24,13 @@ export class TranscriptionService {
 
     debug("transcription", `Chain: ${chain.map(c => c.id).join(" → ")}`);
 
+    const language = options?.languageOverride ?? settings.language;
     let lastError: Error = new Error("All transcription providers failed.");
     for (const { id, provider, apiKey } of chain) {
       try {
         return await provider.transcribe(clip, {
           apiKey,
-          language: settings.language,
+          language,
           prompt: settings.customPrompt,
           temperature: 0
         });
@@ -88,11 +91,16 @@ export class TranscriptionService {
     if (provider.requiresApiKey && !apiKey) return rawText;
 
     try {
-      return await provider.format(rawText, {
+      const formatted = await provider.format(rawText, {
         apiKey: apiKey ?? "",
         model: settings.formattingModel,
         systemPrompt: settings.customPrompt
       });
+      if (!preservesContentWords(rawText, formatted)) {
+        debug("transcription", "Content guard rejected LLM output — falling back to deterministic format");
+        return deterministicFormat(rawText);
+      }
+      return formatted;
     } catch {
       return rawText;
     }

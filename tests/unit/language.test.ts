@@ -26,9 +26,12 @@ describe("transcription language helpers", () => {
     expect(resolveReportedLanguage("hi")).toBe("hi");
   });
 
-  it("builds prompts that preserve multilingual speech instead of translating it", () => {
-    expect(buildTranscriptionPrompt("auto", "")).toContain("Do not translate to English");
-    expect(buildTranscriptionPrompt("hinglish", "Use Vaani spelling.")).toContain("Use Vaani spelling.");
+  it("builds prompts with only user vocabulary — no instruction strings", () => {
+    expect(buildTranscriptionPrompt("")).toBe("");
+    expect(buildTranscriptionPrompt("Use Vaani spelling.")).toBe("Use Vaani spelling.");
+    expect(buildTranscriptionPrompt("GitHub Claude RAG")).toBe("GitHub Claude RAG");
+    const long = "x".repeat(700);
+    expect(buildTranscriptionPrompt(long)).toHaveLength(600);
   });
 
   it("keeps Hinglish prompt-driven for Whisper without a single language code", () => {

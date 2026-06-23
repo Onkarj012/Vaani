@@ -13,6 +13,7 @@ const BAR_COUNT = 9
       onShowSnippet: (cb: (data: { trigger: string }) => void) => void
       onShowDict: (cb: (data: { word: string; correction: string }) => void) => void
       onHideExpanded: (cb: () => void) => void
+      onLanguage: (cb: (lang: string) => void) => void
       sendReady: () => void
       sendSnippetResp: (accepted: boolean) => void
       sendDictResp: (accepted: boolean) => void
@@ -77,6 +78,7 @@ export default function CapsuleOverlay() {
   const [accentColor, setAccentColor] = useState('#7575c8')
   const [promptData, setPromptData] = useState<PromptData>({})
   const [autoTimer, setAutoTimer] = useState(8)
+  const [detectedLang, setDetectedLang] = useState<string | null>(null)
   const modeRef = useRef<VisualMode>('hidden')
 
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -87,7 +89,10 @@ export default function CapsuleOverlay() {
 
     bridge.onMode((m) => {
       switch (m) {
-        case 'pressed':      setMode('pressed'); break
+        case 'pressed':
+          setDetectedLang(null)
+          setMode('pressed')
+          break
         case 'recording':
           setBars(Array(BAR_COUNT).fill(0.08))
           setMode('recording')
@@ -98,6 +103,7 @@ export default function CapsuleOverlay() {
         case 'idle':
           setMode('hidden')
           setBars(Array(BAR_COUNT).fill(0.08))
+          setDetectedLang(null)
           break
       }
     })
@@ -120,6 +126,7 @@ export default function CapsuleOverlay() {
     })
 
     bridge.onHideExpanded(() => setMode('hidden'))
+    bridge.onLanguage((lang) => setDetectedLang(lang))
 
     // Send ready signal multiple times to handle HMR timing issues.
     // After sending, the main process may immediately send pending mode
@@ -235,7 +242,7 @@ export default function CapsuleOverlay() {
                 key="done"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
-                className="flex items-center justify-center px-3 py-2"
+                className="flex items-center gap-1.5 px-3 py-2"
                 style={{ background: 'rgba(90,138,42,0.85)', borderRadius: 11 }}
               >
                 <motion.div
@@ -244,6 +251,11 @@ export default function CapsuleOverlay() {
                 >
                   <Check size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
                 </motion.div>
+                {detectedLang && (
+                  <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-white/75">
+                    {detectedLang}
+                  </span>
+                )}
               </motion.div>
             )}
 
