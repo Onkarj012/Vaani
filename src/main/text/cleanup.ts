@@ -148,8 +148,12 @@ function applySnippets(text: string, snippets: Array<{ trigger: string; content:
     .reduce((currentText, { trigger, content }) => {
       const t = trigger.trim();
       if (!t) return currentText;
-      const pattern = new RegExp(`(^|\\s)/${escapeRegExp(t)}(?=\\s|$|[,.!?])`, "gi");
-      return currentText.replace(pattern, (_, prefix) => `${prefix}${content}`);
+      const escaped = escapeRegExp(t);
+      const typedPattern = new RegExp(`(^|\\s)/${escaped}(?=\\s|$|[,.!?;:])`, "gi");
+      const spokenPattern = new RegExp(`(^|[\\s,.!?;:])(?:snippet|slash)\\s+${escaped}(?=\\s|$|[,.!?;:])`, "gi");
+      let result = currentText.replace(typedPattern, (_, prefix) => `${prefix}${content}`);
+      result = result.replace(spokenPattern, (_, prefix) => `${prefix}${content}`);
+      return result;
     }, text);
 }
 

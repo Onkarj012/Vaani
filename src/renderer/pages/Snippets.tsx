@@ -124,6 +124,7 @@ export default function Snippets() {
                     <code className="rounded-lg bg-accent/10 px-2 py-1 font-mono text-sm font-semibold text-accent">/{snippet.trigger}</code>
                     <span className="label-meta flex items-center gap-1 text-[10px] text-faint"><Zap size={10} />Snippet</span>
                   </div>
+                  <p className="mb-1 text-[11px] text-faint">say: &ldquo;snippet {snippet.trigger}&rdquo;</p>
                   <p className="line-clamp-2 text-sm leading-relaxed text-muted">{snippet.content}</p>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
