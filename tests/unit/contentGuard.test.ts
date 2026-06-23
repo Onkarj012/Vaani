@@ -15,9 +15,16 @@ describe("preservesContentWords", () => {
 
   it("accepts list reorder — order-independent check", () => {
     expect(preservesContentWords(
-      "first do this second do that",
+      "first item do this second item do that",
       "do that\ndo this"
     )).toBe(true);
+  });
+
+  it("preserves ordinals used as ordinary content words", () => {
+    expect(preservesContentWords(
+      "my first goal is X my second goal is Y",
+      "My goal is X. My goal is Y."
+    )).toBe(false);
   });
 
   it("accepts number-word to digit conversion", () => {

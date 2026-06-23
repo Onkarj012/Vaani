@@ -151,7 +151,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const bundleId = newProfileBundleId.trim();
     if (!bundleId) return;
     const existingProfiles = settings.appProfiles ?? [];
-    if (existingProfiles.some((p) => p.appBundleIds.includes(bundleId))) return;
+    const bundleIdLower = bundleId.toLowerCase();
+    if (existingProfiles.some((p) => p.appBundleIds.some((id) => id.toLowerCase() === bundleIdLower))) return;
     const profile = {
       id: crypto.randomUUID(),
       name: newProfileName.trim() || bundleId,

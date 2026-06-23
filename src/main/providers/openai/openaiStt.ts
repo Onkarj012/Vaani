@@ -72,7 +72,9 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
     const formData = new FormData();
     formData.append("file", blob, "recording.wav");
     formData.append("model", options.model || "whisper-1");
-    formData.append("response_format", "verbose_json");
+    // Many OpenAI-compatible endpoints (Ollama, LiteLLM, LocalAI, vLLM) don't
+    // implement verbose_json — use plain json for broad compatibility.
+    formData.append("response_format", "json");
     formData.append("temperature", String(options.temperature ?? 0));
     const language = normalizeWhisperLanguage(options.language);
     if (language) {
@@ -94,11 +96,11 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
       throw new Error(`OpenAI Compatible API is temporarily unavailable. Please try again.`);
     }
 
-    const data = await response.json() as { text: string; language?: string };
+    const data = await response.json() as { text: string };
     const rawText = (data.text ?? "").trim();
     if (!rawText) throw new Error("No speech detected.");
     const resolvedLanguage = resolveReportedLanguage(options.language);
-    return { rawText, formattedText: rawText, language: resolvedLanguage, detectedLanguage: data.language ?? null };
+    return { rawText, formattedText: rawText, language: resolvedLanguage, detectedLanguage: null };
   },
 
   async isAvailable(): Promise<boolean> {

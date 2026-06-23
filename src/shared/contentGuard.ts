@@ -8,7 +8,7 @@ const FILLER_WORDS = new Set([
   "literally", "actually", "so", "well", "right", "okay", "ok",
 ]);
 
-const SPOKEN_CUE_RE = /\b(bullet\s*point|new\s+paragraph|new\s+line|next\s+line|number\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)|no\.\s*\d+|point\s+\d+|item\s+\d+|first|second|third|fourth|fifth)\b/gi;
+const SPOKEN_CUE_RE = /\b(bullet\s*point|new\s+paragraph|new\s+line|next\s+line|number\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)|no\.\s*\d+|point\s+\d+|item\s+\d+|(first|second|third|fourth|fifth)\s+(item|bullet|point|step))\b/gi;
 
 const NUMBER_WORDS: Record<string, string> = {
   zero: "0", one: "1", two: "2", three: "3", four: "4",
