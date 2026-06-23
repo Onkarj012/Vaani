@@ -151,19 +151,28 @@ function applySnippets(text: string, snippets: Array<{ trigger: string; content:
 
   if (ordered.length === 0) return text;
 
-  // Build a single combined regex over all triggers. Scanning the ORIGINAL text
-  // exactly once means content inserted by one match is never re-scanned by a
-  // later pass, eliminating double-expansion of natural-language snippet bodies.
+  // Match BOTH the typed (`/name`) and spoken (`snippet name`) forms in a single
+  // combined regex and replace in ONE pass over the original text. A single pass
+  // means content inserted by any match is never re-scanned, eliminating
+  // cross-form cascade (e.g. a typed snippet whose body contains `snippet name`
+  // expanding again on a separate spoken pass).
   const alternation = ordered.map(({ trigger }) => escapeRegExp(trigger)).join("|");
-  const typedAlt = new RegExp(`(^|\\s)/(${alternation})(?=\\s|$|[,.!?;:])`, "gi");
-  const spokenAlt = new RegExp(`(^|[\\s,.!?;:])snippet\\s+(${alternation})(?=\\s|$|[,.!?;:])`, "gi");
+  const combined = new RegExp(
+    `(^|\\s)/(${alternation})(?=\\s|$|[,.!?;:])` +
+      `|(^|[\\s,.!?;:])snippet\\s+(${alternation})(?=\\s|$|[,.!?;:])`,
+    "gi",
+  );
 
   const byTrigger = new Map(ordered.map(({ trigger, content }) => [trigger.toLowerCase(), content]));
   const lookup = (raw: string): string => byTrigger.get(raw.toLowerCase()) ?? raw;
 
-  let result = text.replace(typedAlt, (_match, prefix: string, name: string) => `${prefix}${lookup(name)}`);
-  result = result.replace(spokenAlt, (_match, prefix: string, name: string) => `${prefix}${lookup(name)}`);
-  return result;
+  return text.replace(
+    combined,
+    (_match, typedPrefix: string, typedName: string, spokenPrefix: string, spokenName: string) =>
+      typedName !== undefined
+        ? `${typedPrefix}${lookup(typedName)}`
+        : `${spokenPrefix}${lookup(spokenName)}`,
+  );
 }
 
 export function cleanupText({ rawText, settings }: TextCleanupInput): string {

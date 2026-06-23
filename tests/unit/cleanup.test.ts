@@ -194,6 +194,15 @@ describe("applySnippets — spoken marker", () => {
       expected: "Use say snippet email to start here.",
     },
     {
+      name: "typed snippet body containing spoken marker is not re-expanded (no cross-form cascade)",
+      raw: "use /greeting here",
+      snippets: [
+        { trigger: "greeting", content: "say snippet email to start" },
+        { trigger: "email", content: "hi@example.com" },
+      ],
+      expected: "Use say snippet email to start here.",
+    },
+    {
       name: "case-insensitive marker",
       raw: "use SNIPPET Email here",
       snippets: [{ trigger: "email", content: "hi@example.com" }],
