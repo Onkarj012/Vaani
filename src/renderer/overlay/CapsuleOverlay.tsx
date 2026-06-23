@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Loader2, BookOpen, Layers, X, ChevronRight } from 'lucide-react'
 
-const BAR_COUNT = 9
+const BAR_COUNT = 11
 
   declare global {
   interface Window {
@@ -34,19 +34,19 @@ interface PromptData {
 function WaveformBars({ bars, accentColor }: { bars: number[]; accentColor: string }) {
   return (
     <div
-      className="flex items-center gap-[2px]"
-      style={{ height: 24, width: BAR_COUNT * 5 }}
+      className="flex items-center gap-[3px]"
+      style={{ height: 24, width: BAR_COUNT * 6 }}
     >
       {bars.map((v, i) => (
         <div
           key={i}
-          className="rounded-[2px]"
           style={{
-            width: 3,
-            height: Math.max(3, v * 22),
+            width: 2.5,
+            borderRadius: 999,
+            height: Math.max(3, v * 26),
             background: accentColor,
-            opacity: 0.5 + v * 0.5,
-            transition: 'height 50ms ease-out, opacity 50ms ease-out',
+            opacity: 0.3 + v * 0.7,
+            transition: 'height 60ms ease-out, opacity 60ms ease-out',
           }}
         />
       ))}
@@ -186,7 +186,7 @@ export default function CapsuleOverlay() {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.92 }}
           transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          style={{ ...PILL_STYLE, borderRadius: 14 }}
+          style={{ ...PILL_STYLE, borderRadius: 999 }}
           className="inline-flex items-center"
         >
           <AnimatePresence mode="wait">

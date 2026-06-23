@@ -16,10 +16,11 @@ import {
   Plug,
   Sparkles,
   X,
+  AlertTriangle,
 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useVaaniUi } from '../context/vaani-ui'
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import type { PermissionStatus, Settings } from '@shared/types'
 import { KNOWN_PROVIDERS } from '@shared/defaults'
 import { Card } from '@renderer/components/ui/card'
@@ -124,12 +125,44 @@ export default function Dashboard() {
   } = useVaaniUi()
   const [permissions, setPermissions] = useState<PermissionStatus>({ microphone: 'unknown', accessibility: 'unknown' })
   const [checklistDismissed, setChecklistDismissed] = useState(false)
+  const prevPermissionsRef = useRef<PermissionStatus | null>(null)
+  const [permissionLostWarning, setPermissionLostWarning] = useState<string | null>(null)
 
   useEffect(() => {
-    const poll = () => { window.vaani.getPermissionStatus().then(setPermissions).catch(() => {}) }
+    const poll = () => {
+      window.vaani.getPermissionStatus().then((status) => {
+        const prev = prevPermissionsRef.current
+        if (prev) {
+          if (prev.accessibility === 'granted' && status.accessibility !== 'granted') {
+            setPermissionLostWarning('Accessibility permission was revoked. Dictation hotkeys won\'t work until re-granted.')
+          }
+          if (prev.microphone === 'granted' && status.microphone !== 'granted') {
+            setPermissionLostWarning('Microphone permission was revoked. Dictation won\'t work until re-granted.')
+          }
+        }
+        prevPermissionsRef.current = status
+        setPermissions(status)
+      }).catch(() => {})
+    }
     poll()
     const id = window.setInterval(poll, 3000)
-    return () => window.clearInterval(id)
+    const unsub = window.vaani.onPermissionStatusChanged?.((status) => {
+      const prev = prevPermissionsRef.current
+      if (prev) {
+        if (prev.accessibility === 'granted' && status.accessibility !== 'granted') {
+          setPermissionLostWarning('Accessibility permission was revoked. Dictation hotkeys won\'t work until re-granted.')
+        }
+        if (prev.microphone === 'granted' && status.microphone !== 'granted') {
+          setPermissionLostWarning('Microphone permission was revoked. Dictation won\'t work until re-granted.')
+        }
+      }
+      prevPermissionsRef.current = status
+      setPermissions(status)
+    })
+    return () => {
+      window.clearInterval(id)
+      unsub?.()
+    }
   }, [])
 
   const appBreakdown = useMemo(() => {
@@ -177,6 +210,18 @@ export default function Dashboard() {
               <Button size="sm" variant="accent" onClick={() => restartAndInstall()}>Restart &amp; Install</Button>
             )}
           </Card>
+        </motion.div>
+      )}
+
+      {permissionLostWarning && (
+        <motion.div variants={item}>
+          <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/10">
+            <AlertTriangle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="flex-1 text-sm text-amber-800 dark:text-amber-300">{permissionLostWarning}</span>
+            <button onClick={() => setPermissionLostWarning(null)} className="shrink-0 text-amber-600 transition-colors hover:text-amber-800 dark:text-amber-400">
+              <X size={14} />
+            </button>
+          </div>
         </motion.div>
       )}
 

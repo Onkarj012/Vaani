@@ -92,6 +92,13 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const unsub = window.vaani.onPermissionStatusChanged?.((status) => {
+      setPermissions(status);
+    });
+    return () => { unsub?.(); };
+  }, []);
+
   const goNext = useCallback(() => {
     if (slide < TOTAL_SLIDES - 1) { setDirection(1); setSlide((s) => s + 1); }
   }, [slide]);
@@ -198,10 +205,12 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
         </button>
         <div className="label-meta absolute left-5 top-5 z-10 text-[10px] text-faint">{slide + 1} / {TOTAL_SLIDES}</div>
 
-        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-8 pb-6 pt-14">
+        <div className="relative flex min-h-0 flex-1 flex-col items-center overflow-hidden px-8 pb-6 pt-14">
           <AnimatePresence mode="wait" custom={direction}>
-            <motion.div key={slide} custom={direction} variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ type: "spring", stiffness: 400, damping: 32 }} className="w-full">
-              {slidesContent[slide]}
+            <motion.div key={slide} custom={direction} variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ type: "spring", stiffness: 400, damping: 32 }} className="absolute inset-0 overflow-y-auto">
+              <div className="flex min-h-full flex-col items-center justify-center py-4">
+                {slidesContent[slide]}
+              </div>
             </motion.div>
           </AnimatePresence>
         </div>

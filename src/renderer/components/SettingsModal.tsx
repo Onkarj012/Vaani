@@ -98,19 +98,76 @@ function OptionButton({ active, onClick, label, description }: { active: boolean
   )
 }
 
-function ApiKeyInput({ value, onChange, onBlur, placeholder }: { value: string; onChange: (v: string) => void; onBlur?: () => void; placeholder: string }) {
+function ApiKeyInput({
+  value, onChange, onBlur, placeholder, hasKey, onClear,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onBlur?: () => void;
+  placeholder: string;
+  hasKey?: boolean;
+  onClear?: () => void;
+}) {
   const [visible, setVisible] = useState(false)
+  const [replacing, setReplace] = useState(false)
+
+  if (hasKey && !replacing && !value) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="flex flex-1 items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2.5">
+          <span className="flex-1 font-mono text-sm tracking-[0.25em] text-muted">••••••••••••</span>
+          <span className="flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent">
+            <Check size={10} /> Saved
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setReplace(true)}
+          className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-ink/30 hover:text-ink"
+        >
+          Replace
+        </button>
+        <button
+          type="button"
+          onClick={() => { onClear?.(); setReplace(false); }}
+          className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-red-300 hover:text-red-500"
+        >
+          Clear
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className="relative">
-      <Input type={visible ? 'text' : 'password'} value={value} onChange={(e) => onChange(e.target.value)} onBlur={onBlur} placeholder={placeholder} className="pr-11 font-mono" />
-      <button
-        type="button"
-        aria-label={visible ? 'Hide API key' : 'Show API key'}
-        onClick={() => setVisible(!visible)}
-        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface"
-      >
-        {visible ? <EyeOff size={15} /> : <Eye size={15} />}
-      </button>
+    <div className="flex items-center gap-2">
+      <div className="relative flex-1">
+        <Input
+          type={visible ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+          placeholder={placeholder}
+          className="pr-11 font-mono"
+          autoFocus={replacing}
+        />
+        <button
+          type="button"
+          aria-label={visible ? 'Hide API key' : 'Show API key'}
+          onClick={() => setVisible(!visible)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface"
+        >
+          {visible ? <EyeOff size={15} /> : <Eye size={15} />}
+        </button>
+      </div>
+      {replacing && (
+        <button
+          type="button"
+          onClick={() => { onChange(''); setReplace(false); }}
+          className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-ink/30 hover:text-ink"
+        >
+          Cancel
+        </button>
+      )}
     </div>
   )
 }
@@ -205,6 +262,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 onChange={(v) => { setSttKey(v); saveProviderKey(settings.transcriptionProvider, v) }}
                 onBlur={() => { if (settings.transcriptionProvider === 'groq') void updateSettings({ groqApiKey: sttKey }) }}
                 placeholder={activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
+                hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.hasKey}
+                onClear={() => saveProviderKey(settings.transcriptionProvider, '')}
               />
             </div>
           )}
@@ -223,6 +282,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 value={llmKey}
                 onChange={(v) => { setLlmKey(v); saveProviderKey(settings.formattingProvider, v) }}
                 placeholder={activeLlm.id === 'openai-llm' ? 'sk-...' : activeLlm.id === 'anthropic' ? 'sk-ant-...' : activeLlm.id === 'openrouter' ? 'sk-or-...' : 'gsk_...'}
+                hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.formattingProvider)?.hasKey}
+                onClear={() => saveProviderKey(settings.formattingProvider, '')}
               />
             </div>
           )}

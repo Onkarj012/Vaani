@@ -62,13 +62,32 @@ function normalizeMediaStatus(status: string): MacOSPermissionState {
 }
 
 function getPermissionStatus(): PermissionStatus {
-  const accessibilityTrusted = nativeBridge.isAccessibilityTrusted?.()
-    ?? systemPreferences.isTrustedAccessibilityClient(false);
-
+  const accessibilityTrusted = systemPreferences.isTrustedAccessibilityClient(false);
   return {
     microphone: normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone")),
     accessibility: accessibilityTrusted ? "granted" : "denied"
   };
+}
+
+async function buildRendererApiKeys(
+  providerApiKeys: Array<{ providerId: string; key: string }>,
+  credentials: CredentialsStore
+): Promise<Array<{ providerId: string; key: string; hasKey: boolean }>> {
+  const mapped = await Promise.all(
+    providerApiKeys.map(async (pk) => ({
+      providerId: pk.providerId,
+      key: '',
+      hasKey: await credentials.has(pk.providerId),
+    }))
+  );
+  const hasGroq = mapped.some((pk) => pk.providerId === 'groq');
+  if (!hasGroq) {
+    const groqHasKey = await credentials.has('groq');
+    if (groqHasKey) {
+      mapped.push({ providerId: 'groq', key: '', hasKey: true });
+    }
+  }
+  return mapped;
 }
 
 async function openPermissionSettings(permission: keyof PermissionStatus): Promise<void> {
@@ -134,7 +153,14 @@ export function registerIpcHandlers(opts: {
     clipboard.writeText(text);
     return true;
   });
-  ipcMain.handle(IpcChannel.GetSettings, () => sanitizeSettingsForRenderer(settings.get()));
+  ipcMain.handle(IpcChannel.GetSettings, async () => {
+    const s = settings.get();
+    const sanitized = sanitizeSettingsForRenderer(s);
+    if (credentials) {
+      sanitized.providerApiKeys = await buildRendererApiKeys(s.providerApiKeys ?? [], credentials);
+    }
+    return sanitized;
+  });
 
   ipcMain.handle(IpcChannel.UpdateSettings, async (_e, patch: Partial<Settings>) => {
     const credentialPatch = patch;
@@ -177,7 +203,11 @@ export function registerIpcHandlers(opts: {
       getProviderRegistry().setActiveFormatting(updated.formattingProvider);
     }
     onSettingsUpdated?.(updated, settingsPatch);
-    return sanitizeSettingsForRenderer(updated);
+    const sanitized = sanitizeSettingsForRenderer(updated);
+    if (credentials) {
+      sanitized.providerApiKeys = await buildRendererApiKeys(updated.providerApiKeys ?? [], credentials);
+    }
+    return sanitized;
   });
   ipcMain.handle(IpcChannel.SetHotkeyCapture, (_e, active: boolean) => {
     hotkeys.setCaptureActive(active);

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, BrowserWindow, ipcMain, session, systemPreferences } from "electron";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync, existsSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -261,6 +261,18 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
   });
 
   win.on("blur", () => { log("window:blur"); });
+
+  win.on("focus", () => {
+    log("window:focus");
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      const micStatus = systemPreferences.getMediaAccessStatus("microphone");
+      const micState = (["not-determined", "granted", "denied", "restricted"].includes(micStatus) ? micStatus : "unknown") as import("@shared/types").MacOSPermissionState;
+      win.webContents.send(IpcChannel.PermissionStatusPush, {
+        microphone: micState,
+        accessibility: systemPreferences.isTrustedAccessibilityClient(false) ? "granted" : "denied",
+      });
+    }
+  });
 
   return win;
 }
