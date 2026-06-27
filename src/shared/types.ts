@@ -135,6 +135,7 @@ export interface Settings {
   // Onboarding tracking
   dictionaryOnboarded: boolean;
   snippetsOnboarded: boolean;
+  setupChecklistDismissed: boolean;
   // Per-app language/provider overrides
   appProfiles?: AppProfile[];
 }

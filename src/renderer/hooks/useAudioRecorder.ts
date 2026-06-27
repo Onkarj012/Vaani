@@ -10,7 +10,7 @@ const TARGET_SAMPLE_RATE = 16_000;
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const FFT_SIZE = 2048;  // Larger buffer for better time-based visualization
-const STOP_TAIL_CAPTURE_MS = 180;
+const STOP_TAIL_CAPTURE_MS = 400;
 
 export function useAudioRecorder() {
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -256,9 +256,10 @@ export function useAudioRecorder() {
       }
 
       recorder.addEventListener("stop", () => {
+        // Wait for final ondataavailable chunk from stop() — some browsers fire it after the stop event
         setTimeout(() => {
           void finalize();
-        }, 0);
+        }, 300);
       }, { once: true });
 
       if (recorder.state !== "inactive") {

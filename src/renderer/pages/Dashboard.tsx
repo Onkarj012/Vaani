@@ -124,7 +124,7 @@ export default function Dashboard() {
     settings, updateSettings, updateStatus, restartAndInstall,
   } = useVaaniUi()
   const [permissions, setPermissions] = useState<PermissionStatus>({ microphone: 'unknown', accessibility: 'unknown' })
-  const [checklistDismissed, setChecklistDismissed] = useState(false)
+  const checklistDismissed = settings.setupChecklistDismissed
   const prevPermissionsRef = useRef<PermissionStatus | null>(null)
   const [permissionLostWarning, setPermissionLostWarning] = useState<string | null>(null)
 
@@ -229,7 +229,7 @@ export default function Dashboard() {
         <OnboardingChecklist
           settings={settings}
           permissions={permissions}
-          onDismiss={() => setChecklistDismissed(true)}
+          onDismiss={() => updateSettings({ setupChecklistDismissed: true })}
           onRestartTour={() => updateSettings({ onboardingCompleted: false })}
         />
       )}

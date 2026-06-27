@@ -180,12 +180,13 @@ function cleanupRuntimeResources(): void {
 
 function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
   const win = new BrowserWindow({
-    width: 920,
-    height: 680,
+    width: 1080,
+    height: 720,
     minWidth: 720,
     minHeight: 560,
     backgroundColor: "#0C0B09",
     titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 16 },
     vibrancy: "under-window",
     show: false,
     webPreferences: {

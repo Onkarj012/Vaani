@@ -121,10 +121,10 @@ async function stopRecording(sessionId: string): Promise<void> {
     };
 
     currentRecorder.addEventListener("stop", () => {
-      // Small delay to let any pending ondataavailable from stop() fire first
+      // Wait for final ondataavailable chunk from stop() — some browsers fire it after the stop event
       setTimeout(() => {
         void finalize();
-      }, 50);
+      }, 300);
     }, { once: true });
 
     if (currentRecorder.state !== "inactive") {

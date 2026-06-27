@@ -45,6 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // Onboarding tracking
   dictionaryOnboarded: false,
   snippetsOnboarded: false,
+  setupChecklistDismissed: false,
   // Per-app overrides
   appProfiles: [],
 };
