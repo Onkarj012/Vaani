@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AudioClip, AudioVisualFrame } from "@shared/types";
+import { STOP_TAIL_CAPTURE_MS, STOP_FINALIZE_WAIT_MS } from "@renderer/recorder/recorderConstants";
 
 interface RecordingResult {
   clip: AudioClip;
@@ -9,8 +10,7 @@ interface RecordingResult {
 const TARGET_SAMPLE_RATE = 16_000;
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
-const FFT_SIZE = 2048;  // Larger buffer for better time-based visualization
-const STOP_TAIL_CAPTURE_MS = 400;
+const FFT_SIZE = 2048;
 
 export function useAudioRecorder() {
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -235,31 +235,31 @@ export function useAudioRecorder() {
 
     resetVisualizer();
 
-    return new Promise((resolve) => {
-      const finalize = async () => {
-        try {
-          const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-          if (blob.size === 0) {
-            resolve(null);
-            return;
-          }
-
-          const clip = await blobToClip(blob);
-          const duration = Math.max(0, (Date.now() - startTimeRef.current) / 1000);
-          resolve({ clip, duration });
-        } catch (error) {
-          console.error("[vaani][audio] recorder stop failed:", error);
-          resolve(null);
-        } finally {
-          await cleanup();
-        }
+    const finalizeFromChunks = async (chunks: Blob[]) => {
+      try {
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        if (blob.size === 0) return null;
+        const clip = await blobToClip(blob);
+        const duration = Math.max(0, (Date.now() - startTimeRef.current) / 1000);
+        return { clip, duration };
+      } catch (error) {
+        console.error("[vaani][audio] recorder stop failed:", error);
+        return null;
+      } finally {
+        await cleanup();
       }
+    };
 
+    return new Promise((resolve) => {
       recorder.addEventListener("stop", () => {
-        // Wait for final ondataavailable chunk from stop() — some browsers fire it after the stop event
+        // Snapshot chunks at stop-event time so a concurrent cleanup() (e.g. unmount) cannot
+        // clear chunksRef before finalize runs. Any late ondataavailable that arrives in the
+        // STOP_FINALIZE_WAIT_MS window is merged from chunksRef at timer-fire time.
+        const chunksAtStop = chunksRef.current.slice();
         setTimeout(() => {
-          void finalize();
-        }, 300);
+          const lateChunks = chunksRef.current.slice(chunksAtStop.length);
+          resolve(finalizeFromChunks([...chunksAtStop, ...lateChunks]));
+        }, STOP_FINALIZE_WAIT_MS);
       }, { once: true });
 
       if (recorder.state !== "inactive") {
@@ -276,7 +276,7 @@ export function useAudioRecorder() {
           recorder.stop();
         })();
       } else {
-        void finalize();
+        resolve(finalizeFromChunks(chunksRef.current.slice()));
       }
     });
   }, [cleanup, resetVisualizer]);

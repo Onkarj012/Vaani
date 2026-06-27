@@ -123,7 +123,6 @@ export default function CapsuleOverlay() {
     })
 
     bridge.onHideExpanded(() => setMode('hidden'))
-    bridge.onLanguage((_lang) => {})
 
     // Send ready signal multiple times to handle HMR timing issues.
     // After sending, the main process may immediately send pending mode

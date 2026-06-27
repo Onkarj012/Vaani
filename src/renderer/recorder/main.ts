@@ -1,11 +1,11 @@
 import type { AudioClip, AudioVisualFrame, RecorderCommand, RecorderFailure, RecorderSubmission } from "@shared/types";
 import { selectRecorderDeviceId } from "./deviceSelection";
+import { STOP_TAIL_CAPTURE_MS, STOP_FINALIZE_WAIT_MS } from "./recorderConstants";
 
 const TARGET_SAMPLE_RATE = 16_000;
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const FFT_SIZE = 2048;
-const STOP_TAIL_CAPTURE_MS = 400;
 
 declare global {
   interface Window {
@@ -124,7 +124,7 @@ async function stopRecording(sessionId: string): Promise<void> {
       // Wait for final ondataavailable chunk from stop() — some browsers fire it after the stop event
       setTimeout(() => {
         void finalize();
-      }, 300);
+      }, STOP_FINALIZE_WAIT_MS);
     }, { once: true });
 
     if (currentRecorder.state !== "inactive") {
