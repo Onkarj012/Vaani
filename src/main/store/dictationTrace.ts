@@ -84,22 +84,109 @@ function normalizeTraces(raw: unknown): DictationTrace[] {
       hotkeyReleasedAt: typeof item.hotkeyReleasedAt === "string" ? item.hotkeyReleasedAt : undefined,
       targetAppBundleId: typeof item.targetAppBundleId === "string" ? item.targetAppBundleId : null,
       targetAppName: typeof item.targetAppName === "string" ? item.targetAppName : null,
-      rawAudio: isObject(item.rawAudio) ? item.rawAudio as unknown as DictationTrace["rawAudio"] : undefined,
-      trimmedAudio: isObject(item.trimmedAudio) ? item.trimmedAudio as unknown as DictationTrace["trimmedAudio"] : undefined,
+      rawAudio: normalizeAudioQuality(item.rawAudio),
+      trimmedAudio: normalizeAudioQuality(item.trimmedAudio),
       rawAudioPath: typeof item.rawAudioPath === "string" ? item.rawAudioPath : null,
       sttProvider: typeof item.sttProvider === "string" ? item.sttProvider : null,
       sttLatencyMs: typeof item.sttLatencyMs === "number" ? item.sttLatencyMs : undefined,
       formattingLatencyMs: typeof item.formattingLatencyMs === "number" ? item.formattingLatencyMs : undefined,
       transcriptLength: typeof item.transcriptLength === "number" ? item.transcriptLength : undefined,
-      quality: isObject(item.quality) ? item.quality as unknown as DictationTrace["quality"] : undefined,
-      qualityDecision: isObject(item.qualityDecision) ? item.qualityDecision as unknown as DictationTrace["qualityDecision"] : undefined,
-      providerAttempts: Array.isArray(item.providerAttempts) ? item.providerAttempts as DictationTrace["providerAttempts"] : undefined,
-      injectionAttempts: Array.isArray(item.injectionAttempts) ? item.injectionAttempts as DictationTrace["injectionAttempts"] : undefined,
+      quality: normalizeQuality(item.quality),
+      qualityDecision: normalizeQualityDecision(item.qualityDecision),
+      providerAttempts: normalizeProviderAttempts(item.providerAttempts),
+      injectionAttempts: normalizeInjectionAttempts(item.injectionAttempts),
       injectionMethod: item.injectionMethod === "ax" || item.injectionMethod === "clipboard" ? item.injectionMethod : null,
       outcome: normalizeOutcome(item.outcome),
       rejectionReason: typeof item.rejectionReason === "string" ? item.rejectionReason as DictationTrace["rejectionReason"] : undefined,
       userMessage: typeof item.userMessage === "string" ? item.userMessage : undefined,
     }));
+}
+
+function normalizeAudioQuality(value: unknown): DictationTrace["rawAudio"] {
+  if (!isObject(value)) return undefined;
+  const durationSeconds = finiteNumber(value.durationSeconds);
+  const sampleRate = finiteNumber(value.sampleRate);
+  const sampleCount = finiteNumber(value.sampleCount);
+  const rmsAverage = finiteNumber(value.rmsAverage);
+  const rmsPeak = finiteNumber(value.rmsPeak);
+  const peakAmplitude = finiteNumber(value.peakAmplitude);
+  const clippingRatio = finiteNumber(value.clippingRatio);
+  const silenceRatio = finiteNumber(value.silenceRatio);
+  if (
+    durationSeconds === undefined ||
+    sampleRate === undefined ||
+    sampleCount === undefined ||
+    rmsAverage === undefined ||
+    rmsPeak === undefined ||
+    peakAmplitude === undefined ||
+    clippingRatio === undefined ||
+    silenceRatio === undefined
+  ) return undefined;
+  return { durationSeconds, sampleRate, sampleCount, rmsAverage, rmsPeak, peakAmplitude, clippingRatio, silenceRatio };
+}
+
+function normalizeQuality(value: unknown): DictationTrace["quality"] {
+  if (!isObject(value)) return undefined;
+  const provider = typeof value.provider === "string" ? value.provider : null;
+  const attemptCount = finiteNumber(value.attemptCount);
+  const transcriptLength = finiteNumber(value.transcriptLength);
+  if (!provider || attemptCount === undefined || typeof value.supportsConfidence !== "boolean" || transcriptLength === undefined) {
+    return undefined;
+  }
+  return {
+    provider,
+    attemptCount,
+    supportsConfidence: value.supportsConfidence,
+    confidence: nullableNumber(value.confidence),
+    noSpeechProbability: nullableNumber(value.noSpeechProbability),
+    avgLogprob: nullableNumber(value.avgLogprob),
+    compressionRatio: nullableNumber(value.compressionRatio),
+    segmentCount: finiteNumber(value.segmentCount),
+    transcriptLength,
+    decision: normalizeQualityDecision(value.decision),
+  };
+}
+
+function normalizeQualityDecision(value: unknown): DictationTrace["qualityDecision"] {
+  if (!isObject(value)) return undefined;
+  if (!isTranscriptAction(value.action) || typeof value.reason !== "string") return undefined;
+  return { action: value.action, reason: value.reason };
+}
+
+function normalizeProviderAttempts(value: unknown): DictationTrace["providerAttempts"] {
+  if (!Array.isArray(value)) return undefined;
+  const attempts: NonNullable<DictationTrace["providerAttempts"]> = [];
+  for (const item of value) {
+    if (!isObject(item) || typeof item.provider !== "string" || typeof item.success !== "boolean") continue;
+    const attempt: NonNullable<DictationTrace["providerAttempts"]>[number] = {
+      provider: item.provider,
+      success: item.success,
+    };
+    const latencyMs = finiteNumber(item.latencyMs);
+    const quality = normalizeQuality(item.quality);
+    if (latencyMs !== undefined) attempt.latencyMs = latencyMs;
+    if (typeof item.error === "string") attempt.error = item.error;
+    if (quality) attempt.quality = quality;
+    attempts.push(attempt);
+  }
+  return attempts.length > 0 ? attempts : undefined;
+}
+
+function normalizeInjectionAttempts(value: unknown): DictationTrace["injectionAttempts"] {
+  if (!Array.isArray(value)) return undefined;
+  const attempts: NonNullable<DictationTrace["injectionAttempts"]> = [];
+  for (const item of value) {
+    if (!isObject(item) || typeof item.success !== "boolean") continue;
+    const attempt: NonNullable<DictationTrace["injectionAttempts"]>[number] = {
+      targetAppBundleId: typeof item.targetAppBundleId === "string" ? item.targetAppBundleId : null,
+      targetAppName: typeof item.targetAppName === "string" ? item.targetAppName : null,
+      success: item.success,
+    };
+    if (item.method === "ax" || item.method === "clipboard") attempt.method = item.method;
+    if (typeof item.fallbackReason === "string") attempt.fallbackReason = item.fallbackReason;
+    attempts.push(attempt);
+  }
+  return attempts.length > 0 ? attempts : undefined;
 }
 
 function normalizeOutcome(value: unknown): DictationTrace["outcome"] {
@@ -121,4 +208,17 @@ function copyTrace(trace: DictationTrace): DictationTrace {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function nullableNumber(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return finiteNumber(value);
+}
+
+function isTranscriptAction(value: unknown): value is NonNullable<DictationTrace["qualityDecision"]>["action"] {
+  return value === "insert" || value === "retry" || value === "save" || value === "reject";
 }

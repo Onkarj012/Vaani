@@ -34,7 +34,6 @@ export class OverlayController {
   private showWatchdog: ReturnType<typeof setTimeout> | null = null;
   private pendingMode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error" | null = null;
   private pendingBars: number[] | null = null;
-  private pendingLang: string | null = null;
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingPromptRemover: (() => void) | null = null;
@@ -157,6 +156,7 @@ export class OverlayController {
     this.pendingPromptRemover?.();
     this.pendingPromptRemover = null;
     this.promptActive = false;
+    this.resetPromptWindowState();
   }
 
   setProcessing(): void {
@@ -164,14 +164,9 @@ export class OverlayController {
     this.show();
   }
 
-  setSuccess(detectedLanguage?: string | null): void {
+  setSuccess(_detectedLanguage?: string | null): void {
     this.pendingMode = "done";
-    this.pendingLang = detectedLanguage ?? null;
     this.show();
-    if (detectedLanguage && this.loadReady && this.window && !this.window.isDestroyed()) {
-      this.window.webContents.send("capsule:set-lang", detectedLanguage);
-      this.pendingLang = null;
-    }
   }
 
   setError(): void {
@@ -220,6 +215,7 @@ export class OverlayController {
       onResponse(args.accepted);
     };
     const promptWindow = this.window;
+    this.pendingPromptRemover?.();
     promptWindow.webContents.ipc.once("capsule:snippet-response", responseHandler);
     // Store remover so endPrompt/recover can clean it up
     this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
@@ -247,6 +243,7 @@ export class OverlayController {
       onResponse(args.accepted);
     };
     const promptWindow = this.window;
+    this.pendingPromptRemover?.();
     promptWindow.webContents.ipc.once("capsule:dictionary-response", dictResponseHandler);
     this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:dictionary-response", dictResponseHandler);
 
@@ -282,6 +279,7 @@ export class OverlayController {
       onUndo();
     };
     const promptWindow = this.window;
+    this.pendingPromptRemover?.();
     promptWindow.webContents.ipc.once("capsule:toast-undo", undoHandler);
     this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:toast-undo", undoHandler);
 
@@ -377,12 +375,17 @@ export class OverlayController {
     this.promptActive = false;
     this.pendingPromptRemover?.();
     this.pendingPromptRemover = null;
+    this.resetPromptWindowState();
+    if (!this.window || this.window.isDestroyed()) return;
+    setTimeout(() => this.hide(), 400);
+  }
+
+  private resetPromptWindowState(): void {
     if (!this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:hide-expanded");
     this.window.setIgnoreMouseEvents(true, { forward: true });
     this.window.setFocusable(false);
     void this.resizeWindow(false);
-    setTimeout(() => this.hide(), 400);
   }
 
   private clearHideTimer(): void {
@@ -622,10 +625,6 @@ export class OverlayController {
         setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 150);
       }
       if (this.pendingBars) this.updateBars(this.pendingBars);
-      if (this.pendingLang && this.window && !this.window.isDestroyed()) {
-        this.window.webContents.send("capsule:set-lang", this.pendingLang);
-        this.pendingLang = null;
-      }
     });
 
     // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
@@ -638,10 +637,6 @@ export class OverlayController {
           this.loadReady = true;
           if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
           if (this.pendingBars) this.updateBars(this.pendingBars);
-          if (this.pendingLang && !this.window.isDestroyed()) {
-            this.window.webContents.send("capsule:set-lang", this.pendingLang);
-            this.pendingLang = null;
-          }
         }
       }, 200);
     });

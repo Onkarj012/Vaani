@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
-import type { AudioVisualFrame, TranscriptionResult } from "@shared/types";
+import type { AudioVisualFrame, DictationTrace, TranscriptionResult } from "@shared/types";
+import type { DictationTraceStore } from "@main/store/dictationTrace";
 import { DictationService } from "./dictation.fixture";
 
 vi.mock("electron", () => ({
@@ -23,7 +24,7 @@ vi.mock("electron", () => ({
   }
 }));
 
-function createDictationService() {
+function createDictationService(deps: { traces?: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> } = {}) {
   const overlay = {
     setPressed: vi.fn(),
     setRecording: vi.fn(),
@@ -81,7 +82,7 @@ function createDictationService() {
     history as never,
     vi.fn(),
     overlay as never,
-    { recorder, transcription, injector, appDetector }
+    { recorder, transcription, injector, appDetector, traces: deps.traces }
   );
 
   return { service, overlay, mainWindow, history, recorder, settings, transcription, injector, appDetector };
@@ -232,6 +233,45 @@ describe("DictationService", () => {
       injectionMethod: null,
     }));
     expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", message: "Saved to history" });
+  });
+
+  it("redacts local audio paths from exported bug reports", async () => {
+    const trace: DictationTrace = {
+      id: "trace-1",
+      sessionId: "session-1",
+      startedAt: "2026-06-29T00:00:00.000Z",
+      targetAppBundleId: "com.apple.TextEdit",
+      targetAppName: "TextEdit",
+      outcome: "saved",
+      rawAudioPath: "/Users/onkarj012/Documents/Vaani Recordings/raw.wav",
+    };
+    const traces = {
+      upsert: vi.fn(),
+      updateById: vi.fn(),
+      getById: vi.fn(async () => trace),
+      getBySessionId: vi.fn(),
+    };
+    const { service, history } = createDictationService({ traces });
+    history.getById.mockResolvedValue({
+      id: "entry-1",
+      traceId: "trace-1",
+      timestamp: "2026-06-29T00:00:00.000Z",
+      rawText: "hello",
+      formattedText: "hello",
+      cleanedText: "Hello.",
+      durationSeconds: 1,
+      appBundleId: "com.apple.TextEdit",
+      appName: "TextEdit",
+      injectionStatus: "saved",
+      injectionMethod: null,
+      language: "en",
+      rawAudioPath: "/Users/onkarj012/Documents/Vaani Recordings/raw.wav",
+    });
+
+    const report = await service.exportBugReport("entry-1", "1.2.3");
+
+    expect(report.entry?.rawAudioPath).toBeNull();
+    expect(report.trace?.rawAudioPath).toBeNull();
   });
 
   it("auto-saves a dictionary rule shortly after the user edits inserted text", async () => {

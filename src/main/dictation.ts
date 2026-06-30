@@ -462,14 +462,16 @@ export class DictationService {
       injectionMethod: result.method,
     }));
     if (entry.traceId) {
-      void this.traces?.updateById(entry.traceId, (trace) => ({
-        ...trace,
-        outcome: "injected",
-        injectionMethod: result.method,
-        rejectionReason: undefined,
-        userMessage: "Retry inserted at cursor",
-        completedAt: new Date().toISOString(),
-      }));
+      void this.safeTraceOperation("retryEntry", entry.traceId, () =>
+        this.traces?.updateById(entry.traceId ?? "", (trace) => ({
+          ...trace,
+          outcome: "injected",
+          injectionMethod: result.method,
+          rejectionReason: undefined,
+          userMessage: "Retry inserted at cursor",
+          completedAt: new Date().toISOString(),
+        }))
+      );
     }
     const sessionId = this.createSessionId();
     this.setState({ status: "completed", sessionId, outcome: "injected", text: entry.cleanedText, message: "Retry inserted at cursor" });
@@ -482,10 +484,10 @@ export class DictationService {
 
   async exportBugReport(entryId: string, appVersion?: string): Promise<DictationBugReport> {
     const entry = await this.history.getById(entryId) ?? null;
-    const trace = entry?.traceId ? await this.traces?.getById(entry.traceId) ?? null : null;
+    const trace = entry?.traceId ? await this.safeTraceOperation("exportBugReport", entry.traceId, () => this.traces?.getById(entry.traceId ?? "")) ?? null : null;
     return {
-      entry,
-      trace,
+      entry: redactEntryForBugReport(entry),
+      trace: redactTraceForBugReport(trace),
       generatedAt: new Date().toISOString(),
       appVersion,
     };
@@ -816,30 +818,30 @@ export class DictationService {
     if (!this.traces) return;
     const traceId = crypto.randomUUID();
     this.activeTraceId = traceId;
-    await this.traces.upsert({
+    await this.safeTraceOperation("startTrace", sessionId, () => this.traces?.upsert({
       id: traceId,
       sessionId,
       startedAt: new Date().toISOString(),
       targetAppBundleId: this.activeTarget?.appBundleId ?? null,
       targetAppName: this.activeTarget?.appName ?? null,
       outcome: "started",
-    });
+    }));
   }
 
   private async traceIdForSession(sessionId: string): Promise<string | null> {
     if (this.activeSessionId === sessionId && this.activeTraceId) return this.activeTraceId;
-    const trace = await this.traces?.getBySessionId(sessionId);
+    const trace = await this.safeTraceOperation("traceIdForSession", sessionId, () => this.traces?.getBySessionId(sessionId));
     return trace?.id ?? null;
   }
 
   private async patchTrace(sessionId: string, patch: Partial<DictationTrace>): Promise<void> {
     if (this.activeSessionId === sessionId && this.activeTraceId) {
-      await this.traces?.updateById(this.activeTraceId, (current) => ({ ...current, ...patch }));
+      await this.safeTraceOperation("patchTrace", sessionId, () => this.traces?.updateById(this.activeTraceId ?? "", (current) => ({ ...current, ...patch })));
       return;
     }
-    const trace = await this.traces?.getBySessionId(sessionId);
+    const trace = await this.safeTraceOperation("patchTrace:getBySessionId", sessionId, () => this.traces?.getBySessionId(sessionId));
     if (!trace) return;
-    await this.traces?.updateById(trace.id, (current) => ({ ...current, ...patch }));
+    await this.safeTraceOperation("patchTrace:updateById", sessionId, () => this.traces?.updateById(trace.id, (current) => ({ ...current, ...patch })));
   }
 
   private async finishTrace(
@@ -857,6 +859,28 @@ export class DictationService {
       completedAt: new Date().toISOString(),
     });
   }
+
+  private async safeTraceOperation<T>(
+    operation: string,
+    sessionId: string,
+    run: () => Promise<T | undefined> | undefined
+  ): Promise<T | undefined> {
+    try {
+      return await run();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      debug("dictation", `trace ${operation} failed for session=${sessionId}: ${message}`);
+      return undefined;
+    }
+  }
+}
+
+function redactEntryForBugReport(entry: DictationEntry | null): DictationEntry | null {
+  return entry ? { ...entry, rawAudioPath: entry.rawAudioPath ? null : entry.rawAudioPath } : null;
+}
+
+function redactTraceForBugReport(trace: DictationTrace | null): DictationTrace | null {
+  return trace ? { ...trace, rawAudioPath: trace.rawAudioPath ? null : trace.rawAudioPath } : null;
 }
 
 function clippedCopy(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] } {

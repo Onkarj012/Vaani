@@ -8,7 +8,6 @@ const OVERLAY_CHANNELS = [
   'capsule:show-dictionary',
   'capsule:show-toast',
   'capsule:hide-expanded',
-  'capsule:set-lang',
 ] as const
 
 contextBridge.exposeInMainWorld('capsuleBridge', {
@@ -32,9 +31,6 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   },
   onHideExpanded: (cb: () => void) => {
     ipcRenderer.on('capsule:hide-expanded', () => cb())
-  },
-  onLanguage: (cb: (lang: string) => void) => {
-    ipcRenderer.on('capsule:set-lang', (_e, lang: string) => cb(lang))
   },
   sendReady: () => ipcRenderer.send('capsule:ready'),
   sendSnippetResp: (accepted: boolean) => ipcRenderer.send('capsule:snippet-response', { accepted }),

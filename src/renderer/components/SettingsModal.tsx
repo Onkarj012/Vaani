@@ -365,18 +365,34 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <Select
                     value={profile.language ?? 'auto'}
                     onChange={(v) => {
-                      const next = (settings.appProfiles ?? []).map((p) => p.id === profile.id ? { ...p, language: v } : p);
+                      const next = (settings.appProfiles ?? []).map((p) => {
+                        if (p.id !== profile.id) return p;
+                        const provider = p.transcriptionProvider;
+                        return {
+                          ...p,
+                          language: v,
+                          transcriptionProvider: provider && isLanguageSupportedByProvider(v, provider, settings.localWhisperModel)
+                            ? provider
+                            : undefined,
+                        };
+                      });
                       void updateSettings({ appProfiles: next });
                     }}
                     options={languages}
                   />
                   <Select
-                    value={profile.transcriptionProvider ?? ''}
+                    value={profile.transcriptionProvider && isLanguageSupportedByProvider(profile.language ?? 'auto', profile.transcriptionProvider, settings.localWhisperModel) ? profile.transcriptionProvider : ''}
                     onChange={(v) => {
+                      if (v && !isLanguageSupportedByProvider(profile.language ?? 'auto', v, settings.localWhisperModel)) return;
                       const next = (settings.appProfiles ?? []).map((p) => p.id === profile.id ? { ...p, transcriptionProvider: v || undefined } : p);
                       void updateSettings({ appProfiles: next });
                     }}
-                    options={[{ value: '', label: 'Default STT' }, ...sttProviders.map((p) => ({ value: p.id, label: p.name }))]}
+                    options={[
+                      { value: '', label: 'Default STT' },
+                      ...sttProviders
+                        .filter((p) => isLanguageSupportedByProvider(profile.language ?? 'auto', p.id, settings.localWhisperModel))
+                        .map((p) => ({ value: p.id, label: p.name })),
+                    ]}
                   />
                   <button
                     aria-label="Delete profile"

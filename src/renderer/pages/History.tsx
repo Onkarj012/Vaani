@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Search, Copy, RotateCcw, Trash2, Clock, Type, X, Check, AudioLines, Edit3, FileWarning, RefreshCw } from 'lucide-react'
-import { useVaaniUi } from '../context/vaani-ui'
+import { useVaaniUi } from '@renderer/context/vaani-ui'
 import { Card } from '@renderer/components/ui/card'
 import { Input, Textarea } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
 import type { DictationTrace } from '@shared/types'
+
+type TraceLoadState = DictationTrace | null | 'loading'
 
 const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } }
 const item = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }
@@ -16,7 +18,7 @@ export default function History() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [traces, setTraces] = useState<Record<string, DictationTrace | null>>({})
+  const [traces, setTraces] = useState<Record<string, TraceLoadState>>({})
 
   const groups = ['Today', 'Yesterday', 'This Week', 'Earlier']
   const grouped = groups
@@ -36,9 +38,15 @@ export default function History() {
   useEffect(() => {
     const item = historyItems.find((candidate) => candidate.id === expandedId)
     if (!item?.traceId || traces[item.traceId] !== undefined) return
-    void window.vaani.getDictationTrace(item.traceId).then((trace) => {
-      setTraces((current) => ({ ...current, [item.traceId ?? '']: trace ?? null }))
-    })
+    const traceId = item.traceId
+    setTraces((current) => ({ ...current, [traceId]: 'loading' }))
+    void window.vaani.getDictationTrace(traceId)
+      .then((trace) => {
+        setTraces((current) => ({ ...current, [traceId]: trace ?? null }))
+      })
+      .catch(() => {
+        setTraces((current) => ({ ...current, [traceId]: null }))
+      })
   }, [expandedId, historyItems, traces])
 
   const copyBugReport = async (entryId: string) => {
@@ -110,7 +118,7 @@ export default function History() {
                           </button>
                         )}
                         {expandedId === it.id && it.traceId && (
-                          <Diagnostics trace={traces[it.traceId]} />
+                          <Diagnostics trace={resolvedTrace(traces[it.traceId])} />
                         )}
 
                         <div className="label-meta mt-4 flex items-center gap-3 text-[10px] text-faint">
@@ -170,6 +178,10 @@ function Diagnostics({ trace }: { trace: DictationTrace | null | undefined }) {
       {trace.rawAudioPath && <div className="sm:col-span-2 truncate text-faint">Audio: {trace.rawAudioPath}</div>}
     </div>
   )
+}
+
+function resolvedTrace(trace: TraceLoadState | undefined): DictationTrace | null | undefined {
+  return trace === 'loading' ? undefined : trace
 }
 
 function Diagnostic({ label, value }: { label: string; value: string }) {
