@@ -47,10 +47,93 @@ export interface AudioVisualFrame {
   bars: number[];
 }
 
+export interface AudioQualityMetrics {
+  durationSeconds: number;
+  sampleRate: number;
+  sampleCount: number;
+  rmsAverage: number;
+  rmsPeak: number;
+  peakAmplitude: number;
+  clippingRatio: number;
+  silenceRatio: number;
+}
+
+export type TranscriptInsertionAction = "insert" | "retry" | "save" | "reject";
+
+export interface TranscriptQualityDecision {
+  action: TranscriptInsertionAction;
+  reason: string;
+}
+
+export interface TranscriptionQualityMetadata {
+  provider: string;
+  attemptCount: number;
+  supportsConfidence: boolean;
+  confidence?: number | null;
+  noSpeechProbability?: number | null;
+  avgLogprob?: number | null;
+  compressionRatio?: number | null;
+  segmentCount?: number;
+  transcriptLength: number;
+  decision?: TranscriptQualityDecision;
+}
+
 // ─── History ─────────────────────────────────────────────────────────────────
+
+export type DictationTraceOutcome = "started" | "injected" | "saved" | "rejected" | "failed" | "cancelled";
+export type DictationRejectionReason = "no_speech" | "fragment" | "recorder_unavailable" | "recorder_failure" | "timeout" | "transcription_error" | "insertion_failed" | "cancelled";
+
+export interface ProviderAttemptTrace {
+  provider: string;
+  success: boolean;
+  latencyMs?: number;
+  error?: string;
+  quality?: TranscriptionQualityMetadata;
+}
+
+export interface InjectionAttemptTrace {
+  targetAppBundleId: string | null;
+  targetAppName: string | null;
+  method?: InjectionMethod | null;
+  success: boolean;
+  fallbackReason?: string;
+}
+
+export interface DictationTrace {
+  id: string;
+  sessionId: string;
+  startedAt: string;
+  completedAt?: string;
+  hotkeyReleasedAt?: string;
+  targetAppBundleId: string | null;
+  targetAppName: string | null;
+  rawAudio?: AudioQualityMetrics;
+  trimmedAudio?: AudioQualityMetrics;
+  rawAudioPath?: string | null;
+  sttProvider?: string | null;
+  sttLatencyMs?: number;
+  formattingLatencyMs?: number;
+  transcriptLength?: number;
+  quality?: TranscriptionQualityMetadata;
+  qualityDecision?: TranscriptQualityDecision;
+  providerAttempts?: ProviderAttemptTrace[];
+  injectionAttempts?: InjectionAttemptTrace[];
+  injectionMethod?: InjectionMethod | null;
+  outcome: DictationTraceOutcome;
+  rejectionReason?: DictationRejectionReason;
+  userMessage?: string;
+}
+
+export interface DictationBugReport {
+  entry: DictationEntry | null;
+  trace: DictationTrace | null;
+  generatedAt: string;
+  appVersion?: string;
+}
 
 export interface DictationEntry {
   id: string;
+  traceId?: string | null;
   timestamp: string;
   rawText: string;
   formattedText: string;
@@ -63,6 +146,7 @@ export interface DictationEntry {
   language: string | null;
   /** Provider-detected language when auto-detect is used. */
   detectedLanguage?: string | null;
+  rawAudioPath?: string | null;
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
@@ -84,6 +168,8 @@ export interface AppProfile {
   transcriptionProvider?: string;
   formattingProvider?: string;
   language?: string;
+  stylePreset?: Settings["stylePreset"];
+  contextAwarenessEnabled?: boolean;
   autoSubmit?: boolean;
   customPrompt?: string;
 }
@@ -132,6 +218,9 @@ export interface Settings {
   // Phase 2: Local model settings
   localWhisperModel: string;
   offlineMode: "auto" | "always-offline" | "always-online";
+  contextAwarenessEnabled: boolean;
+  micDeviceId?: string;
+  stylePreset: "plain" | "developer" | "casual" | "formal" | "email";
   // Onboarding tracking
   dictionaryOnboarded: boolean;
   snippetsOnboarded: boolean;
@@ -155,6 +244,8 @@ export interface TranscriptionResult {
   language: string | null;
   /** Provider-detected language (from verbose_json / Deepgram response). Null when unknown. */
   detectedLanguage?: string | null;
+  quality?: TranscriptionQualityMetadata;
+  providerAttempts?: ProviderAttemptTrace[];
 }
 
 export interface TranscriptionOptions {
@@ -208,6 +299,9 @@ export interface VaaniAPI {
   updateHistoryEntry: (id: string, cleanedText: string) => Promise<DictationEntry | undefined>;
   deleteEntry: (id: string) => Promise<void>;
   reinjectEntry: (id: string) => Promise<void>;
+  retryHistoryEntry: (id: string) => Promise<void>;
+  getDictationTrace: (traceId: string) => Promise<DictationTrace | undefined>;
+  exportBugReport: (entryId: string) => Promise<DictationBugReport>;
   clearHistory: () => Promise<void>;
   copyText: (text: string) => Promise<boolean>;
   getSettings: () => Promise<Settings>;

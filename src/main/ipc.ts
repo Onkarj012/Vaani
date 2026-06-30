@@ -147,6 +147,9 @@ export function registerIpcHandlers(opts: {
     return updated;
   });
   ipcMain.handle(IpcChannel.ReinjectEntry, (_e, id: string) => dictation.reinjectEntry(id));
+  ipcMain.handle(IpcChannel.RetryHistoryEntry, (_e, id: string) => dictation.retryEntry(id));
+  ipcMain.handle(IpcChannel.GetDictationTrace, (_e, traceId: string) => dictation.getTrace(traceId));
+  ipcMain.handle(IpcChannel.ExportBugReport, (_e, entryId: string) => dictation.exportBugReport(entryId, app.getVersion()));
   ipcMain.handle(IpcChannel.DeleteEntry, (_e, id: string) => history.delete(id));
   ipcMain.handle(IpcChannel.ClearHistory, () => history.clear());
   ipcMain.handle(IpcChannel.CopyText, (_e, text: string) => {

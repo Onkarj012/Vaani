@@ -23,6 +23,8 @@ const PROMPT_W = 360;
 const PROMPT_H = 210;
 const OVERLAY_LOAD_TIMEOUT_MS = 2_000;
 const OVERLAY_SHOW_WATCHDOG_MS = 900;
+// Auto-save confirmation toast (dictionary rule added) stays up briefly with Undo.
+const TOAST_DURATION_MS = 6_000;
 
 export class OverlayController {
   private window: BrowserWindow | null = null;
@@ -131,6 +133,7 @@ export class OverlayController {
   }
 
   setRecording(): void {
+    this.finishActivePrompt();
     this.pendingMode = "recording";
     this.pendingBars = null;
     this.show();
@@ -138,10 +141,22 @@ export class OverlayController {
   }
 
   setPressed(): void {
+    this.finishActivePrompt();
     this.pendingMode = "pressed";
     this.pendingBars = null;
     this.show();
     this.tryUpdateMode("pressed");
+  }
+
+  // A new dictation is taking over the overlay — neutralize any lingering prompt
+  // or auto-save toast so its pending dismiss timer cannot later hide the live
+  // recording pill. The dictionary rule (if any) is already persisted.
+  private finishActivePrompt(): void {
+    if (!this.promptActive) return;
+    this.clearPromptDismissTimer();
+    this.pendingPromptRemover?.();
+    this.pendingPromptRemover = null;
+    this.promptActive = false;
   }
 
   setProcessing(): void {
@@ -243,6 +258,38 @@ export class OverlayController {
     }, 8000);
   }
 
+  // Non-blocking confirmation that a dictionary rule was auto-saved. Unlike the
+  // prompt it does not steal focus and is never tied to the next dictation — the
+  // rule is already persisted; Undo simply reverts it within the toast window.
+  showDictionaryToast(word: string, correction: string, onUndo: () => void): void {
+    void this.showDictionaryToastAsync(word, correction, onUndo).catch(() => {
+      this.endPrompt();
+    });
+  }
+
+  private async showDictionaryToastAsync(word: string, correction: string, onUndo: () => void): Promise<void> {
+    log("overlay:toast-dictionary-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
+    this.promptActive = true;
+    this.clearPromptDismissTimer();
+    const frontmostBefore = nativeBridge.getFrontmostApplication?.();
+    await this.ensureWindow();
+    await this.waitForLoadReady(5_000);
+    if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
+
+    const undoHandler = (_e: Electron.IpcMainEvent) => {
+      this.clearPromptDismissTimer();
+      this.endPrompt();
+      onUndo();
+    };
+    const promptWindow = this.window;
+    promptWindow.webContents.ipc.once("capsule:toast-undo", undoHandler);
+    this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:toast-undo", undoHandler);
+
+    await this.showPromptWindow(frontmostBefore, false);
+    promptWindow.webContents.send("capsule:show-toast", { word, correction });
+    this.promptDismissTimer = setTimeout(() => this.endPrompt(), TOAST_DURATION_MS);
+  }
+
   hideExpanded(): void {
     if (!this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:hide-expanded");
@@ -290,14 +337,17 @@ export class OverlayController {
   }
 
   private async showPromptWindow(
-    frontmostBefore: { bundleId?: string; name?: string } | null | undefined
+    frontmostBefore: { bundleId?: string; name?: string } | null | undefined,
+    focusWindow = true
   ): Promise<void> {
     if (!this.window || this.window.isDestroyed()) return;
-    log("overlay:prompt-window-show", { loadReady: this.loadReady });
+    log("overlay:prompt-window-show", { loadReady: this.loadReady, focusWindow });
     await this.resizeWindow(true);
     this.window.setIgnoreMouseEvents(false);
-    this.window.setFocusable(true);
-    this.window.focus();
+    this.window.setFocusable(focusWindow);
+    // A toast (focusWindow=false) must stay clickable for Undo but must NOT steal
+    // focus from the app the user is still typing in.
+    if (focusWindow) this.window.focus();
     void this.restoreFocusIfNeeded(frontmostBefore);
   }
 

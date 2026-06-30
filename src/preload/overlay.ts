@@ -6,6 +6,7 @@ const OVERLAY_CHANNELS = [
   'capsule:set-accent',
   'capsule:show-snippet',
   'capsule:show-dictionary',
+  'capsule:show-toast',
   'capsule:hide-expanded',
   'capsule:set-lang',
 ] as const
@@ -26,6 +27,9 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   onShowDict: (cb: (data: { word: string; correction: string }) => void) => {
     ipcRenderer.on('capsule:show-dictionary', (_e, d: { word: string; correction: string }) => cb(d))
   },
+  onShowToast: (cb: (data: { word: string; correction: string }) => void) => {
+    ipcRenderer.on('capsule:show-toast', (_e, d: { word: string; correction: string }) => cb(d))
+  },
   onHideExpanded: (cb: () => void) => {
     ipcRenderer.on('capsule:hide-expanded', () => cb())
   },
@@ -35,6 +39,7 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   sendReady: () => ipcRenderer.send('capsule:ready'),
   sendSnippetResp: (accepted: boolean) => ipcRenderer.send('capsule:snippet-response', { accepted }),
   sendDictResp: (accepted: boolean) => ipcRenderer.send('capsule:dictionary-response', { accepted }),
+  sendToastUndo: () => ipcRenderer.send('capsule:toast-undo'),
   sendOpenLastEntry: () => ipcRenderer.send('capsule:open-last-entry'),
   cleanup: () => {
     for (const ch of OVERLAY_CHANNELS) ipcRenderer.removeAllListeners(ch)

@@ -54,6 +54,14 @@ const injectionModes = [
   { id: 'clipboard', label: 'Clipboard', description: 'Pastes text via the clipboard' },
 ]
 
+const stylePresets = [
+  { value: 'plain', label: 'Plain' },
+  { value: 'developer', label: 'Developer' },
+  { value: 'casual', label: 'Casual' },
+  { value: 'formal', label: 'Formal' },
+  { value: 'email', label: 'Email' },
+]
+
 const accentColors = [
   { id: '#7575c8', label: 'Purple' },
   { id: '#5bb5d8', label: 'Blue' },
@@ -96,6 +104,15 @@ function OptionButton({ active, onClick, label, description }: { active: boolean
       {active && <span className="ml-3 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent"><Check size={12} className="text-white" /></span>}
     </button>
   )
+}
+
+function providerSummary(provider: typeof KNOWN_PROVIDERS[number] | undefined): string {
+  if (!provider) return ''
+  const locality = provider.locality === 'local' ? 'Local' : 'Cloud'
+  const privacy = provider.privacyLevel === 'local-only' ? 'audio stays on device' : provider.privacyLevel === 'cloud-text' ? 'sends text to provider' : 'sends audio to provider'
+  const cost = provider.estimatedCost === 'free-local' ? 'free after model download' : `${provider.estimatedCost ?? 'varies'} cost`
+  const confidence = provider.supportsConfidence ? 'confidence signals' : 'no confidence signals'
+  return `${locality} · ${privacy} · ${cost} · ${confidence}`
 }
 
 function ApiKeyInput({
@@ -251,7 +268,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div>
             <FieldLabel>Transcription Provider</FieldLabel>
             <Select value={settings.transcriptionProvider} onChange={(v) => updateSettings({ transcriptionProvider: v })} options={sttProviders.map((p) => ({ value: p.id, label: p.name }))} />
-            <p className="mt-1.5 text-xs text-faint">{activeStt?.requiresApiKey === false ? 'Runs entirely on-device — no API key needed.' : 'Requires an API key.'}</p>
+            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeStt)}</p>
           </div>
 
           {activeStt?.requiresApiKey && (
@@ -273,6 +290,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div>
             <FieldLabel>Formatting Provider</FieldLabel>
             <Select value={settings.formattingProvider} onChange={(v) => updateSettings({ formattingProvider: v })} options={llmProviders.map((p) => ({ value: p.id, label: p.name }))} />
+            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeLlm)}</p>
           </div>
 
           {activeLlm?.requiresApiKey && (
@@ -352,6 +370,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     }}
                     options={languages}
                   />
+                  <Select
+                    value={profile.transcriptionProvider ?? ''}
+                    onChange={(v) => {
+                      const next = (settings.appProfiles ?? []).map((p) => p.id === profile.id ? { ...p, transcriptionProvider: v || undefined } : p);
+                      void updateSettings({ appProfiles: next });
+                    }}
+                    options={[{ value: '', label: 'Default STT' }, ...sttProviders.map((p) => ({ value: p.id, label: p.name }))]}
+                  />
                   <button
                     aria-label="Delete profile"
                     onClick={() => {
@@ -379,6 +405,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <Row title="Cleanup" desc="Remove filler words and apply corrections">
             <Toggle checked={settings.cleanupEnabled} onChange={(v) => updateSettings({ cleanupEnabled: v })} />
           </Row>
+          <Row title="Context Awareness" desc="When enabled, bounded app/style context may be used for formatting">
+            <Toggle checked={settings.contextAwarenessEnabled} onChange={(v) => updateSettings({ contextAwarenessEnabled: v })} />
+          </Row>
+          <div>
+            <FieldLabel>Style Preset</FieldLabel>
+            <Select value={settings.stylePreset} onChange={(v) => updateSettings({ stylePreset: v as typeof settings.stylePreset })} options={stylePresets} />
+          </div>
         </div>
       )}
 

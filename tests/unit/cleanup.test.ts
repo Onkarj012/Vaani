@@ -146,6 +146,26 @@ describe("cleanupText", () => {
     })).toBe("I need ten apples");
   });
 
+  it("converts a dangling list comma to a period instead of ',.'", () => {
+    const result = cleanupText({
+      rawText: "Decline press,\nIncline press,\nTricep,",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Decline press.\nIncline press.\nTricep.");
+    expect(result).not.toContain(",.");
+  });
+
+  it("applies dictionary corrections even when cleanup is disabled", () => {
+    expect(cleanupText({
+      rawText: "My name is Om Kar",
+      settings: createSettings({
+        cleanupEnabled: false,
+        customCorrections: [{ spoken: "Om Kar", written: "Onkar" }]
+      })
+    })).toBe("My name is Onkar");
+  });
+
   it("expands snippets in multiline text", () => {
     const result = cleanupText({
       rawText: "contact me\n/email\nthanks",

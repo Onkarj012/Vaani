@@ -100,6 +100,7 @@ function normalizeHistory(raw: unknown): DictationEntry[] {
     .filter((e): e is Record<string, unknown> => Boolean(e) && typeof e === "object")
     .map(e => ({
       id: typeof e.id === "string" ? e.id : crypto.randomUUID(),
+      traceId: typeof e.traceId === "string" ? e.traceId : null,
       timestamp: typeof e.timestamp === "string" ? e.timestamp : new Date().toISOString(),
       rawText: typeof e.rawText === "string" ? e.rawText : "",
       formattedText: typeof e.formattedText === "string"
@@ -115,6 +116,8 @@ function normalizeHistory(raw: unknown): DictationEntry[] {
       appName: typeof e.appName === "string" ? e.appName : null,
       injectionStatus: e.injectionStatus === "injected" ? "injected" : "saved",
       injectionMethod: e.injectionMethod === "clipboard" || e.injectionMethod === "ax" ? e.injectionMethod : null,
-      language: typeof e.language === "string" ? e.language : null
+      language: typeof e.language === "string" ? e.language : null,
+      detectedLanguage: typeof e.detectedLanguage === "string" ? e.detectedLanguage : null,
+      rawAudioPath: typeof e.rawAudioPath === "string" ? e.rawAudioPath : null
     }));
 }

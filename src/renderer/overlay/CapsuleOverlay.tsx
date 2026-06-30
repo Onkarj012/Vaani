@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Loader2, BookOpen, Layers, X, ChevronRight } from 'lucide-react'
 
 const BAR_COUNT = 9
+const BAR_WIDTH = 2.5
+const BAR_GAP = 2
+const WAVEFORM_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
 
   declare global {
   interface Window {
@@ -12,18 +15,19 @@ const BAR_COUNT = 9
       onAccent: (cb: (color: string) => void) => void
       onShowSnippet: (cb: (data: { trigger: string }) => void) => void
       onShowDict: (cb: (data: { word: string; correction: string }) => void) => void
+      onShowToast: (cb: (data: { word: string; correction: string }) => void) => void
       onHideExpanded: (cb: () => void) => void
-      onLanguage: (cb: (lang: string) => void) => void
       sendReady: () => void
       sendSnippetResp: (accepted: boolean) => void
       sendDictResp: (accepted: boolean) => void
+      sendToastUndo: () => void
       sendOpenLastEntry: () => void
       cleanup: () => void
     }
   }
 }
 
-type VisualMode = 'hidden' | 'pressed' | 'recording' | 'processing' | 'done' | 'error' | 'prompt-snippet' | 'prompt-dictionary'
+type VisualMode = 'hidden' | 'pressed' | 'recording' | 'processing' | 'done' | 'error' | 'prompt-snippet' | 'prompt-dictionary' | 'toast-dictionary'
 
 interface PromptData {
   trigger?: string
@@ -34,14 +38,14 @@ interface PromptData {
 function WaveformBars({ bars, accentColor }: { bars: number[]; accentColor: string }) {
   return (
     <div
-      className="flex items-center justify-center gap-[2px]"
-      style={{ height: 24, width: BAR_COUNT * 6 }}
+      className="flex items-center justify-center"
+      style={{ height: 24, width: WAVEFORM_WIDTH, gap: BAR_GAP }}
     >
       {bars.map((v, i) => (
         <div
           key={i}
           style={{
-            width: 2.5,
+            width: BAR_WIDTH,
             borderRadius: 999,
             height: Math.max(3, Math.min(22, v * 18)),
             background: accentColor,
@@ -122,6 +126,11 @@ export default function CapsuleOverlay() {
       setMode('prompt-dictionary')
     })
 
+    bridge.onShowToast((data) => {
+      setPromptData({ word: data.word, correction: data.correction })
+      setMode('toast-dictionary')
+    })
+
     bridge.onHideExpanded(() => setMode('hidden'))
 
     // Send ready signal multiple times to handle HMR timing issues.
@@ -168,8 +177,14 @@ export default function CapsuleOverlay() {
     setMode('hidden')
   }
 
+  function handleUndo() {
+    window.capsuleBridge.sendToastUndo()
+    setMode('hidden')
+  }
+
   const isPill = mode === 'pressed' || mode === 'recording' || mode === 'processing' || mode === 'done' || mode === 'error'
   const isPrompt = mode === 'prompt-snippet' || mode === 'prompt-dictionary'
+  const isToast = mode === 'toast-dictionary'
 
   return (
     <AnimatePresence mode="wait">
@@ -376,6 +391,40 @@ export default function CapsuleOverlay() {
               </motion.button>
             </div>
           </motion.div>
+        </motion.div>
+      )}
+
+      {/* ── Auto-save toast (dictionary rule added) ── */}
+      {isToast && (
+        <motion.div
+          key="toast"
+          initial={{ opacity: 0, scale: 0.92, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.94 }}
+          transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+          style={{ ...PROMPT_STYLE, borderRadius: 999 }}
+          className="inline-flex items-center gap-2.5 pl-3 pr-2 py-2"
+        >
+          <div
+            className="w-5 h-5 flex items-center justify-center shrink-0 rounded-full"
+            style={{ background: 'rgba(90,138,42,0.30)' }}
+          >
+            <Check size={12} style={{ color: '#8fce5a' }} strokeWidth={3} />
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-[11px] font-semibold shrink-0" style={{ color: 'rgba(255,255,255,0.55)' }}>Added</span>
+            <code className="text-[11px] font-bold truncate" style={{ color: 'rgba(255,255,255,0.55)' }}>{promptData.word ?? ''}</code>
+            <ChevronRight size={11} style={{ color: 'rgba(255,255,255,0.25)' }} className="shrink-0" />
+            <code className="text-[11px] font-bold truncate" style={{ color: accentColor }}>{promptData.correction ?? ''}</code>
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.94 }}
+            onClick={handleUndo}
+            style={{ borderRadius: 999, border: '1px solid rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.70)' }}
+            className="shrink-0 px-2.5 py-1 text-[11px] font-semibold"
+          >
+            Undo
+          </motion.button>
         </motion.div>
       )}
 

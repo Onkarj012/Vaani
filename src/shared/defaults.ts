@@ -42,6 +42,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // Phase 2
   localWhisperModel: "tiny.en",
   offlineMode: "auto",
+  contextAwarenessEnabled: false,
+  micDeviceId: undefined,
+  stylePreset: "plain",
   // Onboarding tracking
   dictionaryOnboarded: false,
   snippetsOnboarded: false,
@@ -119,6 +122,11 @@ export interface ProviderInfo {
   models: { id: string; name: string }[];
   requiresApiKey: boolean;
   defaultModel: string;
+  locality?: "cloud" | "local";
+  estimatedCost?: "free-local" | "low" | "medium" | "varies";
+  privacyLevel?: "local-only" | "cloud-audio" | "cloud-text";
+  supportsConfidence?: boolean;
+  latencyClass?: "fast" | "medium" | "slow";
 }
 
 export const KNOWN_PROVIDERS: ProviderInfo[] = [
@@ -126,11 +134,13 @@ export const KNOWN_PROVIDERS: ProviderInfo[] = [
     id: "groq", name: "Groq Whisper", type: "stt",
     models: [{ id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" }],
     requiresApiKey: true, defaultModel: "whisper-large-v3-turbo",
+    locality: "cloud", estimatedCost: "low", privacyLevel: "cloud-audio", supportsConfidence: true, latencyClass: "fast",
   },
   {
     id: "openai", name: "OpenAI Whisper", type: "stt",
     models: [{ id: "whisper-1", name: "Whisper v1" }],
     requiresApiKey: true, defaultModel: "whisper-1",
+    locality: "cloud", estimatedCost: "medium", privacyLevel: "cloud-audio", supportsConfidence: true, latencyClass: "medium",
   },
   {
     id: "deepgram", name: "Deepgram", type: "stt",
@@ -139,11 +149,13 @@ export const KNOWN_PROVIDERS: ProviderInfo[] = [
       { id: "nova-3", name: "Nova 3" },
     ],
     requiresApiKey: true, defaultModel: "nova-3",
+    locality: "cloud", estimatedCost: "medium", privacyLevel: "cloud-audio", supportsConfidence: true, latencyClass: "fast",
   },
   {
     id: "openai-compatible", name: "OpenAI Compatible", type: "stt",
     models: [{ id: "whisper-1", name: "Whisper v1 (compatible)" }],
     requiresApiKey: true, defaultModel: "whisper-1",
+    locality: "cloud", estimatedCost: "varies", privacyLevel: "cloud-audio", supportsConfidence: false, latencyClass: "medium",
   },
   {
     id: "local-whisper", name: "Local Whisper (Offline)", type: "local-stt",
@@ -154,6 +166,7 @@ export const KNOWN_PROVIDERS: ProviderInfo[] = [
       { id: "medium.en", name: "Medium English (1.5 GB)" },
     ],
     requiresApiKey: false, defaultModel: "tiny.en",
+    locality: "local", estimatedCost: "free-local", privacyLevel: "local-only", supportsConfidence: false, latencyClass: "slow",
   },
   {
     id: "groq-llm", name: "Groq Llama", type: "llm",
@@ -162,6 +175,7 @@ export const KNOWN_PROVIDERS: ProviderInfo[] = [
       { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
     ],
     requiresApiKey: true, defaultModel: "llama-3.1-8b-instant",
+    locality: "cloud", estimatedCost: "low", privacyLevel: "cloud-text", latencyClass: "fast",
   },
   {
     id: "openai-llm", name: "OpenAI GPT", type: "llm",
@@ -170,6 +184,7 @@ export const KNOWN_PROVIDERS: ProviderInfo[] = [
       { id: "gpt-4o", name: "GPT-4o" },
     ],
     requiresApiKey: true, defaultModel: "gpt-4o-mini",
+    locality: "cloud", estimatedCost: "medium", privacyLevel: "cloud-text", latencyClass: "medium",
   },
   {
     id: "anthropic", name: "Anthropic Claude", type: "llm",
@@ -178,6 +193,7 @@ export const KNOWN_PROVIDERS: ProviderInfo[] = [
       { id: "claude-3-5-sonnet-latest", name: "Claude 3.5 Sonnet" },
     ],
     requiresApiKey: true, defaultModel: "claude-3-5-haiku-latest",
+    locality: "cloud", estimatedCost: "medium", privacyLevel: "cloud-text", latencyClass: "medium",
   },
   {
     id: "openrouter", name: "OpenRouter", type: "llm",
@@ -188,5 +204,6 @@ export const KNOWN_PROVIDERS: ProviderInfo[] = [
       { id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash" },
     ],
     requiresApiKey: true, defaultModel: "openai/gpt-4o-mini",
+    locality: "cloud", estimatedCost: "varies", privacyLevel: "cloud-text", latencyClass: "medium",
   },
 ];

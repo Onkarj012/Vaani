@@ -11,6 +11,7 @@ import { registerIpcHandlers } from "./ipc";
 import { OverlayController } from "./overlay";
 import { RecorderWindowController } from "./recorderWindow";
 import { HistoryStore } from "./store/history";
+import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { createTray, type TrayController } from "./tray";
@@ -341,6 +342,7 @@ async function bootstrap(): Promise<void> {
   const settings = new SettingsStore();
   settingsStore = settings;
   const history = new HistoryStore();
+  const traces = new DictationTraceStore();
   await settings.init();
 
   // Initialize credentials store and migrate legacy API keys
@@ -386,7 +388,7 @@ async function bootstrap(): Promise<void> {
     history,
     (label) => trayController.updateStatus(label),
     overlayController,
-    { recorder: recorderController, credentials: credentialsStore }
+    { recorder: recorderController, credentials: credentialsStore, traces }
   );
   dictationService = dictation;
 

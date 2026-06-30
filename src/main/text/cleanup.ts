@@ -29,7 +29,13 @@ function applySmartPunctuation(text: string): string {
 }
 
 function normalizeWhitespace(text: string): string {
-  return text.replace(/\s+/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim();
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    // Drop a dangling comma/semicolon sitting directly before terminal punctuation
+    // (e.g. "press,." -> "press.") — common when an LLM lists items with trailing commas.
+    .replace(/[,;]+(?=[.!?])/g, "")
+    .trim();
 }
 
 function normalizeCommonDictationArtifacts(text: string): string {
@@ -124,7 +130,8 @@ function capitalizeLine(text: string): string {
 }
 
 function ensureLinePunctuation(text: string): string {
-  const trimmed = text.trimEnd();
+  // Strip a dangling list comma/semicolon so it becomes a period, not "press,.".
+  const trimmed = text.trimEnd().replace(/[,;]+$/, "");
   if (!trimmed || /[.?!:]$/.test(trimmed) || isListLine(trimmed)) {
     return trimmed;
   }
@@ -178,15 +185,18 @@ function applySnippets(text: string, snippets: Array<{ trigger: string; content:
 export function cleanupText({ rawText, settings }: TextCleanupInput): string {
   const artifactNormalized = normalizeCommonDictationArtifacts(rawText);
 
+  // Dictionary corrections and snippet expansion are user-defined replacements —
+  // apply them even when general cleanup is off, otherwise the dictionary never triggers.
+  const corrected = applyCorrections(artifactNormalized, settings.customCorrections ?? []);
+  const expanded = applySnippets(corrected, settings.snippets ?? []);
+
   if (!settings.cleanupEnabled) {
-    const deduped = collapseAdjacentDuplicateWords(artifactNormalized);
+    const deduped = collapseAdjacentDuplicateWords(expanded);
     return hasMultipleLines(deduped) ? normalizeLineWhitespace(deduped) : normalizeWhitespace(deduped);
   }
 
-  const fillered = removeFillers(artifactNormalized, settings.fillerWords);
-  const corrected = applyCorrections(fillered, settings.customCorrections ?? []);
-  const snippeted = applySnippets(corrected, settings.snippets ?? []);
-  const deduped = collapseAdjacentDuplicateWords(snippeted);
+  const fillered = removeFillers(expanded, settings.fillerWords);
+  const deduped = collapseAdjacentDuplicateWords(fillered);
   const numbered = normalizeCommonNumbers(deduped);
   if (hasMultipleLines(numbered)) {
     const lines = numbered

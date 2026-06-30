@@ -9,7 +9,7 @@ Premium macOS voice dictation app — Electron Forge + Vite + React + TypeScript
 - `bun run build` — package app locally
 - `bun run make` — create platform artifacts under `out/make/`
 - `bun run typecheck` — TypeScript check (no emit)
-- `bun test` — Vitest unit tests (`tests/**/*.test.ts`)
+- `bun run test` — Vitest unit tests (`tests/**/*.test.ts`)
 
 ## Architecture (read-only summary — do NOT re-read source files for this)
 - `src/main/` — Electron main process (dictation, injection, tray, overlay, stores, native bridge)
@@ -42,7 +42,7 @@ Premium macOS voice dictation app — Electron Forge + Vite + React + TypeScript
 - Do NOT add new dependencies without asking first.
 
 ## Testing
-- Logic changes in `src/main/*` or `src/shared/*` → run `bun test`
+- Logic changes in `src/main/*` or `src/shared/*` → run `bun run test`
 - Type-heavy refactors → run `bun run typecheck`
 - Add/adjust unit tests in `tests/unit/` alongside behavior changes.
 

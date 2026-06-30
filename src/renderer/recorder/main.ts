@@ -101,9 +101,9 @@ async function stopRecording(sessionId: string): Promise<void> {
   resetVisualizer();
 
   const result = await new Promise<{ clip: AudioClip; duration: number } | null>((resolve) => {
-    const finalize = async () => {
+    const finalizeFromChunks = async (finalChunks: Blob[]) => {
       try {
-        const blob = new Blob(chunks, { type: currentRecorder.mimeType || "audio/webm" });
+        const blob = new Blob(finalChunks, { type: currentRecorder.mimeType || "audio/webm" });
         if (blob.size === 0) {
           resolve(null);
           return;
@@ -121,9 +121,12 @@ async function stopRecording(sessionId: string): Promise<void> {
     };
 
     currentRecorder.addEventListener("stop", () => {
-      // Wait for final ondataavailable chunk from stop() — some browsers fire it after the stop event
+      // Snapshot chunks so cleanup or a later recorder session cannot empty the
+      // current clip before the delayed final data merge runs.
+      const chunksAtStop = chunks.slice();
       setTimeout(() => {
-        void finalize();
+        const lateChunks = chunks.slice(chunksAtStop.length);
+        void finalizeFromChunks([...chunksAtStop, ...lateChunks]);
       }, STOP_FINALIZE_WAIT_MS);
     }, { once: true });
 
@@ -141,7 +144,7 @@ async function stopRecording(sessionId: string): Promise<void> {
         currentRecorder.stop();
       })();
     } else {
-      void finalize();
+      void finalizeFromChunks(chunks.slice());
     }
   });
 

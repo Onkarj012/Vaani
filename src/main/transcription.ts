@@ -1,4 +1,4 @@
-import type { Settings, AudioClip, TranscriptionResult } from "@shared/types";
+import type { ProviderAttemptTrace, Settings, AudioClip, TranscriptionResult } from "@shared/types";
 import { getProviderRegistry } from "./providers";
 import type { TranscriptionProvider } from "./providers/types";
 import { CredentialsStore } from "./store/credentials";
@@ -6,44 +6,81 @@ import { debug, warn } from "@main/log";
 import { preservesContentWords } from "@shared/contentGuard";
 import { deterministicFormat } from "@main/text/cleanup";
 
+interface TranscribeOptions {
+  languageOverride?: string;
+  providerOverride?: string;
+  rejectResult?: (result: TranscriptionResult) => boolean;
+}
+
 export class TranscriptionService {
   constructor(
     private readonly settingsProvider: () => Settings,
     private readonly credentials?: CredentialsStore
   ) {}
 
-  async transcribe(clip: AudioClip, options?: { languageOverride?: string }): Promise<TranscriptionResult> {
+  async transcribe(clip: AudioClip, options?: TranscribeOptions): Promise<TranscriptionResult> {
     const settings = this.settingsProvider();
     const registry = getProviderRegistry();
-    const primaryId = settings.transcriptionProvider || "groq";
+    const primaryId = options?.providerOverride || settings.transcriptionProvider || "groq";
+    const speechContextPrompt = buildSpeechContextPrompt(settings);
 
     const chain = await this.buildSttChain(settings, primaryId, registry);
     if (chain.length === 0) {
-      throw new Error(`Transcription provider "${primaryId}" is not available or has no API key configured. Check Settings → API & Providers.`);
+      throw new Error(messageForEmptyChain(settings, primaryId));
     }
 
     debug("transcription", `Chain: ${chain.map(c => c.id).join(" → ")}`);
 
     const language = options?.languageOverride ?? settings.language;
     let lastError: Error = new Error("All transcription providers failed.");
+    let lastRejectedResult: TranscriptionResult | null = null;
+    const providerAttempts: ProviderAttemptTrace[] = [];
     for (const { id, provider, apiKey } of chain) {
+      const startedAt = Date.now();
       try {
-        return await provider.transcribe(clip, {
+        const result = await provider.transcribe(clip, {
           apiKey,
           language,
-          prompt: settings.customPrompt,
+          prompt: speechContextPrompt,
           temperature: 0
         });
+        const quality = {
+          ...result.quality,
+          provider: result.quality?.provider ?? id,
+          attemptCount: providerAttempts.length + 1,
+          supportsConfidence: result.quality?.supportsConfidence ?? false,
+          transcriptLength: result.rawText.length,
+        };
+        const withQuality: TranscriptionResult = {
+          ...result,
+          quality,
+        };
+        providerAttempts.push({ provider: id, success: true, latencyMs: Date.now() - startedAt, quality });
+        if (options?.rejectResult?.(withQuality) && settings.failoverEnabled && chain.length > providerAttempts.length) {
+          lastRejectedResult = withQuality;
+          warn("transcription", `Provider "${id}" returned suspicious transcript; trying next provider`);
+          continue;
+        }
+        return {
+          ...withQuality,
+          quality: {
+            ...quality,
+            attemptCount: providerAttempts.length,
+          },
+          providerAttempts,
+        };
       } catch (error) {
         if (isAuthError(error)) {
           throw error;
         }
         lastError = error instanceof Error ? error : new Error(String(error));
+        providerAttempts.push({ provider: id, success: false, latencyMs: Date.now() - startedAt, error: lastError.message });
         warn("transcription", `Provider "${id}" failed: ${lastError.message}`);
         if (!settings.failoverEnabled || chain.length === 1) throw lastError;
       }
     }
 
+    if (lastRejectedResult) return { ...lastRejectedResult, providerAttempts };
     throw lastError;
   }
 
@@ -53,9 +90,12 @@ export class TranscriptionService {
     registry: ReturnType<typeof getProviderRegistry>
   ): Promise<{ id: string; provider: TranscriptionProvider; apiKey: string }[]> {
     const chain: { id: string; provider: TranscriptionProvider; apiKey: string }[] = [];
+    const offlineMode = settings.offlineMode ?? "auto";
 
     const tryAdd = async (id: string) => {
       if (chain.some(e => e.id === id)) return;
+      if (offlineMode === "always-offline" && id !== "local-whisper") return;
+      if (offlineMode === "always-online" && id === "local-whisper") return;
       const provider = registry.getTranscription(id);
       if (!provider) {
         return;
@@ -67,10 +107,15 @@ export class TranscriptionService {
       chain.push({ id, provider, apiKey: apiKey ?? "" });
     };
 
+    if (offlineMode === "always-offline") {
+      await tryAdd("local-whisper");
+      return chain;
+    }
+
     await tryAdd(primaryId);
 
     if (settings.failoverEnabled) {
-      for (const fallbackId of ["groq", "openai", "deepgram"]) {
+      for (const fallbackId of ["groq", "openai", "deepgram", "local-whisper"]) {
         if (fallbackId !== primaryId) await tryAdd(fallbackId);
       }
     }
@@ -127,10 +172,58 @@ export class TranscriptionService {
   }
 }
 
+function messageForEmptyChain(settings: Settings, primaryId: string): string {
+  if (settings.offlineMode === "always-offline") {
+    return "Offline mode is enabled, but Local Whisper is not available. Go to Settings → Offline Mode to download or load a model.";
+  }
+  return `Transcription provider "${primaryId}" is not available or has no API key configured. Check Settings → API & Providers.`;
+}
+
 function isAuthError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const msg = error.message.toLowerCase();
   return msg.includes("401") || msg.includes("403") || msg.includes("unauthorized") || msg.includes("authentication") || msg.includes("invalid api key") || msg.includes("incorrect api key");
+}
+
+const MAX_SPEECH_CONTEXT_CHARS = 600;
+const MAX_SPEECH_CONTEXT_ITEMS = 24;
+
+export function buildSpeechContextPrompt(
+  settings: Pick<Settings, "customCorrections" | "snippets">,
+): string | undefined {
+  const terms: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: string | undefined) => {
+    const term = normalizeSpeechContextTerm(value);
+    if (!term) return;
+    const key = term.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    terms.push(term);
+  };
+
+  for (const correction of settings.customCorrections ?? []) {
+    add(correction.written);
+  }
+
+  for (const snippet of settings.snippets ?? []) {
+    add(snippet.content);
+  }
+
+  let prompt = "";
+  for (const term of terms.slice(0, MAX_SPEECH_CONTEXT_ITEMS)) {
+    const next = prompt ? `${prompt}, ${term}` : term;
+    if (next.length > MAX_SPEECH_CONTEXT_CHARS) break;
+    prompt = next;
+  }
+
+  return prompt || undefined;
+}
+
+function normalizeSpeechContextTerm(value: string | undefined): string | null {
+  const term = value?.replace(/\s+/g, " ").trim();
+  if (!term || term.length < 2 || term.length > 80) return null;
+  return term;
 }
 
 // Re-export for backward compatibility

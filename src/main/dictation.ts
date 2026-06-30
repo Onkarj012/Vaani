@@ -5,14 +5,21 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
+  AudioClip,
+  AudioQualityMetrics,
   AudioVisualFrame,
   DictationCompletionOutcome,
   DictationEntry,
+  DictationRejectionReason,
   DictationState,
+  DictationTrace,
+  DictationBugReport,
   InjectionFailureReason,
   RecorderFailure,
   RecorderSubmission,
-  SelectionRange
+  SelectionRange,
+  Settings,
+  TranscriptionResult
 } from "@shared/types";
 import { ERROR_RESET_MS, SUCCESS_RESET_MS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
@@ -23,12 +30,14 @@ import { nativeBridge } from "./nativeBridge";
 import { debug } from "@main/log";
 import { OverlayController } from "./overlay";
 import { HistoryStore } from "./store/history";
+import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { cleanupText } from "./text/cleanup";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { TranscriptionService } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
+import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
@@ -39,7 +48,7 @@ const STALE_SESSION_TIMEOUT_MS = 60_000;
 const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 const EDIT_WATCH_INTERVAL_MS = 500;
 const EDIT_WATCH_TIMEOUT_MS = 12_000;
-const EDIT_PROMPT_IDLE_MS = 2_000;
+const EDIT_PROMPT_IDLE_MS = 1_000;
 
 interface RecorderCommands {
   isReady: () => boolean;
@@ -54,6 +63,7 @@ interface DictationServiceDeps {
   recorder?: RecorderCommands;
   credentials?: CredentialsStore;
   createSessionId?: () => string;
+  traces?: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId">;
 }
 
 export class DictationService {
@@ -62,9 +72,12 @@ export class DictationService {
   private readonly injector: Pick<TextInjector, "inject">;
   private readonly appDetector: Pick<AppDetector, "getContext">;
   private readonly createSessionId: () => string;
+  private readonly traces: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> | null;
   private readonly timers = new SessionTimers();
   private pendingEditPromptKey: string | null = null;
+  private pendingEdit: { insertedText: string; correctedCandidate: string } | null = null;
   private activeSessionId: string | null = null;
+  private activeTraceId: string | null = null;
   private activeTarget: AppContextResult | null = null;
   private activeSelection: SelectionRange | null = null;
   private releaseRequestedDuringStart = false;
@@ -84,6 +97,7 @@ export class DictationService {
     this.appDetector = deps.appDetector ?? new AppDetector();
     this.recorder = deps.recorder ?? null;
     this.createSessionId = deps.createSessionId ?? (() => crypto.randomUUID());
+    this.traces = deps.traces ?? null;
     this.startUptimeLogging();
   }
 
@@ -123,35 +137,41 @@ export class DictationService {
 
     this.clearTimers();
 
+    // A correction detected just before this dictation must not be lost when the
+    // watch is torn down — commit the rule silently (no toast, recording UI is
+    // about to take over) so a fast re-press still saves it.
+    this.commitPendingEdit(false);
     this.clearEditWatch();
 
     const sessionId = this.createSessionId();
     this.activeSessionId = sessionId;
     this.activeTarget = this.appDetector.getContext();
     this.activeSelection = this.captureSelection(this.activeTarget);
+    void this.startTrace(sessionId);
     this.releaseRequestedDuringStart = false;
     this.setState({ status: "starting", sessionId });
     this.armStaleSessionGuard(sessionId);
 
     if (!this.recorder) {
-      this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.");
+      this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.", "recorder_unavailable");
       return;
     }
 
     this.clearRecorderStartTimer();
     this.timers.setTimeout("recorderStart", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "starting") {
-        this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.");
+        this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.", "recorder_unavailable");
       }
     }, RECORDER_START_TIMEOUT_MS);
 
     const started = this.recorder.startRecording(sessionId);
     if (!started) {
-      this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.");
+      this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.", "recorder_unavailable");
     }
   }
 
   cancelSession(): void {
+    if (this.activeSessionId) void this.finishTrace(this.activeSessionId, "cancelled", "cancelled", "Dictation cancelled.");
     this.clearEditWatch();
     this.resetToIdle();
   }
@@ -171,12 +191,13 @@ export class DictationService {
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
     if (!this.recorder?.stopRecording(sessionId)) {
-      this.failSession(sessionId, "Recording could not be finalized.");
+      this.failSession(sessionId, "Recording could not be finalized.", "recorder_failure");
       return;
     }
     this.timers.setTimeout("finalization", () => {
-      this.failSession(sessionId, "Recording did not finalize. Please try again.");
+      this.failSession(sessionId, "Recording did not finalize. Please try again.", "timeout");
     }, FINALIZATION_TIMEOUT_MS);
+    void this.patchTrace(sessionId, { hotkeyReleasedAt: new Date().toISOString() });
   }
 
   reportRecorderStarted(sessionId: string): void {
@@ -191,7 +212,7 @@ export class DictationService {
     this.timers.setTimeout("audioFrame", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "recording") {
         this.recorder?.stopRecording(sessionId);
-        this.failSession(sessionId, "Microphone opened, but no live audio frames arrived.");
+        this.failSession(sessionId, "Microphone opened, but no live audio frames arrived.", "no_speech");
       }
     }, AUDIO_FRAME_TIMEOUT_MS);
 
@@ -216,39 +237,99 @@ export class DictationService {
     this.clearFinalizationTimer();
     const settings = this.settings.get();
     const trimmedClip = trimSilence(payload.clip, settings.silenceThreshold);
+    const tracePatch: Partial<DictationTrace> = {
+      rawAudio: analyzeAudioQuality(payload.clip, settings.silenceThreshold),
+      trimmedAudio: analyzeAudioQuality(trimmedClip, settings.silenceThreshold),
+    };
 
     debug("dictation", `submitAudioClip: raw=${payload.clip.durationSeconds.toFixed(2)}s, trimmed=${trimmedClip.durationSeconds.toFixed(2)}s, minClip=${settings.minClipDuration}s`);
 
     // Save recording to disk if enabled
+    let rawAudioPath: string | null = null;
     if (settings.saveRecordings) {
-      void this.saveRecordingToDisk(clippedCopy(payload.clip));
+      rawAudioPath = await this.saveRecordingToDisk(clippedCopy(payload.clip));
+      tracePatch.rawAudioPath = rawAudioPath;
     }
+    void this.patchTrace(payload.sessionId, tracePatch);
 
     if (!isValidClip(trimmedClip, settings.minClipDuration)) {
       debug("dictation", "submitAudioClip: clip rejected (too short or empty)");
-      this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.");
+      this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.", "no_speech");
       return;
     }
 
     this.setState({ status: "transcribing", sessionId: payload.sessionId });
 
     try {
-      const perAppLang = resolvePerAppLanguage(settings.appProfiles ?? [], this.activeTarget?.appBundleId ?? null);
+      const appProfile = resolveAppProfile(settings.appProfiles ?? [], this.activeTarget?.appBundleId ?? null);
       let transcriptionTimer: ReturnType<typeof setTimeout> | null = null;
+      const sttStartedAt = Date.now();
       const transcription = await Promise.race([
-        this.transcription.transcribe(trimmedClip, perAppLang ? { languageOverride: perAppLang } : undefined).finally(() => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } }),
+        this.transcription.transcribe(trimmedClip, {
+          ...(appProfile?.language ? { languageOverride: appProfile.language } : {}),
+          ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
+          rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, trimmedClip, result.quality).action === "retry",
+        }).finally(() => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } }),
         new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS); }),
       ]);
+      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, trimmedClip, transcription.quality));
+      const quality = transcription.quality
+        ? { ...transcription.quality, decision: qualityDecision }
+        : {
+          provider: appProfile?.transcriptionProvider ?? settings.transcriptionProvider,
+          attemptCount: 1,
+          supportsConfidence: false,
+          transcriptLength: transcription.rawText.length,
+          decision: qualityDecision,
+        };
+      void this.patchTrace(payload.sessionId, {
+        sttProvider: quality.provider,
+        sttLatencyMs: Date.now() - sttStartedAt,
+        transcriptLength: transcription.rawText.length,
+        quality,
+        qualityDecision,
+        providerAttempts: transcription.providerAttempts,
+      });
       if (!this.isCurrentSession(payload.sessionId)) return;
+      if (qualityDecision.action === "reject") {
+        debug("dictation", `submitAudioClip: transcript rejected as unreliable (${qualityDecision.reason}): "${transcription.rawText}"`);
+        this.failSession(payload.sessionId, "I only caught a fragment. Please try again.", "fragment");
+        return;
+      }
+      if (qualityDecision.action === "save") {
+        debug("dictation", `submitAudioClip: transcript saved instead of inserted (${qualityDecision.reason}): "${transcription.rawText}"`);
+        const cleanedText = cleanupText({ rawText: transcription.rawText, settings });
+        await this.history.append({
+          id: crypto.randomUUID(),
+          traceId: await this.traceIdForSession(payload.sessionId),
+          timestamp: new Date().toISOString(),
+          rawText: transcription.rawText,
+          formattedText: transcription.rawText,
+          cleanedText,
+          durationSeconds: trimmedClip.durationSeconds,
+          appBundleId: this.activeTarget?.appBundleId ?? null,
+          appName: this.activeTarget?.appName ?? null,
+          injectionStatus: "saved",
+          injectionMethod: null,
+          language: transcription.language,
+          detectedLanguage: transcription.detectedLanguage ?? null,
+          rawAudioPath,
+        });
+        void this.finishTrace(payload.sessionId, "saved", "fragment", "Saved to history", { injectionMethod: null });
+        this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage);
+        return;
+      }
 
       // Format via LLM using provider system
       let formattedText = transcription.rawText;
       try {
         let formattingTimer: ReturnType<typeof setTimeout> | null = null;
+        const formattingStartedAt = Date.now();
         formattedText = await Promise.race([
           this.transcription.formatTranscript(transcription.rawText).finally(() => { if (formattingTimer) { clearTimeout(formattingTimer); formattingTimer = null; } }),
           new Promise<never>((_, reject) => { formattingTimer = setTimeout(() => reject(new Error("Formatting timed out.")), FORMATTING_TIMEOUT_MS); }),
         ]);
+        void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
       } catch {
         formattedText = transcription.rawText;
       }
@@ -261,6 +342,7 @@ export class DictationService {
       this.activeSelection = this.captureSelection(target);
       const entryBase: Omit<DictationEntry, "injectionStatus" | "injectionMethod"> = {
         id: crypto.randomUUID(),
+        traceId: await this.traceIdForSession(payload.sessionId),
         timestamp: new Date().toISOString(),
         rawText: transcription.rawText,
         formattedText,
@@ -270,6 +352,7 @@ export class DictationService {
         appName: target.appName,
         language: transcription.language,
         detectedLanguage: transcription.detectedLanguage ?? null,
+        rawAudioPath,
       };
 
       const injectionTarget = {
@@ -279,6 +362,12 @@ export class DictationService {
       };
 
       let injection = await this.injector.inject(cleanedText, injectionTarget);
+      const injectionAttempts: DictationTrace["injectionAttempts"] = [{
+        targetAppBundleId: injectionTarget.appBundleId,
+        targetAppName: injectionTarget.appName,
+        method: injection.success ? injection.method : null,
+        success: injection.success,
+      }];
       if (!injection.success) {
         const fallbackTarget = this.appDetector.getContext();
         if (isExternalTarget(fallbackTarget) && !sameTarget(injectionTarget, fallbackTarget)) {
@@ -287,23 +376,35 @@ export class DictationService {
             appName: fallbackTarget.appName,
             selection: this.captureSelection(fallbackTarget)
           });
+          injectionAttempts.push({
+            targetAppBundleId: fallbackTarget.appBundleId,
+            targetAppName: fallbackTarget.appName,
+            method: injection.success ? injection.method : null,
+            success: injection.success,
+            fallbackReason: "primary-insertion-failed",
+          });
           if (injection.success) this.activeTarget = fallbackTarget;
         }
       }
+      void this.patchTrace(payload.sessionId, { injectionAttempts });
       if (!this.isCurrentSession(payload.sessionId)) return;
 
       if (injection.success) {
         await this.history.append({ ...entryBase, injectionStatus: "injected", injectionMethod: injection.method });
+        void this.finishTrace(payload.sessionId, "injected", undefined, "Inserted at cursor", { injectionMethod: injection.method });
         this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor", transcription.detectedLanguage);
+        debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
         this.watchForManualEdits(cleanedText, target);
       } else {
+        debug("editwatch", "not-armed-injection-saved", { appBundleId: target.appBundleId, appName: target.appName });
         await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
+        void this.finishTrace(payload.sessionId, "saved", "insertion_failed", "Saved to history", { injectionMethod: null });
         this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage);
       }
     } catch (error) {
       if (!this.isCurrentSession(payload.sessionId)) return;
       const message = error instanceof Error ? error.message : "Dictation failed.";
-      this.failSession(payload.sessionId, message);
+      this.failSession(payload.sessionId, message, message.toLowerCase().includes("timed out") ? "timeout" : "transcription_error");
     }
   }
 
@@ -311,12 +412,13 @@ export class DictationService {
 
   handleRecorderFailure(payload: RecorderFailure): void {
     if (!this.isCurrentSession(payload.sessionId)) return;
-    this.failSession(payload.sessionId, payload.message);
+    this.failSession(payload.sessionId, payload.message, "recorder_failure");
   }
 
   reportHotkeyUnavailable(message: string): void {
     this.clearTimers();
     this.activeSessionId = null;
+    this.activeTraceId = null;
     this.activeTarget = null;
     this.activeSelection = null;
     this.setState({ status: "error", sessionId: null, message });
@@ -343,6 +445,50 @@ export class DictationService {
     const sessionId = this.createSessionId();
     this.setState({ status: "completed", sessionId, outcome: "injected", text: entry.cleanedText, message: "Inserted at cursor" });
     this.scheduleReset(SUCCESS_RESET_MS);
+  }
+
+  async retryEntry(id: string): Promise<void> {
+    const entry = await this.history.getById(id);
+    if (!entry) return;
+    const result = await this.injector.inject(entry.cleanedText, this.currentInjectionTarget(entry));
+    if (!result.success) {
+      this.setState({ status: "error", sessionId: null, message: messageForInjectionFailure(result.reason) });
+      this.scheduleReset(ERROR_RESET_MS);
+      return;
+    }
+    await this.history.updateById(id, (current) => ({
+      ...current,
+      injectionStatus: "injected",
+      injectionMethod: result.method,
+    }));
+    if (entry.traceId) {
+      void this.traces?.updateById(entry.traceId, (trace) => ({
+        ...trace,
+        outcome: "injected",
+        injectionMethod: result.method,
+        rejectionReason: undefined,
+        userMessage: "Retry inserted at cursor",
+        completedAt: new Date().toISOString(),
+      }));
+    }
+    const sessionId = this.createSessionId();
+    this.setState({ status: "completed", sessionId, outcome: "injected", text: entry.cleanedText, message: "Retry inserted at cursor" });
+    this.scheduleReset(SUCCESS_RESET_MS);
+  }
+
+  async getTrace(traceId: string): Promise<DictationTrace | undefined> {
+    return this.traces?.getById(traceId);
+  }
+
+  async exportBugReport(entryId: string, appVersion?: string): Promise<DictationBugReport> {
+    const entry = await this.history.getById(entryId) ?? null;
+    const trace = entry?.traceId ? await this.traces?.getById(entry.traceId) ?? null : null;
+    return {
+      entry,
+      trace,
+      generatedAt: new Date().toISOString(),
+      appVersion,
+    };
   }
 
   async pasteLatestEntry(): Promise<void> {
@@ -414,7 +560,7 @@ export class DictationService {
     this.mainWindow?.webContents.send(IpcChannel.Navigation, { route });
   }
 
-  private async saveRecordingToDisk(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<void> {
+  private async saveRecordingToDisk(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<string | null> {
     try {
       const settings = this.settings.get();
       const dir = settings.recordingsPath || join(homedir(), "Documents", "Vaani Recordings");
@@ -444,8 +590,10 @@ export class DictationService {
         buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
       }
       await writeFile(filepath, buf);
+      return filepath;
     } catch {
       // Best-effort saving
+      return null;
     }
   }
 
@@ -457,30 +605,59 @@ export class DictationService {
     return { appBundleId: entry.appBundleId, appName: entry.appName, selection: null };
   }
 
-  private applyDictionarySuggestion(suggestion: DictionarySuggestion): void {
+  // Applies the rule and returns an undo closure (restores the prior entry, or
+  // removes the newly added one). Returns null if the suggestion is unusable.
+  private applyDictionarySuggestion(suggestion: DictionarySuggestion): (() => void) | null {
     const spoken = suggestion.spoken.trim();
     const written = suggestion.written.trim();
-    if (!spoken || !written) return;
+    if (!spoken || !written) return null;
     const current = this.settings.get().customCorrections ?? [];
     const existingIndex = current.findIndex((entry) => entry.spoken.toLowerCase() === spoken.toLowerCase());
+    const previousEntry = existingIndex >= 0 ? current[existingIndex] : null;
     const nextCorrections = existingIndex >= 0
       ? current.map((entry, index) => index === existingIndex ? { spoken, written } : entry)
       : [...current, { spoken, written }];
     this.settings.update({ customCorrections: nextCorrections });
+
+    return () => {
+      const now = this.settings.get().customCorrections ?? [];
+      const index = now.findIndex((entry) => entry.spoken.toLowerCase() === spoken.toLowerCase());
+      if (index < 0) return;
+      const reverted = previousEntry
+        ? now.map((entry, i) => i === index ? previousEntry : entry)
+        : now.filter((_, i) => i !== index);
+      this.settings.update({ customCorrections: reverted });
+    };
   }
 
   private watchForManualEdits(insertedText: string, target: Pick<AppContextResult, "appBundleId" | "appName"> | null): void {
     this.clearEditWatch();
-    if (!isExternalTarget(target) || !nativeBridge.getFocusedValue) return;
+    if (!isExternalTarget(target) || !nativeBridge.getFocusedValue) {
+      debug("editwatch", "skip", { external: isExternalTarget(target), hasGetFocusedValue: !!nativeBridge.getFocusedValue });
+      return;
+    }
 
-    const initialValue = safeFocusedValue();
+    // The field value can be unreadable at the injection instant (paste still
+    // settling, transient focus on the overlay, AX not yet ready). Establish the
+    // baseline LAZILY on the first readable poll so a momentary null no longer
+    // kills the entire watch — which silently disabled the correction popup.
+    let baseline = safeFocusedValue();
+    debug("editwatch", "start", { baselineReadable: baseline !== null });
+
     this.timers.setInterval("editWatch", () => {
       if (!sameTarget(target, this.appDetector.getContext())) return;
 
       const currentValue = safeFocusedValue();
-      if (!currentValue || currentValue === initialValue || currentValue === insertedText) return;
+      if (currentValue === null) return;
 
-      const correctedCandidate = extractCorrectedInsertedText(initialValue, currentValue, insertedText);
+      if (baseline === null) {
+        baseline = currentValue;
+        debug("editwatch", "baseline-recovered");
+        return;
+      }
+      if (currentValue === baseline || currentValue === insertedText) return;
+
+      const correctedCandidate = extractCorrectedInsertedText(baseline, currentValue, insertedText);
       if (!correctedCandidate || insertedText === correctedCandidate) return;
 
       this.scheduleEditPrompt(insertedText, correctedCandidate);
@@ -494,18 +671,39 @@ export class DictationService {
     if (this.pendingEditPromptKey === key) return;
     this.clearEditPromptTimer();
     this.pendingEditPromptKey = key;
+    this.pendingEdit = { insertedText, correctedCandidate };
+    // Debounce so we commit only once the user stops typing the correction.
     this.timers.setTimeout("editPrompt", () => {
-      this.clearEditWatch();
-      const suggestions = detectDictionarySuggestions(insertedText, correctedCandidate);
-      if (suggestions.length > 0 && !isSnippetLikeContent(correctedCandidate)) {
-        void this.showDictionarySuggestions(suggestions);
-        return;
-      }
-
-      if (shouldSuggestSnippet(insertedText, correctedCandidate)) {
-        void this.showSnippetSuggestion(correctedCandidate);
-      }
+      // Stop polling but keep the pending edit — commitPendingEdit consumes it.
+      this.timers.clear("editWatch");
+      this.timers.clear("editWatchTimeout");
+      this.commitPendingEdit(true);
     }, EDIT_PROMPT_IDLE_MS);
+  }
+
+  // Auto-saves a detected correction as a dictionary rule. With showToast, a
+  // non-blocking "Added X → Y · Undo" toast confirms it; without (a new dictation
+  // is starting) the rule is saved silently. Snippet-like edits still prompt.
+  private commitPendingEdit(showToast: boolean): void {
+    const pending = this.pendingEdit;
+    this.clearEditPromptTimer();
+    if (!pending) return;
+
+    const { insertedText, correctedCandidate } = pending;
+    const suggestions = detectDictionarySuggestions(insertedText, correctedCandidate);
+    debug("editwatch", "commit", { suggestionCount: suggestions.length, snippetLike: isSnippetLikeContent(correctedCandidate), showToast });
+
+    if (suggestions.length > 0 && !isSnippetLikeContent(correctedCandidate)) {
+      for (const suggestion of suggestions) {
+        const undo = this.applyDictionarySuggestion(suggestion);
+        if (undo && showToast) this.overlay.showDictionaryToast(suggestion.spoken, suggestion.written, undo);
+      }
+      return;
+    }
+
+    if (showToast && shouldSuggestSnippet(insertedText, correctedCandidate)) {
+      void this.showSnippetSuggestion(correctedCandidate);
+    }
   }
 
   private completeSession(sessionId: string, outcome: DictationCompletionOutcome, text: string, message: string, detectedLanguage?: string | null): void {
@@ -515,12 +713,13 @@ export class DictationService {
     this.scheduleReset(SUCCESS_RESET_MS);
   }
 
-  private failSession(sessionId: string, message: string): void {
+  private failSession(sessionId: string, message: string, reason: DictationRejectionReason = "transcription_error"): void {
     if (!this.isCurrentSession(sessionId)) return;
     this.clearRecorderStartTimer();
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
     this.setState({ status: "error", sessionId, message });
+    void this.finishTrace(sessionId, reason === "no_speech" || reason === "fragment" ? "rejected" : "failed", reason, message);
     this.scheduleReset(ERROR_RESET_MS);
   }
 
@@ -559,6 +758,7 @@ export class DictationService {
   private clearEditPromptTimer(): void {
     this.timers.clear("editPrompt");
     this.pendingEditPromptKey = null;
+    this.pendingEdit = null;
   }
 
   clearUptimeLogging(): void {
@@ -608,13 +808,85 @@ export class DictationService {
     } else {
       this.updateTrayStatus("Error"); this.overlay.hide();
     }
-    if (state.status === "idle") { this.activeSessionId = null; this.activeTarget = null; }
+    if (state.status === "idle") { this.activeSessionId = null; this.activeTraceId = null; this.activeTarget = null; }
     this.mainWindow?.webContents.send(IpcChannel.DictationState, state);
+  }
+
+  private async startTrace(sessionId: string): Promise<void> {
+    if (!this.traces) return;
+    const traceId = crypto.randomUUID();
+    this.activeTraceId = traceId;
+    await this.traces.upsert({
+      id: traceId,
+      sessionId,
+      startedAt: new Date().toISOString(),
+      targetAppBundleId: this.activeTarget?.appBundleId ?? null,
+      targetAppName: this.activeTarget?.appName ?? null,
+      outcome: "started",
+    });
+  }
+
+  private async traceIdForSession(sessionId: string): Promise<string | null> {
+    if (this.activeSessionId === sessionId && this.activeTraceId) return this.activeTraceId;
+    const trace = await this.traces?.getBySessionId(sessionId);
+    return trace?.id ?? null;
+  }
+
+  private async patchTrace(sessionId: string, patch: Partial<DictationTrace>): Promise<void> {
+    if (this.activeSessionId === sessionId && this.activeTraceId) {
+      await this.traces?.updateById(this.activeTraceId, (current) => ({ ...current, ...patch }));
+      return;
+    }
+    const trace = await this.traces?.getBySessionId(sessionId);
+    if (!trace) return;
+    await this.traces?.updateById(trace.id, (current) => ({ ...current, ...patch }));
+  }
+
+  private async finishTrace(
+    sessionId: string,
+    outcome: DictationTrace["outcome"],
+    rejectionReason?: DictationRejectionReason,
+    userMessage?: string,
+    patch: Partial<DictationTrace> = {}
+  ): Promise<void> {
+    await this.patchTrace(sessionId, {
+      ...patch,
+      outcome,
+      rejectionReason,
+      userMessage,
+      completedAt: new Date().toISOString(),
+    });
   }
 }
 
 function clippedCopy(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] } {
   return { pcmData: [...clip.pcmData], sampleRate: clip.sampleRate, durationSeconds: clip.durationSeconds, rmsFrames: [...clip.rmsFrames] };
+}
+
+function analyzeAudioQuality(clip: AudioClip, silenceThreshold: number): AudioQualityMetrics {
+  const samples = clip.pcmData;
+  let sumSquares = 0;
+  let peakAmplitude = 0;
+  let clippedSamples = 0;
+  for (const sample of samples) {
+    const abs = Math.abs(sample);
+    peakAmplitude = Math.max(peakAmplitude, abs);
+    sumSquares += sample * sample;
+    if (abs >= 0.98) clippedSamples += 1;
+  }
+  const rmsAverage = samples.length > 0 ? Math.sqrt(sumSquares / samples.length) : 0;
+  const rmsPeak = clip.rmsFrames.length > 0 ? Math.max(...clip.rmsFrames) : rmsAverage;
+  const silentFrames = clip.rmsFrames.filter((frame) => frame < silenceThreshold).length;
+  return {
+    durationSeconds: clip.durationSeconds,
+    sampleRate: clip.sampleRate,
+    sampleCount: samples.length,
+    rmsAverage,
+    rmsPeak,
+    peakAmplitude,
+    clippingRatio: samples.length > 0 ? clippedSamples / samples.length : 0,
+    silenceRatio: clip.rmsFrames.length > 0 ? silentFrames / clip.rmsFrames.length : 1,
+  };
 }
 
 function isExternalTarget(context: Pick<AppContextResult, "appBundleId" | "appName"> | null | undefined): context is Pick<AppContextResult, "appBundleId" | "appName"> {
@@ -708,9 +980,8 @@ function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function resolvePerAppLanguage(appProfiles: import("@shared/types").AppProfile[], bundleId: string | null): string | null {
+function resolveAppProfile(appProfiles: NonNullable<Settings["appProfiles"]>, bundleId: string | null): NonNullable<Settings["appProfiles"]>[number] | null {
   if (!bundleId || appProfiles.length === 0) return null;
   const id = bundleId.toLowerCase();
-  const profile = appProfiles.find(p => p.appBundleIds.some(b => b.toLowerCase() === id));
-  return profile?.language ?? null;
+  return appProfiles.find(p => p.appBundleIds.some(b => b.toLowerCase() === id)) ?? null;
 }

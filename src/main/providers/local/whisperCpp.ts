@@ -55,7 +55,18 @@ export const LocalWhisperProvider: TranscriptionProvider = {
     const pcmData = new Float32Array(clip.pcmData);
     const result = mod.whisperTranscribe(pcmData, clip.sampleRate);
     if (!result?.trim()) throw new Error("No speech detected.");
-    return { rawText: result.trim(), formattedText: result.trim(), language: resolveReportedLanguage(options.language) };
+    const rawText = result.trim();
+    return {
+      rawText,
+      formattedText: rawText,
+      language: resolveReportedLanguage(options.language),
+      quality: {
+        provider: "local-whisper",
+        attemptCount: 1,
+        supportsConfidence: false,
+        transcriptLength: rawText.length,
+      },
+    };
   },
 
   async isAvailable(): Promise<boolean> {
