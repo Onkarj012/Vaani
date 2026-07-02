@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { DictationTrace } from "@shared/types";
-import { DICTATION_TRACE_TEXT_LIMIT, buildTraceStageSnapshot, mergeDictationTracePatch, truncateTraceText } from "@main/dictationTraceSnapshot";
+import {
+  DICTATION_TRACE_ARRAY_LIMIT,
+  DICTATION_TRACE_TEXT_LIMIT,
+  buildTraceStageSnapshot,
+  mergeDictationTracePatch,
+  truncateTraceText,
+} from "@main/dictationTraceSnapshot";
 
 function baseTrace(): DictationTrace {
   return {
@@ -59,8 +65,8 @@ describe("dictation trace snapshots", () => {
   it("truncates stored trace text fields at 500 chars with an ellipsis", () => {
     const longText = "x".repeat(DICTATION_TRACE_TEXT_LIMIT + 1);
 
-    expect(truncateTraceText(longText)).toHaveLength(DICTATION_TRACE_TEXT_LIMIT + 1);
-    expect(truncateTraceText(longText)).toBe(`${"x".repeat(DICTATION_TRACE_TEXT_LIMIT)}…`);
+    expect(truncateTraceText(longText)).toHaveLength(DICTATION_TRACE_TEXT_LIMIT);
+    expect(truncateTraceText(longText)).toBe(`${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`);
 
     expect(buildTraceStageSnapshot({
       rawTranscript: longText,
@@ -69,14 +75,35 @@ describe("dictation trace snapshots", () => {
       correctionsApplied: [{ spoken: longText, written: longText }],
       contentGuardVerdict: { passed: false, missingWords: [longText] },
     })).toMatchObject({
-      rawTranscript: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT)}…`,
-      cleanedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT)}…`,
-      injectedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT)}…`,
+      rawTranscript: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
+      cleanedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
+      injectedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
       correctionsApplied: [{
-        spoken: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT)}…`,
-        written: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT)}…`,
+        spoken: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
+        written: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
       }],
-      contentGuardVerdict: { missingWords: [`${"x".repeat(DICTATION_TRACE_TEXT_LIMIT)}…`] },
+      contentGuardVerdict: { missingWords: [`${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`] },
     });
+  });
+
+  it("caps trace arrays while preserving per-string truncation", () => {
+    const longText = "x".repeat(DICTATION_TRACE_TEXT_LIMIT + 1);
+    const snapshot = buildTraceStageSnapshot({
+      correctionsApplied: Array.from({ length: DICTATION_TRACE_ARRAY_LIMIT + 5 }, (_, index) => ({
+        spoken: `${index}:${longText}`,
+        written: `${index}:${longText}`,
+      })),
+      contentGuardVerdict: {
+        passed: false,
+        missingWords: Array.from({ length: DICTATION_TRACE_ARRAY_LIMIT + 5 }, (_, index) => `${index}:${longText}`),
+      },
+    });
+
+    expect(snapshot.correctionsApplied).toHaveLength(DICTATION_TRACE_ARRAY_LIMIT);
+    expect(snapshot.correctionsApplied?.at(0)?.spoken).toHaveLength(DICTATION_TRACE_TEXT_LIMIT);
+    expect(snapshot.correctionsApplied?.at(-1)?.spoken.startsWith(`${DICTATION_TRACE_ARRAY_LIMIT - 1}:`)).toBe(true);
+    expect(snapshot.contentGuardVerdict?.missingWords).toHaveLength(DICTATION_TRACE_ARRAY_LIMIT);
+    expect(snapshot.contentGuardVerdict?.missingWords?.at(0)).toHaveLength(DICTATION_TRACE_TEXT_LIMIT);
+    expect(snapshot.contentGuardVerdict?.missingWords?.at(-1)?.startsWith(`${DICTATION_TRACE_ARRAY_LIMIT - 1}:`)).toBe(true);
   });
 });

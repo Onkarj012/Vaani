@@ -368,6 +368,10 @@ export class DictationService {
           correctionsApplied: cleanupTrace.correctionsApplied,
         },
       });
+      if (!this.isCurrentSession(payload.sessionId)) {
+        void this.finishTrace(payload.sessionId, "cancelled", "cancelled", "Dictation superseded by a newer session.");
+        return;
+      }
       const freshTarget = this.appDetector.getContext();
       const target = isExternalTarget(this.activeTarget) ? this.activeTarget : freshTarget;
       this.activeTarget = target;
