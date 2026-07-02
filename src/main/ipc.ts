@@ -8,6 +8,7 @@ import { KNOWN_PROVIDERS } from "@shared/defaults";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioVisualFrame,
+  CustomCorrection,
   MacOSPermissionState,
   PermissionStatus,
   RecorderFailure,
@@ -67,6 +68,24 @@ function getPermissionStatus(): PermissionStatus {
     microphone: normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone")),
     accessibility: accessibilityTrusted ? "granted" : "denied"
   };
+}
+
+const MAX_CUSTOM_CORRECTION_TEXT_LENGTH = 40;
+
+function sanitizeManualCustomCorrections(entries: Array<Partial<CustomCorrection>>): CustomCorrection[] {
+  return entries.flatMap((entry) => {
+    if (typeof entry.spoken !== "string" || typeof entry.written !== "string") return [];
+    const spoken = entry.spoken.trim();
+    const written = entry.written.trim();
+    if (!spoken || !written) return [];
+    if (spoken.length > MAX_CUSTOM_CORRECTION_TEXT_LENGTH || written.length > MAX_CUSTOM_CORRECTION_TEXT_LENGTH) return [];
+    const source = entry.source === "auto-suggested" || entry.source === "manual" ? entry.source : "manual";
+    return [{
+      spoken,
+      written,
+      source,
+    }];
+  });
 }
 
 async function buildRendererApiKeys(
@@ -192,6 +211,16 @@ export function registerIpcHandlers(opts: {
       if (provider?.type === "llm") {
         settingsPatch = { ...settingsPatch, formattingModel: provider.defaultModel };
       }
+    }
+
+    if (Array.isArray(settingsPatch.customCorrections)) {
+      // Trust model: auto suggestions must pass consent and safety gates before
+      // reaching settings; generic settings updates are explicit Dictionary UI
+      // edits, so keep them working while applying minimal shape/length sanity.
+      settingsPatch = {
+        ...settingsPatch,
+        customCorrections: sanitizeManualCustomCorrections(settingsPatch.customCorrections),
+      };
     }
 
     const updated = settings.update(settingsPatch);

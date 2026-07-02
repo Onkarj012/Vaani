@@ -20,6 +20,12 @@ describe("detectDictionarySuggestions", () => {
     expect(detectDictionarySuggestions("one", "on3")).toEqual([]);
   });
 
+  it("allows exact digitization of spoken number words", () => {
+    expect(detectDictionarySuggestions("four", "4")).toEqual([
+      { spoken: "four", written: "4" }
+    ]);
+  });
+
   it("no prompt for multiple simultaneous corrections (multi-word rewrite)", () => {
     // Two changed tokens → not a single mishear → no prompt.
     expect(detectDictionarySuggestions("teh recieve update", "the receive update")).toEqual([]);

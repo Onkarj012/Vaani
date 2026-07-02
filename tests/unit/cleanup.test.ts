@@ -158,6 +158,30 @@ describe("cleanupText", () => {
     })).toBe("21 users joined.");
   });
 
+  it("normalizes trailing compound number runs at terminal position", () => {
+    expect(cleanupText({
+      rawText: "the price is one fifty",
+      settings: createSettings()
+    })).toBe("The price is 51.");
+
+    expect(cleanupText({
+      rawText: "the total is one hundred",
+      settings: createSettings()
+    })).toBe("The total is 100.");
+
+    expect(cleanupText({
+      rawText: "the answer is twenty one",
+      settings: createSettings()
+    })).toBe("The answer is 21.");
+  });
+
+  it("keeps trailing standalone one as prose", () => {
+    expect(cleanupText({
+      rawText: "number one",
+      settings: createSettings()
+    })).toBe("Number one.");
+  });
+
   it("does not normalize numbers when cleanup is disabled", () => {
     expect(cleanupText({
       rawText: "I need ten apples",

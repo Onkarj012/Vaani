@@ -34,7 +34,7 @@ import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { cleanupText } from "./text/cleanup";
-import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
+import { detectDictionarySuggestions, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
@@ -77,6 +77,7 @@ export class DictationService {
   private readonly timers = new SessionTimers();
   private pendingEditPromptKey: string | null = null;
   private pendingEdit: { insertedText: string; correctedCandidate: string } | null = null;
+  private dictionaryPromptGeneration = 0;
   private activeSessionId: string | null = null;
   private activeTraceId: string | null = null;
   private activeTarget: AppContextResult | null = null;
@@ -138,6 +139,7 @@ export class DictationService {
 
     this.clearTimers();
 
+    this.cancelDictionaryPrompts("new-dictation");
     this.discardPendingEdit("new-dictation");
     this.clearEditWatch();
 
@@ -574,10 +576,15 @@ export class DictationService {
   }
 
   async showDictionarySuggestions(suggestions: DictionarySuggestion[]): Promise<void> {
+    const promptGeneration = this.dictionaryPromptGeneration;
     for (const suggestion of suggestions) {
       const accepted = await new Promise<boolean>((resolve) => {
         this.overlay.showDictionaryPrompt(suggestion.spoken, suggestion.written, resolve);
       });
+      if (promptGeneration !== this.dictionaryPromptGeneration) {
+        debug("dictionary", "stale suggestion response discarded", { spoken: suggestion.spoken, written: suggestion.written });
+        return;
+      }
       if (accepted) this.applyDictionarySuggestion(suggestion);
       else debug("dictionary", "suggestion dismissed", { spoken: suggestion.spoken, written: suggestion.written });
     }
@@ -655,29 +662,19 @@ export class DictationService {
     return { appBundleId: entry.appBundleId, appName: entry.appName, selection: null };
   }
 
-  // Applies the rule and returns an undo closure (restores the prior entry, or
-  // removes the newly added one). Returns null if the suggestion is unusable.
-  private applyDictionarySuggestion(suggestion: DictionarySuggestion): (() => void) | null {
+  private applyDictionarySuggestion(suggestion: DictionarySuggestion): void {
     const spoken = suggestion.spoken.trim();
     const written = suggestion.written.trim();
-    if (!spoken || !written) return null;
+    if (!isValidDictionarySuggestion({ spoken, written })) {
+      debug("dictionary", "invalid suggestion dropped", { spoken, written });
+      return;
+    }
     const current = this.settings.get().customCorrections ?? [];
     const existingIndex = current.findIndex((entry) => entry.spoken.toLowerCase() === spoken.toLowerCase());
-    const previousEntry = existingIndex >= 0 ? current[existingIndex] : null;
     const nextCorrections = existingIndex >= 0
       ? current.map((entry, index) => index === existingIndex ? { ...entry, spoken, written, source: "auto-suggested" as const } : entry)
       : [...current, { spoken, written, source: "auto-suggested" as const }];
     this.settings.update({ customCorrections: nextCorrections });
-
-    return () => {
-      const now = this.settings.get().customCorrections ?? [];
-      const index = now.findIndex((entry) => entry.spoken.toLowerCase() === spoken.toLowerCase());
-      if (index < 0) return;
-      const reverted = previousEntry
-        ? now.map((entry, i) => i === index ? previousEntry : entry)
-        : now.filter((_, i) => i !== index);
-      this.settings.update({ customCorrections: reverted });
-    };
   }
 
   private watchForManualEdits(insertedText: string, target: Pick<AppContextResult, "appBundleId" | "appName"> | null): void {
@@ -755,6 +752,11 @@ export class DictationService {
       debug("editwatch", "discard pending suggestion", { reason });
     }
     this.clearEditPromptTimer();
+  }
+
+  private cancelDictionaryPrompts(reason: string): void {
+    this.dictionaryPromptGeneration += 1;
+    debug("dictionary", "prompts invalidated", { reason, generation: this.dictionaryPromptGeneration });
   }
 
   private completeSession(sessionId: string, outcome: DictationCompletionOutcome, text: string, message: string, detectedLanguage?: string | null): void {

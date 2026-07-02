@@ -23,9 +23,6 @@ const PROMPT_W = 360;
 const PROMPT_H = 210;
 const OVERLAY_LOAD_TIMEOUT_MS = 2_000;
 const OVERLAY_SHOW_WATCHDOG_MS = 900;
-// Auto-save confirmation toast (dictionary rule added) stays up briefly with Undo.
-const TOAST_DURATION_MS = 6_000;
-
 export class OverlayController {
   private window: BrowserWindow | null = null;
   private loadReady = false;
@@ -37,6 +34,8 @@ export class OverlayController {
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingPromptRemover: (() => void) | null = null;
+  private pendingPromptResponder: ((accepted: boolean) => void) | null = null;
+  private promptGeneration = 0;
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private accentColor = "#FF006E";
   // ── Public setters ────────────────────────────────────────────────────────
@@ -148,15 +147,18 @@ export class OverlayController {
   }
 
   // A new dictation is taking over the overlay — neutralize any lingering prompt
-  // or auto-save toast so its pending dismiss timer cannot later hide the live
-  // recording pill. The dictionary rule (if any) is already persisted.
+  // so its pending dismiss timer cannot later hide the live recording pill.
   private finishActivePrompt(): void {
     if (!this.promptActive) return;
+    this.promptGeneration += 1;
     this.clearPromptDismissTimer();
     this.pendingPromptRemover?.();
     this.pendingPromptRemover = null;
+    const responder = this.pendingPromptResponder;
+    this.pendingPromptResponder = null;
     this.promptActive = false;
     this.resetPromptWindowState();
+    responder?.(false);
   }
 
   setProcessing(): void {
@@ -202,11 +204,17 @@ export class OverlayController {
 
   private async showSnippetPromptAsync(trigger: string, onResponse: (accepted: boolean) => void): Promise<void> {
     log("overlay:prompt-snippet-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
+    const promptGeneration = this.promptGeneration + 1;
+    this.promptGeneration = promptGeneration;
     this.promptActive = true;
     this.clearPromptDismissTimer();
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     await this.ensureWindow();
     await this.waitForLoadReady(5_000);
+    if (promptGeneration !== this.promptGeneration) {
+      onResponse(false);
+      return;
+    }
     if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
 
     const responseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
@@ -216,6 +224,7 @@ export class OverlayController {
     };
     const promptWindow = this.window;
     this.pendingPromptRemover?.();
+    this.pendingPromptResponder = onResponse;
     promptWindow.webContents.ipc.once("capsule:snippet-response", responseHandler);
     // Store remover so endPrompt/recover can clean it up
     this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
@@ -223,6 +232,7 @@ export class OverlayController {
     await this.showPromptWindow(frontmostBefore);
     promptWindow.webContents.send("capsule:show-snippet", { trigger });
     this.promptDismissTimer = setTimeout(() => {
+      this.pendingPromptResponder = null;
       this.endPrompt();
       onResponse(false);
     }, 8000);
@@ -230,11 +240,17 @@ export class OverlayController {
 
   private async showDictionaryPromptAsync(word: string, correction: string, onResponse: (accepted: boolean) => void): Promise<void> {
     log("overlay:prompt-dictionary-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
+    const promptGeneration = this.promptGeneration + 1;
+    this.promptGeneration = promptGeneration;
     this.promptActive = true;
     this.clearPromptDismissTimer();
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     await this.ensureWindow();
     await this.waitForLoadReady(5_000);
+    if (promptGeneration !== this.promptGeneration) {
+      onResponse(false);
+      return;
+    }
     if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
 
     const dictResponseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
@@ -244,48 +260,17 @@ export class OverlayController {
     };
     const promptWindow = this.window;
     this.pendingPromptRemover?.();
+    this.pendingPromptResponder = onResponse;
     promptWindow.webContents.ipc.once("capsule:dictionary-response", dictResponseHandler);
     this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:dictionary-response", dictResponseHandler);
 
     await this.showPromptWindow(frontmostBefore);
     promptWindow.webContents.send("capsule:show-dictionary", { word, correction });
     this.promptDismissTimer = setTimeout(() => {
+      this.pendingPromptResponder = null;
       this.endPrompt();
       onResponse(false);
     }, 8000);
-  }
-
-  // Non-blocking confirmation that a dictionary rule was auto-saved. Unlike the
-  // prompt it does not steal focus and is never tied to the next dictation — the
-  // rule is already persisted; Undo simply reverts it within the toast window.
-  showDictionaryToast(word: string, correction: string, onUndo: () => void): void {
-    void this.showDictionaryToastAsync(word, correction, onUndo).catch(() => {
-      this.endPrompt();
-    });
-  }
-
-  private async showDictionaryToastAsync(word: string, correction: string, onUndo: () => void): Promise<void> {
-    log("overlay:toast-dictionary-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
-    this.promptActive = true;
-    this.clearPromptDismissTimer();
-    const frontmostBefore = nativeBridge.getFrontmostApplication?.();
-    await this.ensureWindow();
-    await this.waitForLoadReady(5_000);
-    if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
-
-    const undoHandler = (_e: Electron.IpcMainEvent) => {
-      this.clearPromptDismissTimer();
-      this.endPrompt();
-      onUndo();
-    };
-    const promptWindow = this.window;
-    this.pendingPromptRemover?.();
-    promptWindow.webContents.ipc.once("capsule:toast-undo", undoHandler);
-    this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:toast-undo", undoHandler);
-
-    await this.showPromptWindow(frontmostBefore, false);
-    promptWindow.webContents.send("capsule:show-toast", { word, correction });
-    this.promptDismissTimer = setTimeout(() => this.endPrompt(), TOAST_DURATION_MS);
   }
 
   hideExpanded(): void {
@@ -343,8 +328,6 @@ export class OverlayController {
     await this.resizeWindow(true);
     this.window.setIgnoreMouseEvents(false);
     this.window.setFocusable(focusWindow);
-    // A toast (focusWindow=false) must stay clickable for Undo but must NOT steal
-    // focus from the app the user is still typing in.
     if (focusWindow) this.window.focus();
     void this.restoreFocusIfNeeded(frontmostBefore);
   }
@@ -375,6 +358,7 @@ export class OverlayController {
     this.promptActive = false;
     this.pendingPromptRemover?.();
     this.pendingPromptRemover = null;
+    this.pendingPromptResponder = null;
     this.resetPromptWindowState();
     if (!this.window || this.window.isDestroyed()) return;
     setTimeout(() => this.hide(), 400);

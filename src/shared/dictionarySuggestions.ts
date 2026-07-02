@@ -1,3 +1,5 @@
+import { digitizeNumberWords } from "./numberWords";
+
 export interface DictionarySuggestion {
   spoken: string;
   written: string;
@@ -67,10 +69,19 @@ export function detectDictionarySuggestions(originalText: string, correctedText:
   if (deduped.length !== 1) return [];
   const only = deduped[0];
   if (!only || !only.spoken || !only.written) return [];
-  if (normalizedEditDistance(only.spoken, only.written) >= MAX_EDIT_RATIO) return [];
-  if (addsDigit(only.spoken, only.written)) return [];
+  if (!isValidDictionarySuggestion(only)) return [];
 
   return deduped;
+}
+
+export function isValidDictionarySuggestion(suggestion: DictionarySuggestion): boolean {
+  const spoken = suggestion.spoken.trim();
+  const written = suggestion.written.trim();
+  if (!spoken || !written) return false;
+  if (digitizeNumberWords(spoken) === written) return true;
+  if (normalizedEditDistance(spoken, written) >= MAX_EDIT_RATIO) return false;
+  if (addsDigit(spoken, written)) return false;
+  return true;
 }
 
 function addsDigit(spoken: string, written: string): boolean {

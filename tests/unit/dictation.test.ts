@@ -34,7 +34,6 @@ function createDictationService(deps: { traces?: Pick<DictationTraceStore, "upse
     hide: vi.fn(),
     updateBars: vi.fn(),
     showDictionaryPrompt: vi.fn((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => resolve(true)),
-    showDictionaryToast: vi.fn(),
     showSnippetPrompt: vi.fn((_trigger: string, resolve: (accepted: boolean) => void) => resolve(true))
   };
 
@@ -329,7 +328,34 @@ describe("DictationService", () => {
     expect(settings.update).toHaveBeenCalledWith({
       customCorrections: [{ spoken: "get hub", written: "GitHub", source: "auto-suggested" }]
     });
-    expect(overlay.showDictionaryToast).not.toHaveBeenCalled();
+  });
+
+  it("ignores accepted dictionary prompt responses from an older generation", async () => {
+    const { service, overlay, settings } = createDictationService();
+    let resolvePrompt: (accepted: boolean) => void = () => {
+      throw new Error("Expected dictionary prompt resolver.");
+    };
+    overlay.showDictionaryPrompt.mockImplementation((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => {
+      resolvePrompt = resolve;
+    });
+
+    const pending = service.showDictionarySuggestions([{ spoken: "get hub", written: "GitHub" }]);
+
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function));
+    const respond = resolvePrompt;
+    service.beginHotkeySession();
+    respond(true);
+    await pending;
+
+    expect(settings.update).not.toHaveBeenCalledWith(expect.objectContaining({ customCorrections: expect.any(Array) }));
+  });
+
+  it("drops accepted dictionary suggestions that fail the safety gate", async () => {
+    const { service, settings } = createDictationService();
+
+    await service.showDictionarySuggestions([{ spoken: "It", written: "1 It" }]);
+
+    expect(settings.update).not.toHaveBeenCalledWith(expect.objectContaining({ customCorrections: expect.any(Array) }));
   });
 
   it("discards a pending edit suggestion when the next dictation starts", async () => {
@@ -447,7 +473,6 @@ describe("DictationService", () => {
       customCorrections: [{ spoken: "Versel", written: "Vercel", source: "auto-suggested" }]
     });
     expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Versel", "Vercel", expect.any(Function));
-    expect(overlay.showDictionaryToast).not.toHaveBeenCalled();
   });
 
   it("does not suggest snippets for ordinary phrase edits", async () => {
