@@ -78,6 +78,34 @@ describe("TranscriptionService failover chain", () => {
     }));
   });
 
+  it("excludes risky or oversized terms from STT vocabulary context", async () => {
+    const primaryTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
+      rawText: "open GitHub",
+      formattedText: "open GitHub",
+      language: "en",
+    }));
+    registryState.providers.set("groq", provider("groq", primaryTranscribe));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      customCorrections: [
+        { spoken: "get hub", written: "GitHub" },
+        { spoken: "it", written: "1 It" },
+        { spoken: "long", written: "alpha beta gamma delta" },
+        { spoken: "wide", written: "supercalifragilistic-expialidocious-overflow" },
+      ],
+      snippets: [{ trigger: "ok", content: "release notes" }],
+      groqApiKey: "groq-key",
+    }));
+
+    await service.transcribe(clip);
+
+    expect(primaryTranscribe).toHaveBeenCalledWith(clip, expect.objectContaining({
+      prompt: "GitHub, release notes",
+    }));
+  });
+
   it("falls through from a failing primary provider to the next configured fallback", async () => {
     const openaiTranscribe = vi.fn(async () => {
       throw new Error("temporary outage");

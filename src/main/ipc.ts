@@ -218,6 +218,14 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.ShowDictionaryPrompt, (_e, suggestions: DictionarySuggestion[]) => (
     dictation.showDictionarySuggestions(suggestions)
   ));
+  ipcMain.handle(IpcChannel.PurgeAutoSuggestedCorrections, async () => {
+    const updated = dictation.purgeAutoSuggestedCorrections();
+    const sanitized = sanitizeSettingsForRenderer(updated);
+    if (credentials) {
+      sanitized.providerApiKeys = await buildRendererApiKeys(updated.providerApiKeys ?? [], credentials);
+    }
+    return sanitized;
+  });
   ipcMain.handle(IpcChannel.GetPermissionStatus, () => refreshPermissionStatus());
   ipcMain.handle(IpcChannel.RequestMicrophonePermission, async () => {
     await systemPreferences.askForMediaAccess("microphone");

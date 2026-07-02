@@ -89,15 +89,25 @@ function parseNumberRun(phrase: string): number | null {
 // phrases. Leaves ordinals, numbered-list cues, and the idiomatic standalone
 // "one" untouched so prose is not damaged.
 function normalizeCommonNumbers(text: string): string {
-  const digitized = text.replace(NUMBER_RUN, (match) => {
+  const digitized = text.replace(NUMBER_RUN, (match, offset: number, fullText: string) => {
     const normalized = match.toLowerCase().replace(/[\s-]+/g, " ").trim();
-    if (normalized === "one") return match;
+    if (!shouldNormalizeNumberRun(normalized, match, offset, fullText)) return match;
     const value = parseNumberRun(match);
     return value === null ? match : String(value);
   });
   return digitized
     .replace(/(\d+)\s+percent\b/gi, "$1%")
     .replace(/(\d+)\s+dollars?\b/gi, "$$$1");
+}
+
+function shouldNormalizeNumberRun(normalized: string, match: string, offset: number, fullText: string): boolean {
+  if (normalized === "one") return false;
+  if (!normalized.startsWith("one ")) return true;
+  if (/\bhundred\b/.test(normalized)) return true;
+
+  const nextChar = fullText[offset + match.length];
+  if (!nextChar || /[.!?;:\n\r]/.test(nextChar)) return false;
+  return true;
 }
 
 function collapseAdjacentDuplicateWords(text: string): string {

@@ -138,10 +138,7 @@ export class DictationService {
 
     this.clearTimers();
 
-    // A correction detected just before this dictation must not be lost when the
-    // watch is torn down — commit the rule silently (no toast, recording UI is
-    // about to take over) so a fast re-press still saves it.
-    this.commitPendingEdit(false);
+    this.discardPendingEdit("new-dictation");
     this.clearEditWatch();
 
     const sessionId = this.createSessionId();
@@ -582,7 +579,16 @@ export class DictationService {
         this.overlay.showDictionaryPrompt(suggestion.spoken, suggestion.written, resolve);
       });
       if (accepted) this.applyDictionarySuggestion(suggestion);
+      else debug("dictionary", "suggestion dismissed", { spoken: suggestion.spoken, written: suggestion.written });
     }
+  }
+
+  purgeAutoSuggestedCorrections(): Settings {
+    const current = this.settings.get().customCorrections ?? [];
+    const nextCorrections = current.filter((entry) => entry.source !== "auto-suggested");
+    const removed = current.length - nextCorrections.length;
+    debug("dictionary", "purged auto-suggested corrections", { removed });
+    return this.settings.update({ customCorrections: nextCorrections });
   }
 
   private async showSnippetSuggestion(content: string): Promise<void> {
@@ -659,8 +665,8 @@ export class DictationService {
     const existingIndex = current.findIndex((entry) => entry.spoken.toLowerCase() === spoken.toLowerCase());
     const previousEntry = existingIndex >= 0 ? current[existingIndex] : null;
     const nextCorrections = existingIndex >= 0
-      ? current.map((entry, index) => index === existingIndex ? { spoken, written } : entry)
-      : [...current, { spoken, written }];
+      ? current.map((entry, index) => index === existingIndex ? { ...entry, spoken, written, source: "auto-suggested" as const } : entry)
+      : [...current, { spoken, written, source: "auto-suggested" as const }];
     this.settings.update({ customCorrections: nextCorrections });
 
     return () => {
@@ -716,38 +722,39 @@ export class DictationService {
     this.clearEditPromptTimer();
     this.pendingEditPromptKey = key;
     this.pendingEdit = { insertedText, correctedCandidate };
-    // Debounce so we commit only once the user stops typing the correction.
+    // Debounce so we prompt only once the user stops typing the correction.
     this.timers.setTimeout("editPrompt", () => {
-      // Stop polling but keep the pending edit — commitPendingEdit consumes it.
+      // Stop polling but keep the pending edit — promptPendingEdit consumes it.
       this.timers.clear("editWatch");
       this.timers.clear("editWatchTimeout");
-      this.commitPendingEdit(true);
+      void this.promptPendingEdit();
     }, EDIT_PROMPT_IDLE_MS);
   }
 
-  // Auto-saves a detected correction as a dictionary rule. With showToast, a
-  // non-blocking "Added X → Y · Undo" toast confirms it; without (a new dictation
-  // is starting) the rule is saved silently. Snippet-like edits still prompt.
-  private commitPendingEdit(showToast: boolean): void {
+  private async promptPendingEdit(): Promise<void> {
     const pending = this.pendingEdit;
     this.clearEditPromptTimer();
     if (!pending) return;
 
     const { insertedText, correctedCandidate } = pending;
     const suggestions = detectDictionarySuggestions(insertedText, correctedCandidate);
-    debug("editwatch", "commit", { suggestionCount: suggestions.length, snippetLike: isSnippetLikeContent(correctedCandidate), showToast });
+    debug("editwatch", "prompt", { suggestionCount: suggestions.length, snippetLike: isSnippetLikeContent(correctedCandidate) });
 
     if (suggestions.length > 0 && !isSnippetLikeContent(correctedCandidate)) {
-      for (const suggestion of suggestions) {
-        const undo = this.applyDictionarySuggestion(suggestion);
-        if (undo && showToast) this.overlay.showDictionaryToast(suggestion.spoken, suggestion.written, undo);
-      }
+      await this.showDictionarySuggestions(suggestions);
       return;
     }
 
-    if (showToast && shouldSuggestSnippet(insertedText, correctedCandidate)) {
+    if (shouldSuggestSnippet(insertedText, correctedCandidate)) {
       void this.showSnippetSuggestion(correctedCandidate);
     }
+  }
+
+  private discardPendingEdit(reason: string): void {
+    if (this.pendingEdit) {
+      debug("editwatch", "discard pending suggestion", { reason });
+    }
+    this.clearEditPromptTimer();
   }
 
   private completeSession(sessionId: string, outcome: DictationCompletionOutcome, text: string, message: string, detectedLanguage?: string | null): void {

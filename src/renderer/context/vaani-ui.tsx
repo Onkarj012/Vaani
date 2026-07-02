@@ -227,8 +227,8 @@ export function VaaniUiProvider({
     const current = settings.customCorrections ?? [];
     const exists = current.findIndex((c) => c.spoken.toLowerCase() === spokenNorm.toLowerCase());
     const next = exists >= 0
-      ? current.map((c, index) => index === exists ? { ...c, written: writtenNorm } : c)
-      : [...current, { spoken: spokenNorm, written: writtenNorm }];
+      ? current.map((c, index) => index === exists ? { ...c, written: writtenNorm, source: "manual" as const } : c)
+      : [...current, { spoken: spokenNorm, written: writtenNorm, source: "manual" as const }];
     await updateSettings({ customCorrections: next });
   }, [settings.customCorrections, updateSettings]);
 

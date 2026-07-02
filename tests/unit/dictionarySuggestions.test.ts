@@ -6,6 +6,18 @@ describe("detectDictionarySuggestions", () => {
     expect(detectDictionarySuggestions("please open get hub docs", "please open GitHub docs")).toEqual([
       { spoken: "get hub", written: "GitHub" }
     ]);
+
+    expect(detectDictionarySuggestions("please open git hub docs", "please open GitHub docs")).toEqual([
+      { spoken: "git hub", written: "GitHub" }
+    ]);
+  });
+
+  it("rejects exact-threshold digit-poisoned corrections", () => {
+    expect(detectDictionarySuggestions("It", "1 It")).toEqual([]);
+  });
+
+  it("rejects suggestions that add a digit absent from the spoken side", () => {
+    expect(detectDictionarySuggestions("one", "on3")).toEqual([]);
   });
 
   it("no prompt for multiple simultaneous corrections (multi-word rewrite)", () => {

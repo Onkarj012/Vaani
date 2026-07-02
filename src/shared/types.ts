@@ -187,6 +187,7 @@ export interface DictationEntry {
 export interface CustomCorrection {
   spoken: string;
   written: string;
+  source?: "auto-suggested" | "manual";
 }
 
 export interface Snippet {
@@ -341,6 +342,7 @@ export interface VaaniAPI {
   updateSettings: (patch: Partial<Settings>) => Promise<Settings>;
   setHotkeyCapture: (active: boolean) => Promise<void>;
   showDictionaryPrompt: (suggestions: DictionarySuggestion[]) => Promise<void>;
+  purgeAutoSuggestedCorrections: () => Promise<Settings>;
   getPermissionStatus: () => Promise<PermissionStatus>;
   requestMicrophonePermission: () => Promise<MacOSPermissionState>;
   requestAccessibilityPermission: () => Promise<MacOSPermissionState>;

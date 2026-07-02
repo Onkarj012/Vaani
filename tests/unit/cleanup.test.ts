@@ -139,6 +139,25 @@ describe("cleanupText", () => {
     })).toBe("I have one more thing.");
   });
 
+  it("does not digitize standalone one before a capitalized hallucination segment", () => {
+    expect(cleanupText({
+      rawText: "one It should stay words",
+      settings: createSettings()
+    })).toBe("One It should stay words.");
+  });
+
+  it("keeps compound one-prefixed numeric contexts working", () => {
+    expect(cleanupText({
+      rawText: "one hundred users joined",
+      settings: createSettings()
+    })).toBe("100 users joined.");
+
+    expect(cleanupText({
+      rawText: "twenty one users joined",
+      settings: createSettings()
+    })).toBe("21 users joined.");
+  });
+
   it("does not normalize numbers when cleanup is disabled", () => {
     expect(cleanupText({
       rawText: "I need ten apples",

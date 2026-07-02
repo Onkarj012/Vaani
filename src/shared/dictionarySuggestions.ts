@@ -67,9 +67,15 @@ export function detectDictionarySuggestions(originalText: string, correctedText:
   if (deduped.length !== 1) return [];
   const only = deduped[0];
   if (!only || !only.spoken || !only.written) return [];
-  if (normalizedEditDistance(only.spoken, only.written) > MAX_EDIT_RATIO) return [];
+  if (normalizedEditDistance(only.spoken, only.written) >= MAX_EDIT_RATIO) return [];
+  if (addsDigit(only.spoken, only.written)) return [];
 
   return deduped;
+}
+
+function addsDigit(spoken: string, written: string): boolean {
+  const spokenDigits = new Set(spoken.match(/\d/g) ?? []);
+  return (written.match(/\d/g) ?? []).some((digit) => !spokenDigits.has(digit));
 }
 
 function tokenize(text: string): string[] {

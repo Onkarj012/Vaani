@@ -34,6 +34,7 @@ export const enum IpcChannel {
 
   // Dictionary
   ShowDictionaryPrompt = "dictionary:show-prompt",
+  PurgeAutoSuggestedCorrections = "dictionary:purge-auto-suggested",
 
   // macOS permissions
   GetPermissionStatus = "permissions:get-status",

@@ -200,6 +200,30 @@ describe("DictationService", () => {
     expect(service.getState()).toMatchObject({ status: "error", message: "I only caught a fragment. Please try again." });
   });
 
+  it("preserves first and last words through formatting, cleanup, and injection", async () => {
+    const { service, history, injector, transcription } = createDictationService();
+    const rawText = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+    const cleanedText = "Alpha beta gamma delta epsilon zeta eta theta iota kappa.";
+    transcription.transcribe.mockResolvedValue({ rawText, formattedText: rawText, language: "en" });
+    transcription.formatTranscript.mockResolvedValue(rawText);
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    expect(injector.inject).toHaveBeenCalledWith(cleanedText, expect.anything());
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
+      rawText,
+      cleanedText,
+      injectionStatus: "injected",
+    }));
+  });
+
   it("saves suspicious politeness hallucinations instead of injecting them", async () => {
     const { service, history, injector, transcription } = createDictationService();
     const suspiciousResult: TranscriptionResult = {
@@ -274,7 +298,7 @@ describe("DictationService", () => {
     expect(report.trace?.rawAudioPath).toBeNull();
   });
 
-  it("auto-saves a dictionary rule shortly after the user edits inserted text", async () => {
+  it("prompts for consent shortly after the user edits inserted text", async () => {
     const { service, overlay, history, settings } = createDictationService();
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
@@ -294,17 +318,70 @@ describe("DictationService", () => {
     vi.advanceTimersByTime(500);
     await Promise.resolve();
 
-    // Debounce (1s) not elapsed yet — nothing committed.
-    expect(overlay.showDictionaryToast).not.toHaveBeenCalled();
+    // Debounce (1s) not elapsed yet — nothing prompted or committed.
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(1_500);
     await Promise.resolve();
 
     expect(history.append).toHaveBeenCalledTimes(1);
-    // Auto-saved, not prompted.
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function));
+    expect(settings.update).toHaveBeenCalledWith({
+      customCorrections: [{ spoken: "get hub", written: "GitHub", source: "auto-suggested" }]
+    });
+    expect(overlay.showDictionaryToast).not.toHaveBeenCalled();
+  });
+
+  it("discards a pending edit suggestion when the next dictation starts", async () => {
+    const { service, overlay, settings } = createDictationService();
+    const nativeBridge = await import("@main/nativeBridge");
+    const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("open get hub")
+      .mockReturnValue("open GitHub");
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
+
+    service.beginHotkeySession();
+    let sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+
+    service.beginHotkeySession();
+    sessionId = (service.getState() as { sessionId: string }).sessionId;
+
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+
+    expect(sessionId).toBeTruthy();
     expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
-    expect(settings.update).toHaveBeenCalledWith({ customCorrections: [{ spoken: "get hub", written: "GitHub" }] });
-    expect(overlay.showDictionaryToast).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function));
+    expect(settings.update).not.toHaveBeenCalledWith(expect.objectContaining({ customCorrections: expect.any(Array) }));
+  });
+
+  it("purges auto-suggested corrections without removing manual rules", () => {
+    const { service, settings } = createDictationService();
+    settings.get.mockReturnValue({
+      ...DEFAULT_SETTINGS,
+      customCorrections: [
+        { spoken: "get hub", written: "GitHub", source: "auto-suggested" },
+        { spoken: "om kar", written: "Onkar", source: "manual" },
+        { spoken: "vaani", written: "Vaani" },
+      ],
+    });
+
+    service.purgeAutoSuggestedCorrections();
+
+    expect(settings.update).toHaveBeenCalledWith({
+      customCorrections: [
+        { spoken: "om kar", written: "Onkar", source: "manual" },
+        { spoken: "vaani", written: "Vaani" },
+      ],
+    });
   });
 
   it("prompts to save a snippet when the edited text is a phrase, not a word correction", async () => {
@@ -333,7 +410,7 @@ describe("DictationService", () => {
     });
   });
 
-  it("waits for editing to settle before auto-saving a dictionary rule (settle timing test)", async () => {
+  it("waits for editing to settle before prompting for a dictionary rule", async () => {
     const { service, overlay, settings, transcription } = createDictationService();
     // "versel" is a realistic Whisper mishear of "Vercel" (close edit distance)
     transcription.transcribe.mockResolvedValue({ rawText: "versel", formattedText: "versel", language: "en" });
@@ -361,13 +438,16 @@ describe("DictationService", () => {
     vi.advanceTimersByTime(500);
     await Promise.resolve();
 
-    expect(overlay.showDictionaryToast).not.toHaveBeenCalled();
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(2_000);
     await Promise.resolve();
 
-    expect(settings.update).toHaveBeenCalledWith({ customCorrections: [{ spoken: "Versel", written: "Vercel" }] });
-    expect(overlay.showDictionaryToast).toHaveBeenCalledWith("Versel", "Vercel", expect.any(Function));
+    expect(settings.update).toHaveBeenCalledWith({
+      customCorrections: [{ spoken: "Versel", written: "Vercel", source: "auto-suggested" }]
+    });
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Versel", "Vercel", expect.any(Function));
+    expect(overlay.showDictionaryToast).not.toHaveBeenCalled();
   });
 
   it("does not suggest snippets for ordinary phrase edits", async () => {

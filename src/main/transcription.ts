@@ -241,7 +241,9 @@ export function buildSpeechContextPrompt(
 
 function normalizeSpeechContextTerm(value: string | undefined): string | null {
   const term = value?.replace(/\s+/g, " ").trim();
-  if (!term || term.length < 2 || term.length > 80) return null;
+  if (!term || term.length < 2 || term.length > 40) return null;
+  if (/\d/.test(term)) return null;
+  if (term.split(/\s+/).length > 3) return null;
   return term;
 }
 

@@ -31,6 +31,7 @@ const api: VaaniAPI = {
   updateSettings: (patch) => ipcRenderer.invoke(IpcChannel.UpdateSettings, patch),
   setHotkeyCapture: (active) => ipcRenderer.invoke(IpcChannel.SetHotkeyCapture, active),
   showDictionaryPrompt: (suggestions: DictionarySuggestion[]) => ipcRenderer.invoke(IpcChannel.ShowDictionaryPrompt, suggestions),
+  purgeAutoSuggestedCorrections: () => ipcRenderer.invoke(IpcChannel.PurgeAutoSuggestedCorrections),
   getPermissionStatus: () => ipcRenderer.invoke(IpcChannel.GetPermissionStatus),
   requestMicrophonePermission: () => ipcRenderer.invoke(IpcChannel.RequestMicrophonePermission),
   requestAccessibilityPermission: () => ipcRenderer.invoke(IpcChannel.RequestAccessibilityPermission),
