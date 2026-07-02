@@ -145,7 +145,7 @@ describe("TranscriptionService failover chain", () => {
     expect(groqTranscribe).toHaveBeenCalledTimes(1);
   });
 
-  it("retries a suspicious successful transcript with the next provider", async () => {
+  it("retries a suspicious successful transcript with the same provider before falling back", async () => {
     const openaiTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
       rawText: "thank you",
       formattedText: "thank you",
@@ -177,11 +177,98 @@ describe("TranscriptionService failover chain", () => {
 
     const result = await service.transcribe(clip, {
       rejectResult: (candidate) => candidate.quality?.noSpeechProbability === 0.9,
+      retryClip: { ...clip, durationSeconds: 2 },
     });
 
     expect(result.rawText).toBe("real fallback");
-    expect(openaiTranscribe).toHaveBeenCalledTimes(1);
+    expect(openaiTranscribe).toHaveBeenCalledTimes(2);
+    expect(openaiTranscribe).toHaveBeenNthCalledWith(1, clip, expect.anything());
+    expect(openaiTranscribe).toHaveBeenNthCalledWith(2, expect.objectContaining({ durationSeconds: 2 }), expect.anything());
     expect(groqTranscribe).toHaveBeenCalledTimes(1);
+    expect(result.quality?.attemptCount).toBe(3);
+    expect(result.providerAttempts).toHaveLength(3);
+  });
+
+  it("retries a suspicious successful transcript once for single-provider users", async () => {
+    const groqTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
+      rawText: "thank you",
+      formattedText: "thank you",
+      language: "en",
+      quality: {
+        provider: "groq",
+        attemptCount: 1,
+        supportsConfidence: true,
+        noSpeechProbability: 0.9,
+        transcriptLength: 9,
+      },
+    }));
+    registryState.providers.set("groq", provider("groq", groqTranscribe));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
+      failoverEnabled: false,
+      groqApiKey: "groq-key",
+    }));
+
+    const result = await service.transcribe(clip, {
+      rejectResult: (candidate) => candidate.quality?.noSpeechProbability === 0.9,
+      retryClip: { ...clip, durationSeconds: 2 },
+    });
+
+    expect(groqTranscribe).toHaveBeenCalledTimes(2);
+    expect(result.rawText).toBe("thank you");
+    expect(result.quality?.attemptCount).toBe(2);
+    expect(result.providerAttempts).toHaveLength(2);
+  });
+
+  it("returns the same provider retry result without calling fallback when retry succeeds", async () => {
+    const openaiTranscribe = vi.fn()
+      .mockResolvedValueOnce({
+        rawText: "thank you",
+        formattedText: "thank you",
+        language: "en",
+        quality: {
+          provider: "openai",
+          attemptCount: 1,
+          supportsConfidence: true,
+          noSpeechProbability: 0.9,
+          transcriptLength: 9,
+        },
+      } satisfies TranscriptionResult)
+      .mockResolvedValueOnce({
+        rawText: "actual words",
+        formattedText: "actual words",
+        language: "en",
+      } satisfies TranscriptionResult);
+    const groqTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
+      rawText: "fallback",
+      formattedText: "fallback",
+      language: "en",
+    }));
+    registryState.providers.set("openai", provider("openai", openaiTranscribe));
+    registryState.providers.set("groq", provider("groq", groqTranscribe));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "openai",
+      failoverEnabled: true,
+      groqApiKey: "groq-key",
+      providerApiKeys: [{ providerId: "openai", key: "openai-key" }],
+    }));
+
+    const result = await service.transcribe(clip, {
+      rejectResult: (candidate) => candidate.rawText === "thank you",
+      retryClip: { ...clip, durationSeconds: 2 },
+    });
+
+    expect(result.rawText).toBe("actual words");
+    expect(openaiTranscribe).toHaveBeenCalledTimes(2);
+    expect(groqTranscribe).not.toHaveBeenCalled();
+    expect(result.quality?.attemptCount).toBe(2);
+    expect(result.providerAttempts).toHaveLength(2);
   });
 
   it("honors always-offline by routing only to local whisper", async () => {

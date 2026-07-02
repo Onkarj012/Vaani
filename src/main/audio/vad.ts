@@ -29,6 +29,10 @@ export function trimSilence(clip: AudioClip, threshold: number): AudioClip {
   debug("vad", `trimSilence: threshold=${effectiveThreshold.toFixed(4)}, maxRms=${maxRms.toFixed(4)}, avgRms=${avgRms.toFixed(4)}, frames=${clip.rmsFrames.length}, startIdx=${startIndex}, endIdx=${endIndex}`);
 
   if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    if (maxRms > 0.001 && clip.pcmData.length > 0) {
+      debug("vad", "All frames below trim threshold but audio has energy; keeping untrimmed clip.");
+      return clip;
+    }
     debug("vad", "ALL frames below threshold! Clip treated as silence.");
     return { ...clip, pcmData: [], durationSeconds: 0, rmsFrames: [] };
   }

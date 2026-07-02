@@ -268,6 +268,7 @@ export class DictationService {
         this.transcription.transcribe(trimmedClip, {
           ...(appProfile?.language ? { languageOverride: appProfile.language } : {}),
           ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
+          retryClip: payload.clip,
           rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, trimmedClip, result.quality).action === "retry",
         }).finally(() => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } }),
         new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS); }),

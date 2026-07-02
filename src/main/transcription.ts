@@ -9,6 +9,7 @@ interface TranscribeOptions {
   languageOverride?: string;
   providerOverride?: string;
   rejectResult?: (result: TranscriptionResult) => boolean;
+  retryClip?: AudioClip;
 }
 
 export interface FormatTranscriptTraceResult {
@@ -40,48 +41,60 @@ export class TranscriptionService {
     let lastError: Error = new Error("All transcription providers failed.");
     let lastRejectedResult: TranscriptionResult | null = null;
     const providerAttempts: ProviderAttemptTrace[] = [];
-    for (const { id, provider, apiKey } of chain) {
-      const startedAt = Date.now();
-      try {
-        const result = await provider.transcribe(clip, {
-          apiKey,
-          language,
-          prompt: speechContextPrompt,
-          temperature: 0
-        });
-        const quality = {
-          ...result.quality,
-          provider: result.quality?.provider ?? id,
-          attemptCount: providerAttempts.length + 1,
-          supportsConfidence: result.quality?.supportsConfidence ?? false,
-          transcriptLength: result.rawText.length,
-        };
-        const withQuality: TranscriptionResult = {
-          ...result,
-          quality,
-        };
-        providerAttempts.push({ provider: id, success: true, latencyMs: Date.now() - startedAt, quality });
-        if (options?.rejectResult?.(withQuality) && settings.failoverEnabled && chain.length > providerAttempts.length) {
-          lastRejectedResult = withQuality;
-          warn("transcription", `Provider "${id}" returned suspicious transcript; trying next provider`);
-          continue;
+    for (let providerIndex = 0; providerIndex < chain.length; providerIndex += 1) {
+      const { id, provider, apiKey } = chain[providerIndex]!;
+      const clips = options?.retryClip ? [clip, options.retryClip] : [clip];
+      for (let clipIndex = 0; clipIndex < clips.length; clipIndex += 1) {
+        const startedAt = Date.now();
+        try {
+          const result = await provider.transcribe(clips[clipIndex]!, {
+            apiKey,
+            language,
+            prompt: speechContextPrompt,
+            temperature: 0
+          });
+          const quality = {
+            ...result.quality,
+            provider: result.quality?.provider ?? id,
+            attemptCount: providerAttempts.length + 1,
+            supportsConfidence: result.quality?.supportsConfidence ?? false,
+            transcriptLength: result.rawText.length,
+          };
+          const withQuality: TranscriptionResult = {
+            ...result,
+            quality,
+          };
+          providerAttempts.push({ provider: id, success: true, latencyMs: Date.now() - startedAt, quality });
+          if (options?.rejectResult?.(withQuality)) {
+            lastRejectedResult = withQuality;
+            const canRetrySameProvider = clipIndex === 0 && clips.length > 1;
+            if (canRetrySameProvider) {
+              warn("transcription", `Provider "${id}" returned suspicious transcript; retrying with untrimmed audio`);
+              continue;
+            }
+            if (settings.failoverEnabled && providerIndex < chain.length - 1) {
+              warn("transcription", `Provider "${id}" returned suspicious transcript; trying next provider`);
+              break;
+            }
+          }
+          return {
+            ...withQuality,
+            quality: {
+              ...quality,
+              attemptCount: providerAttempts.length,
+            },
+            providerAttempts,
+          };
+        } catch (error) {
+          if (isAuthError(error)) {
+            throw error;
+          }
+          lastError = error instanceof Error ? error : new Error(String(error));
+          providerAttempts.push({ provider: id, success: false, latencyMs: Date.now() - startedAt, error: lastError.message });
+          warn("transcription", `Provider "${id}" failed: ${lastError.message}`);
+          if (!settings.failoverEnabled || chain.length === 1) throw lastError;
+          break;
         }
-        return {
-          ...withQuality,
-          quality: {
-            ...quality,
-            attemptCount: providerAttempts.length,
-          },
-          providerAttempts,
-        };
-      } catch (error) {
-        if (isAuthError(error)) {
-          throw error;
-        }
-        lastError = error instanceof Error ? error : new Error(String(error));
-        providerAttempts.push({ provider: id, success: false, latencyMs: Date.now() - startedAt, error: lastError.message });
-        warn("transcription", `Provider "${id}" failed: ${lastError.message}`);
-        if (!settings.failoverEnabled || chain.length === 1) throw lastError;
       }
     }
 
