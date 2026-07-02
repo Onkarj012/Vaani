@@ -1,15 +1,21 @@
-import type { ProviderAttemptTrace, Settings, AudioClip, TranscriptionResult } from "@shared/types";
+import type { DictationContentGuardVerdict, DictationFormatterUsed, ProviderAttemptTrace, Settings, AudioClip, TranscriptionResult } from "@shared/types";
 import { getProviderRegistry } from "./providers";
 import type { TranscriptionProvider } from "./providers/types";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
-import { preservesContentWords } from "@shared/contentGuard";
+import { missingContentWords } from "@shared/contentGuard";
 import { deterministicFormat } from "@main/text/cleanup";
 
 interface TranscribeOptions {
   languageOverride?: string;
   providerOverride?: string;
   rejectResult?: (result: TranscriptionResult) => boolean;
+}
+
+export interface FormatTranscriptTraceResult {
+  text: string;
+  formatterUsed: DictationFormatterUsed;
+  contentGuardVerdict?: DictationContentGuardVerdict;
 }
 
 export class TranscriptionService {
@@ -124,16 +130,20 @@ export class TranscriptionService {
   }
 
   async formatTranscript(rawText: string): Promise<string> {
+    return (await this.formatTranscriptDetailed(rawText)).text;
+  }
+
+  async formatTranscriptDetailed(rawText: string): Promise<FormatTranscriptTraceResult> {
     const settings = this.settingsProvider();
     const registry = getProviderRegistry();
 
     const llmId = settings.formattingProvider || "groq-llm";
     const provider = registry.getFormatting(llmId);
 
-    if (!provider) return rawText;
+    if (!provider) return { text: rawText, formatterUsed: "none" };
 
     const apiKey = await this.resolveApiKey(settings, llmId);
-    if (provider.requiresApiKey && !apiKey) return rawText;
+    if (provider.requiresApiKey && !apiKey) return { text: rawText, formatterUsed: "none" };
 
     try {
       const formatted = await provider.format(rawText, {
@@ -141,13 +151,22 @@ export class TranscriptionService {
         model: settings.formattingModel,
         systemPrompt: settings.customPrompt
       });
-      if (!preservesContentWords(rawText, formatted)) {
+      const missingWords = missingContentWords(rawText, formatted);
+      if (missingWords.length > 0) {
         debug("transcription", "Content guard rejected LLM output — falling back to deterministic format");
-        return deterministicFormat(rawText);
+        return {
+          text: deterministicFormat(rawText),
+          formatterUsed: "deterministic",
+          contentGuardVerdict: { passed: false, missingWords },
+        };
       }
-      return formatted;
+      return {
+        text: formatted,
+        formatterUsed: "llm",
+        contentGuardVerdict: { passed: true },
+      };
     } catch {
-      return rawText;
+      return { text: rawText, formatterUsed: "none" };
     }
   }
 

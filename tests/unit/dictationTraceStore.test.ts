@@ -59,6 +59,20 @@ describe("DictationTraceStore", () => {
     expect(updated?.sttLatencyMs).toBe(125);
   });
 
+  it("caps stored traces at the most recent 200 sessions", async () => {
+    const store = await createStore();
+
+    for (let index = 0; index < 205; index += 1) {
+      await store.upsert(trace(`trace-${index}`));
+    }
+
+    const all = await store.getAll();
+    expect(all).toHaveLength(200);
+    expect(all[0]?.id).toBe("trace-204");
+    expect(all[199]?.id).toBe("trace-5");
+    expect(await store.getById("trace-4")).toBeUndefined();
+  });
+
   it("sanitizes malformed nested trace payloads on load", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vaani-trace-test-"));
     const filePath = join(tempDir, "traces.json");

@@ -1,8 +1,13 @@
-import type { Settings } from "@shared/types";
+import type { DictationCorrectionTrace, Settings } from "@shared/types";
 
 interface TextCleanupInput {
   rawText: string;
   settings: Settings;
+  trace?: TextCleanupTrace;
+}
+
+export interface TextCleanupTrace {
+  correctionsApplied: DictationCorrectionTrace[];
 }
 
 function escapeRegExp(v: string): string {
@@ -139,13 +144,20 @@ function ensureLinePunctuation(text: string): string {
   return `${trimmed}.`;
 }
 
-function applyCorrections(text: string, corrections: Array<{ spoken: string; written: string }>): string {
+function applyCorrections(text: string, corrections: Array<{ spoken: string; written: string }>, trace?: TextCleanupTrace): string {
   return [...corrections]
     .sort((left, right) => right.spoken.trim().length - left.spoken.trim().length)
     .reduce((currentText, { spoken, written }) => {
-      if (!spoken.trim()) return currentText;
-      const pattern = new RegExp(`(^|\\s)${escapeRegExp(spoken.trim())}(?=\\s|$|[,.!?])`, "gi");
-      return currentText.replace(pattern, (_, prefix) => `${prefix}${written}`);
+      const trimmedSpoken = spoken.trim();
+      if (!trimmedSpoken) return currentText;
+      const pattern = new RegExp(`(^|\\s)${escapeRegExp(trimmedSpoken)}(?=\\s|$|[,.!?])`, "gi");
+      let matched = false;
+      const nextText = currentText.replace(pattern, (_, prefix) => {
+        matched = true;
+        return `${prefix}${written}`;
+      });
+      if (matched) trace?.correctionsApplied.push({ spoken: trimmedSpoken, written });
+      return nextText;
     }, text);
 }
 
@@ -182,12 +194,12 @@ function applySnippets(text: string, snippets: Array<{ trigger: string; content:
   );
 }
 
-export function cleanupText({ rawText, settings }: TextCleanupInput): string {
+export function cleanupText({ rawText, settings, trace }: TextCleanupInput): string {
   const artifactNormalized = normalizeCommonDictationArtifacts(rawText);
 
   // Dictionary corrections and snippet expansion are user-defined replacements —
   // apply them even when general cleanup is off, otherwise the dictionary never triggers.
-  const corrected = applyCorrections(artifactNormalized, settings.customCorrections ?? []);
+  const corrected = applyCorrections(artifactNormalized, settings.customCorrections ?? [], trace);
   const expanded = applySnippets(corrected, settings.snippets ?? []);
 
   if (!settings.cleanupEnabled) {

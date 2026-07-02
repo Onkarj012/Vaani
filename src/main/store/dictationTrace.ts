@@ -1,8 +1,11 @@
 import { app } from "electron";
 import { join } from "node:path";
-import { APP_DATA_DIR, HISTORY_LIMIT } from "@shared/defaults";
+import { APP_DATA_DIR } from "@shared/defaults";
 import type { DictationTrace } from "@shared/types";
+import { buildTraceStageSnapshot } from "@main/dictationTraceSnapshot";
 import { readJsonFile, writeJsonFile } from "./base";
+
+export const DICTATION_TRACE_LIMIT = 200;
 
 export class DictationTraceStore {
   private readonly filePath: string;
@@ -33,12 +36,12 @@ export class DictationTraceStore {
     await this.enqueueMutation(async () => {
       const traces = await this.ensureLoaded();
       const index = traces.findIndex((existing) => existing.id === trace.id);
-      const nextTrace = copyTrace(trace);
+      const nextTrace = sanitizeTraceForStorage(trace);
       const next = index >= 0
         ? traces.map((existing, i) => i === index ? nextTrace : existing)
         : [nextTrace, ...traces];
-      await writeJsonFile(this.filePath, next.slice(0, HISTORY_LIMIT));
-      this.cache = next.slice(0, HISTORY_LIMIT);
+      await writeJsonFile(this.filePath, next.slice(0, DICTATION_TRACE_LIMIT));
+      this.cache = next.slice(0, DICTATION_TRACE_LIMIT);
     });
   }
 
@@ -48,12 +51,12 @@ export class DictationTraceStore {
       const traces = await this.ensureLoaded();
       const next = traces.map((trace) => {
         if (trace.id !== id) return trace;
-        updated = updater(copyTrace(trace));
+        updated = sanitizeTraceForStorage(updater(copyTrace(trace)));
         return updated;
       });
       if (!updated) return;
-      await writeJsonFile(this.filePath, next);
-      this.cache = next;
+      await writeJsonFile(this.filePath, next.slice(0, DICTATION_TRACE_LIMIT));
+      this.cache = next.slice(0, DICTATION_TRACE_LIMIT);
     });
     return updated ? copyTrace(updated) : undefined;
   }
@@ -95,11 +98,13 @@ function normalizeTraces(raw: unknown): DictationTrace[] {
       qualityDecision: normalizeQualityDecision(item.qualityDecision),
       providerAttempts: normalizeProviderAttempts(item.providerAttempts),
       injectionAttempts: normalizeInjectionAttempts(item.injectionAttempts),
-      injectionMethod: item.injectionMethod === "ax" || item.injectionMethod === "clipboard" ? item.injectionMethod : null,
+      injectionMethod: normalizeInjectionMethod(item.injectionMethod),
+      stages: normalizeStages(item.stages),
       outcome: normalizeOutcome(item.outcome),
       rejectionReason: typeof item.rejectionReason === "string" ? item.rejectionReason as DictationTrace["rejectionReason"] : undefined,
       userMessage: typeof item.userMessage === "string" ? item.userMessage : undefined,
-    }));
+    }))
+    .slice(0, DICTATION_TRACE_LIMIT);
 }
 
 function normalizeAudioQuality(value: unknown): DictationTrace["rawAudio"] {
@@ -189,6 +194,63 @@ function normalizeInjectionAttempts(value: unknown): DictationTrace["injectionAt
   return attempts.length > 0 ? attempts : undefined;
 }
 
+function normalizeInjectionMethod(value: unknown): DictationTrace["injectionMethod"] {
+  return value === "ax" || value === "clipboard" ? value : null;
+}
+
+function normalizeStages(value: unknown): DictationTrace["stages"] {
+  if (!isObject(value)) return undefined;
+  const stages: DictationTrace["stages"] = {};
+  if (typeof value.rawTranscript === "string") stages.rawTranscript = value.rawTranscript;
+  if (typeof value.cleanedText === "string") stages.cleanedText = value.cleanedText;
+  if (typeof value.injectedText === "string") stages.injectedText = value.injectedText;
+  if (value.formatterUsed === "llm" || value.formatterUsed === "deterministic" || value.formatterUsed === "none") {
+    stages.formatterUsed = value.formatterUsed;
+  }
+  if (value.injectionStrategy === "ax" || value.injectionStrategy === "clipboard" || value.injectionStrategy === "none") {
+    stages.injectionStrategy = value.injectionStrategy;
+  }
+  const outcome = normalizeOutcome(value.outcome);
+  if (typeof value.outcome === "string") stages.outcome = outcome;
+  const qualityDecision = normalizeStageQualityDecision(value.qualityDecision);
+  if (qualityDecision) stages.qualityDecision = qualityDecision;
+  const verdict = normalizeContentGuardVerdict(value.contentGuardVerdict);
+  if (verdict) stages.contentGuardVerdict = verdict;
+  const correctionsApplied = normalizeCorrectionsApplied(value.correctionsApplied);
+  if (correctionsApplied) stages.correctionsApplied = correctionsApplied;
+  return Object.keys(stages).length > 0 ? buildTraceStageSnapshot(stages) : undefined;
+}
+
+function normalizeStageQualityDecision(value: unknown): NonNullable<DictationTrace["stages"]>["qualityDecision"] {
+  if (!isObject(value) || !isTranscriptAction(value.action) || typeof value.reason !== "string") return undefined;
+  const attemptCount = finiteNumber(value.attemptCount);
+  if (attemptCount === undefined) return undefined;
+  return {
+    action: value.action,
+    reason: value.reason,
+    confidence: nullableNumber(value.confidence),
+    noSpeechProbability: nullableNumber(value.noSpeechProbability),
+    attemptCount,
+  };
+}
+
+function normalizeContentGuardVerdict(value: unknown): NonNullable<DictationTrace["stages"]>["contentGuardVerdict"] {
+  if (!isObject(value) || typeof value.passed !== "boolean") return undefined;
+  const verdict: NonNullable<DictationTrace["stages"]>["contentGuardVerdict"] = { passed: value.passed };
+  if (Array.isArray(value.missingWords)) {
+    verdict.missingWords = value.missingWords.filter((word): word is string => typeof word === "string");
+  }
+  return verdict;
+}
+
+function normalizeCorrectionsApplied(value: unknown): NonNullable<DictationTrace["stages"]>["correctionsApplied"] {
+  if (!Array.isArray(value)) return undefined;
+  const corrections = value
+    .filter((item): item is Record<string, unknown> => isObject(item) && typeof item.spoken === "string" && typeof item.written === "string")
+    .map((item) => ({ spoken: item.spoken as string, written: item.written as string }));
+  return corrections.length > 0 ? corrections : undefined;
+}
+
 function normalizeOutcome(value: unknown): DictationTrace["outcome"] {
   switch (value) {
     case "injected":
@@ -204,6 +266,12 @@ function normalizeOutcome(value: unknown): DictationTrace["outcome"] {
 
 function copyTrace(trace: DictationTrace): DictationTrace {
   return JSON.parse(JSON.stringify(trace)) as DictationTrace;
+}
+
+function sanitizeTraceForStorage(trace: DictationTrace): DictationTrace {
+  const next = copyTrace(trace);
+  if (next.stages) next.stages = buildTraceStageSnapshot(next.stages);
+  return next;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

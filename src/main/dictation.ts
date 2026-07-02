@@ -35,9 +35,10 @@ import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { cleanupText } from "./text/cleanup";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
-import { TranscriptionService } from "./transcription";
+import { TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
+import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
@@ -57,7 +58,7 @@ interface RecorderCommands {
 }
 
 interface DictationServiceDeps {
-  transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript">;
+  transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
   injector?: Pick<TextInjector, "inject">;
   appDetector?: Pick<AppDetector, "getContext">;
   recorder?: RecorderCommands;
@@ -68,7 +69,7 @@ interface DictationServiceDeps {
 
 export class DictationService {
   private state: DictationState = { status: "idle" };
-  private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript">;
+  private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
   private readonly injector: Pick<TextInjector, "inject">;
   private readonly appDetector: Pick<AppDetector, "getContext">;
   private readonly createSessionId: () => string;
@@ -289,6 +290,16 @@ export class DictationService {
         quality,
         qualityDecision,
         providerAttempts: transcription.providerAttempts,
+        stages: {
+          rawTranscript: transcription.rawText,
+          qualityDecision: {
+            action: qualityDecision.action,
+            reason: qualityDecision.reason,
+            confidence: quality.confidence,
+            noSpeechProbability: quality.noSpeechProbability,
+            attemptCount: quality.attemptCount,
+          },
+        },
       });
       if (!this.isCurrentSession(payload.sessionId)) return;
       if (qualityDecision.action === "reject") {
@@ -298,7 +309,16 @@ export class DictationService {
       }
       if (qualityDecision.action === "save") {
         debug("dictation", `submitAudioClip: transcript saved instead of inserted (${qualityDecision.reason}): "${transcription.rawText}"`);
-        const cleanedText = cleanupText({ rawText: transcription.rawText, settings });
+        const cleanupTrace = { correctionsApplied: [] };
+        const cleanedText = cleanupText({ rawText: transcription.rawText, settings, trace: cleanupTrace });
+        void this.patchTrace(payload.sessionId, {
+          stages: {
+            cleanedText,
+            formatterUsed: "none",
+            correctionsApplied: cleanupTrace.correctionsApplied,
+            injectionStrategy: "none",
+          },
+        });
         await this.history.append({
           id: crypto.randomUUID(),
           traceId: await this.traceIdForSession(payload.sessionId),
@@ -322,20 +342,32 @@ export class DictationService {
 
       // Format via LLM using provider system
       let formattedText = transcription.rawText;
+      let formatTrace: FormatTranscriptTraceResult = { text: transcription.rawText, formatterUsed: "none" };
       try {
         let formattingTimer: ReturnType<typeof setTimeout> | null = null;
         const formattingStartedAt = Date.now();
-        formattedText = await Promise.race([
-          this.transcription.formatTranscript(transcription.rawText).finally(() => { if (formattingTimer) { clearTimeout(formattingTimer); formattingTimer = null; } }),
+        formatTrace = await Promise.race([
+          this.formatTranscriptWithTrace(transcription.rawText).finally(() => { if (formattingTimer) { clearTimeout(formattingTimer); formattingTimer = null; } }),
           new Promise<never>((_, reject) => { formattingTimer = setTimeout(() => reject(new Error("Formatting timed out.")), FORMATTING_TIMEOUT_MS); }),
         ]);
+        formattedText = formatTrace.text;
         void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
       } catch {
         formattedText = transcription.rawText;
+        formatTrace = { text: transcription.rawText, formatterUsed: "none" };
       }
 
       const textForCleanup = formattedText !== transcription.rawText ? formattedText : transcription.rawText;
-      const cleanedText = cleanupText({ rawText: textForCleanup, settings });
+      const cleanupTrace = { correctionsApplied: [] };
+      const cleanedText = cleanupText({ rawText: textForCleanup, settings, trace: cleanupTrace });
+      void this.patchTrace(payload.sessionId, {
+        stages: {
+          cleanedText,
+          formatterUsed: formatTrace.formatterUsed,
+          contentGuardVerdict: formatTrace.contentGuardVerdict,
+          correctionsApplied: cleanupTrace.correctionsApplied,
+        },
+      });
       const freshTarget = this.appDetector.getContext();
       const target = isExternalTarget(this.activeTarget) ? this.activeTarget : freshTarget;
       this.activeTarget = target;
@@ -391,14 +423,20 @@ export class DictationService {
 
       if (injection.success) {
         await this.history.append({ ...entryBase, injectionStatus: "injected", injectionMethod: injection.method });
-        void this.finishTrace(payload.sessionId, "injected", undefined, "Inserted at cursor", { injectionMethod: injection.method });
+        void this.finishTrace(payload.sessionId, "injected", undefined, "Inserted at cursor", {
+          injectionMethod: injection.method,
+          stages: { injectedText: cleanedText, injectionStrategy: injection.method },
+        });
         this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor", transcription.detectedLanguage);
         debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
         this.watchForManualEdits(cleanedText, target);
       } else {
         debug("editwatch", "not-armed-injection-saved", { appBundleId: target.appBundleId, appName: target.appName });
         await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
-        void this.finishTrace(payload.sessionId, "saved", "insertion_failed", "Saved to history", { injectionMethod: null });
+        void this.finishTrace(payload.sessionId, "saved", "insertion_failed", "Saved to history", {
+          injectionMethod: null,
+          stages: { injectedText: cleanedText, injectionStrategy: "none" },
+        });
         this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage);
       }
     } catch (error) {
@@ -824,6 +862,7 @@ export class DictationService {
       startedAt: new Date().toISOString(),
       targetAppBundleId: this.activeTarget?.appBundleId ?? null,
       targetAppName: this.activeTarget?.appName ?? null,
+      stages: { outcome: "started" },
       outcome: "started",
     }));
   }
@@ -836,12 +875,12 @@ export class DictationService {
 
   private async patchTrace(sessionId: string, patch: Partial<DictationTrace>): Promise<void> {
     if (this.activeSessionId === sessionId && this.activeTraceId) {
-      await this.safeTraceOperation("patchTrace", sessionId, () => this.traces?.updateById(this.activeTraceId ?? "", (current) => ({ ...current, ...patch })));
+      await this.safeTraceOperation("patchTrace", sessionId, () => this.traces?.updateById(this.activeTraceId ?? "", (current) => mergeDictationTracePatch(current, patch)));
       return;
     }
     const trace = await this.safeTraceOperation("patchTrace:getBySessionId", sessionId, () => this.traces?.getBySessionId(sessionId));
     if (!trace) return;
-    await this.safeTraceOperation("patchTrace:updateById", sessionId, () => this.traces?.updateById(trace.id, (current) => ({ ...current, ...patch })));
+    await this.safeTraceOperation("patchTrace:updateById", sessionId, () => this.traces?.updateById(trace.id, (current) => mergeDictationTracePatch(current, patch)));
   }
 
   private async finishTrace(
@@ -856,8 +895,20 @@ export class DictationService {
       outcome,
       rejectionReason,
       userMessage,
+      stages: { ...(patch.stages ?? {}), outcome },
       completedAt: new Date().toISOString(),
     });
+  }
+
+  private async formatTranscriptWithTrace(rawText: string): Promise<FormatTranscriptTraceResult> {
+    if (this.transcription.formatTranscriptDetailed) {
+      return this.transcription.formatTranscriptDetailed(rawText);
+    }
+    const text = await this.transcription.formatTranscript(rawText);
+    return {
+      text,
+      formatterUsed: text === rawText ? "none" : "llm",
+    };
   }
 
   private async safeTraceOperation<T>(

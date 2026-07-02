@@ -99,6 +99,38 @@ export interface InjectionAttemptTrace {
   fallbackReason?: string;
 }
 
+export type DictationFormatterUsed = "llm" | "deterministic" | "none";
+
+export interface DictationCorrectionTrace {
+  spoken: string;
+  written: string;
+}
+
+export interface DictationStageQualityDecision {
+  action: TranscriptInsertionAction;
+  reason: string;
+  confidence?: number | null;
+  noSpeechProbability?: number | null;
+  attemptCount: number;
+}
+
+export interface DictationContentGuardVerdict {
+  passed: boolean;
+  missingWords?: string[];
+}
+
+export interface DictationStageSnapshot {
+  rawTranscript?: string;
+  qualityDecision?: DictationStageQualityDecision;
+  cleanedText?: string;
+  formatterUsed?: DictationFormatterUsed;
+  contentGuardVerdict?: DictationContentGuardVerdict;
+  correctionsApplied?: DictationCorrectionTrace[];
+  injectedText?: string;
+  injectionStrategy?: InjectionMethod | "none";
+  outcome?: DictationTraceOutcome;
+}
+
 export interface DictationTrace {
   id: string;
   sessionId: string;
@@ -119,6 +151,7 @@ export interface DictationTrace {
   providerAttempts?: ProviderAttemptTrace[];
   injectionAttempts?: InjectionAttemptTrace[];
   injectionMethod?: InjectionMethod | null;
+  stages?: DictationStageSnapshot;
   outcome: DictationTraceOutcome;
   rejectionReason?: DictationRejectionReason;
   userMessage?: string;

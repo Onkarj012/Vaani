@@ -40,13 +40,18 @@ function extractContentWords(text: string): Set<string> {
 }
 
 export function preservesContentWords(rawText: string, candidate: string): boolean {
+  return missingContentWords(rawText, candidate).length === 0;
+}
+
+export function missingContentWords(rawText: string, candidate: string): string[] {
   const required = extractContentWords(rawText);
-  if (required.size === 0) return true;
+  if (required.size === 0) return [];
 
   const present = new Set(tokenizeText(candidate));
+  const missing: string[] = [];
 
   for (const word of required) {
-    if (!present.has(word)) return false;
+    if (!present.has(word)) missing.push(word);
   }
-  return true;
+  return missing;
 }
