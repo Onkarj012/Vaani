@@ -204,7 +204,7 @@ function normalizeStages(value: unknown): DictationTrace["stages"] {
   if (typeof value.rawTranscript === "string") stages.rawTranscript = value.rawTranscript;
   if (typeof value.cleanedText === "string") stages.cleanedText = value.cleanedText;
   if (typeof value.injectedText === "string") stages.injectedText = value.injectedText;
-  if (value.formatterUsed === "llm" || value.formatterUsed === "deterministic" || value.formatterUsed === "none") {
+  if (value.formatterUsed === "llm" || value.formatterUsed === "guard-fallback" || value.formatterUsed === "deterministic" || value.formatterUsed === "none") {
     stages.formatterUsed = value.formatterUsed;
   }
   if (value.injectionStrategy === "ax" || value.injectionStrategy === "clipboard" || value.injectionStrategy === "none") {

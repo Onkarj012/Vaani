@@ -99,7 +99,7 @@ export interface InjectionAttemptTrace {
   fallbackReason?: string;
 }
 
-export type DictationFormatterUsed = "llm" | "deterministic" | "none";
+export type DictationFormatterUsed = "llm" | "guard-fallback" | "deterministic" | "none";
 
 export interface DictationCorrectionTrace {
   spoken: string;
@@ -224,6 +224,7 @@ export interface Settings {
   cleanupEnabled: boolean;
   smartPunctuation: boolean;
   fillerWords: string[];
+  extraFillerWords: string[];
   customCorrections: CustomCorrection[];
   snippets: Snippet[];
   injectionMode: "auto" | "ax" | "clipboard";

@@ -4,8 +4,7 @@
 // differences and case/punctuation differences are ignored.
 
 const FILLER_WORDS = new Set([
-  "um", "uh", "like", "you", "know", "sort", "of", "kind", "basically",
-  "literally", "actually", "so", "well", "right", "okay", "ok",
+  "um", "uh",
 ]);
 
 const SPOKEN_CUE_RE = /\b(bullet\s*point|new\s+paragraph|new\s+line|next\s+line|number\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)|no\.\s*\d+|point\s+\d+|item\s+\d+|(first|second|third|fourth|fifth)\s+(item|bullet|point|step))\b/gi;

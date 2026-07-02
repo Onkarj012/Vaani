@@ -17,7 +17,8 @@ function escapeRegExp(v: string): string {
 
 function removeFillers(text: string, fillers: string[]): string {
   return fillers.reduce((t, f) => {
-    const p = new RegExp(`(^|\\s)${escapeRegExp(f)}(?=\\s|$|[,.!?])`, "gi");
+    const pattern = f === "um" || f === "uh" ? `${escapeRegExp(f)}+` : escapeRegExp(f);
+    const p = new RegExp(`(^|\\s)${pattern}(?=\\s|$|[,.!?])`, "gi");
     return t.replace(p, " ");
   }, text);
 }
@@ -185,7 +186,10 @@ export function cleanupText({ rawText, settings, trace }: TextCleanupInput): str
     return hasMultipleLines(deduped) ? normalizeLineWhitespace(deduped) : normalizeWhitespace(deduped);
   }
 
-  const fillered = removeFillers(expanded, settings.fillerWords);
+  const fillered = removeFillers(expanded, [
+    ...(settings.fillerWords ?? []),
+    ...(settings.extraFillerWords ?? []),
+  ]);
   const deduped = collapseAdjacentDuplicateWords(fillered);
   const numbered = normalizeCommonNumbers(deduped);
   if (hasMultipleLines(numbered)) {

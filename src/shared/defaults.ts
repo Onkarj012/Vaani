@@ -1,7 +1,7 @@
 import type { Settings } from "./types";
 
 export const DEFAULT_FILLER_WORDS = [
-  "um", "uh", "like", "basically", "you know", "sort of", "kind of", "actually", "literally"
+  "um", "uh"
 ];
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cleanupEnabled: true,
   smartPunctuation: true,
   fillerWords: DEFAULT_FILLER_WORDS,
+  extraFillerWords: [],
   customCorrections: [],
   snippets: [],
   injectionMode: "auto",

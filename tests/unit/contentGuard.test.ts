@@ -31,8 +31,15 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("I have twenty items", "I have 20 items.")).toBe(true);
   });
 
-  it("accepts filler removal (um, uh, like)", () => {
+  it("accepts minimal filler removal", () => {
     expect(preservesContentWords("um hello uh world", "Hello, world.")).toBe(true);
+  });
+
+  it("protects conversational words as content", () => {
+    expect(preservesContentWords(
+      "you know so well right okay like",
+      "You know so well."
+    )).toBe(false);
   });
 
   it("returns true for empty raw text", () => {

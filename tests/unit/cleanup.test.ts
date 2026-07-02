@@ -54,6 +54,36 @@ describe("cleanupText", () => {
     expect(result).toBe("Hello world.");
   });
 
+  it("preserves like as spoken content by default", () => {
+    const result = cleanupText({
+      rawText: "I like this.",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("I like this.");
+  });
+
+  it("removes only minimal built-in fillers by default", () => {
+    expect(cleanupText({
+      rawText: "um hello",
+      settings: createSettings({ fillerWords: DEFAULT_SETTINGS.fillerWords })
+    })).toBe("Hello.");
+
+    expect(cleanupText({
+      rawText: "umm hello uhh world",
+      settings: createSettings({ fillerWords: DEFAULT_SETTINGS.fillerWords })
+    })).toBe("Hello world.");
+  });
+
+  it("removes opt-in extra filler words when configured", () => {
+    const result = cleanupText({
+      rawText: "I basically like this",
+      settings: createSettings({ extraFillerWords: ["basically"] })
+    });
+
+    expect(result).toBe("I like this.");
+  });
+
   it("collapses accidental adjacent duplicate words", () => {
     const result = cleanupText({
       rawText: "github github should only appear once",

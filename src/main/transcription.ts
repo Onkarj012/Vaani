@@ -4,7 +4,6 @@ import type { TranscriptionProvider } from "./providers/types";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { missingContentWords } from "@shared/contentGuard";
-import { deterministicFormat } from "@main/text/cleanup";
 
 interface TranscribeOptions {
   languageOverride?: string;
@@ -153,10 +152,10 @@ export class TranscriptionService {
       });
       const missingWords = missingContentWords(rawText, formatted);
       if (missingWords.length > 0) {
-        debug("transcription", "Content guard rejected LLM output — falling back to deterministic format");
+        debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
         return {
-          text: deterministicFormat(rawText),
-          formatterUsed: "deterministic",
+          text: rawText,
+          formatterUsed: "guard-fallback",
           contentGuardVerdict: { passed: false, missingWords },
         };
       }

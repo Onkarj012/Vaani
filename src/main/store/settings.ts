@@ -5,6 +5,10 @@ import type { Settings } from "@shared/types";
 import { error } from "@main/log";
 import { readJsonFile, writeJsonFile } from "./base";
 
+const LEGACY_DEFAULT_FILLER_WORDS = [
+  "um", "uh", "like", "basically", "you know", "sort of", "kind of", "actually", "literally",
+];
+
 export class SettingsStore {
   private cached: Settings | null = null;
   private readonly filePath: string;
@@ -36,6 +40,12 @@ export class SettingsStore {
       changed = true;
     }
 
+    if (arraysEqual(next.fillerWords, LEGACY_DEFAULT_FILLER_WORDS)) {
+      next.fillerWords = DEFAULT_SETTINGS.fillerWords;
+      next.extraFillerWords = DEFAULT_SETTINGS.extraFillerWords;
+      changed = true;
+    }
+
     if (changed) {
       await writeJsonFile(this.filePath, next);
     }
@@ -57,4 +67,10 @@ export class SettingsStore {
   async init(): Promise<void> {
     await this.load();
   }
+}
+
+function arraysEqual(left: unknown, right: string[]): left is string[] {
+  return Array.isArray(left) &&
+    left.length === right.length &&
+    left.every((value, index) => value === right[index]);
 }

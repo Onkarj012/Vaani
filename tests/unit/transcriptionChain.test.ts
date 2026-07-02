@@ -1,16 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import type { AudioClip, TranscriptionResult } from "@shared/types";
-import type { TranscriptionProvider } from "@main/providers/types";
+import type { FormattingProvider, TranscriptionProvider } from "@main/providers/types";
 
 const registryState = vi.hoisted(() => ({
   providers: new Map<string, TranscriptionProvider>(),
+  formattingProviders: new Map<string, FormattingProvider>(),
 }));
 
 vi.mock("@main/providers", () => ({
   getProviderRegistry: () => ({
     getTranscription: (id: string) => registryState.providers.get(id),
-    getFormatting: () => undefined,
+    getFormatting: (id: string) => registryState.formattingProviders.get(id),
   }),
 }));
 
@@ -25,11 +26,23 @@ function provider(id: string, transcribe: TranscriptionProvider["transcribe"], r
   };
 }
 
+function formattingProvider(id: string, format: FormattingProvider["format"], requiresApiKey = true): FormattingProvider {
+  return {
+    id,
+    name: id,
+    requiresApiKey,
+    models: [],
+    format,
+    isAvailable: vi.fn(async () => true),
+  };
+}
+
 const clip: AudioClip = { pcmData: [0.1, 0.2], sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] };
 
 describe("TranscriptionService failover chain", () => {
   beforeEach(() => {
     registryState.providers.clear();
+    registryState.formattingProviders.clear();
   });
 
   it("returns the primary provider result when it succeeds", async () => {
@@ -273,5 +286,23 @@ describe("TranscriptionService failover chain", () => {
     }));
 
     await expect(service.transcribe(clip)).rejects.toThrow("last failure");
+  });
+
+  it("marks content-guard rejection as raw cleanup fallback", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "I this.")));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      groqApiKey: "groq-key",
+    }));
+
+    const result = await service.formatTranscriptDetailed("um I like this");
+
+    expect(result).toEqual({
+      text: "um I like this",
+      formatterUsed: "guard-fallback",
+      contentGuardVerdict: { passed: false, missingWords: ["like"] },
+    });
   });
 });

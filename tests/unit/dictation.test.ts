@@ -223,6 +223,53 @@ describe("DictationService", () => {
     }));
   });
 
+  it("uses cleaned raw transcript when content guard rejects LLM formatting", async () => {
+    let trace: DictationTrace | null = null;
+    const traces = {
+      upsert: vi.fn(async (next: DictationTrace) => { trace = next; }),
+      updateById: vi.fn(async (_id: string, updater: (current: DictationTrace) => DictationTrace) => {
+        if (!trace) throw new Error("Trace was not initialized.");
+        trace = updater(trace);
+        return trace;
+      }),
+      getById: vi.fn(async () => trace ?? undefined),
+      getBySessionId: vi.fn(async () => trace ?? undefined),
+    };
+    const { service, history, injector, transcription } = createDictationService({ traces });
+    transcription.transcribe.mockResolvedValue({ rawText: "um I like this", formattedText: "um I like this", language: "en" });
+    Object.assign(transcription, {
+      formatTranscriptDetailed: vi.fn(async () => ({
+        text: "um I like this",
+        formatterUsed: "guard-fallback",
+        contentGuardVerdict: { passed: false, missingWords: ["like"] },
+      })),
+    });
+
+    service.beginHotkeySession();
+    await Promise.resolve();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+    await Promise.resolve();
+
+    expect(injector.inject).toHaveBeenCalledWith("I like this.", expect.anything());
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
+      rawText: "um I like this",
+      formattedText: "um I like this",
+      cleanedText: "I like this.",
+    }));
+    const updatedTrace = trace as DictationTrace | null;
+    expect(updatedTrace?.stages).toMatchObject({
+      cleanedText: "I like this.",
+      formatterUsed: "guard-fallback",
+      contentGuardVerdict: { passed: false, missingWords: ["like"] },
+    });
+  });
+
   it("saves suspicious politeness hallucinations instead of injecting them", async () => {
     const { service, history, injector, transcription } = createDictationService();
     const suspiciousResult: TranscriptionResult = {
