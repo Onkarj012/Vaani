@@ -1,6 +1,6 @@
 import type { DictationContentGuardVerdict, DictationFormatterUsed, ProviderAttemptTrace, Settings, AudioClip, TranscriptionResult } from "@shared/types";
 import { getProviderRegistry } from "./providers";
-import type { TranscriptionProvider } from "./providers/types";
+import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { missingContentWords } from "@shared/contentGuard";
@@ -158,28 +158,83 @@ export class TranscriptionService {
     if (provider.requiresApiKey && !apiKey) return { text: rawText, formatterUsed: "none" };
 
     try {
-      const formatted = await provider.format(rawText, {
-        apiKey: apiKey ?? "",
-        model: settings.formattingModel,
-        systemPrompt: settings.customPrompt
-      });
-      const missingWords = missingContentWords(rawText, formatted);
-      if (missingWords.length > 0) {
-        debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
-        return {
-          text: rawText,
-          formatterUsed: "guard-fallback",
-          contentGuardVerdict: { passed: false, missingWords },
-        };
-      }
-      return {
-        text: formatted,
-        formatterUsed: "llm",
-        contentGuardVerdict: { passed: true },
-      };
+      return await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings);
     } catch {
       return { text: rawText, formatterUsed: "none" };
     }
+  }
+
+  private async formatTranscriptBlocks(
+    rawText: string,
+    provider: FormattingProvider,
+    apiKey: string,
+    settings: Settings,
+  ): Promise<FormatTranscriptTraceResult> {
+    if (!hasParagraphBreak(rawText)) {
+      return this.formatTranscriptBlock(rawText, provider, apiKey, settings);
+    }
+
+    const parts = splitParagraphParts(rawText);
+    const formattedParts: string[] = [];
+    const missingWords: string[] = [];
+    let usedFormatter = false;
+    let usedFallback = false;
+
+    for (const part of parts) {
+      if (part.type === "separator") {
+        formattedParts.push(part.value);
+        continue;
+      }
+
+      const text = part.value.trim();
+      if (!text) continue;
+      const result = await this.formatTranscriptBlock(text, provider, apiKey, settings);
+      formattedParts.push(result.text.trim());
+      if (result.formatterUsed === "llm") usedFormatter = true;
+      if (result.formatterUsed === "guard-fallback") usedFallback = true;
+      if (result.contentGuardVerdict?.missingWords) missingWords.push(...result.contentGuardVerdict.missingWords);
+    }
+
+    if (usedFallback) {
+      return {
+        text: formattedParts.join("").trim(),
+        formatterUsed: "guard-fallback",
+        contentGuardVerdict: { passed: false, missingWords },
+      };
+    }
+
+    return {
+      text: formattedParts.join("").trim(),
+      formatterUsed: usedFormatter ? "llm" : "none",
+      contentGuardVerdict: usedFormatter ? { passed: true } : undefined,
+    };
+  }
+
+  private async formatTranscriptBlock(
+    rawText: string,
+    provider: FormattingProvider,
+    apiKey: string,
+    settings: Settings,
+  ): Promise<FormatTranscriptTraceResult> {
+    const formatted = await provider.format(rawText, {
+      apiKey,
+      model: settings.formattingModel,
+      systemPrompt: settings.customPrompt
+    });
+    const missingWords = missingContentWords(rawText, formatted);
+    if (missingWords.length > 0) {
+      debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
+      return {
+        text: rawText,
+        formatterUsed: "guard-fallback",
+        contentGuardVerdict: { passed: false, missingWords },
+      };
+    }
+    return {
+      text: formatted,
+      formatterUsed: "llm",
+      contentGuardVerdict: { passed: true },
+    };
   }
 
   private async resolveApiKey(settings: Settings, providerId: string): Promise<string | null> {
@@ -214,6 +269,24 @@ function isAuthError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const msg = error.message.toLowerCase();
   return msg.includes("401") || msg.includes("403") || msg.includes("unauthorized") || msg.includes("authentication") || msg.includes("invalid api key") || msg.includes("incorrect api key");
+}
+
+function hasParagraphBreak(text: string): boolean {
+  return /\r?\n[ \t]*\r?\n/.test(text);
+}
+
+function splitParagraphParts(text: string): Array<{ type: "text" | "separator"; value: string }> {
+  return text
+    .split(/(\r?\n[ \t]*\r?\n(?:[ \t]*\r?\n)*)/g)
+    .filter(part => part.length > 0)
+    .map(part => hasParagraphBreak(part)
+      ? { type: "separator" as const, value: normalizeParagraphSeparator(part) }
+      : { type: "text" as const, value: part });
+}
+
+function normalizeParagraphSeparator(separator: string): string {
+  const newlineCount = separator.match(/\r?\n/g)?.length ?? 2;
+  return "\n".repeat(Math.max(2, newlineCount));
 }
 
 const MAX_SPEECH_CONTEXT_CHARS = 600;

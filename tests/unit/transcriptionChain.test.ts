@@ -392,4 +392,50 @@ describe("TranscriptionService failover chain", () => {
       contentGuardVerdict: { passed: false, missingWords: ["like"] },
     });
   });
+
+  it("formats blank-line separated transcript blocks independently", async () => {
+    const format = vi.fn(async (text: string) => text === "first block"
+      ? "First block."
+      : "Second block.");
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      groqApiKey: "groq-key",
+    }));
+
+    const result = await service.formatTranscriptDetailed("first block\n\nsecond block");
+
+    expect(format).toHaveBeenCalledTimes(2);
+    expect(format).toHaveBeenNthCalledWith(1, "first block", expect.anything());
+    expect(format).toHaveBeenNthCalledWith(2, "second block", expect.anything());
+    expect(result).toEqual({
+      text: "First block.\n\nSecond block.",
+      formatterUsed: "llm",
+      contentGuardVerdict: { passed: true },
+    });
+  });
+
+  it("falls back only the multiline block that fails content guard", async () => {
+    const format = vi.fn(async (text: string) => text === "alpha beta"
+      ? "Alpha."
+      : "Gamma delta.");
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      groqApiKey: "groq-key",
+    }));
+
+    const result = await service.formatTranscriptDetailed("alpha beta\n\ngamma delta");
+
+    expect(format).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({
+      text: "alpha beta\n\nGamma delta.",
+      formatterUsed: "guard-fallback",
+      contentGuardVerdict: { passed: false, missingWords: ["beta"] },
+    });
+  });
 });

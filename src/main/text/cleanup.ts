@@ -109,6 +109,10 @@ function hasMultipleLines(text: string): boolean {
   return /\r?\n/.test(text);
 }
 
+function hasParagraphBreak(text: string): boolean {
+  return /\r?\n[ \t]*\r?\n/.test(text);
+}
+
 function capitalizeLine(text: string): string {
   return text.replace(/^(\s*(?:[-*•]\s+|\d+[.)]\s+)?)([a-z])/, (_, prefix: string, first: string) => `${prefix}${first.toUpperCase()}`);
 }
@@ -121,6 +125,64 @@ function ensureLinePunctuation(text: string): string {
   }
 
   return `${trimmed}.`;
+}
+
+function formatPlainParagraph(text: string, settings: Settings): string {
+  const normalized = normalizeWhitespace(text);
+  const capitalized = capitalizeSentences(normalized);
+  const punctuated = settings.smartPunctuation ? applySmartPunctuation(capitalized) : capitalized;
+  return ensureLinePunctuation(punctuated);
+}
+
+function formatLineBlock(text: string, settings: Settings): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map(line => normalizeWhitespace(line))
+    .filter((line, index, lines) => line.length > 0 || (index > 0 && index < lines.length - 1))
+    .map(line => (line ? capitalizeLine(line) : line))
+    .map(line => (settings.smartPunctuation ? applySmartPunctuation(line) : line))
+    .map(line => (line ? ensureLinePunctuation(line) : line));
+
+  return lines.join("\n");
+}
+
+function isListBlock(text: string): boolean {
+  const lines = text
+    .split(/\r?\n/)
+    .map(line => normalizeWhitespace(line))
+    .filter(Boolean);
+  return lines.length > 0 && lines.every(isListLine);
+}
+
+function formatParagraphBlock(text: string, settings: Settings): string {
+  const normalized = normalizeLineWhitespace(text);
+  if (!normalized) return "";
+  if (isListBlock(normalized)) return formatLineBlock(normalized, settings);
+
+  const reflowed = normalized
+    .split(/\r?\n/)
+    .map(line => normalizeWhitespace(line))
+    .filter(Boolean)
+    .join(" ");
+  return formatPlainParagraph(reflowed, settings);
+}
+
+function normalizeParagraphSeparator(separator: string): string {
+  const newlineCount = separator.match(/\r?\n/g)?.length ?? 2;
+  return "\n".repeat(Math.max(2, newlineCount));
+}
+
+function formatMultilineText(text: string, settings: Settings): string {
+  if (!hasParagraphBreak(text)) return formatLineBlock(text, settings);
+
+  return text
+    .split(/(\r?\n[ \t]*\r?\n(?:[ \t]*\r?\n)*)/g)
+    .filter(part => part.length > 0)
+    .map(part => hasParagraphBreak(part)
+      ? normalizeParagraphSeparator(part)
+      : formatParagraphBlock(part, settings))
+    .join("")
+    .trim();
 }
 
 function applyCorrections(text: string, corrections: Array<{ spoken: string; written: string }>, trace?: TextCleanupTrace): string {
@@ -193,15 +255,7 @@ export function cleanupText({ rawText, settings, trace }: TextCleanupInput): str
   const deduped = collapseAdjacentDuplicateWords(fillered);
   const numbered = normalizeCommonNumbers(deduped);
   if (hasMultipleLines(numbered)) {
-    const lines = numbered
-      .split(/\r?\n/)
-      .map(line => normalizeWhitespace(line))
-      .filter((line, index, lines) => line.length > 0 || (index > 0 && index < lines.length - 1))
-      .map(line => (line ? capitalizeLine(line) : line))
-      .map(line => (settings.smartPunctuation ? applySmartPunctuation(line) : line))
-      .map(line => (line ? ensureLinePunctuation(line) : line));
-
-    return lines.join("\n");
+    return formatMultilineText(numbered, settings);
   }
 
   const capitalized = capitalizeSentences(numbered);

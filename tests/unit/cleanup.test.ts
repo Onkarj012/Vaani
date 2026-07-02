@@ -229,6 +229,24 @@ describe("cleanupText", () => {
     expect(result).not.toContain(",.");
   });
 
+  it("formats paragraph blocks while preserving blank lines", () => {
+    const result = cleanupText({
+      rawText: "first paragraph line one\ncontinues here\n\nsecond paragraph starts\ncontinues too",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("First paragraph line one continues here.\n\nSecond paragraph starts continues too.");
+  });
+
+  it("preserves true list lines inside paragraph-separated text", () => {
+    const result = cleanupText({
+      rawText: "shopping list\n\n1. buy milk\n2. call mom",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Shopping list.\n\n1. Buy milk\n2. Call mom");
+  });
+
   it("applies dictionary corrections even when cleanup is disabled", () => {
     expect(cleanupText({
       rawText: "My name is Om Kar",
