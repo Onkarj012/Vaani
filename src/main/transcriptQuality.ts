@@ -14,6 +14,33 @@ const COMMON_NO_SPEECH_TRANSCRIPTS = new Set([
   "thanks for watching this video",
 ]);
 
+// Whisper emits these on silent/noise-only audio regardless of the user's
+// language — they come from subtitle/outro training data. Matched as
+// substrings of the normalized transcript.
+const HALLUCINATION_SUBSTRINGS = [
+  "ご視聴ありがとうございました",
+  "ご視聴ありがとうございます",
+  "チャンネル登録",
+  "thanks for watching",
+  "thank you for watching",
+  "字幕by",
+  "субтитры",
+  "구독과 좋아요",
+  "시청해주셔서 감사합니다",
+  "mbc 뉴스",
+  "www.mooji.org",
+  "amara.org",
+];
+
+// Retry reasons that indicate the audio likely contained no real speech.
+// When retries are exhausted these must never be inserted at the cursor.
+const NO_SPEECH_REASONS = new Set([
+  "common-silence-hallucination",
+  "known-hallucination-phrase",
+  "provider-no-speech-probability",
+  "script-mismatch-quiet-audio",
+]);
+
 export function decideTranscriptInsertion(
   rawText: string,
   clip: Pick<AudioClip, "rmsFrames">,
@@ -30,12 +57,20 @@ export function decideTranscriptInsertion(
   const lowSpeechAudio = looksLikeLowSpeechAudio(clip);
   const lowConfidence = hasLowProviderConfidence(quality);
 
+  if (HALLUCINATION_SUBSTRINGS.some((phrase) => normalized.includes(phrase.toLowerCase()))) {
+    return { action: "retry", reason: "known-hallucination-phrase" };
+  }
+
   if (COMMON_NO_SPEECH_TRANSCRIPTS.has(normalized) && (lowSpeechAudio || lowConfidence)) {
     return { action: "retry", reason: "common-silence-hallucination" };
   }
 
   if (quality?.noSpeechProbability != null && quality.noSpeechProbability >= 0.6) {
     return { action: "retry", reason: "provider-no-speech-probability" };
+  }
+
+  if (lowSpeechAudio && isPredominantlyNonLatin(text)) {
+    return { action: "retry", reason: "script-mismatch-quiet-audio" };
   }
 
   if (quality?.confidence != null && quality.confidence < 0.35) {
@@ -57,9 +92,15 @@ export function decideTranscriptInsertion(
   return { action: "insert", reason: "passed" };
 }
 
+// On retry exhaustion: likely-non-speech results are saved to history only —
+// inserting a hallucination into the user's document is worse than a miss.
+// Genuine low-confidence speech is inserted; the user said something.
 export function finalizeTranscriptDecision(decision: TranscriptQualityDecision): TranscriptQualityDecision {
   if (decision.action !== "retry") return decision;
-  return { action: "save", reason: decision.reason };
+  if (NO_SPEECH_REASONS.has(decision.reason)) {
+    return { action: "save", reason: decision.reason };
+  }
+  return { action: "insert", reason: decision.reason };
 }
 
 function hasLowProviderConfidence(quality: TranscriptionQualityMetadata | undefined): boolean {
@@ -74,4 +115,11 @@ function looksLikeLowSpeechAudio(clip: Pick<AudioClip, "rmsFrames">): boolean {
   const maxRms = Math.max(...clip.rmsFrames);
   const avgRms = clip.rmsFrames.reduce((sum, value) => sum + value, 0) / clip.rmsFrames.length;
   return maxRms < 0.002 || (maxRms < 0.0035 && avgRms < 0.0015);
+}
+
+function isPredominantlyNonLatin(text: string): boolean {
+  const letters = text.match(/\p{L}/gu) ?? [];
+  if (letters.length === 0) return false;
+  const nonLatin = letters.filter((ch) => !/[\p{Script=Latin}]/u.test(ch)).length;
+  return nonLatin / letters.length > 0.5;
 }

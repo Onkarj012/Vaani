@@ -6,7 +6,7 @@ import { debug } from "@main/log";
 // next louder word. A small leading pad then clips that first word. Keep ~600ms
 // of lead-in — harmless to Whisper, but enough to retain a soft opening word.
 const LEADING_PAD_FRAMES = 30;
-const TRAILING_PAD_FRAMES = 50;
+const TRAILING_PAD_FRAMES = 75;
 
 export function trimSilence(clip: AudioClip, threshold: number): AudioClip {
   const maxRms = clip.rmsFrames.length > 0 ? Math.max(...clip.rmsFrames) : 0;

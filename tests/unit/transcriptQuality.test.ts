@@ -47,10 +47,45 @@ describe("decideTranscriptInsertion", () => {
     expect(decideTranscriptInsertion("hello", speechClip, quality({ noSpeechProbability: 0.8 })).action).toBe("retry");
   });
 
-  it("converts exhausted retries into a save decision", () => {
+  it("converts exhausted retries into an insert decision", () => {
     expect(finalizeTranscriptDecision({ action: "retry", reason: "quiet-short-fragment" })).toEqual({
-      action: "save",
+      action: "insert",
       reason: "quiet-short-fragment",
+    });
+  });
+
+  it("saves retry-exhausted no-speech decisions without insertion", () => {
+    expect(finalizeTranscriptDecision({ action: "retry", reason: "common-silence-hallucination" })).toEqual({
+      action: "save",
+      reason: "common-silence-hallucination",
+    });
+    expect(finalizeTranscriptDecision({ action: "retry", reason: "known-hallucination-phrase" })).toEqual({
+      action: "save",
+      reason: "known-hallucination-phrase",
+    });
+    expect(finalizeTranscriptDecision({ action: "retry", reason: "provider-no-speech-probability" })).toEqual({
+      action: "save",
+      reason: "provider-no-speech-probability",
+    });
+  });
+
+  it("inserts retry-exhausted genuine low-confidence speech", () => {
+    expect(finalizeTranscriptDecision({ action: "retry", reason: "provider-low-confidence" })).toEqual({
+      action: "insert",
+      reason: "provider-low-confidence",
+    });
+  });
+
+  it("does not insert known hallucination phrases", () => {
+    const decision = decideTranscriptInsertion("ご視聴ありがとうございました", quietClip);
+
+    expect(decision).toEqual({
+      action: "retry",
+      reason: "known-hallucination-phrase",
+    });
+    expect(finalizeTranscriptDecision(decision)).toEqual({
+      action: "save",
+      reason: "known-hallucination-phrase",
     });
   });
 });
