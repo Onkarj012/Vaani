@@ -5,6 +5,8 @@ import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { missingContentWords } from "@shared/contentGuard";
 
+const MAX_SINGLE_STT_CLIP_SECONDS = 75;
+
 interface TranscribeOptions {
   languageOverride?: string;
   providerOverride?: string;
@@ -47,7 +49,7 @@ export class TranscriptionService {
       for (let clipIndex = 0; clipIndex < clips.length; clipIndex += 1) {
         const startedAt = Date.now();
         try {
-          const result = await provider.transcribe(clips[clipIndex]!, {
+          const result = await transcribePossiblyChunked(provider, clips[clipIndex]!, {
             apiKey,
             language,
             prompt: speechContextPrompt,
@@ -256,6 +258,92 @@ export class TranscriptionService {
 
     return null;
   }
+}
+
+async function transcribePossiblyChunked(
+  provider: TranscriptionProvider,
+  clip: AudioClip,
+  options: Parameters<TranscriptionProvider["transcribe"]>[1],
+): Promise<TranscriptionResult> {
+  if (clip.durationSeconds <= MAX_SINGLE_STT_CLIP_SECONDS) {
+    return provider.transcribe(clip, options);
+  }
+
+  const chunks = splitAudioClip(clip, MAX_SINGLE_STT_CLIP_SECONDS);
+  debug("transcription", `Chunking long clip for STT: ${clip.durationSeconds.toFixed(2)}s into ${chunks.length} chunks`);
+  const results: TranscriptionResult[] = [];
+  for (const chunk of chunks) {
+    results.push(await provider.transcribe(chunk, options));
+  }
+
+  return mergeChunkedTranscriptionResults(results);
+}
+
+function splitAudioClip(clip: AudioClip, maxDurationSeconds: number): AudioClip[] {
+  const samplesPerChunk = Math.max(1, Math.floor(clip.sampleRate * maxDurationSeconds));
+  const chunks: AudioClip[] = [];
+  for (let start = 0; start < clip.pcmData.length; start += samplesPerChunk) {
+    const end = Math.min(clip.pcmData.length, start + samplesPerChunk);
+    const pcmData = clip.pcmData.slice(start, end);
+    chunks.push({
+      pcmData,
+      sampleRate: clip.sampleRate,
+      durationSeconds: pcmData.length / clip.sampleRate,
+      rmsFrames: sliceRmsFramesForSamples(clip, start, end),
+    });
+  }
+  return chunks.length > 0 ? chunks : [clip];
+}
+
+function sliceRmsFramesForSamples(clip: AudioClip, startSample: number, endSample: number): number[] {
+  if (clip.rmsFrames.length === 0 || clip.pcmData.length === 0) return [];
+  const framesPerSample = clip.rmsFrames.length / clip.pcmData.length;
+  const startFrame = Math.max(0, Math.floor(startSample * framesPerSample));
+  const endFrame = Math.min(clip.rmsFrames.length, Math.ceil(endSample * framesPerSample));
+  return clip.rmsFrames.slice(startFrame, endFrame);
+}
+
+function mergeChunkedTranscriptionResults(results: TranscriptionResult[]): TranscriptionResult {
+  const first = results[0];
+  if (!first) {
+    return { rawText: "", formattedText: "", language: null };
+  }
+
+  const rawText = results
+    .map(result => result.rawText.trim())
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const qualities = results.map(result => result.quality).filter((quality): quality is NonNullable<TranscriptionResult["quality"]> => !!quality);
+  const segmentCount = qualities.reduce((sum, quality) => sum + (quality.segmentCount ?? 0), 0);
+  return {
+    ...first,
+    rawText,
+    formattedText: rawText,
+    detectedLanguage: first.detectedLanguage ?? results.find(result => result.detectedLanguage)?.detectedLanguage ?? null,
+    quality: qualities.length > 0
+      ? {
+        ...qualities[0]!,
+        avgLogprob: averageNullable(qualities.map(quality => quality.avgLogprob)),
+        compressionRatio: averageNullable(qualities.map(quality => quality.compressionRatio)),
+        noSpeechProbability: maxNullable(qualities.map(quality => quality.noSpeechProbability)),
+        segmentCount: segmentCount > 0 ? segmentCount : undefined,
+        transcriptLength: rawText.length,
+      }
+      : first.quality,
+  };
+}
+
+function averageNullable(values: Array<number | null | undefined>): number | null {
+  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (finite.length === 0) return null;
+  return finite.reduce((sum, value) => sum + value, 0) / finite.length;
+}
+
+function maxNullable(values: Array<number | null | undefined>): number | null {
+  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (finite.length === 0) return null;
+  return Math.max(...finite);
 }
 
 function messageForEmptyChain(settings: Settings, primaryId: string): string {

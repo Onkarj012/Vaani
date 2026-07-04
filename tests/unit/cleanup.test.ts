@@ -95,11 +95,11 @@ describe("cleanupText", () => {
 
   it("normalizes common LLM dictation artifacts", () => {
     const result = cleanupText({
-      rawText: "send this to the llmn cleanup step",
+      rawText: "send this to the llmn cleanup step for the Vani app",
       settings: createSettings()
     });
 
-    expect(result).toBe("Send this to the LLM cleanup step.");
+    expect(result).toBe("Send this to the LLM cleanup step for the Vaani app.");
   });
 
   it("preserves trailing Vaani as spoken content", () => {
@@ -266,6 +266,66 @@ describe("cleanupText", () => {
     });
 
     expect(result).toBe("Contact me.\nOnkarj012@gmail.com.\nThanks.");
+  });
+
+  it("converts spoken paragraph and line break cues deterministically", () => {
+    const result = cleanupText({
+      rawText: "intro sentence new paragraph first sentence should stay simple new line this should appear fresh new para final sentence",
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "Intro sentence.",
+      "",
+      "First sentence should stay simple.",
+      "This should appear fresh.",
+      "",
+      "Final sentence.",
+    ].join("\n"));
+  });
+
+  it("formats spoken point and number enumerations without breaking numeric prose", () => {
+    const result = cleanupText({
+      rawText: [
+        "here are the things I want to test point one preserve every real word I say point two turn spoken enumeration into a real list point three do not add extra conclusions",
+        "new paragraph now test a numbered list number one open the app number two start recording number three speak softly for one sentence number four stop recording after a short pause",
+        "new paragraph I bought a number two pencil wrote point one percent in the margin and named the file Vani test notes",
+      ].join(" "),
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "Here are the things I want to test.",
+      "",
+      "1. Preserve every real word I say",
+      "2. Turn spoken enumeration into a real list",
+      "3. Do not add extra conclusions",
+      "",
+      "Now test a numbered list.",
+      "",
+      "1. Open the app",
+      "2. Start recording",
+      "3. Speak softly for one sentence",
+      "4. Stop recording after a short pause",
+      "",
+      "I bought a number 2 pencil wrote point 1% in the margin and named the file Vaani test notes.",
+    ].join("\n"));
+  });
+
+  it("splits inline numbered list markers from STT output", () => {
+    const result = cleanupText({
+      rawText: "test a numbered list 1. Open the app 2. Start recording 3. Speak softly for one sentence 4 Stop recording after a short pause",
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "Test a numbered list.",
+      "",
+      "1. Open the app",
+      "2. Start recording",
+      "3. Speak softly for one sentence",
+      "4. Stop recording after a short pause.",
+    ].join("\n"));
   });
 });
 

@@ -46,7 +46,160 @@ function normalizeWhitespace(text: string): string {
 }
 
 function normalizeCommonDictationArtifacts(text: string): string {
-  return text.replace(/\bllmn\b/gi, "LLM");
+  return text
+    .replace(/\bllmn\b/gi, "LLM")
+    .replace(/\b[wv]ani\b/gi, "Vaani");
+}
+
+const ORDINAL_WORDS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+interface LayoutReplacement {
+  start: number;
+  end: number;
+  value: string;
+}
+
+interface CueMatch {
+  kind: "point" | "number" | "item" | "marker";
+  ordinal: number;
+  start: number;
+  end: number;
+}
+
+function applySpokenLayout(text: string, settings: Pick<Settings, "smartPunctuation">): string {
+  let next = text
+    .replace(/\s*\b(?:new\s+paragraph|new\s+para)\b[,.!?;:]?\s*/gi, "\n\n")
+    .replace(/\s*\b(?:new\s+line|next\s+line)\b[,.!?;:]?\s*/gi, "\n");
+
+  next = applyEnumerationLayout(next);
+  if (!hasMultipleLines(next)) return text;
+  return formatExplicitLayoutText(next, settings);
+}
+
+function applyEnumerationLayout(text: string): string {
+  const replacements = [
+    ...findSequentialCueReplacements(text, findSpokenEnumerationCues(text)),
+    ...findSequentialCueReplacements(text, findInlineNumberMarkers(text)),
+  ].sort((left, right) => right.start - left.start);
+
+  let next = text;
+  for (const replacement of replacements) {
+    next = `${next.slice(0, replacement.start)}${replacement.value}${next.slice(replacement.end)}`;
+  }
+  return next;
+}
+
+function findSpokenEnumerationCues(text: string): CueMatch[] {
+  const matches: CueMatch[] = [];
+  const pattern = /\b(point|number|item)\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\b\s*[,.)-]?\s*/gi;
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    const rawOrdinal = match[2] ?? "";
+    const ordinal = parseOrdinal(rawOrdinal);
+    if (ordinal === null) continue;
+    const after = text.slice(start + match[0].length).trimStart().toLowerCase();
+    if (after.startsWith("%") || after.startsWith("percent") || after.startsWith("per cent") || after.startsWith("pencil")) {
+      continue;
+    }
+    matches.push({
+      kind: (match[1]?.toLowerCase() ?? "point") as CueMatch["kind"],
+      ordinal,
+      start,
+      end: start + match[0].length,
+    });
+  }
+  return matches;
+}
+
+function findInlineNumberMarkers(text: string): CueMatch[] {
+  const matches: CueMatch[] = [];
+  const pattern = /(?:^|[\s\n])(\d{1,2})([.)])?\s+(?=[A-Z])/g;
+  for (const match of text.matchAll(pattern)) {
+    const ordinal = Number(match[1]);
+    if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > 20) continue;
+    const markerStart = (match.index ?? 0) + match[0].indexOf(match[1] ?? "");
+    matches.push({
+      kind: "marker",
+      ordinal,
+      start: markerStart,
+      end: markerStart + (match[1]?.length ?? 0) + (match[2]?.length ?? 0) + 1,
+    });
+  }
+  return matches;
+}
+
+function findSequentialCueReplacements(text: string, matches: CueMatch[]): LayoutReplacement[] {
+  const replacements: LayoutReplacement[] = [];
+  let index = 0;
+  while (index < matches.length) {
+    const group = [matches[index]!];
+    let cursor = index + 1;
+    while (
+      cursor < matches.length &&
+      matches[cursor]!.kind === group[0]!.kind &&
+      matches[cursor]!.ordinal === group[group.length - 1]!.ordinal + 1
+    ) {
+      group.push(matches[cursor]!);
+      cursor += 1;
+    }
+
+    if (group.length >= 2) {
+      for (const [groupIndex, match] of group.entries()) {
+        replacements.push({
+          start: match.start,
+          end: match.end,
+          value: listMarkerReplacement(text, match.start, match.ordinal, groupIndex === 0),
+        });
+      }
+      index = cursor;
+    } else {
+      index += 1;
+    }
+  }
+  return replacements;
+}
+
+function listMarkerReplacement(text: string, start: number, ordinal: number, firstInGroup: boolean): string {
+  const before = text.slice(0, start);
+  if (!firstInGroup) return /\n\s*$/.test(before) ? `${ordinal}. ` : `\n${ordinal}. `;
+  if (before.trim().length === 0 || /\n\s*$/.test(before)) return `${ordinal}. `;
+  return `\n\n${ordinal}. `;
+}
+
+function parseOrdinal(raw: string): number | null {
+  const normalized = raw.toLowerCase();
+  const word = ORDINAL_WORDS[normalized];
+  if (word !== undefined) return word;
+  const digit = Number(normalized);
+  return Number.isInteger(digit) && digit > 0 ? digit : null;
+}
+
+function formatExplicitLayoutText(text: string, settings: Pick<Settings, "smartPunctuation">): string {
+  return text
+    .replace(/\n{3,}/g, "\n\n")
+    .split(/\n{2,}/)
+    .map(paragraph => paragraph
+      .split(/\n+/)
+      .map(line => normalizeWhitespace(line))
+      .filter(Boolean)
+      .map(line => capitalizeLine(line))
+      .map(line => (settings.smartPunctuation ? applySmartPunctuation(line) : line))
+      .map(line => ensureLinePunctuation(line))
+      .join("\n"))
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
 }
 
 const NUMBER_RUN = new RegExp(
@@ -65,6 +218,7 @@ function normalizeCommonNumbers(text: string): string {
     return value === null ? match : String(value);
   });
   return digitized
+    .replace(/\bone\s+percent\b/gi, "1%")
     .replace(/(\d+)\s+percent\b/gi, "$1%")
     .replace(/(\d+)\s+dollars?\b/gi, "$$$1");
 }
@@ -252,14 +406,14 @@ export function cleanupText({ rawText, settings, trace }: TextCleanupInput): str
   const deduped = collapseAdjacentDuplicateWords(fillered);
   const numbered = normalizeCommonNumbers(deduped);
   if (hasMultipleLines(numbered)) {
-    return formatMultilineText(numbered, settings);
+    return applySpokenLayout(formatMultilineText(numbered, settings), settings);
   }
 
   const capitalized = capitalizeSentences(numbered);
   const punctuated = settings.smartPunctuation ? applySmartPunctuation(capitalized) : capitalized;
   const ensurePunctuation = /[.?!]$/.test(punctuated) ? punctuated : `${punctuated}.`;
 
-  return normalizeWhitespace(ensurePunctuation);
+  return applySpokenLayout(normalizeWhitespace(ensurePunctuation), settings);
 }
 
 // Deterministic formatting without requiring full Settings — used as LLM fallback.
@@ -268,5 +422,7 @@ export function deterministicFormat(text: string): string {
   const numbered = normalizeCommonNumbers(deduped);
   const capitalized = capitalizeSentences(numbered);
   const ensured = /[.?!]$/.test(capitalized.trim()) ? capitalized : `${capitalized}.`;
-  return normalizeWhitespace(ensured);
+  return applySpokenLayout(normalizeWhitespace(ensured), {
+    smartPunctuation: true,
+  });
 }

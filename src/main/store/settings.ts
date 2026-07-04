@@ -5,6 +5,10 @@ import type { Settings } from "@shared/types";
 import { error } from "@main/log";
 import { readJsonFile, writeJsonFile } from "./base";
 
+type StoredSettings = Partial<Settings> & {
+  nativeCaptureOptIn?: boolean;
+};
+
 const LEGACY_DEFAULT_FILLER_WORDS = [
   "um", "uh", "like", "basically", "you know", "sort of", "kind of", "actually", "literally",
 ];
@@ -39,13 +43,15 @@ export class SettingsStore {
   }
 
   private async load(): Promise<Settings> {
-    const stored = await readJsonFile<Partial<Settings>>(this.filePath, {});
+    const stored = await readJsonFile<StoredSettings>(this.filePath, {});
     const migrated = await this.migrateSettings(stored);
-    this.cached = { ...DEFAULT_SETTINGS, ...migrated, theme: "aurora" };
+    const publicSettings = { ...migrated };
+    delete publicSettings.nativeCaptureOptIn;
+    this.cached = { ...DEFAULT_SETTINGS, ...publicSettings, theme: "aurora" };
     return this.cached;
   }
 
-  private async migrateSettings(stored: Partial<Settings>): Promise<Partial<Settings>> {
+  private async migrateSettings(stored: StoredSettings): Promise<StoredSettings> {
     let changed = false;
     const next = { ...stored };
 
@@ -67,6 +73,11 @@ export class SettingsStore {
       changed = true;
     }
 
+    if (next.captureBackend === "native" && next.nativeCaptureOptIn !== true) {
+      next.captureBackend = DEFAULT_SETTINGS.captureBackend;
+      changed = true;
+    }
+
     if (changed) {
       await writeJsonFile(this.filePath, next);
     }
@@ -79,9 +90,13 @@ export class SettingsStore {
       next.fillerWordsCustomized = true;
     }
     this.cached = next;
+    const persisted: StoredSettings = { ...next };
+    if (patch.captureBackend === "native") {
+      persisted.nativeCaptureOptIn = true;
+    }
     this.pendingWrite = this.pendingWrite
       .catch(() => undefined)
-      .then(() => writeJsonFile(this.filePath, next))
+      .then(() => writeJsonFile(this.filePath, persisted))
       .catch((err) => {
         error("settings", `Failed to persist settings to ${this.filePath}: ${err instanceof Error ? err.message : String(err)}`);
       });

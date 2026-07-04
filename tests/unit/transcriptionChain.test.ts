@@ -339,6 +339,47 @@ describe("TranscriptionService failover chain", () => {
     expect(groqTranscribe).not.toHaveBeenCalled();
   });
 
+  it("chunks long recordings and merges the full transcript in order", async () => {
+    const groqTranscribe = vi.fn(async (nextClip: AudioClip): Promise<TranscriptionResult> => {
+      const chunkNumber = groqTranscribe.mock.calls.length;
+      return {
+        rawText: `chunk-${chunkNumber}`,
+        formattedText: `chunk-${chunkNumber}`,
+        language: "en",
+        quality: {
+          provider: "groq",
+          attemptCount: 1,
+          supportsConfidence: true,
+          avgLogprob: -0.2,
+          compressionRatio: 1,
+          noSpeechProbability: 0,
+          segmentCount: 1,
+          transcriptLength: nextClip.pcmData.length,
+        },
+      };
+    });
+    registryState.providers.set("groq", provider("groq", groqTranscribe));
+    const { TranscriptionService } = await import("@main/transcription");
+    const longClip: AudioClip = {
+      pcmData: new Array(160 * 16_000).fill(0.1),
+      sampleRate: 16_000,
+      durationSeconds: 160,
+      rmsFrames: new Array(8_000).fill(0.1),
+    };
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
+      groqApiKey: "groq-key",
+    }));
+
+    const result = await service.transcribe(longClip);
+
+    expect(groqTranscribe).toHaveBeenCalledTimes(3);
+    expect(groqTranscribe.mock.calls.map(([candidate]) => Math.round(candidate.durationSeconds))).toEqual([75, 75, 10]);
+    expect(result.rawText).toBe("chunk-1 chunk-2 chunk-3");
+    expect(result.quality?.segmentCount).toBe(3);
+  });
+
   it("skips providers that require an API key when no key resolves", async () => {
     const openaiTranscribe = vi.fn();
     registryState.providers.set("openai", provider("openai", openaiTranscribe));

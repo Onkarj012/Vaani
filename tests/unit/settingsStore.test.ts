@@ -58,6 +58,37 @@ describe("SettingsStore", () => {
     expect(store.get().extraFillerWords).toEqual([]);
   });
 
+  it("migrates stored native capture back to the renderer stabilization default", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
+    const filePath = join(tempDir, "settings.json");
+    await writeFile(filePath, JSON.stringify({
+      ...DEFAULT_SETTINGS,
+      captureBackend: "native",
+    }), "utf8");
+
+    const { SettingsStore } = await import("../../src/main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+
+    expect(store.get().captureBackend).toBe("renderer");
+  });
+
+  it("preserves native capture after an explicit opt-in update", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
+    const filePath = join(tempDir, "settings.json");
+
+    const { SettingsStore } = await import("../../src/main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+    store.update({ captureBackend: "native" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const freshStore = new SettingsStore(filePath);
+    await freshStore.init();
+
+    expect(freshStore.get().captureBackend).toBe("native");
+  });
+
   it("marks filler words customized when filler words are patched", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
     const filePath = join(tempDir, "settings.json");
