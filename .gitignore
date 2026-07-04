@@ -18,5 +18,8 @@ SingletonSocket
 graphify-out/
 bin/
 trial/
+docs/
+issues/
+prd/
 COMPARISON_REPORT.md
 VAANI_IMPROVEMENT_PLAN.md
