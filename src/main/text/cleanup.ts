@@ -79,7 +79,7 @@ interface CueMatch {
 
 function applySpokenLayout(text: string, settings: Pick<Settings, "smartPunctuation">): string {
   let next = text
-    .replace(/\s*\b(?:new\s+paragraph|new\s+para)\b[,.!?;:]?\s*/gi, "\n\n")
+    .replace(/\s*\b(?:a\s+)?(?:new\s+paragraph|new\s+para)\b[,.!?;:]?\s*/gi, "\n\n")
     .replace(/\s*\b(?:new\s+line|next\s+line)\b[,.!?;:]?\s*/gi, "\n");
 
   next = applyEnumerationLayout(next);

@@ -284,6 +284,15 @@ describe("cleanupText", () => {
     ].join("\n"));
   });
 
+  it("converts article-prefixed paragraph cues from STT artifacts", () => {
+    const result = cleanupText({
+      rawText: "important edge case a new paragraph here is another edge case",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Important edge case.\n\nHere is another edge case.");
+  });
+
   it("formats spoken point and number enumerations without breaking numeric prose", () => {
     const result = cleanupText({
       rawText: [

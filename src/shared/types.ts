@@ -85,6 +85,9 @@ export interface TranscriptionQualityMetadata {
   compressionRatio?: number | null;
   segmentCount?: number;
   transcriptLength: number;
+  chunkCount?: number;
+  chunkDurationsSeconds?: number[];
+  chunkOverlapSeconds?: number;
   decision?: TranscriptQualityDecision;
 }
 

@@ -5,7 +5,8 @@ import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { missingContentWords } from "@shared/contentGuard";
 
-const MAX_SINGLE_STT_CLIP_SECONDS = 75;
+const MAX_SINGLE_STT_CLIP_SECONDS = 30;
+const STT_CHUNK_OVERLAP_SECONDS = 2;
 
 interface TranscribeOptions {
   languageOverride?: string;
@@ -269,20 +270,23 @@ async function transcribePossiblyChunked(
     return provider.transcribe(clip, options);
   }
 
-  const chunks = splitAudioClip(clip, MAX_SINGLE_STT_CLIP_SECONDS);
+  const chunks = splitAudioClip(clip, MAX_SINGLE_STT_CLIP_SECONDS, STT_CHUNK_OVERLAP_SECONDS);
   debug("transcription", `Chunking long clip for STT: ${clip.durationSeconds.toFixed(2)}s into ${chunks.length} chunks`);
   const results: TranscriptionResult[] = [];
-  for (const chunk of chunks) {
+  for (const [index, chunk] of chunks.entries()) {
+    debug("transcription", `Transcribing chunk ${index + 1}/${chunks.length}: ${chunk.durationSeconds.toFixed(2)}s`);
     results.push(await provider.transcribe(chunk, options));
   }
 
-  return mergeChunkedTranscriptionResults(results);
+  return mergeChunkedTranscriptionResults(results, chunks);
 }
 
-function splitAudioClip(clip: AudioClip, maxDurationSeconds: number): AudioClip[] {
+function splitAudioClip(clip: AudioClip, maxDurationSeconds: number, overlapSeconds: number): AudioClip[] {
   const samplesPerChunk = Math.max(1, Math.floor(clip.sampleRate * maxDurationSeconds));
+  const overlapSamples = Math.max(0, Math.min(samplesPerChunk - 1, Math.floor(clip.sampleRate * overlapSeconds)));
+  const stepSamples = Math.max(1, samplesPerChunk - overlapSamples);
   const chunks: AudioClip[] = [];
-  for (let start = 0; start < clip.pcmData.length; start += samplesPerChunk) {
+  for (let start = 0; start < clip.pcmData.length; start += stepSamples) {
     const end = Math.min(clip.pcmData.length, start + samplesPerChunk);
     const pcmData = clip.pcmData.slice(start, end);
     chunks.push({
@@ -291,6 +295,7 @@ function splitAudioClip(clip: AudioClip, maxDurationSeconds: number): AudioClip[
       durationSeconds: pcmData.length / clip.sampleRate,
       rmsFrames: sliceRmsFramesForSamples(clip, start, end),
     });
+    if (end >= clip.pcmData.length) break;
   }
   return chunks.length > 0 ? chunks : [clip];
 }
@@ -303,17 +308,13 @@ function sliceRmsFramesForSamples(clip: AudioClip, startSample: number, endSampl
   return clip.rmsFrames.slice(startFrame, endFrame);
 }
 
-function mergeChunkedTranscriptionResults(results: TranscriptionResult[]): TranscriptionResult {
+function mergeChunkedTranscriptionResults(results: TranscriptionResult[], chunks: AudioClip[]): TranscriptionResult {
   const first = results[0];
   if (!first) {
     return { rawText: "", formattedText: "", language: null };
   }
 
-  const rawText = results
-    .map(result => result.rawText.trim())
-    .filter(Boolean)
-    .join(" ")
-    .trim();
+  const rawText = mergeTranscriptParts(results.map(result => result.rawText));
   const qualities = results.map(result => result.quality).filter((quality): quality is NonNullable<TranscriptionResult["quality"]> => !!quality);
   const segmentCount = qualities.reduce((sum, quality) => sum + (quality.segmentCount ?? 0), 0);
   return {
@@ -329,9 +330,61 @@ function mergeChunkedTranscriptionResults(results: TranscriptionResult[]): Trans
         noSpeechProbability: maxNullable(qualities.map(quality => quality.noSpeechProbability)),
         segmentCount: segmentCount > 0 ? segmentCount : undefined,
         transcriptLength: rawText.length,
+        chunkCount: chunks.length,
+        chunkDurationsSeconds: chunks.map(chunk => Number(chunk.durationSeconds.toFixed(3))),
+        chunkOverlapSeconds: STT_CHUNK_OVERLAP_SECONDS,
       }
       : first.quality,
   };
+}
+
+function mergeTranscriptParts(parts: string[]): string {
+  return parts
+    .map(part => part.trim())
+    .filter(Boolean)
+    .reduce((merged, part) => mergeTranscriptPair(merged, part), "")
+    .trim();
+}
+
+function mergeTranscriptPair(left: string, right: string): string {
+  if (!left) return right;
+  const leftWords = normalizedWords(left);
+  const rightWords = normalizedWords(right);
+  const maxOverlap = Math.min(30, leftWords.length, rightWords.length);
+  for (let count = maxOverlap; count >= 3; count -= 1) {
+    const leftTail = leftWords.slice(leftWords.length - count).join(" ");
+    const rightHead = rightWords.slice(0, count).join(" ");
+    if (leftTail === rightHead) {
+      return joinTranscriptText(left, dropFirstWords(right, count));
+    }
+  }
+  return joinTranscriptText(left, right);
+}
+
+function joinTranscriptText(left: string, right: string): string {
+  const trimmedLeft = left.trim();
+  const trimmedRight = right.trim();
+  if (!trimmedLeft) return trimmedRight;
+  if (!trimmedRight) return trimmedLeft;
+  if (/^[,.;:!?]/.test(trimmedRight)) return `${trimmedLeft}${trimmedRight}`;
+  return `${trimmedLeft} ${trimmedRight}`;
+}
+
+function normalizedWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .match(/[a-z0-9']+/g) ?? [];
+}
+
+function dropFirstWords(text: string, count: number): string {
+  let seen = 0;
+  for (const match of text.matchAll(/[a-z0-9']+/gi)) {
+    seen += 1;
+    if (seen === count) {
+      return text.slice((match.index ?? 0) + match[0].length).trimStart();
+    }
+  }
+  return "";
 }
 
 function averageNullable(values: Array<number | null | undefined>): number | null {

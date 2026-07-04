@@ -374,10 +374,57 @@ describe("TranscriptionService failover chain", () => {
 
     const result = await service.transcribe(longClip);
 
+    expect(groqTranscribe).toHaveBeenCalledTimes(6);
+    expect(groqTranscribe.mock.calls.map(([candidate]) => Math.round(candidate.durationSeconds))).toEqual([30, 30, 30, 30, 30, 20]);
+    expect(result.rawText).toBe("chunk-1 chunk-2 chunk-3 chunk-4 chunk-5 chunk-6");
+    expect(result.quality?.segmentCount).toBe(6);
+    expect(result.quality?.chunkCount).toBe(6);
+    expect(result.quality?.chunkOverlapSeconds).toBe(2);
+  });
+
+  it("deduplicates overlapped words when merging long-recording chunks", async () => {
+    const transcripts = [
+      "alpha beta gamma delta",
+      "beta gamma delta epsilon zeta",
+      "delta epsilon zeta eta",
+    ];
+    const groqTranscribe = vi.fn(async (): Promise<TranscriptionResult> => {
+      const index = groqTranscribe.mock.calls.length - 1;
+      const rawText = transcripts[index] ?? "";
+      return {
+        rawText,
+        formattedText: rawText,
+        language: "en",
+        quality: {
+          provider: "groq",
+          attemptCount: 1,
+          supportsConfidence: true,
+          avgLogprob: -0.2,
+          compressionRatio: 1,
+          noSpeechProbability: 0,
+          segmentCount: 1,
+          transcriptLength: rawText.length,
+        },
+      };
+    });
+    registryState.providers.set("groq", provider("groq", groqTranscribe));
+    const { TranscriptionService } = await import("@main/transcription");
+    const longClip: AudioClip = {
+      pcmData: new Array(62 * 16_000).fill(0.1),
+      sampleRate: 16_000,
+      durationSeconds: 62,
+      rmsFrames: new Array(3_100).fill(0.1),
+    };
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
+      groqApiKey: "groq-key",
+    }));
+
+    const result = await service.transcribe(longClip);
+
     expect(groqTranscribe).toHaveBeenCalledTimes(3);
-    expect(groqTranscribe.mock.calls.map(([candidate]) => Math.round(candidate.durationSeconds))).toEqual([75, 75, 10]);
-    expect(result.rawText).toBe("chunk-1 chunk-2 chunk-3");
-    expect(result.quality?.segmentCount).toBe(3);
+    expect(result.rawText).toBe("alpha beta gamma delta epsilon zeta eta");
   });
 
   it("skips providers that require an API key when no key resolves", async () => {

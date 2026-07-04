@@ -148,6 +148,9 @@ function normalizeQuality(value: unknown): DictationTrace["quality"] {
     compressionRatio: nullableNumber(value.compressionRatio),
     segmentCount: finiteNumber(value.segmentCount),
     transcriptLength,
+    chunkCount: finiteNumber(value.chunkCount),
+    chunkDurationsSeconds: finiteNumberArray(value.chunkDurationsSeconds),
+    chunkOverlapSeconds: finiteNumber(value.chunkOverlapSeconds),
     decision: normalizeQualityDecision(value.decision),
   };
 }
@@ -306,6 +309,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function finiteNumberArray(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const values = value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
+  return values.length > 0 ? values : undefined;
 }
 
 function nullableNumber(value: unknown): number | null | undefined {
