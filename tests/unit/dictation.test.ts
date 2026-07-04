@@ -561,6 +561,46 @@ describe("DictationService", () => {
     });
   });
 
+  it("prompts for a delayed camel-case product name correction", async () => {
+    const { service, overlay, settings, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({
+      rawText: "I'm making a latex editor called writex",
+      formattedText: "I'm making a LaTeX editor called WriteX.",
+      language: "en"
+    });
+    transcription.formatTranscript.mockResolvedValue("I'm making a LaTeX editor called WriteX.");
+    const nativeBridge = await import("@main/nativeBridge");
+    const inserted = "I'm making a LaTeX editor called WriteX.";
+    const corrected = "I'm making a LaTeX editor called WriteTex.";
+    const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce(inserted)
+      .mockReturnValue(inserted);
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(5_000);
+    await Promise.resolve();
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
+
+    getFocusedValue.mockReturnValue(corrected);
+    vi.advanceTimersByTime(1_500);
+    await Promise.resolve();
+
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("WriteX", "WriteTex", expect.any(Function));
+    expect(settings.update).toHaveBeenCalledWith({
+      customCorrections: [{ spoken: "WriteX", written: "WriteTex", source: "auto-suggested" }]
+    });
+  });
+
   it("can learn from edits even when insertion verification was unreadable", async () => {
     const { service, overlay, settings, transcription } = createDictationService();
     transcription.transcribe.mockResolvedValue({

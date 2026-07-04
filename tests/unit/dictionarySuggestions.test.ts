@@ -68,6 +68,15 @@ describe("detectDictionarySuggestions", () => {
     expect(result[0]?.written).toBe("Grok");
   });
 
+  it("detects camel-case product name corrections", () => {
+    expect(detectDictionarySuggestions(
+      "I'm making a LaTeX editor called WriteX.",
+      "I'm making a LaTeX editor called WriteTex."
+    )).toEqual([
+      { spoken: "WriteX", written: "WriteTex" }
+    ]);
+  });
+
   it("no prompt when edit distance too large (unrelated rewrite)", () => {
     expect(detectDictionarySuggestions("hello everyone", "goodbye world")).toEqual([]);
   });
