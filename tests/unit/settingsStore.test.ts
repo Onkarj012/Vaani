@@ -89,6 +89,79 @@ describe("SettingsStore", () => {
     expect(freshStore.get().captureBackend).toBe("native");
   });
 
+  it("preserves native capture opt-in across unrelated updates", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
+    const filePath = join(tempDir, "settings.json");
+
+    const { SettingsStore } = await import("../../src/main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+    store.update({ captureBackend: "native" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const reloaded = new SettingsStore(filePath);
+    await reloaded.init();
+    reloaded.update({ saveRecordings: true });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const freshStore = new SettingsStore(filePath);
+    await freshStore.init();
+
+    expect(freshStore.get().captureBackend).toBe("native");
+  });
+
+  it("migrates implicit warm mic settings back to the idle-off default", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
+    const filePath = join(tempDir, "settings.json");
+    await writeFile(filePath, JSON.stringify({
+      ...DEFAULT_SETTINGS,
+      preWarmMic: true,
+    }), "utf8");
+
+    const { SettingsStore } = await import("../../src/main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+
+    expect(store.get().preWarmMic).toBe(false);
+  });
+
+  it("preserves warm mic after an explicit low latency opt-in update", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
+    const filePath = join(tempDir, "settings.json");
+
+    const { SettingsStore } = await import("../../src/main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+    store.update({ preWarmMic: true });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const freshStore = new SettingsStore(filePath);
+    await freshStore.init();
+
+    expect(freshStore.get().preWarmMic).toBe(true);
+  });
+
+  it("preserves warm mic opt-in across unrelated updates", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
+    const filePath = join(tempDir, "settings.json");
+
+    const { SettingsStore } = await import("../../src/main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+    store.update({ preWarmMic: true });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const reloaded = new SettingsStore(filePath);
+    await reloaded.init();
+    reloaded.update({ saveRecordings: true });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const freshStore = new SettingsStore(filePath);
+    await freshStore.init();
+
+    expect(freshStore.get().preWarmMic).toBe(true);
+  });
+
   it("marks filler words customized when filler words are patched", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
     const filePath = join(tempDir, "settings.json");

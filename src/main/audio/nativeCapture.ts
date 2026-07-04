@@ -71,7 +71,7 @@ export class NativeCaptureService implements RecorderCommands {
   private lastReportedAt = 0;
   private smoothedBars = new Array(VISUAL_BAR_COUNT).fill(BAR_BASELINE);
   private currentDeviceUid: string | null = null;
-  private currentConfig: RecorderConfig = { preWarmMic: true, captureBackend: "renderer" };
+  private currentConfig: RecorderConfig = { preWarmMic: false, captureBackend: "renderer" };
   private startPromise: Promise<boolean> | null = null;
 
   constructor(
@@ -235,7 +235,7 @@ export class NativeCaptureService implements RecorderCommands {
   private normalizeConfig(config: RecorderConfig): RecorderConfig {
     return {
       micDeviceId: config.micDeviceId,
-      preWarmMic: config.preWarmMic ?? true,
+      preWarmMic: config.preWarmMic ?? false,
       captureBackend: config.captureBackend ?? "renderer",
     };
   }

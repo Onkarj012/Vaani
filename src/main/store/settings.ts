@@ -7,6 +7,7 @@ import { readJsonFile, writeJsonFile } from "./base";
 
 type StoredSettings = Partial<Settings> & {
   nativeCaptureOptIn?: boolean;
+  preWarmMicOptIn?: boolean;
 };
 
 const LEGACY_DEFAULT_FILLER_WORDS = [
@@ -32,6 +33,8 @@ export class SettingsStore {
   private cached: Settings | null = null;
   private readonly filePath: string;
   private pendingWrite: Promise<void> = Promise.resolve();
+  private nativeCaptureOptedIn = false;
+  private preWarmMicOptedIn = false;
 
   constructor(filePath = join(app.getPath("home"), APP_DATA_DIR, "settings.json")) {
     this.filePath = filePath;
@@ -45,8 +48,11 @@ export class SettingsStore {
   private async load(): Promise<Settings> {
     const stored = await readJsonFile<StoredSettings>(this.filePath, {});
     const migrated = await this.migrateSettings(stored);
+    this.nativeCaptureOptedIn = migrated.nativeCaptureOptIn === true;
+    this.preWarmMicOptedIn = migrated.preWarmMicOptIn === true;
     const publicSettings = { ...migrated };
     delete publicSettings.nativeCaptureOptIn;
+    delete publicSettings.preWarmMicOptIn;
     this.cached = { ...DEFAULT_SETTINGS, ...publicSettings, theme: "aurora" };
     return this.cached;
   }
@@ -78,6 +84,11 @@ export class SettingsStore {
       changed = true;
     }
 
+    if (next.preWarmMic === true && next.preWarmMicOptIn !== true) {
+      next.preWarmMic = DEFAULT_SETTINGS.preWarmMic;
+      changed = true;
+    }
+
     if (changed) {
       await writeJsonFile(this.filePath, next);
     }
@@ -92,7 +103,20 @@ export class SettingsStore {
     this.cached = next;
     const persisted: StoredSettings = { ...next };
     if (patch.captureBackend === "native") {
+      this.nativeCaptureOptedIn = true;
+    } else if (patch.captureBackend === "renderer") {
+      this.nativeCaptureOptedIn = false;
+    }
+    if (this.nativeCaptureOptedIn && persisted.captureBackend === "native") {
       persisted.nativeCaptureOptIn = true;
+    }
+    if (patch.preWarmMic === true) {
+      this.preWarmMicOptedIn = true;
+    } else if (patch.preWarmMic === false) {
+      this.preWarmMicOptedIn = false;
+    }
+    if (this.preWarmMicOptedIn && persisted.preWarmMic === true) {
+      persisted.preWarmMicOptIn = true;
     }
     this.pendingWrite = this.pendingWrite
       .catch(() => undefined)

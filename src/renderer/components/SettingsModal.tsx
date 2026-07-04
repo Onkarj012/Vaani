@@ -467,7 +467,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <Row title="Save Recordings" desc="Save WAV files to disk for replay">
             <Toggle checked={settings.saveRecordings} onChange={(v) => updateSettings({ saveRecordings: v })} />
           </Row>
-          <Row title="Keep Microphone Warm" desc="Start capture instantly with recent pre-roll">
+          <Row title="Low Latency Mode" desc="Keeps the microphone open between dictations">
             <Toggle checked={settings.preWarmMic} onChange={(v) => updateSettings({ preWarmMic: v })} />
           </Row>
           <div>

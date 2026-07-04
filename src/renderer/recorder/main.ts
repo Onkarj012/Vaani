@@ -43,7 +43,7 @@ let processorNode: PcmProcessorNode | null = null;
 let ringBuffer = new PcmRingBuffer(Math.floor(DEFAULT_INPUT_SAMPLE_RATE * PRE_ROLL_MS / 1000));
 let activeSessionId: string | null = null;
 let previousInputDevice: number | null = null;
-let currentConfig: RecorderConfig = { preWarmMic: true };
+let currentConfig: RecorderConfig = { preWarmMic: false };
 let captureConfigKey: string | null = null;
 let capturePromise: Promise<void> | null = null;
 let sessionChunks: Float32Array[] = [];
@@ -69,7 +69,7 @@ async function initializeRecorder(): Promise<void> {
   try {
     currentConfig = normalizeConfig(await window.__VAANI_RECORDER__.getRecorderConfig());
   } catch {
-    currentConfig = { preWarmMic: true };
+    currentConfig = { preWarmMic: false };
   }
 
   await window.__VAANI_RECORDER__.reportRecorderReady();
@@ -351,7 +351,7 @@ function recorderConfigKey(config: RecorderConfig): string {
 function normalizeConfig(config: RecorderConfig | undefined): RecorderConfig {
   return {
     micDeviceId: config?.micDeviceId,
-    preWarmMic: config?.preWarmMic ?? true,
+    preWarmMic: config?.preWarmMic ?? false,
     captureBackend: config?.captureBackend ?? "renderer",
   };
 }

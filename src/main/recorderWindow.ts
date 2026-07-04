@@ -15,7 +15,7 @@ export class RecorderWindowController {
   private pendingCommand: { channel: IpcChannel.StartRecording | IpcChannel.StopRecording; sessionId: string } | null = null;
   private initPromise: Promise<void> | null = null;
 
-  constructor(private readonly getConfig: () => RecorderConfig = () => ({ preWarmMic: true })) {}
+  constructor(private readonly getConfig: () => RecorderConfig = () => ({ preWarmMic: false })) {}
 
   isReady(): boolean {
     return this.ready && !!this.window && !this.window.isDestroyed();
