@@ -95,11 +95,20 @@ describe("cleanupText", () => {
 
   it("normalizes common LLM dictation artifacts", () => {
     const result = cleanupText({
-      rawText: "send this to the llmn cleanup step for the Vani app",
+      rawText: "send this to the llmn cleanup step for the Bani app",
       settings: createSettings()
     });
 
     expect(result).toBe("Send this to the LLM cleanup step for the Vaani app.");
+  });
+
+  it("normalizes dictated proper nouns in sentinel phrases", () => {
+    const result = cleanupText({
+      rawText: "the final word after the pause is BANI new paragraph the final sentence should end with the word google",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("The final word after the pause is Vaani.\n\nThe final sentence should end with the word Google.");
   });
 
   it("preserves trailing Vaani as spoken content", () => {

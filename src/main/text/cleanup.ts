@@ -48,7 +48,8 @@ function normalizeWhitespace(text: string): string {
 function normalizeCommonDictationArtifacts(text: string): string {
   return text
     .replace(/\bllmn\b/gi, "LLM")
-    .replace(/\b[wv]ani\b/gi, "Vaani");
+    .replace(/\b[bwv]ani\b/gi, "Vaani")
+    .replace(/\b(word|term|phrase|sentence\s+is|file\s+(?:is\s+)?(?:named|called))\s+google\b/gi, (_match, prefix: string) => `${prefix} Google`);
 }
 
 const ORDINAL_WORDS: Record<string, number> = {
