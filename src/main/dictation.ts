@@ -51,7 +51,7 @@ const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
 const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 const EDIT_WATCH_INTERVAL_MS = 500;
-const EDIT_WATCH_TIMEOUT_MS = 12_000;
+const EDIT_WATCH_TIMEOUT_MS = 60_000;
 const EDIT_PROMPT_IDLE_MS = 1_000;
 const INSERTION_VERIFY_DELAY_MS = 180;
 
@@ -462,13 +462,14 @@ export class DictationService {
           debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         } else {
-          debug("editwatch", "not-armed-injection-unverified", { reason: verification.reason, appBundleId: target.appBundleId, appName: target.appName });
           await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
           void this.finishTrace(payload.sessionId, "saved", "insertion_failed", "Saved to history", {
             injectionMethod: null,
             stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: verification },
           });
           this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage);
+          debug("editwatch", "arming-unverified-injection", { reason: verification.reason, appBundleId: target.appBundleId, appName: target.appName });
+          this.watchForManualEdits(cleanedText, target);
         }
       } else {
         debug("editwatch", "not-armed-injection-saved", { appBundleId: target.appBundleId, appName: target.appName });

@@ -522,6 +522,84 @@ describe("DictationService", () => {
     });
   });
 
+  it("keeps watching long enough for a delayed manual correction", async () => {
+    const { service, overlay, settings, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({
+      rawText: "the final word after the pause is Baani",
+      formattedText: "the final word after the pause is Baani",
+      language: "en"
+    });
+    const nativeBridge = await import("@main/nativeBridge");
+    const inserted = "The final word after the pause is Baani.";
+    const corrected = "The final word after the pause is Vaani.";
+    const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce(inserted)
+      .mockReturnValue(inserted);
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(20_000);
+    await Promise.resolve();
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
+
+    getFocusedValue.mockReturnValue(corrected);
+    vi.advanceTimersByTime(1_500);
+    await Promise.resolve();
+
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Baani", "Vaani", expect.any(Function));
+    expect(settings.update).toHaveBeenCalledWith({
+      customCorrections: [{ spoken: "Baani", written: "Vaani", source: "auto-suggested" }]
+    });
+  });
+
+  it("can learn from edits even when insertion verification was unreadable", async () => {
+    const { service, overlay, settings, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({
+      rawText: "the final word after the pause is Baani",
+      formattedText: "the final word after the pause is Baani",
+      language: "en"
+    });
+    const nativeBridge = await import("@main/nativeBridge");
+    const inserted = "The final word after the pause is Baani.";
+    const corrected = "The final word after the pause is Vaani.";
+    const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(inserted)
+      .mockReturnValue(inserted);
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    getFocusedValue.mockReturnValue(corrected);
+    vi.advanceTimersByTime(1_500);
+    await Promise.resolve();
+
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Baani", "Vaani", expect.any(Function));
+    expect(settings.update).toHaveBeenCalledWith({
+      customCorrections: [{ spoken: "Baani", written: "Vaani", source: "auto-suggested" }]
+    });
+  });
+
   it("ignores stale dictionary undo responses from an older generation", async () => {
     const { service, overlay, settings } = createDictationService();
     const mutable = makeSettingsMutable(settings);
