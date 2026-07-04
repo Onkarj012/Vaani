@@ -126,15 +126,14 @@ export class NativeCaptureService implements RecorderCommands {
       const chunksAtStop = this.chunks.slice();
       this.activeSessionId = null;
       this.chunks = [];
-      if (!this.currentConfig.preWarmMic) {
-        this.shutdown();
-      }
       const merged = mergePcmChunks(chunksAtStop);
       if (merged.length === 0) {
+        this.restartCaptureIfPrewarmed();
         this.sink.handleRecorderFailure({ sessionId, message: "Recording could not be finalized." });
         return;
       }
       void this.sink.submitAudioClip({ sessionId, clip: pcmToAudioClip(merged, TARGET_SAMPLE_RATE) });
+      this.restartCaptureIfPrewarmed();
     };
 
     const poll = (): void => {
@@ -148,16 +147,17 @@ export class NativeCaptureService implements RecorderCommands {
       setTimeout(poll, STOP_POLL_MS);
     };
 
-    setTimeout(poll, STOP_TAIL_GRACE_MS);
+    setTimeout(() => {
+      if (this.activeSessionId !== sessionId) return;
+      this.lastChunkAt = Date.now();
+      this.stopCaptureTransport();
+      poll();
+    }, STOP_TAIL_GRACE_MS);
     return true;
   }
 
   shutdown(): void {
-    try {
-      this.bridge.audioCaptureStop?.();
-    } catch (err) {
-      error("native-capture", `stop failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    this.stopCaptureTransport();
     this.currentDeviceUid = null;
     this.activeSessionId = null;
     this.chunks = [];
@@ -216,6 +216,24 @@ export class NativeCaptureService implements RecorderCommands {
     this.shutdown();
     if (sessionId) {
       this.sink.handleRecorderFailure({ sessionId, message });
+    }
+  }
+
+  private stopCaptureTransport(): void {
+    try {
+      this.bridge.audioCaptureStop?.();
+    } catch (err) {
+      error("native-capture", `stop failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    this.currentDeviceUid = null;
+  }
+
+  private restartCaptureIfPrewarmed(): void {
+    if (!this.currentConfig.preWarmMic || this.currentConfig.captureBackend === "renderer") return;
+    try {
+      this.ensureCapture(this.currentConfig);
+    } catch (err) {
+      error("native-capture", `prewarm restart failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

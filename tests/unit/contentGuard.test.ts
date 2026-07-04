@@ -88,7 +88,7 @@ describe("preservesContentWords", () => {
     expect(addedContentWords(
       "what is the status",
       "What is the status. The answer to your question is 42 because it is ready."
-    )).toEqual(["the", "answer", "to", "your", "question", "is", "because", "it", "is", "ready"]);
+    )).toEqual(["the", "answer", "to", "your", "question", "is", "42", "because", "it", "is", "ready"]);
   });
 
   it("forgives digits introduced by enumeration cue conversion", () => {
@@ -96,5 +96,12 @@ describe("preservesContentWords", () => {
       "point one change provider point two restart",
       "1. Change provider\n2. Restart"
     )).toEqual([]);
+  });
+
+  it("counts newly added standalone numbers outside enumeration conversion", () => {
+    expect(addedContentWords(
+      "change provider and restart",
+      "Change provider and restart. 2"
+    )).toEqual(["2"]);
   });
 });

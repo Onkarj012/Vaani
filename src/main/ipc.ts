@@ -80,11 +80,10 @@ function sanitizeManualCustomCorrections(entries: Array<Partial<CustomCorrection
     const written = entry.written.trim();
     if (!spoken || !written) return [];
     if (spoken.length > MAX_CUSTOM_CORRECTION_TEXT_LENGTH || written.length > MAX_CUSTOM_CORRECTION_TEXT_LENGTH) return [];
-    const source = entry.source === "auto-suggested" || entry.source === "manual" ? entry.source : "manual";
     return [{
       spoken,
       written,
-      source,
+      source: "manual",
     }];
   });
 }

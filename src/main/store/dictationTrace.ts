@@ -100,8 +100,8 @@ function normalizeTraces(raw: unknown): DictationTrace[] {
       injectionAttempts: normalizeInjectionAttempts(item.injectionAttempts),
       injectionMethod: normalizeInjectionMethod(item.injectionMethod),
       stages: normalizeStages(item.stages),
-      outcome: normalizeOutcome(item.outcome),
-      rejectionReason: typeof item.rejectionReason === "string" ? item.rejectionReason as DictationTrace["rejectionReason"] : undefined,
+      outcome: normalizeOutcome(item.outcome) ?? "started",
+      rejectionReason: normalizeRejectionReason(item.rejectionReason),
       userMessage: typeof item.userMessage === "string" ? item.userMessage : undefined,
     }))
     .slice(0, DICTATION_TRACE_LIMIT);
@@ -218,7 +218,7 @@ function normalizeStages(value: unknown): DictationTrace["stages"] {
   const insertionVerification = normalizeInsertionVerification(value.insertionVerification);
   if (insertionVerification) stages.insertionVerification = insertionVerification;
   const outcome = normalizeOutcome(value.outcome);
-  if (typeof value.outcome === "string") stages.outcome = outcome;
+  if (outcome) stages.outcome = outcome;
   const qualityDecision = normalizeStageQualityDecision(value.qualityDecision);
   if (qualityDecision) stages.qualityDecision = qualityDecision;
   const verdict = normalizeContentGuardVerdict(value.contentGuardVerdict);
@@ -280,16 +280,33 @@ function normalizeCorrectionsApplied(value: unknown): NonNullable<DictationTrace
   return corrections.length > 0 ? corrections : undefined;
 }
 
-function normalizeOutcome(value: unknown): DictationTrace["outcome"] {
+function normalizeOutcome(value: unknown): DictationTrace["outcome"] | undefined {
   switch (value) {
     case "injected":
     case "saved":
     case "rejected":
     case "failed":
     case "cancelled":
+    case "started":
       return value;
     default:
-      return "started";
+      return undefined;
+  }
+}
+
+function normalizeRejectionReason(value: unknown): DictationTrace["rejectionReason"] {
+  switch (value) {
+    case "no_speech":
+    case "fragment":
+    case "recorder_unavailable":
+    case "recorder_failure":
+    case "timeout":
+    case "transcription_error":
+    case "insertion_failed":
+    case "cancelled":
+      return value;
+    default:
+      return undefined;
   }
 }
 

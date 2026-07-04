@@ -57,7 +57,7 @@ export function decideTranscriptInsertion(
   const lowSpeechAudio = looksLikeLowSpeechAudio(clip);
   const lowConfidence = hasLowProviderConfidence(quality);
 
-  if (HALLUCINATION_SUBSTRINGS.some((phrase) => normalized.includes(phrase.toLowerCase()))) {
+  if (HALLUCINATION_SUBSTRINGS.some((phrase) => normalized.includes(phrase.toLowerCase())) && (lowSpeechAudio || lowConfidence)) {
     return { action: "retry", reason: "known-hallucination-phrase" };
   }
 
@@ -67,10 +67,6 @@ export function decideTranscriptInsertion(
 
   if (quality?.noSpeechProbability != null && quality.noSpeechProbability >= 0.6) {
     return { action: "retry", reason: "provider-no-speech-probability" };
-  }
-
-  if (lowSpeechAudio && isPredominantlyNonLatin(text)) {
-    return { action: "retry", reason: "script-mismatch-quiet-audio" };
   }
 
   if (quality?.confidence != null && quality.confidence < 0.35) {
@@ -115,11 +111,4 @@ function looksLikeLowSpeechAudio(clip: Pick<AudioClip, "rmsFrames">): boolean {
   const maxRms = Math.max(...clip.rmsFrames);
   const avgRms = clip.rmsFrames.reduce((sum, value) => sum + value, 0) / clip.rmsFrames.length;
   return maxRms < 0.002 || (maxRms < 0.0035 && avgRms < 0.0015);
-}
-
-function isPredominantlyNonLatin(text: string): boolean {
-  const letters = text.match(/\p{L}/gu) ?? [];
-  if (letters.length === 0) return false;
-  const nonLatin = letters.filter((ch) => !/[\p{Script=Latin}]/u.test(ch)).length;
-  return nonLatin / letters.length > 0.5;
 }

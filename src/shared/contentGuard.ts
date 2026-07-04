@@ -28,7 +28,6 @@ const CUE_WORDS = new Set(tokenizeText([
   "bullet point number no point item",
   "first second third fourth fifth",
   "item bullet point step",
-  "one two three four five six seven eight nine ten",
 ].join(" ")));
 
 function normalizeToken(token: string): string {
@@ -75,6 +74,13 @@ function candidateFormatting(candidate: string): { ignoreLineBreakCues: boolean;
   };
 }
 
+function hasEnumerationCue(text: string): boolean {
+  ENUM_CUE_RE.lastIndex = 0;
+  const matched = ENUM_CUE_RE.test(text);
+  ENUM_CUE_RE.lastIndex = 0;
+  return matched;
+}
+
 export function preservesContentWords(rawText: string, candidate: string): boolean {
   return missingContentWords(rawText, candidate).length === 0;
 }
@@ -101,9 +107,10 @@ export function addedContentWords(rawText: string, candidate: string): string[] 
     ignoreEnumCues: true,
   });
   const added: string[] = [];
+  const allowEnumerationDigits = LIST_MARKER_RE.test(candidate) && hasEnumerationCue(rawText);
 
   for (const word of tokenizeText(candidate)) {
-    if (PURE_NUMBER_RE.test(word) || FILLER_WORDS.has(word) || CUE_WORDS.has(word)) {
+    if ((allowEnumerationDigits && PURE_NUMBER_RE.test(word)) || FILLER_WORDS.has(word) || CUE_WORDS.has(word)) {
       continue;
     }
 

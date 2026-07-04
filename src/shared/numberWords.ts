@@ -16,15 +16,32 @@ export function parseNumberWords(phrase: string): number | null {
   if (tokens.length === 0) return null;
   let total = 0;
   let current = 0;
+  let sawHundred = false;
+  let sawTens = false;
+  let sawOnes = false;
   for (const token of tokens) {
     const ones = NUMBER_ONES[token];
     const tens = NUMBER_TENS[token];
     if (ones !== undefined) {
+      if (sawTens) {
+        if (ones >= 10 || current % 10 !== 0) return null;
+      } else if (sawOnes) {
+        return null;
+      } else if (sawHundred && current % 100 !== 0) {
+        return null;
+      }
       current += ones;
+      sawOnes = true;
     } else if (tens !== undefined) {
+      if (sawTens || current % 100 !== 0) return null;
       current += tens;
+      sawTens = true;
     } else if (token === "hundred") {
+      if (sawHundred || current > 9) return null;
       current = (current || 1) * 100;
+      sawHundred = true;
+      sawTens = false;
+      sawOnes = false;
     } else {
       return null;
     }

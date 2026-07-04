@@ -483,7 +483,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="flex items-center justify-between rounded-2xl bg-surface p-4">
             <div className="flex items-center gap-3">
               <Mic size={16} className="text-muted" />
-              <div><div className="text-sm text-ink">{settings.captureBackend === 'native' ? 'Native Voice Processing' : 'Browser Capture'}</div><div className="text-xs text-faint">Renderer capture is the default reliability path</div></div>
+              <div><div className="text-sm text-ink">{settings.captureBackend === 'native' ? 'Native Voice Processing' : 'Browser Capture'}</div><div className="text-xs text-faint">{settings.captureBackend === 'native' ? 'Falls back to browser capture automatically if native fails' : 'Renderer capture is the default reliability path'}</div></div>
             </div>
             <HardDrive size={14} className="text-faint" />
           </div>

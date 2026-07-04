@@ -206,7 +206,7 @@ describe("cleanupText", () => {
     expect(cleanupText({
       rawText: "the price is one fifty",
       settings: createSettings()
-    })).toBe("The price is 51.");
+    })).toBe("The price is one fifty.");
 
     expect(cleanupText({
       rawText: "the total is one hundred",

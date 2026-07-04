@@ -362,7 +362,11 @@ export class OverlayController {
     this.pendingPromptResponder = null;
     this.resetPromptWindowState();
     if (!this.window || this.window.isDestroyed()) return;
-    setTimeout(() => this.hide(), 400);
+    this.clearHideTimer();
+    this.hideTimer = setTimeout(() => {
+      this.hideTimer = null;
+      if (!this.promptActive) this.hide();
+    }, 400);
   }
 
   private resetPromptWindowState(): void {

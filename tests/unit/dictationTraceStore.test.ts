@@ -113,7 +113,11 @@ describe("DictationTraceStore", () => {
       injectionAttempts: [
         { targetAppBundleId: 42, targetAppName: "TextEdit", method: "bad", success: true },
       ],
-      outcome: "saved",
+      stages: {
+        outcome: "nonsense",
+      },
+      outcome: "nonsense",
+      rejectionReason: "not_a_reason",
     }]), "utf8");
 
     const { DictationTraceStore } = await import("@main/store/dictationTrace");
@@ -129,5 +133,8 @@ describe("DictationTraceStore", () => {
     expect(loaded?.providerAttempts?.[0]?.quality?.noSpeechProbability).toBe(0.8);
     expect(loaded?.injectionAttempts?.[0]).toMatchObject({ targetAppBundleId: null, targetAppName: "TextEdit", success: true });
     expect(loaded?.injectionAttempts?.[0]?.method).toBeUndefined();
+    expect(loaded?.outcome).toBe("started");
+    expect(loaded?.rejectionReason).toBeUndefined();
+    expect(loaded?.stages?.outcome).toBeUndefined();
   });
 });

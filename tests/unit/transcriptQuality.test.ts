@@ -88,4 +88,18 @@ describe("decideTranscriptInsertion", () => {
       reason: "known-hallucination-phrase",
     });
   });
+
+  it("does not reject non-Latin speech solely because the audio is quiet", () => {
+    expect(decideTranscriptInsertion("こんにちは 世界 今日は テスト です", quietClip)).toEqual({
+      action: "insert",
+      reason: "passed",
+    });
+  });
+
+  it("allows known outro phrases when audio quality indicates real speech", () => {
+    expect(decideTranscriptInsertion("thanks for watching the demo", speechClip)).toEqual({
+      action: "insert",
+      reason: "passed",
+    });
+  });
 });
