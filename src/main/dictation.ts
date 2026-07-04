@@ -749,8 +749,15 @@ export class DictationService {
       if (currentValue === null) return;
 
       if (baseline === null) {
+        const correctedCandidate = extractCorrectedInsertedText(insertedText, currentValue, insertedText);
+        const suggestionCount = correctedCandidate && correctedCandidate !== insertedText
+          ? detectDictionarySuggestions(insertedText, correctedCandidate).length
+          : 0;
         baseline = currentValue;
-        debug("editwatch", "baseline-recovered");
+        debug("editwatch", "baseline-recovered", { correctedOnFirstRead: suggestionCount > 0 });
+        if (correctedCandidate && suggestionCount > 0) {
+          this.scheduleEditPrompt(insertedText, correctedCandidate);
+        }
         return;
       }
       if (currentValue === baseline || currentValue === insertedText) return;
