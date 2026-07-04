@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { InjectionFailureReason, SelectionRange } from "@shared/types";
+import type { AudioInputDevice, InjectionFailureReason, SelectionRange } from "@shared/types";
 import { debug } from "@main/log";
 
 const require = createRequire(import.meta.url);
@@ -34,6 +34,14 @@ interface NativeBridge {
   whisperIsModelLoaded?: () => boolean;
   whisperFreeModel?: () => void;
   whisperListModels?: (modelsDir: string) => string[];
+  audioCaptureStart?: (options: {
+    deviceUid?: string;
+    onData: (payload: Float32Array) => void;
+    onError: (message: string) => void;
+  }) => boolean;
+  audioCaptureStop?: () => void;
+  audioCaptureListInputDevices?: () => AudioInputDevice[];
+  audioCaptureIsRunning?: () => boolean;
 }
 
 let cachedBridge: NativeBridge | null = null;

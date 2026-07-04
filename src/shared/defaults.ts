@@ -45,6 +45,8 @@ export const DEFAULT_SETTINGS: Settings = {
   offlineMode: "auto",
   contextAwarenessEnabled: false,
   micDeviceId: undefined,
+  preWarmMic: true,
+  captureBackend: "renderer",
   stylePreset: "plain",
   // Onboarding tracking
   dictionaryOnboarded: false,

@@ -13,6 +13,7 @@ import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
 import { createExportPayload } from '@renderer/exportData'
+import type { AudioInputDevice } from '@shared/types'
 
 const sidebarItems = [
   { id: 'api', label: 'API & Providers', icon: Plug },
@@ -205,10 +206,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [newProfileName, setNewProfileName] = useState('')
   const [newProfileBundleId, setNewProfileBundleId] = useState('')
   const [newProfileLanguage, setNewProfileLanguage] = useState('auto')
+  const [audioDevices, setAudioDevices] = useState<AudioInputDevice[]>([])
 
   useEffect(() => {
     if (!isOpen) return
     void window.vaani.getAppVersion().then(setAppVersion).catch(() => setAppVersion(null))
+    void window.vaani.listAudioInputDevices().then(setAudioDevices).catch(() => setAudioDevices([]))
   }, [isOpen])
 
   useEffect(() => { setCustomHex(settings.accentColor) }, [settings.accentColor])
@@ -260,6 +263,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const activeStt = sttProviders.find((p) => p.id === settings.transcriptionProvider)
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider)
   const activeLlmModels = activeLlm?.models ?? []
+  const physicalAudioDevices = audioDevices.filter((device) => device.isPhysical)
+  const microphoneOptions = [
+    { value: '', label: 'Automatic physical microphone' },
+    ...physicalAudioDevices.map((device) => ({
+      value: device.uid,
+      label: `${device.name || 'Microphone'}${device.isDefault ? ' (Default)' : ''}`,
+    })),
+  ]
 
   const sectionContent = (
     <div className="space-y-6">
@@ -434,6 +445,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       {activeSection === 'dictation' && (
         <div className="space-y-5">
           <div>
+            <FieldLabel>Capture Backend</FieldLabel>
+            <Select
+              value={settings.captureBackend ?? 'renderer'}
+              onChange={(v) => updateSettings({ captureBackend: v as typeof settings.captureBackend })}
+              options={[
+                { value: 'renderer', label: 'Browser capture (recommended)' },
+                { value: 'native', label: 'Native voice processing (experimental)' },
+              ]}
+            />
+            <p className="mt-1.5 text-xs text-faint">Native capture is experimental and falls back to browser capture if it cannot start.</p>
+          </div>
+          <div>
             <FieldLabel>Dictation Mode</FieldLabel>
             <div className="space-y-2">
               {dictationModes.map((mode) => (
@@ -444,10 +467,23 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <Row title="Save Recordings" desc="Save WAV files to disk for replay">
             <Toggle checked={settings.saveRecordings} onChange={(v) => updateSettings({ saveRecordings: v })} />
           </Row>
+          <Row title="Keep Microphone Warm" desc="Start capture instantly with recent pre-roll">
+            <Toggle checked={settings.preWarmMic} onChange={(v) => updateSettings({ preWarmMic: v })} />
+          </Row>
+          <div>
+            <FieldLabel>Microphone</FieldLabel>
+            <Select
+              value={settings.micDeviceId ?? ''}
+              onChange={(v) => updateSettings({ micDeviceId: v || undefined })}
+              options={microphoneOptions}
+              dropUp
+            />
+            <p className="mt-1.5 text-xs text-faint">Virtual and aggregate devices are skipped for native capture.</p>
+          </div>
           <div className="flex items-center justify-between rounded-2xl bg-surface p-4">
             <div className="flex items-center gap-3">
               <Mic size={16} className="text-muted" />
-              <div><div className="text-sm text-ink">Automatic Microphone</div><div className="text-xs text-faint">Prefers built-in/physical mics and skips virtual loopback inputs</div></div>
+              <div><div className="text-sm text-ink">{settings.captureBackend === 'native' ? 'Native Voice Processing' : 'Browser Capture'}</div><div className="text-xs text-faint">Renderer capture is the default reliability path</div></div>
             </div>
             <HardDrive size={14} className="text-faint" />
           </div>

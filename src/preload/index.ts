@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
-import type { DictationState, PermissionStatus, UpdateNotificationPayload, VaaniAPI } from "@shared/types";
+import type { AudioInputDevice, DictationState, PermissionStatus, UpdateNotificationPayload, VaaniAPI } from "@shared/types";
 
 function subscribe<T>(channel: IpcChannel, cb: (payload: T) => void): () => void {
   const listener = (_e: Electron.IpcRendererEvent, payload: T) => cb(payload);
@@ -33,6 +33,7 @@ const api: VaaniAPI = {
   showDictionaryPrompt: (suggestions: DictionarySuggestion[]) => ipcRenderer.invoke(IpcChannel.ShowDictionaryPrompt, suggestions),
   purgeAutoSuggestedCorrections: () => ipcRenderer.invoke(IpcChannel.PurgeAutoSuggestedCorrections),
   getPermissionStatus: () => ipcRenderer.invoke(IpcChannel.GetPermissionStatus),
+  listAudioInputDevices: () => ipcRenderer.invoke(IpcChannel.ListAudioInputDevices) as Promise<AudioInputDevice[]>,
   requestMicrophonePermission: () => ipcRenderer.invoke(IpcChannel.RequestMicrophonePermission),
   requestAccessibilityPermission: () => ipcRenderer.invoke(IpcChannel.RequestAccessibilityPermission),
   openPermissionSettings: (permission) => ipcRenderer.invoke(IpcChannel.OpenPermissionSettings, permission),

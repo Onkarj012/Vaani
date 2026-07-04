@@ -47,6 +47,16 @@ export interface AudioVisualFrame {
   bars: number[];
 }
 
+export type CaptureBackend = "native" | "renderer";
+
+export interface AudioInputDevice {
+  uid: string;
+  name: string;
+  transportType: string;
+  isDefault: boolean;
+  isPhysical: boolean;
+}
+
 export interface AudioQualityMetrics {
   durationSeconds: number;
   sampleRate: number;
@@ -97,6 +107,14 @@ export interface InjectionAttemptTrace {
   method?: InjectionMethod | null;
   success: boolean;
   fallbackReason?: string;
+  verification?: InsertionVerificationTrace;
+}
+
+export interface InsertionVerificationTrace {
+  readable: boolean;
+  passed: boolean;
+  repaired: boolean;
+  reason?: "expected-present" | "unreadable" | "partial-suffix-repaired" | "partial-unsafe" | "missing" | "not-at-target";
 }
 
 export type DictationFormatterUsed = "llm" | "guard-fallback" | "deterministic" | "none";
@@ -128,6 +146,7 @@ export interface DictationStageSnapshot {
   correctionsApplied?: DictationCorrectionTrace[];
   injectedText?: string;
   injectionStrategy?: InjectionMethod | "none";
+  insertionVerification?: InsertionVerificationTrace;
   outcome?: DictationTraceOutcome;
 }
 
@@ -224,6 +243,7 @@ export interface Settings {
   cleanupEnabled: boolean;
   smartPunctuation: boolean;
   fillerWords: string[];
+  fillerWordsCustomized?: boolean;
   extraFillerWords: string[];
   customCorrections: CustomCorrection[];
   snippets: Snippet[];
@@ -255,6 +275,8 @@ export interface Settings {
   offlineMode: "auto" | "always-offline" | "always-online";
   contextAwarenessEnabled: boolean;
   micDeviceId?: string;
+  preWarmMic: boolean;
+  captureBackend: CaptureBackend;
   stylePreset: "plain" | "developer" | "casual" | "formal" | "email";
   // Onboarding tracking
   dictionaryOnboarded: boolean;
@@ -311,8 +333,15 @@ export interface RecorderFailure {
   message: string;
 }
 
+export interface RecorderConfig {
+  micDeviceId?: string;
+  preWarmMic: boolean;
+  captureBackend?: CaptureBackend;
+}
+
 export interface RecorderCommand {
   sessionId: string;
+  config: RecorderConfig;
 }
 
 // ─── IPC API types ───────────────────────────────────────────────────────────
@@ -345,6 +374,7 @@ export interface VaaniAPI {
   showDictionaryPrompt: (suggestions: DictionarySuggestion[]) => Promise<void>;
   purgeAutoSuggestedCorrections: () => Promise<Settings>;
   getPermissionStatus: () => Promise<PermissionStatus>;
+  listAudioInputDevices: () => Promise<AudioInputDevice[]>;
   requestMicrophonePermission: () => Promise<MacOSPermissionState>;
   requestAccessibilityPermission: () => Promise<MacOSPermissionState>;
   openPermissionSettings: (permission: keyof PermissionStatus) => Promise<void>;
@@ -382,6 +412,8 @@ declare global {
       reportRecorderFailure: (payload: RecorderFailure) => Promise<void>;
       prepareRecordingInput: () => Promise<number | null>;
       restoreRecordingInput: (deviceId: number | null) => Promise<boolean>;
+      getRecorderConfig: () => Promise<RecorderConfig>;
+      onRecorderConfigChanged: (cb: (payload: RecorderConfig) => void) => () => void;
     };
   }
 }

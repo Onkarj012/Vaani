@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IpcChannel } from "@shared/ipc";
-import type { AudioVisualFrame, RecorderCommand, RecorderFailure, RecorderSubmission } from "@shared/types";
+import type { AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
 
 function subscribe<T>(channel: IpcChannel, cb: (payload: T) => void): () => void {
   const listener = (_e: Electron.IpcRendererEvent, payload: T) => cb(payload);
@@ -17,5 +17,7 @@ contextBridge.exposeInMainWorld("__VAANI_RECORDER__", {
   reportAudioFrame: (frame: AudioVisualFrame) => ipcRenderer.invoke(IpcChannel.ReportAudioFrame, frame),
   reportRecorderFailure: (payload: RecorderFailure) => ipcRenderer.invoke(IpcChannel.RecorderFailure, payload),
   prepareRecordingInput: () => ipcRenderer.invoke(IpcChannel.PrepareRecordingInput),
-  restoreRecordingInput: (deviceId: number | null) => ipcRenderer.invoke(IpcChannel.RestoreRecordingInput, deviceId)
+  restoreRecordingInput: (deviceId: number | null) => ipcRenderer.invoke(IpcChannel.RestoreRecordingInput, deviceId),
+  getRecorderConfig: () => ipcRenderer.invoke(IpcChannel.GetRecorderConfig),
+  onRecorderConfigChanged: (cb: (payload: RecorderConfig) => void) => subscribe<RecorderConfig>(IpcChannel.RecorderConfigChanged, cb)
 });

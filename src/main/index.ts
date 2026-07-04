@@ -10,6 +10,7 @@ import { HotkeyManager } from "./hotkeys";
 import { registerIpcHandlers } from "./ipc";
 import { OverlayController } from "./overlay";
 import { RecorderWindowController } from "./recorderWindow";
+import { CaptureBackendController, NativeCaptureService } from "./audio/nativeCapture";
 import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
@@ -31,7 +32,7 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 
 let mainWindow: BrowserWindow | null = null;
 let overlayController: OverlayController | null = null;
-let recorderController: RecorderWindowController | null = null;
+let recorderController: CaptureBackendController | null = null;
 let hotkeyManager: HotkeyManager | null = null;
 let settingsStore: SettingsStore | null = null;
 let credentialsStore: CredentialsStore | null = null;
@@ -371,7 +372,11 @@ async function bootstrap(): Promise<void> {
   configureRendererLifecycle(mainWindow);
 
   overlayController = new OverlayController();
-  recorderController = new RecorderWindowController();
+  const rendererRecorder = new RecorderWindowController(() => ({
+    micDeviceId: settings.get().micDeviceId,
+    preWarmMic: settings.get().preWarmMic,
+    captureBackend: settings.get().captureBackend,
+  }));
   overlayController.setTheme("aurora");
   overlayController.setColorMode(initSettings.colorMode ?? "light");
   if (initSettings.accentColor) overlayController.setAccentColor(initSettings.accentColor);
@@ -382,7 +387,31 @@ async function bootstrap(): Promise<void> {
   });
   if (initSettings.capsuleDesign) overlayController.setCapsuleDesign(initSettings.capsuleDesign);
 
-  const dictation = new DictationService(
+  let dictation: DictationService;
+  const nativeCapture = new NativeCaptureService(
+    () => ({
+      micDeviceId: settings.get().micDeviceId,
+      preWarmMic: settings.get().preWarmMic,
+      captureBackend: settings.get().captureBackend,
+    }),
+    {
+      reportRecorderStarted: (sessionId) => dictation.reportRecorderStarted(sessionId),
+      submitAudioClip: (payload) => dictation.submitAudioClip(payload),
+      updateAudioLevel: (frame) => dictation.updateAudioLevel(frame),
+      handleRecorderFailure: (payload) => dictation.handleRecorderFailure(payload),
+    }
+  );
+  recorderController = new CaptureBackendController(
+    () => ({
+      micDeviceId: settings.get().micDeviceId,
+      preWarmMic: settings.get().preWarmMic,
+      captureBackend: settings.get().captureBackend,
+    }),
+    nativeCapture,
+    rendererRecorder
+  );
+
+  dictation = new DictationService(
     mainWindow,
     settings,
     history,
@@ -391,6 +420,7 @@ async function bootstrap(): Promise<void> {
     { recorder: recorderController, credentials: credentialsStore, traces }
   );
   dictationService = dictation;
+  recorderController.warmNative();
 
   try {
     trayController = createTray({
@@ -430,7 +460,7 @@ async function bootstrap(): Promise<void> {
     history,
     settings,
     hotkeys: hotkeyManager,
-    recorder: recorderController,
+    recorder: rendererRecorder,
     credentials: credentialsStore,
     onSettingsUpdated: (_updated, patch) => {
       if ("theme" in patch) overlayController?.setTheme("aurora");
@@ -445,6 +475,13 @@ async function bootstrap(): Promise<void> {
       }
       if ("capsuleDesign" in patch && patch.capsuleDesign) overlayController?.setCapsuleDesign(patch.capsuleDesign);
       if ("showInDock" in patch) syncAppPresentation();
+      if ("micDeviceId" in patch || "preWarmMic" in patch || "captureBackend" in patch) {
+        recorderController?.updateConfig({
+          micDeviceId: settings.get().micDeviceId,
+          preWarmMic: settings.get().preWarmMic,
+          captureBackend: settings.get().captureBackend,
+        });
+      }
       if ("offlineMode" in patch) trayController.setOfflineMode(patch.offlineMode === "always-offline");
       if ("localWhisperModel" in patch && patch.localWhisperModel) {
         const modelsDir = join(homedir(), ".vaani", "models");

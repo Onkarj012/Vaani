@@ -23,6 +23,7 @@ import { CredentialsStore, sanitizeSettingsForRenderer } from "./store/credentia
 import { HotkeyManager } from "./hotkeys";
 import { nativeBridge } from "./nativeBridge";
 import { RecorderWindowController } from "./recorderWindow";
+import { listNativeInputDevices } from "./audio/nativeCapture";
 import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { loadWhisperModel, freeWhisperModel, listDownloadedModels, isModelLoaded } from "./providers/local/whisperCpp";
@@ -256,6 +257,7 @@ export function registerIpcHandlers(opts: {
     return sanitized;
   });
   ipcMain.handle(IpcChannel.GetPermissionStatus, () => refreshPermissionStatus());
+  ipcMain.handle(IpcChannel.ListAudioInputDevices, () => listNativeInputDevices());
   ipcMain.handle(IpcChannel.RequestMicrophonePermission, async () => {
     await systemPreferences.askForMediaAccess("microphone");
     return normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone"));
@@ -289,6 +291,11 @@ export function registerIpcHandlers(opts: {
     if (typeof deviceId !== "number" || !Number.isFinite(deviceId)) return false;
     return nativeBridge.restoreRecordingInput?.(deviceId) ?? false;
   });
+  ipcMain.handle(IpcChannel.GetRecorderConfig, () => ({
+    micDeviceId: settings.get().micDeviceId,
+    preWarmMic: settings.get().preWarmMic,
+    captureBackend: settings.get().captureBackend,
+  }));
 
   // Phase 1: Provider API key testing
   ipcMain.handle(IpcChannel.TestApiKey, async (_e, providerId: string, apiKey: string) => {

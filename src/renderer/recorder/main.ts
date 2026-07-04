@@ -1,11 +1,20 @@
-import type { AudioClip, AudioVisualFrame, RecorderCommand, RecorderFailure, RecorderSubmission } from "@shared/types";
-import { selectRecorderDeviceId } from "./deviceSelection";
-import { STOP_TAIL_CAPTURE_MS, STOP_FINALIZE_WAIT_MS } from "./recorderConstants";
+import type { AudioClip, AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
+import { selectRecorderDevice } from "./deviceSelection";
+import {
+  PcmRingBuffer,
+  PRE_ROLL_MS,
+  mergePcmChunks,
+  pcmToAudioClip,
+  trimLeadingSilence,
+} from "./pcmUtils";
+import pcmWorkletUrl from "./pcmWorklet.ts?url";
 
-const TARGET_SAMPLE_RATE = 16_000;
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
-const FFT_SIZE = 2048;
+const DEFAULT_INPUT_SAMPLE_RATE = 48_000;
+// Audio pipeline latency + early hotkey release both clip trailing speech;
+// keep collecting briefly after the stop command before finalizing.
+const STOP_TAIL_GRACE_MS = 300;
 
 declare global {
   interface Window {
@@ -19,70 +28,86 @@ declare global {
       reportRecorderFailure: (payload: RecorderFailure) => Promise<void>;
       prepareRecordingInput: () => Promise<number | null>;
       restoreRecordingInput: (deviceId: number | null) => Promise<boolean>;
+      getRecorderConfig: () => Promise<RecorderConfig>;
+      onRecorderConfigChanged: (cb: (payload: RecorderConfig) => void) => () => void;
     };
   }
 }
 
-let recorder: MediaRecorder | null = null;
-let chunks: Blob[] = [];
+type PcmProcessorNode = AudioWorkletNode | ScriptProcessorNode;
+
 let stream: MediaStream | null = null;
 let audioContext: AudioContext | null = null;
-let analyser: AnalyserNode | null = null;
-let visualizerFrame: number | null = null;
-let monitorSession = 0;
+let sourceNode: MediaStreamAudioSourceNode | null = null;
+let processorNode: PcmProcessorNode | null = null;
+let ringBuffer = new PcmRingBuffer(Math.floor(DEFAULT_INPUT_SAMPLE_RATE * PRE_ROLL_MS / 1000));
 let activeSessionId: string | null = null;
 let previousInputDevice: number | null = null;
-let startTime = 0;
+let currentConfig: RecorderConfig = { preWarmMic: true };
+let captureConfigKey: string | null = null;
+let capturePromise: Promise<void> | null = null;
+let sessionChunks: Float32Array[] = [];
 let lastReportedAt = 0;
 let smoothedBars = new Array(VISUAL_BAR_COUNT).fill(0.12);
 
-window.__VAANI_RECORDER__.onStartRecording(({ sessionId }) => {
-  void startRecording(sessionId);
+window.__VAANI_RECORDER__.onStartRecording((command) => {
+  void startRecording(command);
 });
 
 window.__VAANI_RECORDER__.onStopRecording(({ sessionId }) => {
   void stopRecording(sessionId);
 });
 
-void window.__VAANI_RECORDER__.reportRecorderReady();
+window.__VAANI_RECORDER__.onRecorderConfigChanged((config) => {
+  currentConfig = normalizeConfig(config);
+  void rebuildWarmCapture();
+});
 
-async function startRecording(sessionId: string): Promise<void> {
+void initializeRecorder();
+
+async function initializeRecorder(): Promise<void> {
   try {
-    await cleanup();
-    activeSessionId = sessionId;
+    currentConfig = normalizeConfig(await window.__VAANI_RECORDER__.getRecorderConfig());
+  } catch {
+    currentConfig = { preWarmMic: true };
+  }
+
+  await window.__VAANI_RECORDER__.reportRecorderReady();
+
+  if (currentConfig.preWarmMic) {
+    try {
+      await ensureWarmCapture(currentConfig);
+    } catch (error) {
+      console.warn("[vaani][recorder] prewarm unavailable:", error);
+      await shutdownWarmCapture();
+    }
+  }
+}
+
+async function startRecording({ sessionId, config }: RecorderCommand): Promise<void> {
+  try {
+    currentConfig = normalizeConfig(config);
+    sessionChunks = [];
     resetSmoothedBars();
     previousInputDevice = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
-    const micDeviceId = await chooseMicDevice();
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        ...(micDeviceId ? { deviceId: micDeviceId } : {}),
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: false
-      }
-    });
+    await ensureWarmCapture(currentConfig);
 
-    await startWebAudioVisualizer(stream);
+    const sampleRate = audioContext?.sampleRate ?? DEFAULT_INPUT_SAMPLE_RATE;
+    const preRoll = trimLeadingSilence(ringBuffer.snapshot(Math.floor(sampleRate * PRE_ROLL_MS / 1000)), sampleRate);
+    if (preRoll.length > 0) {
+      sessionChunks.push(preRoll);
+    }
 
-    const mimeType = preferredMimeType();
-    recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-    chunks = [];
-    startTime = Date.now();
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunks.push(event.data);
-      }
-    };
-
-    recorder.start(250);
+    activeSessionId = sessionId;
     await window.__VAANI_RECORDER__.reportRecorderStarted(sessionId);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Microphone recording could not start.";
     await reportFailure(sessionId, `Microphone recording could not start: ${message}`);
-    await cleanup();
+    await cleanupSession();
+    if (!currentConfig.preWarmMic) {
+      await shutdownWarmCapture();
+    }
   }
 }
 
@@ -91,119 +116,170 @@ async function stopRecording(sessionId: string): Promise<void> {
     return;
   }
 
-  const currentRecorder = recorder;
-  if (!currentRecorder) {
-    await reportFailure(sessionId, "Recording could not be finalized.");
-    await cleanup();
+  await new Promise((resolve) => setTimeout(resolve, STOP_TAIL_GRACE_MS));
+  if (activeSessionId !== sessionId) {
     return;
   }
 
-  resetVisualizer();
+  const inputRate = audioContext?.sampleRate ?? DEFAULT_INPUT_SAMPLE_RATE;
+  const chunksAtStop = sessionChunks.slice();
+  await cleanupSession();
 
-  const result = await new Promise<{ clip: AudioClip; duration: number } | null>((resolve) => {
-    const finalizeFromChunks = async (finalChunks: Blob[]) => {
-      try {
-        const blob = new Blob(finalChunks, { type: currentRecorder.mimeType || "audio/webm" });
-        if (blob.size === 0) {
-          resolve(null);
-          return;
-        }
+  if (!currentConfig.preWarmMic) {
+    await shutdownWarmCapture();
+  }
 
-        const clip = await blobToClip(blob);
-        const duration = Math.max(0, (Date.now() - startTime) / 1000);
-        resolve({ clip, duration });
-      } catch (error) {
-        console.error("[vaani][recorder] stop failed:", error);
-        resolve(null);
-      } finally {
-        await cleanup();
-      }
-    };
-
-    currentRecorder.addEventListener("stop", () => {
-      // Snapshot chunks so cleanup or a later recorder session cannot empty the
-      // current clip before the delayed final data merge runs.
-      const chunksAtStop = chunks.slice();
-      setTimeout(() => {
-        const lateChunks = chunks.slice(chunksAtStop.length);
-        void finalizeFromChunks([...chunksAtStop, ...lateChunks]);
-      }, STOP_FINALIZE_WAIT_MS);
-    }, { once: true });
-
-    if (currentRecorder.state !== "inactive") {
-      void (async () => {
-        await delay(STOP_TAIL_CAPTURE_MS);
-        if (currentRecorder.state === "inactive") {
-          return;
-        }
-        try {
-          currentRecorder.requestData();
-        } catch {
-          // ignore if unsupported
-        }
-        currentRecorder.stop();
-      })();
-    } else {
-      void finalizeFromChunks(chunks.slice());
-    }
-  });
-
-  if (!result) {
+  const clip = finalizeClip(chunksAtStop, inputRate);
+  if (!clip || clip.pcmData.length === 0) {
     await reportFailure(sessionId, "Recording could not be finalized.");
     return;
   }
 
-  await window.__VAANI_RECORDER__.submitAudioClip({ sessionId, clip: result.clip });
+  await window.__VAANI_RECORDER__.submitAudioClip({ sessionId, clip });
 }
 
 async function reportFailure(sessionId: string, message: string): Promise<void> {
   await window.__VAANI_RECORDER__.reportRecorderFailure({ sessionId, message });
 }
 
-async function chooseMicDevice(): Promise<ConstrainDOMString | undefined> {
+async function rebuildWarmCapture(): Promise<void> {
+  if (!currentConfig.preWarmMic || activeSessionId) {
+    return;
+  }
+
+  await shutdownWarmCapture();
+
   try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const deviceId = selectRecorderDeviceId(devices);
-    return deviceId ? { exact: deviceId } : undefined;
-  } catch {
-    return undefined;
+    await ensureWarmCapture(currentConfig);
+  } catch (error) {
+    console.warn("[vaani][recorder] config prewarm unavailable:", error);
+    await shutdownWarmCapture();
   }
 }
 
-async function startWebAudioVisualizer(inputStream: MediaStream): Promise<void> {
-  try {
-    monitorSession += 1;
-    const session = monitorSession;
-    audioContext = new AudioContext({ latencyHint: "interactive" });
-    const source = audioContext.createMediaStreamSource(inputStream);
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = FFT_SIZE;
-    analyser.smoothingTimeConstant = 0.4;
-    source.connect(analyser);
+async function ensureWarmCapture(config: RecorderConfig): Promise<void> {
+  const configKey = recorderConfigKey(config);
+  if (stream && audioContext && captureConfigKey === configKey) {
+    return;
+  }
 
-    if (audioContext.state !== "running") {
-      await audioContext.resume();
-    }
-
-    if (audioContext.state !== "running") {
+  if (capturePromise) {
+    await capturePromise;
+    if (stream && audioContext && captureConfigKey === configKey) {
       return;
     }
-
-    const dataArray = new Float32Array(analyser.fftSize);
-    const tick = () => {
-      if (monitorSession !== session || !analyser) {
-        return;
-      }
-
-      visualizerFrame = requestAnimationFrame(tick);
-      analyser.getFloatTimeDomainData(dataArray);
-      publishBars(buildBarsFromSamples(dataArray, VISUAL_BAR_COUNT));
-    };
-
-    tick();
-  } catch (error) {
-    console.warn("[vaani][recorder] Web Audio visualizer unavailable:", error);
   }
+
+  capturePromise = openCapture(config).finally(() => {
+    capturePromise = null;
+  });
+  return capturePromise;
+}
+
+async function openCapture(config: RecorderConfig): Promise<void> {
+  await shutdownWarmCapture();
+
+  const micDeviceId = await chooseMicDevice(config.micDeviceId);
+  const nextStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      deviceId: { exact: micDeviceId },
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: false,
+      autoGainControl: true,
+    },
+  });
+
+  stream = nextStream;
+  captureConfigKey = recorderConfigKey(config);
+  await startPcmCapture(nextStream);
+}
+
+async function chooseMicDevice(preferredDeviceId: string | undefined): Promise<string> {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const selected = selectRecorderDevice(devices, preferredDeviceId);
+  if (!selected.ok) {
+    throw new Error(selected.message);
+  }
+  return selected.deviceId;
+}
+
+async function startPcmCapture(inputStream: MediaStream): Promise<void> {
+  const context = new AudioContext({ latencyHint: "interactive" });
+  audioContext = context;
+  ringBuffer = new PcmRingBuffer(Math.floor(context.sampleRate * PRE_ROLL_MS / 1000));
+
+  const source = context.createMediaStreamSource(inputStream);
+  sourceNode = source;
+
+  try {
+    await context.audioWorklet.addModule(pcmWorkletUrl);
+    const worklet = new AudioWorkletNode(context, "vaani-pcm-processor", {
+      numberOfInputs: 1,
+      numberOfOutputs: 0,
+      channelCount: 1,
+      channelCountMode: "explicit",
+      channelInterpretation: "speakers",
+    });
+    worklet.port.onmessage = (event: MessageEvent<Float32Array>) => {
+      handlePcmData(event.data);
+    };
+    source.connect(worklet);
+    processorNode = worklet;
+  } catch (error) {
+    console.warn("[vaani][recorder] AudioWorklet unavailable, using ScriptProcessor:", error);
+    const scriptProcessor = context.createScriptProcessor(2048, 1, 1);
+    scriptProcessor.onaudioprocess = (event) => {
+      handlePcmData(new Float32Array(event.inputBuffer.getChannelData(0)));
+    };
+    source.connect(scriptProcessor);
+    scriptProcessor.connect(context.destination);
+    processorNode = scriptProcessor;
+  }
+
+  if (context.state !== "running") {
+    await context.resume();
+  }
+
+  inputStream.getTracks().forEach((track) => {
+    track.onended = () => {
+      void handleCaptureEnded();
+    };
+    track.onmute = () => {
+      if (activeSessionId) {
+        void reportFailure(activeSessionId, "Microphone input stopped. Check your selected microphone.");
+      }
+    };
+  });
+}
+
+function handlePcmData(samples: Float32Array): void {
+  ringBuffer.append(samples);
+
+  if (!activeSessionId) {
+    return;
+  }
+
+  sessionChunks.push(samples.slice());
+  publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT));
+}
+
+async function handleCaptureEnded(): Promise<void> {
+  const failedSessionId = activeSessionId;
+  await shutdownWarmCapture();
+  if (failedSessionId) {
+    await reportFailure(failedSessionId, "Microphone input stopped. Check your selected microphone.");
+    await cleanupSession();
+  }
+}
+
+function finalizeClip(chunks: Float32Array[], inputRate: number): AudioClip | null {
+  const merged = mergePcmChunks(chunks);
+  if (merged.length === 0) {
+    return null;
+  }
+
+  return pcmToAudioClip(merged, inputRate);
 }
 
 function publishBars(nextBars: number[]): void {
@@ -217,21 +293,9 @@ function publishBars(nextBars: number[]): void {
   void window.__VAANI_RECORDER__.reportAudioFrame({ level, bars: nextBars });
 }
 
-async function cleanup(): Promise<void> {
-  resetVisualizer();
-
-  if (recorder && recorder.state !== "inactive") {
-    try {
-      recorder.stop();
-    } catch {
-      // ignore
-    }
-  }
-  recorder = null;
-  chunks = [];
-  stream?.getTracks().forEach(track => track.stop());
-  stream = null;
+async function cleanupSession(): Promise<void> {
   activeSessionId = null;
+  sessionChunks = [];
 
   if (previousInputDevice !== null) {
     const deviceId = previousInputDevice;
@@ -244,40 +308,57 @@ async function cleanup(): Promise<void> {
   }
 }
 
-function resetVisualizer(): void {
-  monitorSession += 1;
-  if (visualizerFrame !== null) {
-    cancelAnimationFrame(visualizerFrame);
-    visualizerFrame = null;
+async function shutdownWarmCapture(): Promise<void> {
+  if (processorNode) {
+    processorNode.disconnect();
+    if ("port" in processorNode) {
+      processorNode.port.onmessage = null;
+    } else {
+      processorNode.onaudioprocess = null;
+    }
+    processorNode = null;
   }
-  if (analyser) {
-    analyser.disconnect();
-    analyser = null;
+
+  if (sourceNode) {
+    sourceNode.disconnect();
+    sourceNode = null;
   }
+
   if (audioContext) {
-    void audioContext.close();
+    const context = audioContext;
     audioContext = null;
-  }
-}
-
-function preferredMimeType(): string | null {
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus"
-  ];
-
-  for (const mimeType of candidates) {
-    if (MediaRecorder.isTypeSupported(mimeType)) {
-      return mimeType;
+    try {
+      await context.close();
+    } catch {
+      // ignore
     }
   }
 
-  return null;
+  stream?.getTracks().forEach((track) => {
+    track.onended = null;
+    track.onmute = null;
+    track.stop();
+  });
+  stream = null;
+  captureConfigKey = null;
+  ringBuffer.clear();
+}
+
+function recorderConfigKey(config: RecorderConfig): string {
+  return `${config.preWarmMic ? "warm" : "ondemand"}:${config.micDeviceId ?? ""}`;
+}
+
+function normalizeConfig(config: RecorderConfig | undefined): RecorderConfig {
+  return {
+    micDeviceId: config?.micDeviceId,
+    preWarmMic: config?.preWarmMic ?? true,
+    captureBackend: config?.captureBackend ?? "renderer",
+  };
 }
 
 function resetSmoothedBars(): void {
   smoothedBars = new Array(VISUAL_BAR_COUNT).fill(0.12);
+  lastReportedAt = 0;
 }
 
 function buildBarsFromSamples(samples: Float32Array, barCount: number): number[] {
@@ -320,83 +401,4 @@ function buildBarsFromSamples(samples: Float32Array, barCount: number): number[]
   }
 
   return smoothedBars.map(bar => Math.max(0.12, Math.min(1, bar)));
-}
-
-async function blobToClip(blob: Blob): Promise<AudioClip> {
-  const buffer = await blob.arrayBuffer();
-  const context = new AudioContext();
-
-  try {
-    const decoded = await context.decodeAudioData(buffer.slice(0));
-    const mono = mixToMono(decoded);
-    const pcmData = resampleToTargetRate(mono, decoded.sampleRate, TARGET_SAMPLE_RATE);
-    const rmsFrames = calculateRmsFrames(pcmData, TARGET_SAMPLE_RATE);
-
-    return {
-      pcmData: Array.from(pcmData),
-      sampleRate: TARGET_SAMPLE_RATE,
-      durationSeconds: pcmData.length / TARGET_SAMPLE_RATE,
-      rmsFrames
-    };
-  } finally {
-    await context.close();
-  }
-}
-
-function mixToMono(buffer: AudioBuffer): Float32Array {
-  if (buffer.numberOfChannels === 1) {
-    return new Float32Array(buffer.getChannelData(0));
-  }
-
-  const mixed = new Float32Array(buffer.length);
-  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
-    const data = buffer.getChannelData(channel);
-    for (let index = 0; index < buffer.length; index += 1) {
-      mixed[index] = (mixed[index] ?? 0) + ((data[index] ?? 0) / buffer.numberOfChannels);
-    }
-  }
-  return mixed;
-}
-
-function resampleToTargetRate(input: Float32Array, inputRate: number, outputRate: number): Float32Array {
-  if (inputRate === outputRate) {
-    return input;
-  }
-
-  const ratio = inputRate / outputRate;
-  const outputLength = Math.max(1, Math.round(input.length / ratio));
-  const output = new Float32Array(outputLength);
-
-  for (let index = 0; index < outputLength; index += 1) {
-    const sourceIndex = index * ratio;
-    const left = Math.floor(sourceIndex);
-    const right = Math.min(left + 1, input.length - 1);
-    const interpolation = sourceIndex - left;
-    output[index] = (input[left] ?? 0) * (1 - interpolation) + (input[right] ?? 0) * interpolation;
-  }
-
-  return output;
-}
-
-function calculateRmsFrames(pcmData: Float32Array, sampleRate: number): number[] {
-  const frameSize = Math.max(1, Math.floor(sampleRate * 0.02));
-  const rmsFrames: number[] = [];
-
-  for (let index = 0; index < pcmData.length; index += frameSize) {
-    const frame = pcmData.subarray(index, Math.min(index + frameSize, pcmData.length));
-    if (frame.length === 0) continue;
-
-    let sum = 0;
-    for (let sampleIndex = 0; sampleIndex < frame.length; sampleIndex += 1) {
-      const value = frame[sampleIndex] ?? 0;
-      sum += value * value;
-    }
-    rmsFrames.push(Math.sqrt(sum / frame.length));
-  }
-
-  return rmsFrames;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }

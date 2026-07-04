@@ -20,6 +20,28 @@ afterEach(async () => {
 });
 
 describe("SettingsStore", () => {
+  it("prunes legacy aggressive filler words when not customized", async () => {
+    const { pruneLegacyFillerWords } = await import("../../src/main/store/settings");
+
+    expect(pruneLegacyFillerWords(
+      ["um", "uh", "like", "basically", "you know", "sort of", "kind of", "actually", "literally"],
+      false,
+    )).toEqual(["um", "uh"]);
+  });
+
+  it("leaves legacy filler words untouched when customized", async () => {
+    const { pruneLegacyFillerWords } = await import("../../src/main/store/settings");
+    const fillerWords = ["um", "uh", "like"];
+
+    expect(pruneLegacyFillerWords(fillerWords, true)).toBeNull();
+  });
+
+  it("returns null when there are no legacy aggressive filler words to prune", async () => {
+    const { pruneLegacyFillerWords } = await import("../../src/main/store/settings");
+
+    expect(pruneLegacyFillerWords(["um", "uh"], false)).toBeNull();
+  });
+
   it("migrates the legacy default filler list to the minimal default", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
     const filePath = join(tempDir, "settings.json");
@@ -28,11 +50,23 @@ describe("SettingsStore", () => {
       fillerWords: ["um", "uh", "like", "basically", "you know", "sort of", "kind of", "actually", "literally"],
     }), "utf8");
 
-    const { SettingsStore } = await import("@main/store/settings");
+    const { SettingsStore } = await import("../../src/main/store/settings");
     const store = new SettingsStore(filePath);
     await store.init();
 
     expect(store.get().fillerWords).toEqual(["um", "uh"]);
     expect(store.get().extraFillerWords).toEqual([]);
+  });
+
+  it("marks filler words customized when filler words are patched", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
+    const filePath = join(tempDir, "settings.json");
+
+    const { SettingsStore } = await import("../../src/main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+
+    expect(store.update({ fillerWords: ["um"] }).fillerWordsCustomized).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
   });
 });

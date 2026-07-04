@@ -10,6 +10,9 @@ export const enum IpcChannel {
   RecorderFailure = "dictation:recorder-failure",
   PrepareRecordingInput = "dictation:prepare-recording-input",
   RestoreRecordingInput = "dictation:restore-recording-input",
+  GetRecorderConfig = "dictation:get-recorder-config",
+  ListAudioInputDevices = "dictation:list-audio-input-devices",
+  RecorderConfigChanged = "dictation:recorder-config-changed",
   StartRecording = "dictation:start-recording",
   StopRecording = "dictation:stop-recording",
 
