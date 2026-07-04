@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preservesContentWords } from "../../src/shared/contentGuard";
+import { addedContentWords, missingContentWords, preservesContentWords } from "../../src/shared/contentGuard";
 
 describe("preservesContentWords", () => {
   it("accepts faithful punctuation/capitalization changes", () => {
@@ -13,10 +13,10 @@ describe("preservesContentWords", () => {
     )).toBe(false);
   });
 
-  it("accepts list reorder — order-independent check", () => {
+  it("accepts list reorder with visible list markers", () => {
     expect(preservesContentWords(
       "first item do this second item do that",
-      "do that\ndo this"
+      "1. do that\n2. do this"
     )).toBe(true);
   });
 
@@ -50,7 +50,51 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("contact Anthropic support", "contact support")).toBe(false);
   });
 
-  it("ignores spoken cue words", () => {
-    expect(preservesContentWords("bullet point write the report", "Write the report.")).toBe(true);
+  it("detects a duplicate word drop", () => {
+    expect(missingContentWords("this is very very good", "This is very good.")).toEqual(["very"]);
+  });
+
+  it("forgives enumeration cues only when output has list markers", () => {
+    expect(preservesContentWords(
+      "point one write the report point two send the update",
+      "Write the report. Send the update."
+    )).toBe(false);
+
+    expect(preservesContentWords(
+      "point one write the report point two send the update",
+      "1. Write the report.\n2. Send the update."
+    )).toBe(true);
+  });
+
+  it("requires spoken cue words when no list marker is present", () => {
+    expect(missingContentWords("bullet point write the report", "Write the report.")).toEqual(["bullet", "point"]);
+  });
+
+  it("forgives line-break cues when output contains a newline", () => {
+    expect(missingContentWords(
+      "hello there new paragraph how are you",
+      "Hello there.\n\nHow are you?"
+    )).toEqual([]);
+  });
+
+  it("requires line-break cue words when output has no newline", () => {
+    expect(missingContentWords(
+      "hello there new paragraph how are you",
+      "Hello there how are you"
+    )).toEqual(["new", "paragraph"]);
+  });
+
+  it("detects added non-numeric answer content", () => {
+    expect(addedContentWords(
+      "what is the status",
+      "What is the status. The answer to your question is 42 because it is ready."
+    )).toEqual(["the", "answer", "to", "your", "question", "is", "because", "it", "is", "ready"]);
+  });
+
+  it("forgives digits introduced by enumeration cue conversion", () => {
+    expect(addedContentWords(
+      "point one change provider point two restart",
+      "1. Change provider\n2. Restart"
+    )).toEqual([]);
   });
 });

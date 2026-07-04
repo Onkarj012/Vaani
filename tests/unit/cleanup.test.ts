@@ -102,21 +102,21 @@ describe("cleanupText", () => {
     expect(result).toBe("Send this to the LLM cleanup step.");
   });
 
-  it("removes trailing Vaani from transcription", () => {
+  it("preserves trailing Vaani as spoken content", () => {
     expect(cleanupText({
       rawText: "hello world Vaani",
       settings: createSettings()
-    })).toBe("Hello world.");
+    })).toBe("Hello world Vaani.");
 
     expect(cleanupText({
       rawText: "testing this, vaani.",
       settings: createSettings()
-    })).toBe("Testing this.");
+    })).toBe("Testing this, vaani.");
 
     expect(cleanupText({
       rawText: "send the message vaani",
       settings: createSettings()
-    })).toBe("Send the message.");
+    })).toBe("Send the message vaani.");
   });
 
   it("expands slash command snippets", () => {
