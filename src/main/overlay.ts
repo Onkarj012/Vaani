@@ -325,14 +325,12 @@ export class OverlayController {
   ): Promise<void> {
     if (!this.window || this.window.isDestroyed()) return;
     log("overlay:prompt-window-show", { loadReady: this.loadReady, focusWindow });
-    await this.resizeWindow(true);
-    this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    this.window.setAlwaysOnTop(true, "screen-saver");
+    this.clearHideTimer();
+    this.window.setFocusable(focusWindow);
+    await this.presentWindow(frontmostBefore);
     this.window.setIgnoreMouseEvents(false);
     this.window.setFocusable(focusWindow);
-    this.window.showInactive();
     if (focusWindow) this.window.focus();
-    void this.restoreFocusIfNeeded(frontmostBefore);
   }
 
   private waitForLoadReady(timeoutMs: number): Promise<void> {
