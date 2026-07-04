@@ -97,7 +97,7 @@ describe("OverlayController prompt handling", () => {
     expect(onResponse).toHaveBeenCalledWith(true);
   });
 
-  it("keeps an auto-added dictionary rule when the toast times out", async () => {
+  it("dismisses a dictionary prompt when the toast times out", async () => {
     const { OverlayController } = await import("@main/overlay");
     const controller = new OverlayController();
     const onResponse = vi.fn();
@@ -118,6 +118,6 @@ describe("OverlayController prompt handling", () => {
 
     await vi.advanceTimersByTimeAsync(8_000);
 
-    expect(onResponse).toHaveBeenCalledWith(true);
+    expect(onResponse).toHaveBeenCalledWith(false);
   });
 });

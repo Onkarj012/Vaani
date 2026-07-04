@@ -487,7 +487,7 @@ describe("DictationService", () => {
     expect(report.trace?.rawAudioPath).toBeNull();
   });
 
-  it("auto-adds a dictionary correction shortly after the user edits inserted text", async () => {
+  it("prompts for a dictionary correction shortly after the user edits inserted text", async () => {
     const { service, overlay, history, settings } = createDictationService();
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
@@ -600,7 +600,7 @@ describe("DictationService", () => {
     });
   });
 
-  it("ignores stale dictionary undo responses from an older generation", async () => {
+  it("ignores stale accepted dictionary responses from an older generation", async () => {
     const { service, overlay, settings } = createDictationService();
     const mutable = makeSettingsMutable(settings);
     let resolvePrompt: (accepted: boolean) => void = () => {
@@ -613,20 +613,16 @@ describe("DictationService", () => {
     const pending = service.showDictionarySuggestions([{ spoken: "get hub", written: "GitHub" }]);
 
     expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function));
-    expect(mutable.current().customCorrections).toEqual([
-      { spoken: "get hub", written: "GitHub", source: "auto-suggested" }
-    ]);
+    expect(mutable.current().customCorrections).toEqual([]);
     const respond = resolvePrompt;
     service.beginHotkeySession();
-    respond(false);
+    respond(true);
     await pending;
 
-    expect(mutable.current().customCorrections).toEqual([
-      { spoken: "get hub", written: "GitHub", source: "auto-suggested" }
-    ]);
+    expect(mutable.current().customCorrections).toEqual([]);
   });
 
-  it("undoes an auto-added dictionary correction from the toast", async () => {
+  it("does not add a dictionary correction when the prompt is skipped", async () => {
     const { service, overlay, settings } = createDictationService();
     const mutable = makeSettingsMutable(settings);
     overlay.showDictionaryPrompt.mockImplementation((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => {
@@ -739,7 +735,7 @@ describe("DictationService", () => {
     });
   });
 
-  it("waits for editing to settle before auto-adding a dictionary rule", async () => {
+  it("waits for editing to settle before prompting for a dictionary rule", async () => {
     const { service, overlay, settings, transcription } = createDictationService();
     // "versel" is a realistic Whisper mishear of "Vercel" (close edit distance)
     transcription.transcribe.mockResolvedValue({ rawText: "use versel", formattedText: "use versel", language: "en" });
