@@ -149,24 +149,24 @@ export default function CapsuleOverlay() {
     setAutoTimer(8)
     const id = setInterval(() => {
       setAutoTimer((t) => {
-        if (t <= 1) { clearInterval(id); handleSkip(); return 0 }
+        if (t <= 1) { clearInterval(id); handleDismiss(); return 0 }
         return t - 1
       })
     }, 1000)
     return () => clearInterval(id)
   }, [mode])
 
-  function handleAccept() {
+  function handlePrimary() {
     const m = modeRef.current
     if (m === 'prompt-snippet') window.capsuleBridge.sendSnippetResp(true)
-    else window.capsuleBridge.sendDictResp(true)
+    else window.capsuleBridge.sendDictResp(false)
     setMode('hidden')
   }
 
-  function handleSkip() {
+  function handleDismiss() {
     const m = modeRef.current
     if (m === 'prompt-snippet') window.capsuleBridge.sendSnippetResp(false)
-    else window.capsuleBridge.sendDictResp(false)
+    else window.capsuleBridge.sendDictResp(true)
     setMode('hidden')
   }
 
@@ -307,10 +307,10 @@ export default function CapsuleOverlay() {
                 </div>
                 <div>
                   <p className="text-[12px] font-bold leading-tight" style={{ color: '#f3f3f5' }}>
-                    {mode === 'prompt-dictionary' ? 'New word detected' : 'Save as snippet?'}
+                    {mode === 'prompt-dictionary' ? 'Added to dictionary' : 'Save as snippet?'}
                   </p>
                   <p className="text-[10px] leading-tight" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                    {mode === 'prompt-dictionary' ? 'Add replacement rule?' : 'Trigger this phrase anytime'}
+                    {mode === 'prompt-dictionary' ? 'Undo if this was not wanted' : 'Trigger this phrase anytime'}
                   </p>
                 </div>
               </div>
@@ -326,7 +326,7 @@ export default function CapsuleOverlay() {
                     transition={{ duration: 1, ease: 'linear' }}
                   />
                 </svg>
-                <button onClick={handleSkip} className="transition-colors" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                <button onClick={handleDismiss} className="transition-colors" style={{ color: 'rgba(255,255,255,0.30)' }}>
                   <X size={13} />
                 </button>
               </div>
@@ -362,19 +362,19 @@ export default function CapsuleOverlay() {
             <div className="flex gap-2">
               <motion.button
                 whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.94 }}
-                onClick={handleAccept}
+                onClick={handlePrimary}
                 style={{ borderRadius: 999, background: accentColor }}
                 className="flex-1 py-2 text-[12px] font-bold text-white"
               >
-                {mode === 'prompt-dictionary' ? 'Add rule' : 'Save snippet'}
+                {mode === 'prompt-dictionary' ? 'Undo' : 'Save snippet'}
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.94 }}
-                onClick={handleSkip}
+                onClick={handleDismiss}
                 style={{ borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.45)' }}
                 className="flex-1 py-2 text-[12px] font-semibold"
               >
-                Skip
+                {mode === 'prompt-dictionary' ? 'Keep' : 'Skip'}
               </motion.button>
             </div>
           </motion.div>

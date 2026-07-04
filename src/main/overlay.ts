@@ -269,7 +269,7 @@ export class OverlayController {
     this.promptDismissTimer = setTimeout(() => {
       this.pendingPromptResponder = null;
       this.endPrompt();
-      onResponse(false);
+      onResponse(true);
     }, 8000);
   }
 

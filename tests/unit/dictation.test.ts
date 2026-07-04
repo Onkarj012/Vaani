@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
-import type { AudioVisualFrame, DictationTrace, TranscriptionResult } from "@shared/types";
+import type { AudioVisualFrame, DictationTrace, Settings, TranscriptionResult } from "@shared/types";
 import type { DictationTraceStore } from "@main/store/dictationTrace";
 import { DictationService } from "./dictation.fixture";
 import { nativeBridge } from "@main/nativeBridge";
@@ -96,6 +96,24 @@ function createDictationService(deps: { traces?: Pick<DictationTraceStore, "upse
   );
 
   return { service, overlay, mainWindow, history, recorder, settings, transcription, injector, appDetector };
+}
+
+type MockedSettingsStore = ReturnType<typeof createDictationService>["settings"];
+
+function makeSettingsMutable(settings: MockedSettingsStore, initial: Settings = DEFAULT_SETTINGS) {
+  let current: Settings = {
+    ...initial,
+    customCorrections: [...initial.customCorrections],
+    snippets: [...initial.snippets],
+    providerApiKeys: [...initial.providerApiKeys],
+  };
+  if (initial.appProfiles) current = { ...current, appProfiles: [...initial.appProfiles] };
+  settings.get.mockImplementation(() => current);
+  settings.update.mockImplementation((patch) => {
+    current = { ...current, ...patch };
+    return current;
+  });
+  return { current: () => current };
 }
 
 describe("DictationService", () => {
@@ -469,7 +487,7 @@ describe("DictationService", () => {
     expect(report.trace?.rawAudioPath).toBeNull();
   });
 
-  it("prompts for consent shortly after the user edits inserted text", async () => {
+  it("auto-adds a dictionary correction shortly after the user edits inserted text", async () => {
     const { service, overlay, history, settings } = createDictationService();
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
@@ -491,7 +509,7 @@ describe("DictationService", () => {
     vi.advanceTimersByTime(500);
     await Promise.resolve();
 
-    // Debounce (1s) not elapsed yet — nothing prompted or committed.
+    // Debounce (1s) not elapsed yet — nothing shown or committed.
     expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(1_500);
@@ -504,8 +522,9 @@ describe("DictationService", () => {
     });
   });
 
-  it("ignores accepted dictionary prompt responses from an older generation", async () => {
+  it("ignores stale dictionary undo responses from an older generation", async () => {
     const { service, overlay, settings } = createDictationService();
+    const mutable = makeSettingsMutable(settings);
     let resolvePrompt: (accepted: boolean) => void = () => {
       throw new Error("Expected dictionary prompt resolver.");
     };
@@ -516,19 +535,47 @@ describe("DictationService", () => {
     const pending = service.showDictionarySuggestions([{ spoken: "get hub", written: "GitHub" }]);
 
     expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function));
+    expect(mutable.current().customCorrections).toEqual([
+      { spoken: "get hub", written: "GitHub", source: "auto-suggested" }
+    ]);
     const respond = resolvePrompt;
     service.beginHotkeySession();
-    respond(true);
+    respond(false);
     await pending;
 
-    expect(settings.update).not.toHaveBeenCalledWith(expect.objectContaining({ customCorrections: expect.any(Array) }));
+    expect(mutable.current().customCorrections).toEqual([
+      { spoken: "get hub", written: "GitHub", source: "auto-suggested" }
+    ]);
   });
 
-  it("drops accepted dictionary suggestions that fail the safety gate", async () => {
-    const { service, settings } = createDictationService();
+  it("undoes an auto-added dictionary correction from the toast", async () => {
+    const { service, overlay, settings } = createDictationService();
+    const mutable = makeSettingsMutable(settings);
+    overlay.showDictionaryPrompt.mockImplementation((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => {
+      resolve(false);
+    });
+
+    await service.showDictionarySuggestions([{ spoken: "Bani", written: "Vaani" }]);
+
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Bani", "Vaani", expect.any(Function));
+    expect(mutable.current().customCorrections).toEqual([]);
+  });
+
+  it("drops dictionary suggestions that fail the safety gate", async () => {
+    const { service, overlay, settings } = createDictationService();
 
     await service.showDictionarySuggestions([{ spoken: "It", written: "1 It" }]);
 
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
+    expect(settings.update).not.toHaveBeenCalledWith(expect.objectContaining({ customCorrections: expect.any(Array) }));
+  });
+
+  it("drops ordinary word edits instead of adding them to the dictionary", async () => {
+    const { service, overlay, settings } = createDictationService();
+
+    await service.showDictionarySuggestions([{ spoken: "food", written: "good" }]);
+
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
     expect(settings.update).not.toHaveBeenCalledWith(expect.objectContaining({ customCorrections: expect.any(Array) }));
   });
 
@@ -614,18 +661,18 @@ describe("DictationService", () => {
     });
   });
 
-  it("waits for editing to settle before prompting for a dictionary rule", async () => {
+  it("waits for editing to settle before auto-adding a dictionary rule", async () => {
     const { service, overlay, settings, transcription } = createDictationService();
     // "versel" is a realistic Whisper mishear of "Vercel" (close edit distance)
-    transcription.transcribe.mockResolvedValue({ rawText: "versel", formattedText: "versel", language: "en" });
+    transcription.transcribe.mockResolvedValue({ rawText: "use versel", formattedText: "use versel", language: "en" });
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
-      .mockReturnValueOnce("Versel.")
-      .mockReturnValueOnce("Versel.")
-      .mockReturnValueOnce("Ve")
-      .mockReturnValueOnce("Verc")
-      .mockReturnValue("Vercel");
+      .mockReturnValueOnce("Use versel.")
+      .mockReturnValueOnce("Use versel.")
+      .mockReturnValueOnce("Use Ve")
+      .mockReturnValueOnce("Use Verc")
+      .mockReturnValue("Use Vercel.");
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
 
     service.beginHotkeySession();
@@ -650,9 +697,9 @@ describe("DictationService", () => {
     await Promise.resolve();
 
     expect(settings.update).toHaveBeenCalledWith({
-      customCorrections: [{ spoken: "Versel", written: "Vercel", source: "auto-suggested" }]
+      customCorrections: [{ spoken: "versel", written: "Vercel", source: "auto-suggested" }]
     });
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Versel", "Vercel", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("versel", "Vercel", expect.any(Function));
   });
 
   it("does not suggest snippets for ordinary phrase edits", async () => {

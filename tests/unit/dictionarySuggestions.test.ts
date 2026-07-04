@@ -20,10 +20,8 @@ describe("detectDictionarySuggestions", () => {
     expect(detectDictionarySuggestions("one", "on3")).toEqual([]);
   });
 
-  it("allows exact digitization of spoken number words", () => {
-    expect(detectDictionarySuggestions("four", "4")).toEqual([
-      { spoken: "four", written: "4" }
-    ]);
+  it("does not auto-learn number formatting changes", () => {
+    expect(detectDictionarySuggestions("four", "4")).toEqual([]);
   });
 
   it("no prompt for multiple simultaneous corrections (multi-word rewrite)", () => {
@@ -43,11 +41,31 @@ describe("detectDictionarySuggestions", () => {
     expect(detectDictionarySuggestions("hello world", "hello world.")).toEqual([]);
   });
 
-  it("prompts on single close substitution", () => {
-    const result = detectDictionarySuggestions("groq is fast", "grok is fast");
+  it("detects a single proper-noun substitution", () => {
+    expect(detectDictionarySuggestions("the final word is Bani", "the final word is Vaani")).toEqual([
+      { spoken: "Bani", written: "Vaani" }
+    ]);
+  });
+
+  it("detects mid-sentence case corrections for dictionary-worthy terms", () => {
+    expect(detectDictionarySuggestions("the final word is google", "the final word is Google")).toEqual([
+      { spoken: "google", written: "Google" }
+    ]);
+  });
+
+  it("does not auto-learn sentence-start capitalization by itself", () => {
+    expect(detectDictionarySuggestions("google is fast", "Google is fast")).toEqual([]);
+  });
+
+  it("does not auto-learn ordinary lowercase substitutions", () => {
+    expect(detectDictionarySuggestions("this food is hot", "this good is hot")).toEqual([]);
+  });
+
+  it("detects mid-sentence product-name substitutions", () => {
+    const result = detectDictionarySuggestions("ask groq today", "ask Grok today");
     expect(result).toHaveLength(1);
     expect(result[0]?.spoken).toBe("groq");
-    expect(result[0]?.written).toBe("grok");
+    expect(result[0]?.written).toBe("Grok");
   });
 
   it("no prompt when edit distance too large (unrelated rewrite)", () => {

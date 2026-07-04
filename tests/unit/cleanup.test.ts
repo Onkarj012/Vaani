@@ -93,19 +93,24 @@ describe("cleanupText", () => {
     expect(result).toBe("Github should only appear once.");
   });
 
-  it("normalizes common LLM dictation artifacts", () => {
+  it("does not normalize product names without dictionary rules", () => {
     const result = cleanupText({
       rawText: "send this to the llmn cleanup step for the Bani app",
       settings: createSettings()
     });
 
-    expect(result).toBe("Send this to the LLM cleanup step for the Vaani app.");
+    expect(result).toBe("Send this to the llmn cleanup step for the Bani app.");
   });
 
-  it("normalizes dictated proper nouns in sentinel phrases", () => {
+  it("uses dictionary rules for dictated proper nouns", () => {
     const result = cleanupText({
       rawText: "the final word after the pause is BANI new paragraph the final sentence should end with the word google",
-      settings: createSettings()
+      settings: createSettings({
+        customCorrections: [
+          { spoken: "BANI", written: "Vaani" },
+          { spoken: "google", written: "Google" }
+        ]
+      })
     });
 
     expect(result).toBe("The final word after the pause is Vaani.\n\nThe final sentence should end with the word Google.");
@@ -326,7 +331,7 @@ describe("cleanupText", () => {
       "3. Speak softly for one sentence",
       "4. Stop recording after a short pause",
       "",
-      "I bought a number 2 pencil wrote point 1% in the margin and named the file Vaani test notes.",
+      "I bought a number 2 pencil wrote point 1% in the margin and named the file Vani test notes.",
     ].join("\n"));
   });
 

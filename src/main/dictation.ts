@@ -8,6 +8,7 @@ import type {
   AudioClip,
   AudioQualityMetrics,
   AudioVisualFrame,
+  CustomCorrection,
   DictationCompletionOutcome,
   DictationEntry,
   DictationRejectionReason,
@@ -36,7 +37,7 @@ import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { cleanupText } from "./text/cleanup";
-import { detectDictionarySuggestions, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
+import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
@@ -68,6 +69,12 @@ interface DictationServiceDeps {
   credentials?: CredentialsStore;
   createSessionId?: () => string;
   traces?: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId">;
+}
+
+interface AppliedDictionarySuggestion {
+  spoken: string;
+  written: string;
+  previous?: CustomCorrection;
 }
 
 export class DictationService {
@@ -608,15 +615,18 @@ export class DictationService {
   async showDictionarySuggestions(suggestions: DictionarySuggestion[]): Promise<void> {
     const promptGeneration = this.dictionaryPromptGeneration;
     for (const suggestion of suggestions) {
-      const accepted = await new Promise<boolean>((resolve) => {
+      const applied = this.applyDictionarySuggestion(suggestion);
+      if (!applied) continue;
+
+      const kept = await new Promise<boolean>((resolve) => {
         this.overlay.showDictionaryPrompt(suggestion.spoken, suggestion.written, resolve);
       });
       if (promptGeneration !== this.dictionaryPromptGeneration) {
         debug("dictionary", "stale suggestion response discarded", { spoken: suggestion.spoken, written: suggestion.written });
         return;
       }
-      if (accepted) this.applyDictionarySuggestion(suggestion);
-      else debug("dictionary", "suggestion dismissed", { spoken: suggestion.spoken, written: suggestion.written });
+      if (!kept) this.undoDictionarySuggestion(applied);
+      else debug("dictionary", "suggestion kept", { spoken: suggestion.spoken, written: suggestion.written });
     }
   }
 
@@ -692,19 +702,44 @@ export class DictationService {
     return { appBundleId: entry.appBundleId, appName: entry.appName, selection: null };
   }
 
-  private applyDictionarySuggestion(suggestion: DictionarySuggestion): void {
+  private applyDictionarySuggestion(suggestion: DictionarySuggestion): AppliedDictionarySuggestion | null {
     const spoken = suggestion.spoken.trim();
     const written = suggestion.written.trim();
-    if (!isValidDictionarySuggestion({ spoken, written })) {
+    if (!isValidDictionarySuggestion({ spoken, written }) || !isAutoLearnableDictionarySuggestion({ spoken, written })) {
       debug("dictionary", "invalid suggestion dropped", { spoken, written });
-      return;
+      return null;
     }
     const current = this.settings.get().customCorrections ?? [];
     const existingIndex = current.findIndex((entry) => entry.spoken.toLowerCase() === spoken.toLowerCase());
+    const previous = existingIndex >= 0 ? current[existingIndex] : undefined;
+    if (previous && previous.source !== "auto-suggested") {
+      debug("dictionary", "manual suggestion preserved", { spoken, written });
+      return null;
+    }
+    if (previous?.written === written && previous.source === "auto-suggested") {
+      debug("dictionary", "suggestion already present", { spoken, written });
+      return null;
+    }
     const nextCorrections = existingIndex >= 0
       ? current.map((entry, index) => index === existingIndex ? { ...entry, spoken, written, source: "auto-suggested" as const } : entry)
       : [...current, { spoken, written, source: "auto-suggested" as const }];
     this.settings.update({ customCorrections: nextCorrections });
+    return previous ? { spoken, written, previous } : { spoken, written };
+  }
+
+  private undoDictionarySuggestion(applied: AppliedDictionarySuggestion): void {
+    const current = this.settings.get().customCorrections ?? [];
+    const existingIndex = current.findIndex((entry) => entry.spoken.toLowerCase() === applied.spoken.toLowerCase());
+    if (existingIndex < 0) return;
+
+    const existing = current[existingIndex];
+    if (!existing || existing.source !== "auto-suggested" || existing.written !== applied.written) return;
+
+    const nextCorrections = applied.previous
+      ? current.map((entry, index) => index === existingIndex ? applied.previous ?? entry : entry)
+      : current.filter((_, index) => index !== existingIndex);
+    this.settings.update({ customCorrections: nextCorrections });
+    debug("dictionary", "suggestion undone", { spoken: applied.spoken, written: applied.written });
   }
 
   private watchForManualEdits(insertedText: string, target: Pick<AppContextResult, "appBundleId" | "appName"> | null): void {

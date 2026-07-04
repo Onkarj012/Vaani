@@ -45,13 +45,6 @@ function normalizeWhitespace(text: string): string {
     .trim();
 }
 
-function normalizeCommonDictationArtifacts(text: string): string {
-  return text
-    .replace(/\bllmn\b/gi, "LLM")
-    .replace(/\b[bwv]ani\b/gi, "Vaani")
-    .replace(/\b(word|term|phrase|sentence\s+is|file\s+(?:is\s+)?(?:named|called))\s+google\b/gi, (_match, prefix: string) => `${prefix} Google`);
-}
-
 const ORDINAL_WORDS: Record<string, number> = {
   one: 1,
   two: 2,
@@ -388,11 +381,9 @@ function applySnippets(text: string, snippets: Array<{ trigger: string; content:
 }
 
 export function cleanupText({ rawText, settings, trace }: TextCleanupInput): string {
-  const artifactNormalized = normalizeCommonDictationArtifacts(rawText);
-
   // Dictionary corrections and snippet expansion are user-defined replacements —
   // apply them even when general cleanup is off, otherwise the dictionary never triggers.
-  const corrected = applyCorrections(artifactNormalized, settings.customCorrections ?? [], trace);
+  const corrected = applyCorrections(rawText, settings.customCorrections ?? [], trace);
   const expanded = applySnippets(corrected, settings.snippets ?? []);
 
   if (!settings.cleanupEnabled) {
