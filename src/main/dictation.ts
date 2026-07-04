@@ -14,6 +14,7 @@ import type {
   DictationState,
   DictationTrace,
   DictationBugReport,
+  InsertionVerificationTrace,
   InjectionFailureReason,
   RecorderFailure,
   RecorderSubmission,
@@ -24,6 +25,7 @@ import type {
 import { ERROR_RESET_MS, SUCCESS_RESET_MS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
 import { trimSilence, isValidClip } from "./audio/vad";
+import { evaluateSpeechGate } from "./audio/speechGate";
 import { AppDetector, type AppContextResult } from "./context/appDetector";
 import { TextInjector } from "./injection";
 import { nativeBridge } from "./nativeBridge";
@@ -50,6 +52,7 @@ const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 const EDIT_WATCH_INTERVAL_MS = 500;
 const EDIT_WATCH_TIMEOUT_MS = 12_000;
 const EDIT_PROMPT_IDLE_MS = 1_000;
+const INSERTION_VERIFY_DELAY_MS = 180;
 
 interface RecorderCommands {
   isReady: () => boolean;
@@ -236,13 +239,13 @@ export class DictationService {
 
     this.clearFinalizationTimer();
     const settings = this.settings.get();
-    const trimmedClip = trimSilence(payload.clip, settings.silenceThreshold);
+    const validationClip = trimSilence(payload.clip, settings.silenceThreshold);
     const tracePatch: Partial<DictationTrace> = {
       rawAudio: analyzeAudioQuality(payload.clip, settings.silenceThreshold),
-      trimmedAudio: analyzeAudioQuality(trimmedClip, settings.silenceThreshold),
+      trimmedAudio: analyzeAudioQuality(validationClip, settings.silenceThreshold),
     };
 
-    debug("dictation", `submitAudioClip: raw=${payload.clip.durationSeconds.toFixed(2)}s, trimmed=${trimmedClip.durationSeconds.toFixed(2)}s, minClip=${settings.minClipDuration}s`);
+    debug("dictation", `submitAudioClip: raw=${payload.clip.durationSeconds.toFixed(2)}s, validation=${validationClip.durationSeconds.toFixed(2)}s, minClip=${settings.minClipDuration}s`);
 
     // Save recording to disk if enabled
     let rawAudioPath: string | null = null;
@@ -252,8 +255,15 @@ export class DictationService {
     }
     void this.patchTrace(payload.sessionId, tracePatch);
 
-    if (!isValidClip(trimmedClip, settings.minClipDuration)) {
+    if (!isValidClip(validationClip, settings.minClipDuration)) {
       debug("dictation", "submitAudioClip: clip rejected (too short or empty)");
+      this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.", "no_speech");
+      return;
+    }
+
+    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames);
+    if (!speechGate.pass) {
+      debug("dictation", `submitAudioClip: speech gate rejected clip (${speechGate.reason}, floor=${speechGate.noiseFloor.toFixed(4)}, longest=${speechGate.longestRunMs}ms, total=${speechGate.totalSpeechMs}ms)`);
       this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.", "no_speech");
       return;
     }
@@ -265,15 +275,15 @@ export class DictationService {
       let transcriptionTimer: ReturnType<typeof setTimeout> | null = null;
       const sttStartedAt = Date.now();
       const transcription = await Promise.race([
-        this.transcription.transcribe(trimmedClip, {
+        this.transcription.transcribe(payload.clip, {
           ...(appProfile?.language ? { languageOverride: appProfile.language } : {}),
           ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
           retryClip: payload.clip,
-          rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, trimmedClip, result.quality).action === "retry",
+          rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, payload.clip, result.quality).action === "retry",
         }).finally(() => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } }),
         new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS); }),
       ]);
-      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, trimmedClip, transcription.quality));
+      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, payload.clip, transcription.quality));
       const quality = transcription.quality
         ? { ...transcription.quality, decision: qualityDecision }
         : {
@@ -326,7 +336,7 @@ export class DictationService {
           rawText: transcription.rawText,
           formattedText: transcription.rawText,
           cleanedText,
-          durationSeconds: trimmedClip.durationSeconds,
+          durationSeconds: payload.clip.durationSeconds,
           appBundleId: this.activeTarget?.appBundleId ?? null,
           appName: this.activeTarget?.appName ?? null,
           injectionStatus: "saved",
@@ -383,7 +393,7 @@ export class DictationService {
         rawText: transcription.rawText,
         formattedText,
         cleanedText,
-        durationSeconds: trimmedClip.durationSeconds,
+        durationSeconds: payload.clip.durationSeconds,
         appBundleId: target.appBundleId,
         appName: target.appName,
         language: transcription.language,
@@ -397,6 +407,7 @@ export class DictationService {
         selection: this.activeSelection
       };
 
+      const verificationBaseline = safeFocusedValue();
       let injection = await this.injector.inject(cleanedText, injectionTarget);
       const injectionAttempts: DictationTrace["injectionAttempts"] = [{
         targetAppBundleId: injectionTarget.appBundleId,
@@ -407,10 +418,11 @@ export class DictationService {
       if (!injection.success) {
         const fallbackTarget = this.appDetector.getContext();
         if (isExternalTarget(fallbackTarget) && !sameTarget(injectionTarget, fallbackTarget)) {
+          const fallbackSelection = this.captureSelection(fallbackTarget);
           injection = await this.injector.inject(cleanedText, {
             appBundleId: fallbackTarget.appBundleId,
             appName: fallbackTarget.appName,
-            selection: this.captureSelection(fallbackTarget)
+            selection: fallbackSelection
           });
           injectionAttempts.push({
             targetAppBundleId: fallbackTarget.appBundleId,
@@ -426,14 +438,31 @@ export class DictationService {
       if (!this.isCurrentSession(payload.sessionId)) return;
 
       if (injection.success) {
-        await this.history.append({ ...entryBase, injectionStatus: "injected", injectionMethod: injection.method });
-        void this.finishTrace(payload.sessionId, "injected", undefined, "Inserted at cursor", {
-          injectionMethod: injection.method,
-          stages: { injectedText: cleanedText, injectionStrategy: injection.method },
+        const verification = await this.verifyInsertion(cleanedText, verificationBaseline, this.activeTarget);
+        const finalAttempt = injectionAttempts[injectionAttempts.length - 1];
+        if (finalAttempt) finalAttempt.verification = verification;
+        void this.patchTrace(payload.sessionId, {
+          injectionAttempts,
+          stages: { insertionVerification: verification },
         });
-        this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor", transcription.detectedLanguage);
-        debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
-        this.watchForManualEdits(cleanedText, target);
+        if (verification.passed) {
+          await this.history.append({ ...entryBase, injectionStatus: "injected", injectionMethod: injection.method });
+          void this.finishTrace(payload.sessionId, "injected", undefined, "Inserted at cursor", {
+            injectionMethod: injection.method,
+            stages: { injectedText: cleanedText, injectionStrategy: injection.method, insertionVerification: verification },
+          });
+          this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor", transcription.detectedLanguage);
+          debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
+          this.watchForManualEdits(cleanedText, target);
+        } else {
+          debug("editwatch", "not-armed-injection-unverified", { reason: verification.reason, appBundleId: target.appBundleId, appName: target.appName });
+          await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
+          void this.finishTrace(payload.sessionId, "saved", "insertion_failed", "Saved to history", {
+            injectionMethod: null,
+            stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: verification },
+          });
+          this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage);
+        }
       } else {
         debug("editwatch", "not-armed-injection-saved", { appBundleId: target.appBundleId, appName: target.appName });
         await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
@@ -925,6 +954,47 @@ export class DictationService {
     };
   }
 
+  private async verifyInsertion(
+    expectedText: string,
+    baseline: string | null,
+    target: Pick<AppContextResult, "appBundleId" | "appName"> | null
+  ): Promise<InsertionVerificationTrace> {
+    await delay(INSERTION_VERIFY_DELAY_MS);
+    if (!sameTarget(target, this.appDetector.getContext())) {
+      return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
+    }
+
+    const currentValue = safeFocusedValue();
+    if (currentValue === null) {
+      return { readable: false, passed: false, repaired: false, reason: "unreadable" };
+    }
+    if (currentValue.includes(expectedText)) {
+      return { readable: true, passed: true, repaired: false, reason: "expected-present" };
+    }
+
+    const insertedFragment = extractInsertedFragment(baseline, currentValue);
+    if (insertedFragment && expectedText.startsWith(insertedFragment)) {
+      const missingSuffix = expectedText.slice(insertedFragment.length);
+      if (missingSuffix.length > 0) {
+        const repair = await this.injector.inject(missingSuffix, {
+          appBundleId: target?.appBundleId ?? null,
+          appName: target?.appName ?? null,
+          selection: this.captureSelection(target),
+        });
+        if (repair.success) {
+          await delay(INSERTION_VERIFY_DELAY_MS);
+          const repairedValue = safeFocusedValue();
+          if (repairedValue?.includes(expectedText)) {
+            return { readable: true, passed: true, repaired: true, reason: "partial-suffix-repaired" };
+          }
+        }
+      }
+      return { readable: true, passed: false, repaired: false, reason: "partial-unsafe" };
+    }
+
+    return { readable: true, passed: false, repaired: false, reason: insertedFragment ? "partial-unsafe" : "missing" };
+  }
+
   private async safeTraceOperation<T>(
     operation: string,
     sessionId: string,
@@ -1010,6 +1080,36 @@ function safeFocusedValue(): string | null {
   } catch {
     return null;
   }
+}
+
+function delay(ms: number): Promise<void> {
+  if (process.env.NODE_ENV === "test") return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractInsertedFragment(initialValue: string | null, currentValue: string): string | null {
+  if (initialValue === null) return null;
+  if (currentValue === initialValue) return "";
+  let prefixLength = 0;
+  while (
+    prefixLength < initialValue.length &&
+    prefixLength < currentValue.length &&
+    initialValue[prefixLength] === currentValue[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < initialValue.length - prefixLength &&
+    suffixLength < currentValue.length - prefixLength &&
+    initialValue[initialValue.length - 1 - suffixLength] === currentValue[currentValue.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  const end = suffixLength === 0 ? currentValue.length : currentValue.length - suffixLength;
+  return currentValue.slice(prefixLength, end);
 }
 
 function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {

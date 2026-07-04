@@ -189,6 +189,8 @@ function normalizeInjectionAttempts(value: unknown): DictationTrace["injectionAt
     };
     if (item.method === "ax" || item.method === "clipboard") attempt.method = item.method;
     if (typeof item.fallbackReason === "string") attempt.fallbackReason = item.fallbackReason;
+    const verification = normalizeInsertionVerification(item.verification);
+    if (verification) attempt.verification = verification;
     attempts.push(attempt);
   }
   return attempts.length > 0 ? attempts : undefined;
@@ -210,6 +212,8 @@ function normalizeStages(value: unknown): DictationTrace["stages"] {
   if (value.injectionStrategy === "ax" || value.injectionStrategy === "clipboard" || value.injectionStrategy === "none") {
     stages.injectionStrategy = value.injectionStrategy;
   }
+  const insertionVerification = normalizeInsertionVerification(value.insertionVerification);
+  if (insertionVerification) stages.insertionVerification = insertionVerification;
   const outcome = normalizeOutcome(value.outcome);
   if (typeof value.outcome === "string") stages.outcome = outcome;
   const qualityDecision = normalizeStageQualityDecision(value.qualityDecision);
@@ -219,6 +223,28 @@ function normalizeStages(value: unknown): DictationTrace["stages"] {
   const correctionsApplied = normalizeCorrectionsApplied(value.correctionsApplied);
   if (correctionsApplied) stages.correctionsApplied = correctionsApplied;
   return Object.keys(stages).length > 0 ? buildTraceStageSnapshot(stages) : undefined;
+}
+
+function normalizeInsertionVerification(value: unknown): NonNullable<DictationTrace["stages"]>["insertionVerification"] {
+  if (!isObject(value) || typeof value.readable !== "boolean" || typeof value.passed !== "boolean" || typeof value.repaired !== "boolean") {
+    return undefined;
+  }
+  const verification: NonNullable<DictationTrace["stages"]>["insertionVerification"] = {
+    readable: value.readable,
+    passed: value.passed,
+    repaired: value.repaired,
+  };
+  if (
+    value.reason === "expected-present" ||
+    value.reason === "unreadable" ||
+    value.reason === "partial-suffix-repaired" ||
+    value.reason === "partial-unsafe" ||
+    value.reason === "missing" ||
+    value.reason === "not-at-target"
+  ) {
+    verification.reason = value.reason;
+  }
+  return verification;
 }
 
 function normalizeStageQualityDecision(value: unknown): NonNullable<DictationTrace["stages"]>["qualityDecision"] {
