@@ -42,13 +42,14 @@ export const DeepgramSttProvider: TranscriptionProvider = {
     const data = await response.json() as {
       results?: {
         channels?: {
-          alternatives?: { transcript: string }[];
+          alternatives?: { transcript: string; confidence?: number }[];
           detected_language?: string;
         }[];
       };
     };
 
-    const rawText = data.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() ?? "";
+    const alternative = data.results?.channels?.[0]?.alternatives?.[0];
+    const rawText = alternative?.transcript?.trim() ?? "";
     if (!rawText) throw new Error("No speech detected.");
     const detectedLanguage = data.results?.channels?.[0]?.detected_language ?? null;
     return {
@@ -56,6 +57,13 @@ export const DeepgramSttProvider: TranscriptionProvider = {
       formattedText: rawText,
       language: resolveReportedLanguage(options.language),
       detectedLanguage,
+      quality: {
+        provider: "deepgram",
+        attemptCount: 1,
+        supportsConfidence: true,
+        confidence: typeof alternative?.confidence === "number" ? alternative.confidence : null,
+        transcriptLength: rawText.length,
+      },
     };
   },
 

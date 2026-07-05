@@ -6,6 +6,7 @@
         "src/native/accessibility/injector.mm",
         "src/native/accessibility/detector.mm",
         "src/native/hotkeys/hotkey_monitor.mm",
+        "src/native/audio/voice_capture.mm",
         "src/native/whisper/whisper_engine.mm"
       ],
       "include_dirs": [
@@ -28,6 +29,8 @@
           "-framework ApplicationServices",
           "-framework Carbon",
           "-framework CoreAudio",
+          "-framework AudioToolbox",
+          "-framework AudioUnit",
           "-framework CoreGraphics"
         ]
       },
@@ -36,6 +39,8 @@
         "-framework ApplicationServices",
         "-framework Carbon",
         "-framework CoreAudio",
+        "-framework AudioToolbox",
+        "-framework AudioUnit",
         "-framework CoreGraphics"
       ]
     }

@@ -8,6 +8,7 @@ import { KNOWN_PROVIDERS } from "@shared/defaults";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioVisualFrame,
+  CustomCorrection,
   MacOSPermissionState,
   PermissionStatus,
   RecorderFailure,
@@ -22,6 +23,7 @@ import { CredentialsStore, sanitizeSettingsForRenderer } from "./store/credentia
 import { HotkeyManager } from "./hotkeys";
 import { nativeBridge } from "./nativeBridge";
 import { RecorderWindowController } from "./recorderWindow";
+import { listNativeInputDevices } from "./audio/nativeCapture";
 import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { loadWhisperModel, freeWhisperModel, listDownloadedModels, isModelLoaded } from "./providers/local/whisperCpp";
@@ -67,6 +69,23 @@ function getPermissionStatus(): PermissionStatus {
     microphone: normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone")),
     accessibility: accessibilityTrusted ? "granted" : "denied"
   };
+}
+
+const MAX_CUSTOM_CORRECTION_TEXT_LENGTH = 40;
+
+function sanitizeManualCustomCorrections(entries: Array<Partial<CustomCorrection>>): CustomCorrection[] {
+  return entries.flatMap((entry) => {
+    if (typeof entry.spoken !== "string" || typeof entry.written !== "string") return [];
+    const spoken = entry.spoken.trim();
+    const written = entry.written.trim();
+    if (!spoken || !written) return [];
+    if (spoken.length > MAX_CUSTOM_CORRECTION_TEXT_LENGTH || written.length > MAX_CUSTOM_CORRECTION_TEXT_LENGTH) return [];
+    return [{
+      spoken,
+      written,
+      source: "manual",
+    }];
+  });
 }
 
 async function buildRendererApiKeys(
@@ -147,6 +166,9 @@ export function registerIpcHandlers(opts: {
     return updated;
   });
   ipcMain.handle(IpcChannel.ReinjectEntry, (_e, id: string) => dictation.reinjectEntry(id));
+  ipcMain.handle(IpcChannel.RetryHistoryEntry, (_e, id: string) => dictation.retryEntry(id));
+  ipcMain.handle(IpcChannel.GetDictationTrace, (_e, traceId: string) => dictation.getTrace(traceId));
+  ipcMain.handle(IpcChannel.ExportBugReport, (_e, entryId: string) => dictation.exportBugReport(entryId, app.getVersion()));
   ipcMain.handle(IpcChannel.DeleteEntry, (_e, id: string) => history.delete(id));
   ipcMain.handle(IpcChannel.ClearHistory, () => history.clear());
   ipcMain.handle(IpcChannel.CopyText, (_e, text: string) => {
@@ -191,6 +213,16 @@ export function registerIpcHandlers(opts: {
       }
     }
 
+    if (Array.isArray(settingsPatch.customCorrections)) {
+      // Trust model: auto suggestions must pass consent and safety gates before
+      // reaching settings; generic settings updates are explicit Dictionary UI
+      // edits, so keep them working while applying minimal shape/length sanity.
+      settingsPatch = {
+        ...settingsPatch,
+        customCorrections: sanitizeManualCustomCorrections(settingsPatch.customCorrections),
+      };
+    }
+
     const updated = settings.update(settingsPatch);
     if ("primaryHotkey" in settingsPatch || "pasteLatestHotkey" in settingsPatch) {
       hotkeys.reregister();
@@ -215,7 +247,16 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.ShowDictionaryPrompt, (_e, suggestions: DictionarySuggestion[]) => (
     dictation.showDictionarySuggestions(suggestions)
   ));
+  ipcMain.handle(IpcChannel.PurgeAutoSuggestedCorrections, async () => {
+    const updated = dictation.purgeAutoSuggestedCorrections();
+    const sanitized = sanitizeSettingsForRenderer(updated);
+    if (credentials) {
+      sanitized.providerApiKeys = await buildRendererApiKeys(updated.providerApiKeys ?? [], credentials);
+    }
+    return sanitized;
+  });
   ipcMain.handle(IpcChannel.GetPermissionStatus, () => refreshPermissionStatus());
+  ipcMain.handle(IpcChannel.ListAudioInputDevices, () => listNativeInputDevices());
   ipcMain.handle(IpcChannel.RequestMicrophonePermission, async () => {
     await systemPreferences.askForMediaAccess("microphone");
     return normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone"));
@@ -249,6 +290,11 @@ export function registerIpcHandlers(opts: {
     if (typeof deviceId !== "number" || !Number.isFinite(deviceId)) return false;
     return nativeBridge.restoreRecordingInput?.(deviceId) ?? false;
   });
+  ipcMain.handle(IpcChannel.GetRecorderConfig, () => ({
+    micDeviceId: settings.get().micDeviceId,
+    preWarmMic: settings.get().preWarmMic,
+    captureBackend: settings.get().captureBackend,
+  }));
 
   // Phase 1: Provider API key testing
   ipcMain.handle(IpcChannel.TestApiKey, async (_e, providerId: string, apiKey: string) => {

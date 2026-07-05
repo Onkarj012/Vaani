@@ -54,6 +54,36 @@ describe("cleanupText", () => {
     expect(result).toBe("Hello world.");
   });
 
+  it("preserves like as spoken content by default", () => {
+    const result = cleanupText({
+      rawText: "I like this.",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("I like this.");
+  });
+
+  it("removes only minimal built-in fillers by default", () => {
+    expect(cleanupText({
+      rawText: "um hello",
+      settings: createSettings({ fillerWords: DEFAULT_SETTINGS.fillerWords })
+    })).toBe("Hello.");
+
+    expect(cleanupText({
+      rawText: "umm hello uhh world",
+      settings: createSettings({ fillerWords: DEFAULT_SETTINGS.fillerWords })
+    })).toBe("Hello world.");
+  });
+
+  it("removes opt-in extra filler words when configured", () => {
+    const result = cleanupText({
+      rawText: "I basically like this",
+      settings: createSettings({ extraFillerWords: ["basically"] })
+    });
+
+    expect(result).toBe("I like this.");
+  });
+
   it("collapses accidental adjacent duplicate words", () => {
     const result = cleanupText({
       rawText: "github github should only appear once",
@@ -63,30 +93,44 @@ describe("cleanupText", () => {
     expect(result).toBe("Github should only appear once.");
   });
 
-  it("normalizes common LLM dictation artifacts", () => {
+  it("does not normalize product names without dictionary rules", () => {
     const result = cleanupText({
-      rawText: "send this to the llmn cleanup step",
+      rawText: "send this to the llmn cleanup step for the Bani app",
       settings: createSettings()
     });
 
-    expect(result).toBe("Send this to the LLM cleanup step.");
+    expect(result).toBe("Send this to the llmn cleanup step for the Bani app.");
   });
 
-  it("removes trailing Vaani from transcription", () => {
+  it("uses dictionary rules for dictated proper nouns", () => {
+    const result = cleanupText({
+      rawText: "the final word after the pause is BANI new paragraph the final sentence should end with the word google",
+      settings: createSettings({
+        customCorrections: [
+          { spoken: "BANI", written: "Vaani" },
+          { spoken: "google", written: "Google" }
+        ]
+      })
+    });
+
+    expect(result).toBe("The final word after the pause is Vaani.\n\nThe final sentence should end with the word Google.");
+  });
+
+  it("preserves trailing Vaani as spoken content", () => {
     expect(cleanupText({
       rawText: "hello world Vaani",
       settings: createSettings()
-    })).toBe("Hello world.");
+    })).toBe("Hello world Vaani.");
 
     expect(cleanupText({
       rawText: "testing this, vaani.",
       settings: createSettings()
-    })).toBe("Testing this.");
+    })).toBe("Testing this, vaani.");
 
     expect(cleanupText({
       rawText: "send the message vaani",
       settings: createSettings()
-    })).toBe("Send the message.");
+    })).toBe("Send the message vaani.");
   });
 
   it("expands slash command snippets", () => {
@@ -139,11 +183,92 @@ describe("cleanupText", () => {
     })).toBe("I have one more thing.");
   });
 
+  it("does not digitize standalone one before a capitalized hallucination segment", () => {
+    expect(cleanupText({
+      rawText: "one It should stay words",
+      settings: createSettings()
+    })).toBe("One It should stay words.");
+  });
+
+  it("keeps compound one-prefixed numeric contexts working", () => {
+    expect(cleanupText({
+      rawText: "one hundred users joined",
+      settings: createSettings()
+    })).toBe("100 users joined.");
+
+    expect(cleanupText({
+      rawText: "twenty one users joined",
+      settings: createSettings()
+    })).toBe("21 users joined.");
+  });
+
+  it("normalizes trailing compound number runs at terminal position", () => {
+    expect(cleanupText({
+      rawText: "the price is one fifty",
+      settings: createSettings()
+    })).toBe("The price is one fifty.");
+
+    expect(cleanupText({
+      rawText: "the total is one hundred",
+      settings: createSettings()
+    })).toBe("The total is 100.");
+
+    expect(cleanupText({
+      rawText: "the answer is twenty one",
+      settings: createSettings()
+    })).toBe("The answer is 21.");
+  });
+
+  it("keeps trailing standalone one as prose", () => {
+    expect(cleanupText({
+      rawText: "number one",
+      settings: createSettings()
+    })).toBe("Number one.");
+  });
+
   it("does not normalize numbers when cleanup is disabled", () => {
     expect(cleanupText({
       rawText: "I need ten apples",
       settings: createSettings({ cleanupEnabled: false })
     })).toBe("I need ten apples");
+  });
+
+  it("converts a dangling list comma to a period instead of ',.'", () => {
+    const result = cleanupText({
+      rawText: "Decline press,\nIncline press,\nTricep,",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Decline press.\nIncline press.\nTricep.");
+    expect(result).not.toContain(",.");
+  });
+
+  it("formats paragraph blocks while preserving blank lines", () => {
+    const result = cleanupText({
+      rawText: "first paragraph line one\ncontinues here\n\nsecond paragraph starts\ncontinues too",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("First paragraph line one continues here.\n\nSecond paragraph starts continues too.");
+  });
+
+  it("preserves true list lines inside paragraph-separated text", () => {
+    const result = cleanupText({
+      rawText: "shopping list\n\n1. buy milk\n2. call mom",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Shopping list.\n\n1. Buy milk\n2. Call mom");
+  });
+
+  it("applies dictionary corrections even when cleanup is disabled", () => {
+    expect(cleanupText({
+      rawText: "My name is Om Kar",
+      settings: createSettings({
+        cleanupEnabled: false,
+        customCorrections: [{ spoken: "Om Kar", written: "Onkar" }]
+      })
+    })).toBe("My name is Onkar");
   });
 
   it("expands snippets in multiline text", () => {
@@ -155,6 +280,75 @@ describe("cleanupText", () => {
     });
 
     expect(result).toBe("Contact me.\nOnkarj012@gmail.com.\nThanks.");
+  });
+
+  it("converts spoken paragraph and line break cues deterministically", () => {
+    const result = cleanupText({
+      rawText: "intro sentence new paragraph first sentence should stay simple new line this should appear fresh new para final sentence",
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "Intro sentence.",
+      "",
+      "First sentence should stay simple.",
+      "This should appear fresh.",
+      "",
+      "Final sentence.",
+    ].join("\n"));
+  });
+
+  it("converts article-prefixed paragraph cues from STT artifacts", () => {
+    const result = cleanupText({
+      rawText: "important edge case a new paragraph here is another edge case",
+      settings: createSettings()
+    });
+
+    expect(result).toBe("Important edge case.\n\nHere is another edge case.");
+  });
+
+  it("formats spoken point and number enumerations without breaking numeric prose", () => {
+    const result = cleanupText({
+      rawText: [
+        "here are the things I want to test point one preserve every real word I say point two turn spoken enumeration into a real list point three do not add extra conclusions",
+        "new paragraph now test a numbered list number one open the app number two start recording number three speak softly for one sentence number four stop recording after a short pause",
+        "new paragraph I bought a number two pencil wrote point one percent in the margin and named the file Vani test notes",
+      ].join(" "),
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "Here are the things I want to test.",
+      "",
+      "1. Preserve every real word I say",
+      "2. Turn spoken enumeration into a real list",
+      "3. Do not add extra conclusions",
+      "",
+      "Now test a numbered list.",
+      "",
+      "1. Open the app",
+      "2. Start recording",
+      "3. Speak softly for one sentence",
+      "4. Stop recording after a short pause",
+      "",
+      "I bought a number 2 pencil wrote point 1% in the margin and named the file Vani test notes.",
+    ].join("\n"));
+  });
+
+  it("splits inline numbered list markers from STT output", () => {
+    const result = cleanupText({
+      rawText: "test a numbered list 1. Open the app 2. Start recording 3. Speak softly for one sentence 4 Stop recording after a short pause",
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "Test a numbered list.",
+      "",
+      "1. Open the app",
+      "2. Start recording",
+      "3. Speak softly for one sentence",
+      "4. Stop recording after a short pause.",
+    ].join("\n"));
   });
 });
 

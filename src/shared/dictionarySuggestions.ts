@@ -1,6 +1,17 @@
+import { digitizeNumberWords } from "./numberWords";
+
 export interface DictionarySuggestion {
   spoken: string;
   written: string;
+}
+
+interface Token {
+  value: string;
+  start: number;
+}
+
+interface SuggestionCandidate extends DictionarySuggestion {
+  sentenceStart: boolean;
 }
 
 // Maximum normalized edit distance (Levenshtein / max-len) to accept a mishear.
@@ -13,14 +24,14 @@ export function detectDictionarySuggestions(originalText: string, correctedText:
   const correctedTokens = tokenize(correctedText);
   if (originalTokens.length === 0 || correctedTokens.length === 0) return [];
 
-  const suggestions: DictionarySuggestion[] = [];
+  const suggestions: SuggestionCandidate[] = [];
   let originalIndex = 0;
   let correctedIndex = 0;
 
   while (originalIndex < originalTokens.length && correctedIndex < correctedTokens.length) {
     const spoken = originalTokens[originalIndex];
     const written = correctedTokens[correctedIndex];
-    if (!spoken || !written || spoken.toLowerCase() === written.toLowerCase()) {
+    if (!spoken || !written || spoken.value === written.value) {
       originalIndex += 1;
       correctedIndex += 1;
       continue;
@@ -31,8 +42,9 @@ export function detectDictionarySuggestions(originalText: string, correctedText:
       && suffixesMatch(originalTokens, originalIndex + 2, correctedTokens, correctedIndex + 1)
     ) {
       suggestions.push({
-        spoken: `${spoken} ${originalTokens[originalIndex + 1]}`,
-        written
+        spoken: `${spoken.value} ${originalTokens[originalIndex + 1]?.value ?? ""}`.trim(),
+        written: written.value,
+        sentenceStart: isSentenceStart(originalText, spoken.start)
       });
       originalIndex += 2;
       correctedIndex += 1;
@@ -44,15 +56,20 @@ export function detectDictionarySuggestions(originalText: string, correctedText:
       && suffixesMatch(originalTokens, originalIndex + 1, correctedTokens, correctedIndex + 2)
     ) {
       suggestions.push({
-        spoken,
-        written: `${written} ${correctedTokens[correctedIndex + 1]}`
+        spoken: spoken.value,
+        written: `${written.value} ${correctedTokens[correctedIndex + 1]?.value ?? ""}`.trim(),
+        sentenceStart: isSentenceStart(originalText, spoken.start)
       });
       originalIndex += 1;
       correctedIndex += 2;
       continue;
     }
 
-    suggestions.push({ spoken, written });
+    suggestions.push({
+      spoken: spoken.value,
+      written: written.value,
+      sentenceStart: isSentenceStart(originalText, spoken.start)
+    });
     originalIndex += 1;
     correctedIndex += 1;
   }
@@ -67,19 +84,60 @@ export function detectDictionarySuggestions(originalText: string, correctedText:
   if (deduped.length !== 1) return [];
   const only = deduped[0];
   if (!only || !only.spoken || !only.written) return [];
-  if (normalizedEditDistance(only.spoken, only.written) > MAX_EDIT_RATIO) return [];
+  if (!isValidDictionarySuggestion(only)) return [];
+  if (!isAutoLearnableDictionarySuggestion(only, { sentenceStart: only.sentenceStart })) return [];
 
-  return deduped;
+  return [{ spoken: only.spoken, written: only.written }];
 }
 
-function tokenize(text: string): string[] {
-  return text
-    .split(/\s+/)
-    .map((token) => token.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, ""))
-    .filter(Boolean);
+export function isValidDictionarySuggestion(suggestion: DictionarySuggestion): boolean {
+  const spoken = suggestion.spoken.trim();
+  const written = suggestion.written.trim();
+  if (!spoken || !written) return false;
+  if (digitizeNumberWords(spoken) === written) return true;
+  if (normalizedEditDistance(spoken, written) >= MAX_EDIT_RATIO) return false;
+  if (addsDigit(spoken, written)) return false;
+  return true;
 }
 
-function dedupeSuggestions(suggestions: DictionarySuggestion[]): DictionarySuggestion[] {
+export function isAutoLearnableDictionarySuggestion(
+  suggestion: DictionarySuggestion,
+  context: { sentenceStart?: boolean } = {}
+): boolean {
+  const spoken = suggestion.spoken.trim();
+  const written = suggestion.written.trim();
+  if (!isValidDictionarySuggestion({ spoken, written })) return false;
+
+  const words = written.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 3) return false;
+  if (digitizeNumberWords(spoken) === written) return false;
+  if (words.some((word) => word.length > 40)) return false;
+
+  const caseOnly = spoken.toLowerCase() === written.toLowerCase();
+  if (caseOnly && context.sentenceStart) return false;
+  if (context.sentenceStart && !spoken.includes(" ") && !words.some(hasIdentifierShape)) return false;
+
+  return words.every(looksDictionaryWorthyWord);
+}
+
+function addsDigit(spoken: string, written: string): boolean {
+  const spokenDigits = new Set(spoken.match(/\d/g) ?? []);
+  return (written.match(/\d/g) ?? []).some((digit) => !spokenDigits.has(digit));
+}
+
+function tokenize(text: string): Token[] {
+  const tokens: Token[] = [];
+  const pattern = /[A-Za-z0-9][A-Za-z0-9'._-]*/g;
+  for (const match of text.matchAll(pattern)) {
+    const value = match[0].replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
+    if (!value) continue;
+    const start = match.index ?? 0;
+    tokens.push({ value, start });
+  }
+  return tokens;
+}
+
+function dedupeSuggestions<T extends DictionarySuggestion>(suggestions: T[]): T[] {
   const seen = new Set<string>();
   return suggestions.filter((suggestion) => {
     const key = `${suggestion.spoken.toLowerCase()}=>${suggestion.written}`;
@@ -92,18 +150,36 @@ function dedupeSuggestions(suggestions: DictionarySuggestion[]): DictionarySugge
 }
 
 function suffixesMatch(
-  originalTokens: string[],
+  originalTokens: Token[],
   originalStart: number,
-  correctedTokens: string[],
+  correctedTokens: Token[],
   correctedStart: number
 ): boolean {
-  const originalSuffix = originalTokens.slice(originalStart).map((token) => token.toLowerCase());
-  const correctedSuffix = correctedTokens.slice(correctedStart).map((token) => token.toLowerCase());
+  const originalSuffix = originalTokens.slice(originalStart).map((token) => token.value.toLowerCase());
+  const correctedSuffix = correctedTokens.slice(correctedStart).map((token) => token.value.toLowerCase());
   if (originalSuffix.length !== correctedSuffix.length) {
     return false;
   }
 
   return originalSuffix.every((token, index) => token === correctedSuffix[index]);
+}
+
+function isSentenceStart(text: string, tokenStart: number): boolean {
+  const before = text.slice(0, tokenStart).trimEnd();
+  return before.length === 0 || /[.!?\n]\s*$/.test(before);
+}
+
+function looksDictionaryWorthyWord(word: string): boolean {
+  const clean = word.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
+  if (clean.length < 3) return false;
+  if (hasIdentifierShape(clean)) return true;
+  return /^[A-Z][a-z]+$/.test(clean);
+}
+
+function hasIdentifierShape(word: string): boolean {
+  if (/[0-9@._-]/.test(word) && /[A-Za-z]/.test(word)) return true;
+  if (/^[A-Z0-9]{2,10}$/.test(word) && /[A-Z]/.test(word)) return true;
+  return /^[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*$/.test(word);
 }
 
 function editDistance(a: string, b: string): number {

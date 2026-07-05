@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Loader2, BookOpen, Layers, X, ChevronRight } from 'lucide-react'
 
-const BAR_COUNT = 11
+const BAR_COUNT = 9
+const BAR_WIDTH = 2.5
+const BAR_GAP = 2
+const WAVEFORM_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
 
   declare global {
   interface Window {
@@ -13,7 +16,6 @@ const BAR_COUNT = 11
       onShowSnippet: (cb: (data: { trigger: string }) => void) => void
       onShowDict: (cb: (data: { word: string; correction: string }) => void) => void
       onHideExpanded: (cb: () => void) => void
-      onLanguage: (cb: (lang: string) => void) => void
       sendReady: () => void
       sendSnippetResp: (accepted: boolean) => void
       sendDictResp: (accepted: boolean) => void
@@ -34,16 +36,16 @@ interface PromptData {
 function WaveformBars({ bars, accentColor }: { bars: number[]; accentColor: string }) {
   return (
     <div
-      className="flex items-center gap-[3px]"
-      style={{ height: 24, width: BAR_COUNT * 6 }}
+      className="flex items-center justify-center"
+      style={{ height: 24, width: WAVEFORM_WIDTH, gap: BAR_GAP }}
     >
       {bars.map((v, i) => (
         <div
           key={i}
           style={{
-            width: 2.5,
+            width: BAR_WIDTH,
             borderRadius: 999,
-            height: Math.max(3, v * 26),
+            height: Math.max(3, Math.min(22, v * 18)),
             background: accentColor,
             opacity: 0.3 + v * 0.7,
             transition: 'height 60ms ease-out, opacity 60ms ease-out',
@@ -78,7 +80,6 @@ export default function CapsuleOverlay() {
   const [accentColor, setAccentColor] = useState('#7575c8')
   const [promptData, setPromptData] = useState<PromptData>({})
   const [autoTimer, setAutoTimer] = useState(8)
-  const [detectedLang, setDetectedLang] = useState<string | null>(null)
   const modeRef = useRef<VisualMode>('hidden')
 
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -90,7 +91,6 @@ export default function CapsuleOverlay() {
     bridge.onMode((m) => {
       switch (m) {
         case 'pressed':
-          setDetectedLang(null)
           setMode('pressed')
           break
         case 'recording':
@@ -103,7 +103,6 @@ export default function CapsuleOverlay() {
         case 'idle':
           setMode('hidden')
           setBars(Array(BAR_COUNT).fill(0.08))
-          setDetectedLang(null)
           break
       }
     })
@@ -126,7 +125,6 @@ export default function CapsuleOverlay() {
     })
 
     bridge.onHideExpanded(() => setMode('hidden'))
-    bridge.onLanguage((lang) => setDetectedLang(lang))
 
     // Send ready signal multiple times to handle HMR timing issues.
     // After sending, the main process may immediately send pending mode
@@ -251,11 +249,6 @@ export default function CapsuleOverlay() {
                 >
                   <Check size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
                 </motion.div>
-                {detectedLang && (
-                  <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-white/75">
-                    {detectedLang}
-                  </span>
-                )}
               </motion.div>
             )}
 

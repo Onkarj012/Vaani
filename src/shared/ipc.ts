@@ -10,6 +10,9 @@ export const enum IpcChannel {
   RecorderFailure = "dictation:recorder-failure",
   PrepareRecordingInput = "dictation:prepare-recording-input",
   RestoreRecordingInput = "dictation:restore-recording-input",
+  GetRecorderConfig = "dictation:get-recorder-config",
+  ListAudioInputDevices = "dictation:list-audio-input-devices",
+  RecorderConfigChanged = "dictation:recorder-config-changed",
   StartRecording = "dictation:start-recording",
   StopRecording = "dictation:stop-recording",
 
@@ -17,6 +20,9 @@ export const enum IpcChannel {
   GetHistory = "history:get",
   UpdateHistoryEntry = "history:update",
   ReinjectEntry = "history:reinject",
+  RetryHistoryEntry = "history:retry",
+  GetDictationTrace = "history:get-trace",
+  ExportBugReport = "history:export-bug-report",
   DeleteEntry = "history:delete",
   ClearHistory = "history:clear",
   CopyText = "clipboard:copy-text",
@@ -31,6 +37,7 @@ export const enum IpcChannel {
 
   // Dictionary
   ShowDictionaryPrompt = "dictionary:show-prompt",
+  PurgeAutoSuggestedCorrections = "dictionary:purge-auto-suggested",
 
   // macOS permissions
   GetPermissionStatus = "permissions:get-status",

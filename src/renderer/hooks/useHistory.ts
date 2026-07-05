@@ -34,6 +34,10 @@ export function useHistory() {
     reinjectEntry: async (id: string) => {
       await window.vaani.reinjectEntry(id);
     },
+    retryEntry: async (id: string) => {
+      await window.vaani.retryHistoryEntry(id);
+      await reload();
+    },
     clearAll: async () => {
       await window.vaani.clearHistory();
       await reload();

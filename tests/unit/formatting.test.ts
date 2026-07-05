@@ -34,7 +34,7 @@ describe("formatTranscript", () => {
       choices: [
         {
           message: {
-            content: "There are a few things about my project that I need. It is as follows the checklist.\n\n1. Keep UI\n2. Fix transcription\n3. Change the AI prompt"
+            content: "There are a few things about my project that I need. It is as follows the checklist.\n\n1. Keep UI\n2. Fix transcription\n3. And change the AI prompt"
           }
         }
       ]
@@ -44,7 +44,7 @@ describe("formatTranscript", () => {
     const rawText = "There are a few things about my project that I need. It is as follows the checklist. Keep UI, fix transcription, and change the AI prompt.";
     const result = await formatTranscript("test-key", rawText);
 
-    expect(result).toBe("There are a few things about my project that I need. It is as follows the checklist.\n\n1. Keep UI\n2. Fix transcription\n3. Change the AI prompt");
+    expect(result).toBe("There are a few things about my project that I need. It is as follows the checklist.\n\n1. Keep UI\n2. Fix transcription\n3. And change the AI prompt");
     expect(createCompletionMock).toHaveBeenCalledTimes(1);
   });
 

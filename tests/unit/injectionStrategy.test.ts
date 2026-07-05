@@ -55,6 +55,15 @@ describe("TextInjector strategy selection", () => {
     expect(injectorMocks.axInject).not.toHaveBeenCalled();
   });
 
+  it("passes numeric text through the final injection boundary unchanged", async () => {
+    const { TextInjector } = await import("@main/injection");
+    const injector = new TextInjector(() => settings({ injectionMode: "clipboard" }));
+
+    await injector.inject("I have 1 and only one useful suggestion today.");
+
+    expect(injectorMocks.clipboardInject).toHaveBeenCalledWith("I have 1 and only one useful suggestion today.", undefined);
+  });
+
   it("prefers clipboard for browser-like targets in auto mode", async () => {
     const { TextInjector } = await import("@main/injection");
     const injector = new TextInjector(() => settings({ injectionMode: "auto" }));

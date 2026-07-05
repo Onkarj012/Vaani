@@ -71,14 +71,12 @@ export class AccessibilityTextInjector {
 
       if (typeof result === "boolean") {
         if (result) {
-          moveCursorToEndOfText(text);
           return { success: true, method: "ax" };
         }
         return { success: false, reason: "insertion_failed" };
       }
 
       if (result.success) {
-        moveCursorToEndOfText(text);
         return { success: true, method: "ax" };
       }
 
@@ -94,22 +92,6 @@ function normalizeFailureReason(reason: string | undefined): InjectionFailureRea
     return reason;
   }
   return "insertion_failed";
-}
-
-function moveCursorToEndOfText(text: string): void {
-  if (!nativeBridge.setFocusedSelection || !nativeBridge.getFocusedValue) return;
-  try {
-    const fullValue = nativeBridge.getFocusedValue();
-    if (fullValue != null) {
-      const endPos = fullValue.length;
-      nativeBridge.setFocusedSelection(endPos, 0);
-    } else {
-      // Fallback: just move to the end of what we inserted
-      nativeBridge.setFocusedSelection(text.length, 0);
-    }
-  } catch {
-    // Best-effort cursor positioning
-  }
 }
 
 function delay(ms: number): Promise<void> {

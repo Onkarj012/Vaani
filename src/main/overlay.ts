@@ -23,7 +23,6 @@ const PROMPT_W = 360;
 const PROMPT_H = 210;
 const OVERLAY_LOAD_TIMEOUT_MS = 2_000;
 const OVERLAY_SHOW_WATCHDOG_MS = 900;
-
 export class OverlayController {
   private window: BrowserWindow | null = null;
   private loadReady = false;
@@ -32,10 +31,11 @@ export class OverlayController {
   private showWatchdog: ReturnType<typeof setTimeout> | null = null;
   private pendingMode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error" | null = null;
   private pendingBars: number[] | null = null;
-  private pendingLang: string | null = null;
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingPromptRemover: (() => void) | null = null;
+  private pendingPromptResponder: ((accepted: boolean) => void) | null = null;
+  private promptGeneration = 0;
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private accentColor = "#FF006E";
   // ── Public setters ────────────────────────────────────────────────────────
@@ -131,6 +131,7 @@ export class OverlayController {
   }
 
   setRecording(): void {
+    this.finishActivePrompt();
     this.pendingMode = "recording";
     this.pendingBars = null;
     this.show();
@@ -138,10 +139,26 @@ export class OverlayController {
   }
 
   setPressed(): void {
+    this.finishActivePrompt();
     this.pendingMode = "pressed";
     this.pendingBars = null;
     this.show();
     this.tryUpdateMode("pressed");
+  }
+
+  // A new dictation is taking over the overlay — neutralize any lingering prompt
+  // so its pending dismiss timer cannot later hide the live recording pill.
+  private finishActivePrompt(): void {
+    if (!this.promptActive) return;
+    this.promptGeneration += 1;
+    this.clearPromptDismissTimer();
+    this.pendingPromptRemover?.();
+    this.pendingPromptRemover = null;
+    const responder = this.pendingPromptResponder;
+    this.pendingPromptResponder = null;
+    this.promptActive = false;
+    this.resetPromptWindowState();
+    responder?.(false);
   }
 
   setProcessing(): void {
@@ -149,14 +166,9 @@ export class OverlayController {
     this.show();
   }
 
-  setSuccess(detectedLanguage?: string | null): void {
+  setSuccess(_detectedLanguage?: string | null): void {
     this.pendingMode = "done";
-    this.pendingLang = detectedLanguage ?? null;
     this.show();
-    if (detectedLanguage && this.loadReady && this.window && !this.window.isDestroyed()) {
-      this.window.webContents.send("capsule:set-lang", detectedLanguage);
-      this.pendingLang = null;
-    }
   }
 
   setError(): void {
@@ -192,11 +204,17 @@ export class OverlayController {
 
   private async showSnippetPromptAsync(trigger: string, onResponse: (accepted: boolean) => void): Promise<void> {
     log("overlay:prompt-snippet-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
+    const promptGeneration = this.promptGeneration + 1;
+    this.promptGeneration = promptGeneration;
     this.promptActive = true;
     this.clearPromptDismissTimer();
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     await this.ensureWindow();
     await this.waitForLoadReady(5_000);
+    if (promptGeneration !== this.promptGeneration) {
+      onResponse(false);
+      return;
+    }
     if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
 
     const responseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
@@ -205,6 +223,8 @@ export class OverlayController {
       onResponse(args.accepted);
     };
     const promptWindow = this.window;
+    this.pendingPromptRemover?.();
+    this.pendingPromptResponder = onResponse;
     promptWindow.webContents.ipc.once("capsule:snippet-response", responseHandler);
     // Store remover so endPrompt/recover can clean it up
     this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
@@ -212,6 +232,7 @@ export class OverlayController {
     await this.showPromptWindow(frontmostBefore);
     promptWindow.webContents.send("capsule:show-snippet", { trigger });
     this.promptDismissTimer = setTimeout(() => {
+      this.pendingPromptResponder = null;
       this.endPrompt();
       onResponse(false);
     }, 8000);
@@ -219,11 +240,17 @@ export class OverlayController {
 
   private async showDictionaryPromptAsync(word: string, correction: string, onResponse: (accepted: boolean) => void): Promise<void> {
     log("overlay:prompt-dictionary-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
+    const promptGeneration = this.promptGeneration + 1;
+    this.promptGeneration = promptGeneration;
     this.promptActive = true;
     this.clearPromptDismissTimer();
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     await this.ensureWindow();
     await this.waitForLoadReady(5_000);
+    if (promptGeneration !== this.promptGeneration) {
+      onResponse(false);
+      return;
+    }
     if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
 
     const dictResponseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
@@ -232,12 +259,15 @@ export class OverlayController {
       onResponse(args.accepted);
     };
     const promptWindow = this.window;
+    this.pendingPromptRemover?.();
+    this.pendingPromptResponder = onResponse;
     promptWindow.webContents.ipc.once("capsule:dictionary-response", dictResponseHandler);
     this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:dictionary-response", dictResponseHandler);
 
     await this.showPromptWindow(frontmostBefore);
     promptWindow.webContents.send("capsule:show-dictionary", { word, correction });
     this.promptDismissTimer = setTimeout(() => {
+      this.pendingPromptResponder = null;
       this.endPrompt();
       onResponse(false);
     }, 8000);
@@ -290,15 +320,17 @@ export class OverlayController {
   }
 
   private async showPromptWindow(
-    frontmostBefore: { bundleId?: string; name?: string } | null | undefined
+    frontmostBefore: { bundleId?: string; name?: string } | null | undefined,
+    focusWindow = true
   ): Promise<void> {
     if (!this.window || this.window.isDestroyed()) return;
-    log("overlay:prompt-window-show", { loadReady: this.loadReady });
-    await this.resizeWindow(true);
+    log("overlay:prompt-window-show", { loadReady: this.loadReady, focusWindow });
+    this.clearHideTimer();
+    this.window.setFocusable(focusWindow);
+    await this.presentWindow(frontmostBefore);
     this.window.setIgnoreMouseEvents(false);
-    this.window.setFocusable(true);
-    this.window.focus();
-    void this.restoreFocusIfNeeded(frontmostBefore);
+    this.window.setFocusable(focusWindow);
+    if (focusWindow) this.window.focus();
   }
 
   private waitForLoadReady(timeoutMs: number): Promise<void> {
@@ -327,12 +359,22 @@ export class OverlayController {
     this.promptActive = false;
     this.pendingPromptRemover?.();
     this.pendingPromptRemover = null;
+    this.pendingPromptResponder = null;
+    this.resetPromptWindowState();
+    if (!this.window || this.window.isDestroyed()) return;
+    this.clearHideTimer();
+    this.hideTimer = setTimeout(() => {
+      this.hideTimer = null;
+      if (!this.promptActive) this.hide();
+    }, 400);
+  }
+
+  private resetPromptWindowState(): void {
     if (!this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:hide-expanded");
     this.window.setIgnoreMouseEvents(true, { forward: true });
     this.window.setFocusable(false);
     void this.resizeWindow(false);
-    setTimeout(() => this.hide(), 400);
   }
 
   private clearHideTimer(): void {
@@ -572,10 +614,6 @@ export class OverlayController {
         setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 150);
       }
       if (this.pendingBars) this.updateBars(this.pendingBars);
-      if (this.pendingLang && this.window && !this.window.isDestroyed()) {
-        this.window.webContents.send("capsule:set-lang", this.pendingLang);
-        this.pendingLang = null;
-      }
     });
 
     // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
@@ -588,10 +626,6 @@ export class OverlayController {
           this.loadReady = true;
           if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
           if (this.pendingBars) this.updateBars(this.pendingBars);
-          if (this.pendingLang && !this.window.isDestroyed()) {
-            this.window.webContents.send("capsule:set-lang", this.pendingLang);
-            this.pendingLang = null;
-          }
         }
       }, 200);
     });

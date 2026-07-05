@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectRecorderDeviceId, type AudioInputLike } from "@renderer/recorder/deviceSelection";
+import { selectRecorderDevice, selectRecorderDeviceId, type AudioInputLike } from "@renderer/recorder/deviceSelection";
 
 function input(deviceId: string, label: string): AudioInputLike {
   return { kind: "audioinput", deviceId, label };
@@ -37,6 +37,33 @@ describe("selectRecorderDeviceId", () => {
   it("returns undefined when only virtual inputs exist", () => {
     const devices = [input("vd", "BlackHole 16ch"), input("lb", "Loopback Audio")];
     expect(selectRecorderDeviceId(devices)).toBeUndefined();
+  });
+
+  it("returns an error instead of falling back to default when only virtual inputs exist", () => {
+    const devices = [input("vd", "BlackHole 16ch"), input("lb", "Loopback Audio")];
+
+    expect(selectRecorderDevice(devices)).toEqual({
+      ok: false,
+      message: expect.stringContaining("No physical microphone found"),
+    });
+  });
+
+  it("honors a configured micDeviceId when it is present", () => {
+    const devices = [
+      input("bi", "MacBook Pro Microphone"),
+      input("preferred", "USB Microphone"),
+    ];
+
+    expect(selectRecorderDevice(devices, "preferred")).toEqual({ ok: true, deviceId: "preferred" });
+  });
+
+  it("falls back to physical device selection when configured micDeviceId is missing", () => {
+    const devices = [
+      input("vd", "BlackHole 16ch"),
+      input("bi", "Built-in Microphone"),
+    ];
+
+    expect(selectRecorderDevice(devices, "missing")).toEqual({ ok: true, deviceId: "bi" });
   });
 
   it("ignores default and communications pseudo-devices", () => {

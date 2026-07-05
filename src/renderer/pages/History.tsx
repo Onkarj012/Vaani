@@ -1,20 +1,24 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Search, Copy, RotateCcw, Trash2, Clock, Type, X, Check, AudioLines, Edit3 } from 'lucide-react'
-import { useVaaniUi } from '../context/vaani-ui'
+import { Search, Copy, RotateCcw, Trash2, Clock, Type, X, Check, AudioLines, Edit3, FileWarning, RefreshCw } from 'lucide-react'
+import { useVaaniUi } from '@renderer/context/vaani-ui'
 import { Card } from '@renderer/components/ui/card'
 import { Input, Textarea } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
+import type { DictationTrace } from '@shared/types'
+
+type TraceLoadState = DictationTrace | null | 'loading'
 
 const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } }
 const item = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }
 
 export default function History() {
-  const { historyItems, updateHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry, copyHistoryEntry } = useVaaniUi()
+  const { historyItems, updateHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry, retryHistoryEntry, copyHistoryEntry } = useVaaniUi()
   const [searchQuery, setSearchQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [traces, setTraces] = useState<Record<string, TraceLoadState>>({})
 
   const groups = ['Today', 'Yesterday', 'This Week', 'Earlier']
   const grouped = groups
@@ -29,6 +33,25 @@ export default function History() {
   const handleSave = () => {
     if (editingId) void updateHistoryEntry(editingId, editText)
     setEditingId(null)
+  }
+
+  useEffect(() => {
+    const item = historyItems.find((candidate) => candidate.id === expandedId)
+    if (!item?.traceId || traces[item.traceId] !== undefined) return
+    const traceId = item.traceId
+    setTraces((current) => ({ ...current, [traceId]: 'loading' }))
+    void window.vaani.getDictationTrace(traceId)
+      .then((trace) => {
+        setTraces((current) => ({ ...current, [traceId]: trace ?? null }))
+      })
+      .catch(() => {
+        setTraces((current) => ({ ...current, [traceId]: null }))
+      })
+  }, [expandedId, historyItems, traces])
+
+  const copyBugReport = async (entryId: string) => {
+    const report = await window.vaani.exportBugReport(entryId)
+    await window.vaani.copyText(JSON.stringify(report, null, 2))
   }
 
   return (
@@ -94,17 +117,26 @@ export default function History() {
                             {expandedId === it.id ? 'Show less' : 'Show more'}
                           </button>
                         )}
+                        {expandedId === it.id && it.traceId && (
+                          <Diagnostics trace={resolvedTrace(traces[it.traceId])} />
+                        )}
 
                         <div className="label-meta mt-4 flex items-center gap-3 text-[10px] text-faint">
                           <span className="flex items-center gap-1"><Clock size={11} />{it.time}</span>
                           <span className="flex items-center gap-1"><AudioLines size={11} />{it.duration}</span>
                           <span className="flex items-center gap-1"><Type size={11} />{it.wordCount} words</span>
+                          <span>{it.injectionStatus === 'injected' ? 'Inserted' : 'Saved'}</span>
                         </div>
 
-                        <div className="mt-4 flex items-center gap-2">
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
                           <Button variant="soft" size="sm" onClick={() => copyHistoryEntry(it.text)}><Copy size={13} />Copy</Button>
                           <Button variant="soft" size="sm" onClick={() => reinjectHistoryEntry(it.id)}><RotateCcw size={13} />Re-inject</Button>
+                          <Button variant="soft" size="sm" onClick={() => retryHistoryEntry(it.id)}><RefreshCw size={13} />Retry</Button>
                           <Button variant="soft" size="sm" onClick={() => { setEditingId(it.id); setEditText(it.text) }}><Edit3 size={13} />Edit</Button>
+                          {it.traceId && (
+                            <Button variant="soft" size="sm" onClick={() => setExpandedId(expandedId === it.id ? null : it.id)}><AudioLines size={13} />Diagnostics</Button>
+                          )}
+                          <Button variant="soft" size="sm" onClick={() => copyBugReport(it.id)}><FileWarning size={13} />Report</Button>
                           <button
                             onClick={() => deleteHistoryEntry(it.id)}
                             className="ml-auto rounded-full p-2 text-faint transition-colors hover:bg-red-50 hover:text-red-500"
@@ -122,5 +154,41 @@ export default function History() {
         )}
       </div>
     </motion.div>
+  )
+}
+
+function Diagnostics({ trace }: { trace: DictationTrace | null | undefined }) {
+  if (trace === undefined) {
+    return <div className="mt-4 rounded-md border border-line bg-bg/60 p-3 text-xs text-muted">Loading diagnostics…</div>
+  }
+  if (!trace) {
+    return <div className="mt-4 rounded-md border border-line bg-bg/60 p-3 text-xs text-muted">No diagnostics saved for this dictation.</div>
+  }
+  const raw = trace.rawAudio
+  const trimmed = trace.trimmedAudio
+  return (
+    <div className="mt-4 grid gap-3 rounded-md border border-line bg-bg/60 p-3 text-xs text-muted sm:grid-cols-2">
+      <Diagnostic label="Outcome" value={trace.outcome} />
+      <Diagnostic label="Target" value={trace.targetAppName ?? 'Unknown app'} />
+      <Diagnostic label="STT" value={`${trace.sttProvider ?? 'default'}${trace.sttLatencyMs ? ` · ${trace.sttLatencyMs}ms` : ''}`} />
+      <Diagnostic label="Reason" value={trace.rejectionReason ?? trace.userMessage ?? 'None'} />
+      <Diagnostic label="Quality" value={trace.qualityDecision ? `${trace.qualityDecision.action} · ${trace.qualityDecision.reason}` : 'Not captured'} />
+      <Diagnostic label="Raw audio" value={raw ? `${raw.durationSeconds.toFixed(2)}s · peak ${raw.peakAmplitude.toFixed(2)} · clip ${(raw.clippingRatio * 100).toFixed(2)}%` : 'Not captured'} />
+      <Diagnostic label="Trimmed audio" value={trimmed ? `${trimmed.durationSeconds.toFixed(2)}s · silence ${(trimmed.silenceRatio * 100).toFixed(0)}%` : 'Not captured'} />
+      {trace.rawAudioPath && <div className="sm:col-span-2 truncate text-faint">Audio: {trace.rawAudioPath}</div>}
+    </div>
+  )
+}
+
+function resolvedTrace(trace: TraceLoadState | undefined): DictationTrace | null | undefined {
+  return trace === 'loading' ? undefined : trace
+}
+
+function Diagnostic({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="label-meta mb-1 text-[9px] text-faint">{label}</div>
+      <div className="truncate text-ink/80">{value}</div>
+    </div>
   )
 }

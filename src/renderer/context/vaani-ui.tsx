@@ -31,6 +31,8 @@ export interface HistoryItemView {
   duration: string;
   wordCount: number;
   app: string;
+  traceId: string | null;
+  injectionStatus: DictationEntry["injectionStatus"];
 }
 
 export interface WordHistoryView {
@@ -66,6 +68,7 @@ interface HistoryModel {
   updateEntry: (id: string, cleanedText: string) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
   reinjectEntry: (id: string) => Promise<void>;
+  retryEntry: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
 }
 
@@ -91,6 +94,7 @@ interface VaaniUiContextValue {
   updateHistoryEntry: (id: string, cleanedText: string) => Promise<void>;
   deleteHistoryEntry: (id: string) => Promise<void>;
   reinjectHistoryEntry: (id: string) => Promise<void>;
+  retryHistoryEntry: (id: string) => Promise<void>;
   clearHistory: () => Promise<void>;
   copyHistoryEntry: (text: string) => Promise<void>;
   addDictionaryWord: (input: { word: string; replacement?: string; category?: string }) => Promise<void>;
@@ -223,8 +227,8 @@ export function VaaniUiProvider({
     const current = settings.customCorrections ?? [];
     const exists = current.findIndex((c) => c.spoken.toLowerCase() === spokenNorm.toLowerCase());
     const next = exists >= 0
-      ? current.map((c, index) => index === exists ? { ...c, written: writtenNorm } : c)
-      : [...current, { spoken: spokenNorm, written: writtenNorm }];
+      ? current.map((c, index) => index === exists ? { ...c, written: writtenNorm, source: "manual" as const } : c)
+      : [...current, { spoken: spokenNorm, written: writtenNorm, source: "manual" as const }];
     await updateSettings({ customCorrections: next });
   }, [settings.customCorrections, updateSettings]);
 
@@ -301,6 +305,7 @@ export function VaaniUiProvider({
     updateHistoryEntry: history.updateEntry,
     deleteHistoryEntry: history.deleteEntry,
     reinjectHistoryEntry: history.reinjectEntry,
+    retryHistoryEntry: history.retryEntry,
     clearHistory: history.clearAll,
     copyHistoryEntry,
     addDictionaryWord,
@@ -375,7 +380,9 @@ function mapHistoryItems(entries: DictationEntry[]): HistoryItemView[] {
       text: entry.cleanedText,
       duration: formatShortDuration(entry.durationSeconds),
       wordCount: countWords(entry.cleanedText),
-      app: normalizeAppName(entry.appName)
+      app: normalizeAppName(entry.appName),
+      traceId: entry.traceId ?? null,
+      injectionStatus: entry.injectionStatus
     }));
 }
 

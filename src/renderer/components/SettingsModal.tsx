@@ -13,6 +13,7 @@ import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
 import { createExportPayload } from '@renderer/exportData'
+import type { AudioInputDevice } from '@shared/types'
 
 const sidebarItems = [
   { id: 'api', label: 'API & Providers', icon: Plug },
@@ -52,6 +53,14 @@ const injectionModes = [
   { id: 'auto', label: 'Auto (recommended)', description: 'Chooses the best method for the active app' },
   { id: 'ax', label: 'Accessibility API', description: 'Types text using macOS Accessibility APIs' },
   { id: 'clipboard', label: 'Clipboard', description: 'Pastes text via the clipboard' },
+]
+
+const stylePresets = [
+  { value: 'plain', label: 'Plain' },
+  { value: 'developer', label: 'Developer' },
+  { value: 'casual', label: 'Casual' },
+  { value: 'formal', label: 'Formal' },
+  { value: 'email', label: 'Email' },
 ]
 
 const accentColors = [
@@ -96,6 +105,15 @@ function OptionButton({ active, onClick, label, description }: { active: boolean
       {active && <span className="ml-3 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent"><Check size={12} className="text-white" /></span>}
     </button>
   )
+}
+
+function providerSummary(provider: typeof KNOWN_PROVIDERS[number] | undefined): string {
+  if (!provider) return ''
+  const locality = provider.locality === 'local' ? 'Local' : 'Cloud'
+  const privacy = provider.privacyLevel === 'local-only' ? 'audio stays on device' : provider.privacyLevel === 'cloud-text' ? 'sends text to provider' : 'sends audio to provider'
+  const cost = provider.estimatedCost === 'free-local' ? 'free after model download' : `${provider.estimatedCost ?? 'varies'} cost`
+  const confidence = provider.supportsConfidence ? 'confidence signals' : 'no confidence signals'
+  return `${locality} · ${privacy} · ${cost} · ${confidence}`
 }
 
 function ApiKeyInput({
@@ -188,10 +206,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [newProfileName, setNewProfileName] = useState('')
   const [newProfileBundleId, setNewProfileBundleId] = useState('')
   const [newProfileLanguage, setNewProfileLanguage] = useState('auto')
+  const [audioDevices, setAudioDevices] = useState<AudioInputDevice[]>([])
 
   useEffect(() => {
     if (!isOpen) return
     void window.vaani.getAppVersion().then(setAppVersion).catch(() => setAppVersion(null))
+    void window.vaani.listAudioInputDevices().then(setAudioDevices).catch(() => setAudioDevices([]))
   }, [isOpen])
 
   useEffect(() => { setCustomHex(settings.accentColor) }, [settings.accentColor])
@@ -243,6 +263,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const activeStt = sttProviders.find((p) => p.id === settings.transcriptionProvider)
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider)
   const activeLlmModels = activeLlm?.models ?? []
+  const physicalAudioDevices = audioDevices.filter((device) => device.isPhysical)
+  const microphoneOptions = [
+    { value: '', label: 'Automatic physical microphone' },
+    ...physicalAudioDevices.map((device) => ({
+      value: device.uid,
+      label: `${device.name || 'Microphone'}${device.isDefault ? ' (Default)' : ''}`,
+    })),
+  ]
 
   const sectionContent = (
     <div className="space-y-6">
@@ -251,7 +279,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div>
             <FieldLabel>Transcription Provider</FieldLabel>
             <Select value={settings.transcriptionProvider} onChange={(v) => updateSettings({ transcriptionProvider: v })} options={sttProviders.map((p) => ({ value: p.id, label: p.name }))} />
-            <p className="mt-1.5 text-xs text-faint">{activeStt?.requiresApiKey === false ? 'Runs entirely on-device — no API key needed.' : 'Requires an API key.'}</p>
+            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeStt)}</p>
           </div>
 
           {activeStt?.requiresApiKey && (
@@ -273,6 +301,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div>
             <FieldLabel>Formatting Provider</FieldLabel>
             <Select value={settings.formattingProvider} onChange={(v) => updateSettings({ formattingProvider: v })} options={llmProviders.map((p) => ({ value: p.id, label: p.name }))} />
+            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeLlm)}</p>
           </div>
 
           {activeLlm?.requiresApiKey && (
@@ -347,10 +376,34 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <Select
                     value={profile.language ?? 'auto'}
                     onChange={(v) => {
-                      const next = (settings.appProfiles ?? []).map((p) => p.id === profile.id ? { ...p, language: v } : p);
+                      const next = (settings.appProfiles ?? []).map((p) => {
+                        if (p.id !== profile.id) return p;
+                        const provider = p.transcriptionProvider;
+                        return {
+                          ...p,
+                          language: v,
+                          transcriptionProvider: provider && isLanguageSupportedByProvider(v, provider, settings.localWhisperModel)
+                            ? provider
+                            : undefined,
+                        };
+                      });
                       void updateSettings({ appProfiles: next });
                     }}
                     options={languages}
+                  />
+                  <Select
+                    value={profile.transcriptionProvider && isLanguageSupportedByProvider(profile.language ?? 'auto', profile.transcriptionProvider, settings.localWhisperModel) ? profile.transcriptionProvider : ''}
+                    onChange={(v) => {
+                      if (v && !isLanguageSupportedByProvider(profile.language ?? 'auto', v, settings.localWhisperModel)) return;
+                      const next = (settings.appProfiles ?? []).map((p) => p.id === profile.id ? { ...p, transcriptionProvider: v || undefined } : p);
+                      void updateSettings({ appProfiles: next });
+                    }}
+                    options={[
+                      { value: '', label: 'Default STT' },
+                      ...sttProviders
+                        .filter((p) => isLanguageSupportedByProvider(profile.language ?? 'auto', p.id, settings.localWhisperModel))
+                        .map((p) => ({ value: p.id, label: p.name })),
+                    ]}
                   />
                   <button
                     aria-label="Delete profile"
@@ -379,11 +432,30 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <Row title="Cleanup" desc="Remove filler words and apply corrections">
             <Toggle checked={settings.cleanupEnabled} onChange={(v) => updateSettings({ cleanupEnabled: v })} />
           </Row>
+          <Row title="Context Awareness" desc="When enabled, bounded app/style context may be used for formatting">
+            <Toggle checked={settings.contextAwarenessEnabled} onChange={(v) => updateSettings({ contextAwarenessEnabled: v })} />
+          </Row>
+          <div>
+            <FieldLabel>Style Preset</FieldLabel>
+            <Select value={settings.stylePreset} onChange={(v) => updateSettings({ stylePreset: v as typeof settings.stylePreset })} options={stylePresets} />
+          </div>
         </div>
       )}
 
       {activeSection === 'dictation' && (
         <div className="space-y-5">
+          <div>
+            <FieldLabel>Capture Backend</FieldLabel>
+            <Select
+              value={settings.captureBackend ?? 'renderer'}
+              onChange={(v) => updateSettings({ captureBackend: v as typeof settings.captureBackend })}
+              options={[
+                { value: 'renderer', label: 'Browser capture (recommended)' },
+                { value: 'native', label: 'Native voice processing (experimental)' },
+              ]}
+            />
+            <p className="mt-1.5 text-xs text-faint">Native capture is experimental and falls back to browser capture if it cannot start.</p>
+          </div>
           <div>
             <FieldLabel>Dictation Mode</FieldLabel>
             <div className="space-y-2">
@@ -395,10 +467,23 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <Row title="Save Recordings" desc="Save WAV files to disk for replay">
             <Toggle checked={settings.saveRecordings} onChange={(v) => updateSettings({ saveRecordings: v })} />
           </Row>
+          <Row title="Low Latency Mode" desc="Keeps the microphone open between dictations">
+            <Toggle checked={settings.preWarmMic} onChange={(v) => updateSettings({ preWarmMic: v })} />
+          </Row>
+          <div>
+            <FieldLabel>Microphone</FieldLabel>
+            <Select
+              value={settings.micDeviceId ?? ''}
+              onChange={(v) => updateSettings({ micDeviceId: v || undefined })}
+              options={microphoneOptions}
+              dropUp
+            />
+            <p className="mt-1.5 text-xs text-faint">Virtual and aggregate devices are skipped for native capture.</p>
+          </div>
           <div className="flex items-center justify-between rounded-2xl bg-surface p-4">
             <div className="flex items-center gap-3">
               <Mic size={16} className="text-muted" />
-              <div><div className="text-sm text-ink">Automatic Microphone</div><div className="text-xs text-faint">Prefers built-in/physical mics and skips virtual loopback inputs</div></div>
+              <div><div className="text-sm text-ink">{settings.captureBackend === 'native' ? 'Native Voice Processing' : 'Browser Capture'}</div><div className="text-xs text-faint">{settings.captureBackend === 'native' ? 'Falls back to browser capture automatically if native fails' : 'Renderer capture is the default reliability path'}</div></div>
             </div>
             <HardDrive size={14} className="text-faint" />
           </div>

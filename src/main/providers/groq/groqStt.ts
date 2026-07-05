@@ -60,13 +60,31 @@ export const GroqSttProvider: TranscriptionProvider = {
 
         if (!rawText) throw new Error("No speech detected in the recording.");
 
-        const detectedLanguage = (response as unknown as { language?: string }).language ?? null;
+        const verbose = response as unknown as {
+          language?: string;
+          segments?: Array<{ avg_logprob?: number; compression_ratio?: number; no_speech_prob?: number }>;
+        };
+        const detectedLanguage = verbose.language ?? null;
+        const segments = verbose.segments ?? [];
+        const avgLogprob = averageNumber(segments.map((segment) => segment.avg_logprob));
+        const compressionRatio = averageNumber(segments.map((segment) => segment.compression_ratio));
+        const noSpeechProbability = maxNumber(segments.map((segment) => segment.no_speech_prob));
 
         return {
           rawText,
           formattedText: rawText,
           language: resolveReportedLanguage(options.language),
           detectedLanguage: detectedLanguage || null,
+          quality: {
+            provider: "groq",
+            attemptCount: attempt + 1,
+            supportsConfidence: true,
+            avgLogprob,
+            compressionRatio,
+            noSpeechProbability,
+            segmentCount: segments.length,
+            transcriptLength: rawText.length,
+          },
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -91,6 +109,18 @@ export const GroqSttProvider: TranscriptionProvider = {
     return validateBearerEndpoint("Groq", "https://api.groq.com/openai/v1/models", apiKey);
   },
 };
+
+function averageNumber(values: Array<number | undefined>): number | null {
+  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (finite.length === 0) return null;
+  return finite.reduce((sum, value) => sum + value, 0) / finite.length;
+}
+
+function maxNumber(values: Array<number | undefined>): number | null {
+  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (finite.length === 0) return null;
+  return Math.max(...finite);
+}
 
 function isNotRetryableError(message: string): boolean {
   const lower = message.toLowerCase();

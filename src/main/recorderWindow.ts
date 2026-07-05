@@ -2,6 +2,7 @@ import { BrowserWindow } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { IpcChannel } from "@shared/ipc";
+import type { RecorderConfig } from "@shared/types";
 
 declare const RECORDER_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const RECORDER_WINDOW_VITE_NAME: string;
@@ -13,6 +14,8 @@ export class RecorderWindowController {
   private ready = false;
   private pendingCommand: { channel: IpcChannel.StartRecording | IpcChannel.StopRecording; sessionId: string } | null = null;
   private initPromise: Promise<void> | null = null;
+
+  constructor(private readonly getConfig: () => RecorderConfig = () => ({ preWarmMic: false })) {}
 
   isReady(): boolean {
     return this.ready && !!this.window && !this.window.isDestroyed();
@@ -102,6 +105,13 @@ export class RecorderWindowController {
     return this.sendOrQueue(IpcChannel.StopRecording, sessionId);
   }
 
+  updateConfig(config: RecorderConfig): void {
+    if (!this.window || this.window.isDestroyed()) {
+      return;
+    }
+    this.window.webContents.send(IpcChannel.RecorderConfigChanged, config);
+  }
+
   destroy(): void {
     this.ready = false;
     this.pendingCommand = null;
@@ -133,7 +143,7 @@ export class RecorderWindowController {
       return;
     }
 
-    this.window.webContents.send(channel, { sessionId });
+    this.window.webContents.send(channel, { sessionId, config: this.getConfig() });
   }
 
   private recover(): void {

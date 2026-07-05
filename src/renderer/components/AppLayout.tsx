@@ -53,7 +53,7 @@ function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: ()
         }`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 px-7 pb-6 pt-12">
+        <div className="flex items-center gap-3 px-7 pb-6 pt-16">
           <img src={mode === 'dark' ? devanagariDarkUrl : devanagariLightUrl} className="h-9 w-9" alt="Vaani" />
           <div className="leading-none">
             <span className="text-display text-2xl text-ink">Vaani</span>

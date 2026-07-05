@@ -41,11 +41,31 @@ export const OpenAISttProvider: TranscriptionProvider = {
       throw new Error(`OpenAI API is temporarily unavailable. Please try again.`);
     }
 
-    const data = await response.json() as { text: string; language?: string };
+    const data = await response.json() as {
+      text: string;
+      language?: string;
+      segments?: Array<{ avg_logprob?: number; compression_ratio?: number; no_speech_prob?: number }>;
+    };
     const rawText = (data.text ?? "").trim();
     if (!rawText) throw new Error("No speech detected.");
     const resolvedLanguage = resolveReportedLanguage(options.language);
-    return { rawText, formattedText: rawText, language: resolvedLanguage, detectedLanguage: data.language ?? null };
+    const segments = data.segments ?? [];
+    return {
+      rawText,
+      formattedText: rawText,
+      language: resolvedLanguage,
+      detectedLanguage: data.language ?? null,
+      quality: {
+        provider: "openai",
+        attemptCount: 1,
+        supportsConfidence: true,
+        avgLogprob: averageNumber(segments.map((segment) => segment.avg_logprob)),
+        compressionRatio: averageNumber(segments.map((segment) => segment.compression_ratio)),
+        noSpeechProbability: maxNumber(segments.map((segment) => segment.no_speech_prob)),
+        segmentCount: segments.length,
+        transcriptLength: rawText.length,
+      },
+    };
   },
 
   async isAvailable(): Promise<boolean> {
@@ -100,7 +120,18 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
     const rawText = (data.text ?? "").trim();
     if (!rawText) throw new Error("No speech detected.");
     const resolvedLanguage = resolveReportedLanguage(options.language);
-    return { rawText, formattedText: rawText, language: resolvedLanguage, detectedLanguage: null };
+    return {
+      rawText,
+      formattedText: rawText,
+      language: resolvedLanguage,
+      detectedLanguage: null,
+      quality: {
+        provider: "openai-compatible",
+        attemptCount: 1,
+        supportsConfidence: false,
+        transcriptLength: rawText.length,
+      },
+    };
   },
 
   async isAvailable(): Promise<boolean> {
@@ -111,3 +142,15 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
     return unavailableValidation("OpenAI Compatible");
   },
 };
+
+function averageNumber(values: Array<number | undefined>): number | null {
+  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (finite.length === 0) return null;
+  return finite.reduce((sum, value) => sum + value, 0) / finite.length;
+}
+
+function maxNumber(values: Array<number | undefined>): number | null {
+  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (finite.length === 0) return null;
+  return Math.max(...finite);
+}

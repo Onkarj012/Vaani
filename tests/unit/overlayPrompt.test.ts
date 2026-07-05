@@ -34,9 +34,9 @@ class BrowserWindowMock {
   isDestroyed(): boolean { return false; }
   isVisible(): boolean { return false; }
   destroy(): void {}
-  hide(): void {}
-  showInactive(): void {}
-  focus(): void {}
+  hide = vi.fn();
+  showInactive = vi.fn();
+  focus = vi.fn();
   on(): void {}
   setBounds(): void {}
   setVisibleOnAllWorkspaces(): void {}
@@ -95,5 +95,57 @@ describe("OverlayController prompt handling", () => {
 
     win.webContents.ipc.handlers.get("capsule:snippet-response")?.({}, { accepted: true });
     expect(onResponse).toHaveBeenCalledWith(true);
+  });
+
+  it("dismisses a dictionary prompt when the toast times out", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+    const onResponse = vi.fn();
+
+    controller.showDictionaryPrompt("Bani", "Vaani", onResponse);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const win = windows[0];
+    if (!win) throw new Error("Expected overlay window to be created.");
+    win.webContents.ipc.handlers.get("capsule:ready")?.();
+
+    await vi.advanceTimersByTimeAsync(50);
+    await Promise.resolve();
+
+    expect(win.webContents.ipc.once).toHaveBeenCalledWith("capsule:dictionary-response", expect.any(Function));
+    expect(win.showInactive).toHaveBeenCalled();
+    expect(win.focus).toHaveBeenCalled();
+    expect(win.webContents.send).toHaveBeenCalledWith("capsule:show-dictionary", { word: "Bani", correction: "Vaani" });
+
+    await vi.advanceTimersByTimeAsync(8_000);
+
+    expect(onResponse).toHaveBeenCalledWith(false);
+  });
+
+  it("shows an existing hidden overlay window for dictionary prompts", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+    const onResponse = vi.fn();
+
+    controller.prewarm();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const win = windows[0];
+    if (!win) throw new Error("Expected overlay window to be created.");
+    win.webContents.ipc.handlers.get("capsule:ready")?.();
+    win.showInactive.mockClear();
+    win.focus.mockClear();
+
+    controller.showDictionaryPrompt("WriteX", "WriteTex", onResponse);
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(50);
+    await Promise.resolve();
+
+    expect(win.showInactive).toHaveBeenCalled();
+    expect(win.focus).toHaveBeenCalled();
+    expect(win.webContents.send).toHaveBeenCalledWith("capsule:show-dictionary", { word: "WriteX", correction: "WriteTex" });
   });
 });

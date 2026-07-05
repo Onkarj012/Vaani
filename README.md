@@ -158,7 +158,7 @@ src/
 ```bash
 bun run dev          # dev server with hot reload
 bun run make         # build + create DMG
-bun test             # unit tests
+bun run test         # unit tests
 bun run typecheck    # TypeScript check
 ```
 
@@ -204,7 +204,7 @@ Pull requests are welcome. For major changes open an issue first.
 git checkout -b feat/your-feature
 
 # make changes, then
-bun test && bun run typecheck
+bun run test && bun run typecheck
 
 # push and open a PR against main
 ```

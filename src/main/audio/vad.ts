@@ -1,8 +1,12 @@
 import type { AudioClip } from "@shared/types";
 import { debug } from "@main/log";
 
-const LEADING_PAD_FRAMES = 12;
-const TRAILING_PAD_FRAMES = 50;
+// Frames are 20ms (see calculateRmsFrames). A short, quiet leading word ("I",
+// "a", "the") often falls below the silence threshold, so startIndex lands on the
+// next louder word. A small leading pad then clips that first word. Keep ~600ms
+// of lead-in — harmless to Whisper, but enough to retain a soft opening word.
+const LEADING_PAD_FRAMES = 30;
+const TRAILING_PAD_FRAMES = 75;
 
 export function trimSilence(clip: AudioClip, threshold: number): AudioClip {
   const maxRms = clip.rmsFrames.length > 0 ? Math.max(...clip.rmsFrames) : 0;
@@ -25,6 +29,10 @@ export function trimSilence(clip: AudioClip, threshold: number): AudioClip {
   debug("vad", `trimSilence: threshold=${effectiveThreshold.toFixed(4)}, maxRms=${maxRms.toFixed(4)}, avgRms=${avgRms.toFixed(4)}, frames=${clip.rmsFrames.length}, startIdx=${startIndex}, endIdx=${endIndex}`);
 
   if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    if (maxRms > 0.001 && clip.pcmData.length > 0) {
+      debug("vad", "All frames below trim threshold but audio has energy; keeping untrimmed clip.");
+      return clip;
+    }
     debug("vad", "ALL frames below threshold! Clip treated as silence.");
     return { ...clip, pcmData: [], durationSeconds: 0, rmsFrames: [] };
   }
