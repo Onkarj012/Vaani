@@ -40,6 +40,10 @@ export class OverlayController {
   private accentColor = "#FF006E";
   // ── Public setters ────────────────────────────────────────────────────────
 
+  getWindow(): BrowserWindow | null {
+    return this.window && !this.window.isDestroyed() ? this.window : null;
+  }
+
   setColorMode(_colorMode: "light" | "dark"): void {
     // Overlay is always dark — no-op kept for call-site compatibility
   }

@@ -21,6 +21,10 @@ export class RecorderWindowController {
     return this.ready && !!this.window && !this.window.isDestroyed();
   }
 
+  getWindow(): BrowserWindow | null {
+    return this.window && !this.window.isDestroyed() ? this.window : null;
+  }
+
   async init(): Promise<void> {
     if (this.window && !this.window.isDestroyed()) {
       return;

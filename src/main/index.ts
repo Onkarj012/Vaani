@@ -461,6 +461,7 @@ async function bootstrap(): Promise<void> {
     settings,
     hotkeys: hotkeyManager,
     recorder: rendererRecorder,
+    overlay: overlayController,
     credentials: credentialsStore,
     onSettingsUpdated: (_updated, patch) => {
       if ("theme" in patch) overlayController?.setTheme("aurora");
