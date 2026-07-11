@@ -47,12 +47,20 @@ interface NativeBridge {
 let cachedBridge: NativeBridge | null = null;
 
 function candidatePaths(): string[] {
+  // packaged app: extraResource copies to Contents/Resources/
+  const packagedRootPath = join(process.resourcesPath ?? "", "vaani_native.node");
+  const packagedUnpackedPath = join(process.resourcesPath ?? "", "app.asar.unpacked", ".vite", "build", "vaani_native.node");
+  const packagedAppPath = join(process.resourcesPath ?? "", "app", ".vite", "build", "vaani_native.node");
+
+  if (app.isPackaged) {
+    return [packagedRootPath, packagedUnpackedPath, packagedAppPath];
+  }
+
   return [
-    // packaged app: extraResource copies to Contents/Resources/
-    join(process.resourcesPath ?? "", "vaani_native.node"),
+    packagedRootPath,
     join(currentDir, "vaani_native.node"),
-    join(process.resourcesPath ?? "", "app.asar.unpacked", ".vite", "build", "vaani_native.node"),
-    join(process.resourcesPath ?? "", "app", ".vite", "build", "vaani_native.node"),
+    packagedUnpackedPath,
+    packagedAppPath,
     join(process.cwd(), "build", "Release", "vaani_native.node"),
     join(currentDir, "../../build/Release/vaani_native.node"),
     join(currentDir, "../../../build/Release/vaani_native.node")
@@ -75,6 +83,10 @@ function loadNativeAddon(): NativeBridge {
   }
 
   debug("native", "no native module found, using fallback bridge");
+  if (app.isPackaged) {
+    throw new Error("Vaani native module not found in packaged resources - refusing to start with a broken/missing native bridge");
+  }
+
   return {};
 }
 
