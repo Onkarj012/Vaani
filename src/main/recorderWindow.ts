@@ -21,6 +21,10 @@ export class RecorderWindowController {
     return this.ready && !!this.window && !this.window.isDestroyed();
   }
 
+  getWindow(): BrowserWindow | null {
+    return this.window && !this.window.isDestroyed() ? this.window : null;
+  }
+
   async init(): Promise<void> {
     if (this.window && !this.window.isDestroyed()) {
       return;
@@ -52,6 +56,11 @@ export class RecorderWindowController {
       }
     });
     this.window = win;
+
+    win.webContents.on("will-navigate", (event) => {
+      event.preventDefault();
+    });
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
     win.on("closed", () => {
       if (this.window === win) {

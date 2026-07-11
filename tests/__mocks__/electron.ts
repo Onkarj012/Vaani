@@ -16,7 +16,8 @@ export const BrowserWindow = class MockBrowserWindow {
   webContents = {
     send: () => {},
     on: () => {},
-    once: () => {}
+    once: () => {},
+    setWindowOpenHandler: () => {}
   };
 
   constructor(_options?: unknown) {}

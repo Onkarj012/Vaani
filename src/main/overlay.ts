@@ -40,6 +40,10 @@ export class OverlayController {
   private accentColor = "#FF006E";
   // ── Public setters ────────────────────────────────────────────────────────
 
+  getWindow(): BrowserWindow | null {
+    return this.window && !this.window.isDestroyed() ? this.window : null;
+  }
+
   setColorMode(_colorMode: "light" | "dark"): void {
     // Overlay is always dark — no-op kept for call-site compatibility
   }
@@ -559,6 +563,11 @@ export class OverlayController {
       },
     });
     this.window = win;
+
+    win.webContents.on("will-navigate", (event) => {
+      event.preventDefault();
+    });
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     win.setAlwaysOnTop(true, "screen-saver");

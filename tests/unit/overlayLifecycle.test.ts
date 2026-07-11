@@ -23,6 +23,7 @@ class BrowserWindowMock {
     isLoading: vi.fn(() => false),
     getURL: vi.fn(() => "test://overlay"),
     forcefullyCrashRenderer: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
   };
   hidden = false;
   destroyed = false;
