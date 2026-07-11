@@ -1,5 +1,5 @@
 import { app, type BrowserWindow, clipboard, ipcMain, shell, systemPreferences } from "electron";
-import { join } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 import { homedir } from "node:os";
 import { autoUpdater } from "electron-updater";
 import { IpcChannel } from "@shared/ipc";
@@ -199,7 +199,14 @@ const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) =
   capsuleDesign: (value) => isOneOf(value, ["dot", "bar", "rule", "pill"]),
   dictationMode: (value) => isOneOf(value, ["toggle", "push-to-talk", "toggle-double"]),
   saveRecordings: (value) => typeof value === "boolean",
-  recordingsPath: (value) => isBoundedString(value, 4_096),
+  recordingsPath: (value) => {
+    if (!isBoundedString(value, 4_096)) return false;
+    if (value === "") return true;
+    const normalized = normalize(value);
+    return isAbsolute(value)
+      && isAbsolute(normalized)
+      && !value.split(/[\\/]+/).includes("..");
+  },
   transcriptionProvider: (value) => isBoundedString(value, MAX_ID_LENGTH, false),
   formattingProvider: (value) => isBoundedString(value, MAX_ID_LENGTH, false),
   formattingModel: (value) => isBoundedString(value, MAX_ID_LENGTH, false),
@@ -231,7 +238,14 @@ function isAudioClip(value: unknown): value is RecorderSubmission["clip"] {
   if (!isFiniteNumberInRange(value.sampleRate, 8_000, 192_000)) return false;
   if (!isFiniteNumberInRange(value.durationSeconds, 0, MAX_AUDIO_DURATION_SECONDS)) return false;
   if (!Array.isArray(value.pcmData) || value.pcmData.length === 0 || value.pcmData.length > MAX_AUDIO_SAMPLES) return false;
-  if (!value.pcmData.every((sample) => isFiniteNumberInRange(sample, -1, 1))) return false;
+  const sampleCheckCount = Math.min(value.pcmData.length, 4_096);
+  const sampleCheckStep = sampleCheckCount === 1
+    ? 1
+    : (value.pcmData.length - 1) / (sampleCheckCount - 1);
+  for (let check = 0; check < sampleCheckCount; check++) {
+    const sampleIndex = Math.round(check * sampleCheckStep);
+    if (!isFiniteNumberInRange(value.pcmData[sampleIndex], -1, 1)) return false;
+  }
   if (Math.abs(value.pcmData.length / value.sampleRate - value.durationSeconds) > 1) return false;
   return Array.isArray(value.rmsFrames)
     && value.rmsFrames.length <= MAX_RMS_FRAMES
