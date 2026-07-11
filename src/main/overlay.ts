@@ -564,6 +564,11 @@ export class OverlayController {
     });
     this.window = win;
 
+    win.webContents.on("will-navigate", (event) => {
+      event.preventDefault();
+    });
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     win.setAlwaysOnTop(true, "screen-saver");
     win.setIgnoreMouseEvents(true, { forward: true });

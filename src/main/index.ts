@@ -21,6 +21,7 @@ import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { getProviderRegistry } from "./providers";
 import { loadWhisperModel } from "./providers/local/whisperCpp";
 import { error } from "@main/log";
+import { shouldGrantMediaPermission } from "./mediaPermissions";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
@@ -199,6 +200,11 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
     }
   });
 
+  win.webContents.on("will-navigate", (event) => {
+    event.preventDefault();
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
   win.webContents.on("did-start-loading", () => {
     log("renderer:start-loading", { rendererReady });
     if (rendererReady) return;
@@ -305,13 +311,13 @@ function configureRendererLifecycle(win: BrowserWindow): void {
   });
 }
 
-function configureMediaPermissions(): void {
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+function configureMediaPermissions(getAllowedWebContents: () => readonly (object | null)[]): void {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     if (permission === "media") {
       const mediaTypes = (details as { mediaTypes?: string[] }).mediaTypes ?? [];
-      const audioOnly = mediaTypes.length === 0 || mediaTypes.every((type) => type === "audio");
-      callback(audioOnly);
-      log("permission:media", { audioOnly, mediaTypes });
+      const granted = shouldGrantMediaPermission(webContents, permission, { mediaTypes }, getAllowedWebContents());
+      callback(granted);
+      log("permission:media", { granted, mediaTypes });
       return;
     }
     callback(false);
@@ -366,7 +372,6 @@ async function bootstrap(): Promise<void> {
   lastDockVisible = null;
 
   let trayReady = false;
-  configureMediaPermissions();
 
   mainWindow = createMainWindow(() => trayReady);
   configureRendererLifecycle(mainWindow);
@@ -377,6 +382,10 @@ async function bootstrap(): Promise<void> {
     preWarmMic: settings.get().preWarmMic,
     captureBackend: settings.get().captureBackend,
   }));
+  configureMediaPermissions(() => [
+    mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null,
+    rendererRecorder.getWindow()?.webContents ?? null,
+  ]);
   overlayController.setTheme("aurora");
   overlayController.setColorMode(initSettings.colorMode ?? "light");
   if (initSettings.accentColor) overlayController.setAccentColor(initSettings.accentColor);

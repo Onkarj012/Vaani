@@ -57,6 +57,11 @@ export class RecorderWindowController {
     });
     this.window = win;
 
+    win.webContents.on("will-navigate", (event) => {
+      event.preventDefault();
+    });
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
     win.on("closed", () => {
       if (this.window === win) {
         this.window = null;
