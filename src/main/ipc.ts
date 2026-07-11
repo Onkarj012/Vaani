@@ -421,11 +421,11 @@ export function registerIpcHandlers(opts: {
     if (credentials) {
       for (const pk of credentialPatch.providerApiKeys ?? []) {
         if (!pk.providerId) continue;
-        if (pk.key) {
+        if (typeof pk.key === "string") {
           await credentials.set(pk.providerId, pk.key);
         }
       }
-      if (credentialPatch.groqApiKey) {
+      if (typeof credentialPatch.groqApiKey === "string") {
         await credentials.set("groq", credentialPatch.groqApiKey);
       }
       if ("groqApiKey" in settingsPatch) {

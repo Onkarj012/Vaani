@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IpcChannel } from "@shared/ipc";
+import { CredentialsStore, MemoryCredentialBackend } from "@main/store/credentials";
 
 const invokeHandlers = new Map<string, (...args: unknown[]) => unknown>();
 const eventHandlers = new Map<string, (...args: unknown[]) => unknown>();
@@ -142,5 +143,39 @@ describe("IPC security boundaries", () => {
     expect(history.updateById).not.toHaveBeenCalled();
     expect(dictation.updateAudioLevel).not.toHaveBeenCalled();
     expect(settings.update).not.toHaveBeenCalled();
+  });
+
+  it("deletes credentials when settings explicitly clear API keys", async () => {
+    const backend = new MemoryCredentialBackend();
+    const credentials = new CredentialsStore(backend);
+    await credentials.set("openai", "openai-secret");
+    await credentials.set("groq", "groq-secret");
+    const deleteCredential = vi.spyOn(backend, "delete");
+
+    const { registerIpcHandlers } = await import("@main/ipc");
+    registerIpcHandlers({
+      mainWindow: windowFor(mainSender),
+      recorder: { getWindow: () => windowFor(recorderSender) },
+      overlay: { getWindow: () => windowFor(overlaySender) },
+      dictation,
+      history,
+      settings,
+      hotkeys: { isPrimaryHotkeyActive: () => true },
+      credentials,
+    } as never);
+
+    await invokeHandlers.get(IpcChannel.UpdateSettings)?.(
+      { sender: mainSender },
+      { providerApiKeys: [{ providerId: "openai", key: "" }] },
+    );
+    await invokeHandlers.get(IpcChannel.UpdateSettings)?.(
+      { sender: mainSender },
+      { groqApiKey: "" },
+    );
+
+    expect(deleteCredential).toHaveBeenNthCalledWith(1, "openai");
+    expect(deleteCredential).toHaveBeenNthCalledWith(2, "groq");
+    expect(await credentials.has("openai")).toBe(false);
+    expect(await credentials.has("groq")).toBe(false);
   });
 });
