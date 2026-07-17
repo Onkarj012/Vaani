@@ -117,7 +117,35 @@ export function isAutoLearnableDictionarySuggestion(
   if (caseOnly && context.sentenceStart) return false;
   if (context.sentenceStart && !spoken.includes(" ") && !words.some(hasIdentifierShape)) return false;
 
+  if (isTypedContinuationArtifact(spoken, written)) return false;
+  if (!spoken.includes(" ") && !isLearnableSpokenTrigger(spoken, caseOnly)) return false;
+
   return words.every(looksDictionaryWorthyWord);
+}
+
+// Words too generic to ever become replacement triggers: a rule keyed on one of
+// these rewrites nearly every future dictation.
+const COMMON_WORD_TRIGGERS = new Set([
+  "a", "an", "the", "and", "or", "but", "if", "is", "are", "was", "were", "be",
+  "been", "am", "to", "of", "in", "on", "at", "by", "it", "its", "i", "we",
+  "you", "he", "she", "they", "me", "him", "her", "us", "them", "my", "your",
+  "our", "their", "this", "that", "these", "those", "for", "with", "as", "so",
+  "do", "does", "did", "not", "no", "yes", "up", "out", "get", "go"
+]);
+
+// One-sided extensions joined by punctuation (GitHub → GitHub.a) are typing
+// continuations captured by the edit watcher, not mishears worth learning.
+function isTypedContinuationArtifact(spoken: string, written: string): boolean {
+  const spokenLower = spoken.toLowerCase();
+  const writtenLower = written.toLowerCase();
+  if (writtenLower.startsWith(spokenLower) && /^[._'-]/.test(writtenLower.slice(spokenLower.length))) return true;
+  if (spokenLower.startsWith(writtenLower) && /^[._'-]/.test(spokenLower.slice(writtenLower.length))) return true;
+  return false;
+}
+
+function isLearnableSpokenTrigger(spoken: string, caseOnly: boolean): boolean {
+  if (spoken.length < 3 && !caseOnly) return false;
+  return !COMMON_WORD_TRIGGERS.has(spoken.toLowerCase());
 }
 
 function addsDigit(spoken: string, written: string): boolean {
