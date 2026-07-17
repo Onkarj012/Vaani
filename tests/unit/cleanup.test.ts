@@ -450,6 +450,18 @@ describe("applySnippets — spoken marker", () => {
       snippets: [{ trigger: "email", content: "hi@example.com" }],
       expected: "Hello, hi@example.com please.",
     },
+    {
+      name: "hyphenated trigger matches spoken words with spaces",
+      raw: "use snippet john doe here",
+      snippets: [{ trigger: "john-doe", content: "John Doe <john@example.com>" }],
+      expected: "Use John Doe <john@example.com> here.",
+    },
+    {
+      name: "hyphenated trigger still matches typed slash form",
+      raw: "use /john-doe here",
+      snippets: [{ trigger: "john-doe", content: "John Doe <john@example.com>" }],
+      expected: "Use John Doe <john@example.com> here.",
+    },
   ]
 
   for (const { name, raw, snippets, expected } of cases) {

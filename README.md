@@ -93,7 +93,7 @@ Press `Ctrl+Cmd+V` to re-insert your most recent dictation.
 
 ### Snippets
 
-Type `/` followed by a snippet name while dictating to expand it.
+While dictating, say "snippet" followed by the snippet name — e.g. saying "snippet sig" expands the `sig` snippet into its full text. Typing `/sig` in a dictation also works. Hyphenated triggers like `john-doe` can be spoken naturally as "snippet john doe".
 
 ### Tips
 
