@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Loader2, BookOpen, Layers, X, ChevronRight } from 'lucide-react'
+import { BAR_MAX_HEIGHT, barScale, envelopeStep } from './waveform'
 
 const BAR_COUNT = 9
 const BAR_WIDTH = 2.5
 const BAR_GAP = 2
 const WAVEFORM_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
+const IDLE_BAR_LEVEL = 0.08
 
 interface CapsuleSnapshot {
   mode: string
@@ -40,22 +42,44 @@ interface PromptData {
   correction?: string
 }
 
+// Renders and animates independently of the parent: the envelope-follower
+// loop below drives its own state, so a burst of bar frames (or their
+// absence) never forces the whole capsule to re-render at mic-frame rate.
 function WaveformBars({ bars, accentColor }: { bars: number[]; accentColor: string }) {
+  const targetRef = useRef(bars)
+  targetRef.current = bars
+  const [displayBars, setDisplayBars] = useState(bars)
+  const rafRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    function tick() {
+      setDisplayBars((prev) =>
+        prev.map((p, i) => envelopeStep(p, targetRef.current[i] ?? IDLE_BAR_LEVEL))
+      )
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
+
   return (
     <div
       className="flex items-center justify-center"
-      style={{ height: 24, width: WAVEFORM_WIDTH, gap: BAR_GAP }}
+      style={{ height: BAR_MAX_HEIGHT + 2, width: WAVEFORM_WIDTH, gap: BAR_GAP }}
     >
-      {bars.map((v, i) => (
+      {displayBars.map((v, i) => (
         <div
           key={i}
           style={{
             width: BAR_WIDTH,
+            height: BAR_MAX_HEIGHT,
             borderRadius: 999,
-            height: Math.max(3, Math.min(22, v * 18)),
             background: accentColor,
-            opacity: 0.3 + v * 0.7,
-            transition: 'height 60ms ease-out, opacity 60ms ease-out',
+            opacity: 0.3 + Math.min(1, v) * 0.7,
+            transform: `scaleY(${barScale(v)})`,
+            willChange: 'transform, opacity',
           }}
         />
       ))}
@@ -83,7 +107,7 @@ const PROMPT_STYLE: React.CSSProperties = {
 
 export default function CapsuleOverlay() {
   const [mode, setMode] = useState<VisualMode>('hidden')
-  const [bars, setBars] = useState<number[]>(Array(BAR_COUNT).fill(0.08))
+  const [bars, setBars] = useState<number[]>(Array(BAR_COUNT).fill(IDLE_BAR_LEVEL))
   const [accentColor, setAccentColor] = useState('#7575c8')
   const [promptData, setPromptData] = useState<PromptData>({})
   const [autoTimer, setAutoTimer] = useState(8)
@@ -101,7 +125,7 @@ export default function CapsuleOverlay() {
           setMode('pressed')
           break
         case 'recording':
-          setBars(Array(BAR_COUNT).fill(0.08))
+          setBars(Array(BAR_COUNT).fill(IDLE_BAR_LEVEL))
           setMode('recording')
           break
         case 'transcribing': setMode('processing'); break
@@ -109,7 +133,7 @@ export default function CapsuleOverlay() {
         case 'error':        setMode('error'); break
         case 'idle':
           setMode('hidden')
-          setBars(Array(BAR_COUNT).fill(0.08))
+          setBars(Array(BAR_COUNT).fill(IDLE_BAR_LEVEL))
           break
       }
     }
@@ -153,19 +177,28 @@ export default function CapsuleOverlay() {
     }
   }, [])
 
-  // 8-second auto-dismiss for prompts
+  // 8-second auto-dismiss for prompts. The countdown tick only updates
+  // state; the dismiss side effect (IPC send + mode change) lives in its own
+  // effect below, reacting to autoTimer hitting 0 rather than firing from
+  // inside the setAutoTimer updater — React may invoke updaters more than
+  // once, and a side effect embedded there would fire along with it.
   useEffect(() => {
     const isPrompt = mode === 'prompt-snippet' || mode === 'prompt-dictionary'
     if (!isPrompt) { setAutoTimer(8); return }
     setAutoTimer(8)
     const id = setInterval(() => {
       setAutoTimer((t) => {
-        if (t <= 1) { clearInterval(id); handleSkip(); return 0 }
+        if (t <= 0) { clearInterval(id); return 0 }
         return t - 1
       })
     }, 1000)
     return () => clearInterval(id)
   }, [mode])
+
+  useEffect(() => {
+    const isPrompt = mode === 'prompt-snippet' || mode === 'prompt-dictionary'
+    if (isPrompt && autoTimer === 0) handleSkip()
+  }, [mode, autoTimer])
 
   function handleAccept() {
     const m = modeRef.current

@@ -15,7 +15,7 @@ const _dir = dirname(fileURLToPath(import.meta.url));
 const logPath = join(tmpdir(), "vaani-startup.log");
 
 const CAPSULE_BOTTOM_MARGIN = 16;
-// Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)
+// Non-prompt: fits the recording waveform pill (9 bars, ~39px, + padding)
 const PILL_W = 120;
 const PILL_H = 52;
 // Prompt card: matches CapsuleOverlay.tsx prompt width (340px) + shadow clearance
@@ -174,21 +174,40 @@ export class OverlayController {
   // ── Prompts ──────────────────────────────────────────────────────────────
 
   showSnippetPrompt(trigger: string, onResponse: (accepted: boolean) => void): void {
-    void this.showSnippetPromptAsync(trigger, onResponse).catch(() => {
+    void this.showPromptAsync(
+      "capsule:snippet-response",
+      "capsule:show-snippet",
+      { trigger },
+      onResponse
+    ).catch(() => {
       this.endPrompt();
       onResponse(false);
     });
   }
 
   showDictionaryPrompt(word: string, correction: string, onResponse: (accepted: boolean) => void): void {
-    void this.showDictionaryPromptAsync(word, correction, onResponse).catch(() => {
+    void this.showPromptAsync(
+      "capsule:dictionary-response",
+      "capsule:show-dictionary",
+      { word, correction },
+      onResponse
+    ).catch(() => {
       this.endPrompt();
       onResponse(false);
     });
   }
 
-  private async showSnippetPromptAsync(trigger: string, onResponse: (accepted: boolean) => void): Promise<void> {
-    log("overlay:prompt-snippet-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
+  // Snippet and dictionary prompts differ only in which IPC channels they
+  // use and what payload they carry — everything else (readiness wait,
+  // generation guard against a superseding dictation, response listener
+  // lifecycle, 8s auto-dismiss) is identical.
+  private async showPromptAsync(
+    responseChannel: "capsule:snippet-response" | "capsule:dictionary-response",
+    showChannel: "capsule:show-snippet" | "capsule:show-dictionary",
+    payload: Record<string, string>,
+    onResponse: (accepted: boolean) => void
+  ): Promise<void> {
+    log("overlay:prompt-requested", { showChannel, hasWindow: !!this.window, loadReady: this.loadReady });
     const promptGeneration = this.promptGeneration + 1;
     this.promptGeneration = promptGeneration;
     this.promptActive = true;
@@ -210,47 +229,12 @@ export class OverlayController {
     const promptWindow = this.window;
     this.pendingPromptRemover?.();
     this.pendingPromptResponder = onResponse;
-    promptWindow.webContents.ipc.once("capsule:snippet-response", responseHandler);
+    promptWindow.webContents.ipc.once(responseChannel, responseHandler);
     // Store remover so endPrompt/recover can clean it up
-    this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
+    this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener(responseChannel, responseHandler);
 
     await this.showPromptWindow(frontmostBefore);
-    promptWindow.webContents.send("capsule:show-snippet", { trigger });
-    this.promptDismissTimer = setTimeout(() => {
-      this.pendingPromptResponder = null;
-      this.endPrompt();
-      onResponse(false);
-    }, 8000);
-  }
-
-  private async showDictionaryPromptAsync(word: string, correction: string, onResponse: (accepted: boolean) => void): Promise<void> {
-    log("overlay:prompt-dictionary-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
-    const promptGeneration = this.promptGeneration + 1;
-    this.promptGeneration = promptGeneration;
-    this.promptActive = true;
-    this.clearPromptDismissTimer();
-    const frontmostBefore = nativeBridge.getFrontmostApplication?.();
-    await this.ensureWindow();
-    await this.waitForLoadReady(5_000);
-    if (promptGeneration !== this.promptGeneration) {
-      onResponse(false);
-      return;
-    }
-    if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
-
-    const dictResponseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
-      this.clearPromptDismissTimer();
-      this.endPrompt();
-      onResponse(args.accepted);
-    };
-    const promptWindow = this.window;
-    this.pendingPromptRemover?.();
-    this.pendingPromptResponder = onResponse;
-    promptWindow.webContents.ipc.once("capsule:dictionary-response", dictResponseHandler);
-    this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:dictionary-response", dictResponseHandler);
-
-    await this.showPromptWindow(frontmostBefore);
-    promptWindow.webContents.send("capsule:show-dictionary", { word, correction });
+    promptWindow.webContents.send(showChannel, payload);
     this.promptDismissTimer = setTimeout(() => {
       this.pendingPromptResponder = null;
       this.endPrompt();
