@@ -4,10 +4,17 @@ const OVERLAY_CHANNELS = [
   'capsule:set-mode',
   'capsule:update-bars',
   'capsule:set-accent',
+  'capsule:snapshot',
   'capsule:show-snippet',
   'capsule:show-dictionary',
   'capsule:hide-expanded',
 ] as const
+
+interface CapsuleSnapshot {
+  mode: string
+  bars: number[] | null
+  accent: string
+}
 
 contextBridge.exposeInMainWorld('capsuleBridge', {
   onMode: (cb: (mode: string) => void) => {
@@ -18,6 +25,9 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   },
   onAccent: (cb: (color: string) => void) => {
     ipcRenderer.on('capsule:set-accent', (_e, c: string) => cb(c))
+  },
+  onSnapshot: (cb: (snapshot: CapsuleSnapshot) => void) => {
+    ipcRenderer.on('capsule:snapshot', (_e, s: CapsuleSnapshot) => cb(s))
   },
   onShowSnippet: (cb: (data: { trigger: string }) => void) => {
     ipcRenderer.on('capsule:show-snippet', (_e, d: { trigger: string }) => cb(d))

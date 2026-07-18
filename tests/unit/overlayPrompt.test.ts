@@ -87,8 +87,14 @@ describe("OverlayController prompt handling", () => {
 
     expect(win.webContents.ipc.once).toHaveBeenCalledWith("capsule:snippet-response", expect.any(Function));
     expect(win.webContents.send).toHaveBeenCalledWith("capsule:show-snippet", { trigger: "email" });
+    // Listener registration must precede the specific send that reveals the
+    // prompt UI — not necessarily every send, since an unrelated state
+    // snapshot may legitimately go out to the renderer first (e.g. on ready).
     const listenerOrder = win.webContents.ipc.once.mock.invocationCallOrder[0];
-    const sendOrder = win.webContents.send.mock.invocationCallOrder[0];
+    const showSnippetCallIndex = win.webContents.send.mock.calls.findIndex(
+      (args) => args[0] === "capsule:show-snippet"
+    );
+    const sendOrder = win.webContents.send.mock.invocationCallOrder[showSnippetCallIndex];
     expect(listenerOrder).toBeDefined();
     expect(sendOrder).toBeDefined();
     expect(listenerOrder as number).toBeLessThan(sendOrder as number);
@@ -147,5 +153,39 @@ describe("OverlayController prompt handling", () => {
     expect(win.showInactive).toHaveBeenCalled();
     expect(win.focus).toHaveBeenCalled();
     expect(win.webContents.send).toHaveBeenCalledWith("capsule:show-dictionary", { word: "WriteX", correction: "WriteTex" });
+  });
+
+  it("clears a wedged prompt state after a renderer crash so hide() can commit again", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+    const onResponse = vi.fn();
+
+    controller.showSnippetPrompt("email", onResponse);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const win = windows[0];
+    if (!win) throw new Error("Expected overlay window to be created.");
+    win.webContents.ipc.handlers.get("capsule:ready")?.();
+    await vi.advanceTimersByTimeAsync(50);
+    await Promise.resolve();
+
+    // Renderer dies mid-prompt, before it ever responds.
+    const goneHandler = win.webContents.on.mock.calls.find(
+      ([channel]) => channel === "render-process-gone"
+    )?.[1] as (() => void) | undefined;
+    expect(goneHandler).toBeDefined();
+    goneHandler?.();
+
+    // The pending prompt promise must resolve (declined) rather than hang forever.
+    expect(onResponse).toHaveBeenCalledWith(false);
+
+    // A stale promptActive flag would make hide() a permanent no-op — verify
+    // the recovered window actually commits a hide.
+    const newWin = windows[1];
+    if (!newWin) throw new Error("Expected a recovered overlay window.");
+    controller.hide();
+    vi.advanceTimersByTime(300);
+    expect(newWin.hide).toHaveBeenCalled();
   });
 });

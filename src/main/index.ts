@@ -386,6 +386,7 @@ async function bootstrap(): Promise<void> {
     cornerRadius: initSettings.capsuleCornerRadius,
   });
   if (initSettings.capsuleDesign) overlayController.setCapsuleDesign(initSettings.capsuleDesign);
+  overlayController.prewarm();
 
   let dictation: DictationService;
   const nativeCapture = new NativeCaptureService(

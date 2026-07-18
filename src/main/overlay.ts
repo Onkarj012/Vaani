@@ -79,34 +79,19 @@ export class OverlayController {
         return;
       }
       log("overlay:show-existing", { loadReady: this.loadReady, visible: this.window.isVisible() });
-      // If the renderer isn't ready yet, go through presentWindow so the
-      // watchdog is armed and mode retries are scheduled — otherwise the
-      // fast-path showInactive() call leaves the window blank.
-      if (!this.loadReady) {
-        void this.presentWindow(frontmostBefore);
-        return;
-      }
-      this.window.showInactive();
-      if (this.pendingMode) {
-        this.tryUpdateMode(this.pendingMode);
-        setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 80);
-      }
-      if (this.pendingBars) {
-        this.updateBars(this.pendingBars);
-      }
+      // Always route through presentWindow so bounds, workspace visibility,
+      // always-on-top level, and the watchdog are re-asserted on every show —
+      // a stale fast path here was the main source of "capsule didn't appear"
+      // (macOS can silently drop always-on-top/all-workspaces after a hide or
+      // Space switch, and the window can be left positioned on a stale display).
+      void this.presentWindow(frontmostBefore);
       return;
     }
+    // Window doesn't exist yet (prewarm hasn't completed or was skipped).
+    // createWindow() presents on its own once loaded, since callers of show()
+    // always set pendingMode before calling it.
     this.loadReady = false;
-    void this.ensureWindow().then(() => {
-      log("overlay:show-created", { loadReady: this.loadReady });
-      if (this.pendingMode) {
-        this.tryUpdateMode(this.pendingMode);
-      }
-      if (this.pendingBars) {
-        this.updateBars(this.pendingBars);
-      }
-      void this.restoreFocusIfNeeded(frontmostBefore);
-    });
+    void this.ensureWindow();
   }
 
   hide(): void {
@@ -438,12 +423,7 @@ export class OverlayController {
         return;
       }
 
-      if (this.pendingMode) {
-        this.tryUpdateMode(this.pendingMode);
-      }
-      if (this.pendingBars) {
-        this.updateBars(this.pendingBars);
-      }
+      this.sendSnapshot();
     }, OVERLAY_SHOW_WATCHDOG_MS);
   }
 
@@ -476,6 +456,12 @@ export class OverlayController {
     this.clearLoadTimeout();
     this.clearShowWatchdog();
 
+    // A prompt in flight when the renderer dies must not be left dangling —
+    // otherwise promptActive stays true forever and hide() keeps no-oping.
+    if (this.promptActive) {
+      this.finishActivePrompt();
+    }
+
     if (oldWindow && !oldWindow.isDestroyed()) {
       oldWindow.destroy();
     }
@@ -492,40 +478,60 @@ export class OverlayController {
     return screen.getDisplayNearestPoint(cursor).workArea;
   }
 
+  // Authoritative {mode, bars, accent} push — replaces the old scheme of
+  // several staggered tryUpdateMode() retries, which relied on hoping one of
+  // them landed after the renderer's listeners were wired up. Idempotent, so
+  // it's safe to call on every capsule:ready and every presentWindow().
+  private sendSnapshot(): void {
+    if (!this.window || this.window.isDestroyed() || !this.loadReady) return;
+    this.window.webContents.send("capsule:snapshot", {
+      mode: this.pendingMode ?? "idle",
+      bars: this.pendingBars,
+      accent: this.accentColor,
+    });
+  }
+
   private async presentWindow(
     originalFrontmost: { bundleId?: string; name?: string } | null | undefined
   ): Promise<void> {
-    if (!this.window || this.window.isDestroyed()) {
+    const win = this.window;
+    if (!win || win.isDestroyed()) {
       return;
     }
 
     const { x, y, width, height } = this.getTargetWorkArea();
     const targetW = this.promptActive ? PROMPT_W : PILL_W;
     const targetH = this.promptActive ? PROMPT_H : PILL_H;
-    this.window.setBounds({
+    win.setBounds({
       x: Math.round(x + width / 2 - targetW / 2),
       y: Math.round(y + height - targetH - CAPSULE_BOTTOM_MARGIN),
       width: targetW,
       height: targetH
     });
-    this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    this.window.setAlwaysOnTop(true, "screen-saver");
-    this.window.setIgnoreMouseEvents(!this.promptActive, { forward: true });
+    // Re-assert on every present — macOS can silently drop these after a
+    // hide, a Space switch, or a display change, which otherwise leaves the
+    // capsule invisible (or on the wrong display) with no error to react to.
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    win.setAlwaysOnTop(true, "screen-saver");
+    win.setIgnoreMouseEvents(!this.promptActive, { forward: true });
 
     try {
-      this.window.showInactive();
+      win.showInactive();
     } catch { /* best effort */ }
 
-    if (this.pendingMode) {
-      this.tryUpdateMode(this.pendingMode);
-      setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 100);
-      setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 300);
-    }
-    if (this.pendingBars) {
-      this.updateBars(this.pendingBars);
-    }
+    this.sendSnapshot();
 
-    this.armShowWatchdog(this.window);
+    this.armShowWatchdog(win);
+
+    // Don't wait for the full watchdog window if the show visibly failed —
+    // recover right away so the next attempt has a fresh, prewarmed window.
+    setTimeout(() => {
+      if (this.window === win && !win.isDestroyed() && this.pendingMode && !win.isVisible()) {
+        log("overlay:show-verify-failed");
+        this.recoverWindow("show-verify-failed");
+      }
+    }, 120);
+
     await this.restoreFocusIfNeeded(originalFrontmost);
   }
 
@@ -604,30 +610,21 @@ export class OverlayController {
       log("overlay:ready");
       this.clearLoadTimeout();
       this.loadReady = true;
-      if (this.accentColor !== "#FF006E") {
-        this.window?.webContents.send("capsule:set-accent", this.accentColor);
-      }
-      // Retry mode update multiple times to ensure it arrives after HMR listener setup
-      if (this.pendingMode) {
-        this.tryUpdateMode(this.pendingMode);
-        setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 50);
-        setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 150);
-      }
-      if (this.pendingBars) this.updateBars(this.pendingBars);
+      this.sendSnapshot();
     });
 
-    // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
+    // Fallback: if capsule:ready never fires within a grace period after the
+    // page finishes loading, the renderer most likely failed to mount. Rebuild
+    // the window instead of faking readiness — pretending it's ready would
+    // leave a blank, invisible window on screen with no way to recover it.
     win.webContents.on("did-finish-load", () => {
       log("overlay:loaded", { url: win.webContents.getURL() });
       setTimeout(() => {
-        if (!this.loadReady && this.window && !this.window.isDestroyed()) {
-          log("overlay:ready-fallback");
-          this.clearLoadTimeout();
-          this.loadReady = true;
-          if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
-          if (this.pendingBars) this.updateBars(this.pendingBars);
+        if (this.window === win && !win.isDestroyed() && !this.loadReady) {
+          log("overlay:ready-timeout");
+          this.recoverWindow("ready-timeout");
         }
-      }, 200);
+      }, 400);
     });
 
     // Log all console messages from overlay for debugging

@@ -85,7 +85,11 @@ describe("OverlayController lifecycle characterization", () => {
     await Promise.resolve();
 
     expect(win.showInactive).toHaveBeenCalled();
-    expect(win.webContents.send).toHaveBeenCalledWith("capsule:set-mode", "recording");
+    expect(win.webContents.send).toHaveBeenCalledWith("capsule:snapshot", {
+      mode: "recording",
+      bars: null,
+      accent: "#FF006E",
+    });
   });
 
   it("clears a pending delayed hide when destroyed", async () => {
@@ -106,5 +110,49 @@ describe("OverlayController lifecycle characterization", () => {
 
     expect(win.destroy).toHaveBeenCalled();
     expect(win.hide).not.toHaveBeenCalled();
+  });
+
+  it("recovers the window when capsule:ready never arrives after the page finishes loading", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+
+    controller.setRecording();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const win = windows[0];
+    if (!win) throw new Error("Expected overlay window.");
+
+    // Page finished loading but the renderer never sent capsule:ready
+    // (e.g. it crashed before React mounted) — must not be treated as ready.
+    win.webContents.handlers.get("did-finish-load")?.();
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(win.destroy).toHaveBeenCalled();
+    expect(windows.length).toBe(2);
+  });
+
+  it("re-asserts always-on-top and workspace visibility on every show, not just the first", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+
+    controller.setRecording();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const win = windows[0];
+    if (!win) throw new Error("Expected overlay window.");
+    win.webContents.ipc.handlers.get("capsule:ready")?.();
+    await Promise.resolve();
+
+    win.setAlwaysOnTop.mockClear();
+    win.setVisibleOnAllWorkspaces.mockClear();
+    win.setBounds.mockClear();
+
+    controller.setRecording();
+
+    expect(win.setAlwaysOnTop).toHaveBeenCalled();
+    expect(win.setVisibleOnAllWorkspaces).toHaveBeenCalled();
+    expect(win.setBounds).toHaveBeenCalled();
   });
 });

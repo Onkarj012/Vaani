@@ -7,12 +7,19 @@ const BAR_WIDTH = 2.5
 const BAR_GAP = 2
 const WAVEFORM_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
 
-  declare global {
+interface CapsuleSnapshot {
+  mode: string
+  bars: number[] | null
+  accent: string
+}
+
+declare global {
   interface Window {
     capsuleBridge: {
       onMode: (cb: (mode: string) => void) => void
       onBars: (cb: (bars: number[]) => void) => void
       onAccent: (cb: (color: string) => void) => void
+      onSnapshot: (cb: (snapshot: CapsuleSnapshot) => void) => void
       onShowSnippet: (cb: (data: { trigger: string }) => void) => void
       onShowDict: (cb: (data: { word: string; correction: string }) => void) => void
       onHideExpanded: (cb: () => void) => void
@@ -88,7 +95,7 @@ export default function CapsuleOverlay() {
     const bridge = window.capsuleBridge
     if (!bridge) return
 
-    bridge.onMode((m) => {
+    function applyMode(m: string) {
       switch (m) {
         case 'pressed':
           setMode('pressed')
@@ -105,7 +112,9 @@ export default function CapsuleOverlay() {
           setBars(Array(BAR_COUNT).fill(0.08))
           break
       }
-    })
+    }
+
+    bridge.onMode(applyMode)
 
     bridge.onBars((data) => {
       if (Array.isArray(data) && data.length > 0) {
@@ -113,6 +122,17 @@ export default function CapsuleOverlay() {
       }
     })
     bridge.onAccent((color) => setAccentColor(color))
+
+    // Authoritative catch-up state sent on mount and on every re-show — makes
+    // the renderer self-healing if an individual onMode/onBars/onAccent push
+    // was ever missed instead of relying on the main process retrying blind.
+    bridge.onSnapshot((snapshot) => {
+      if (snapshot.accent) setAccentColor(snapshot.accent)
+      if (Array.isArray(snapshot.bars) && snapshot.bars.length > 0) {
+        setBars(snapshot.bars.slice(0, BAR_COUNT))
+      }
+      applyMode(snapshot.mode)
+    })
 
     bridge.onShowSnippet((data) => {
       setPromptData({ trigger: data.trigger })
@@ -126,18 +146,9 @@ export default function CapsuleOverlay() {
 
     bridge.onHideExpanded(() => setMode('hidden'))
 
-    // Send ready signal multiple times to handle HMR timing issues.
-    // After sending, the main process may immediately send pending mode
-    // updates that race with our listener registration. The triple send
-    // with staggered retries ensures the main process receives at least
-    // one ready signal after all listeners are wired.
     bridge.sendReady()
-    const retry1 = window.setTimeout(() => bridge.sendReady(), 50)
-    const retry2 = window.setTimeout(() => bridge.sendReady(), 150)
 
     return () => {
-      window.clearTimeout(retry1)
-      window.clearTimeout(retry2)
       bridge.cleanup()
     }
   }, [])
