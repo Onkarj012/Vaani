@@ -111,7 +111,15 @@ You currently have no landing page — the biggest missing "brand" surface.
 
 ## 11. Feature Roadmap to "Product-Grade"
 
+> **See [`FEATURE_ROADMAP.md`](./FEATURE_ROADMAP.md) for the full, codebase-grounded feature plan** — tiers, effort/leverage ranking, and sequencing. Summary below.
+
 Beyond the README's v1.1 roadmap, features that move Vaani from "tool" to "product":
+
+- **Voice editing of selected text** — speak an instruction to transform highlighted text. Highest-leverage feature available; selection-capture infrastructure already exists.
+- **Streaming partial transcription** — the `streaming` flag is declared but unimplemented; biggest perceived-latency win.
+- **Voice commands** ("new line", "scratch that", "send it") and **undo last injection**.
+- **Prompt mode** — speak a question, inject the answer; turns Vaani into an ambient writing assistant.
+- **On-device LLM formatting** — closes the gap where offline mode covers STT but not formatting.
 
 - **Settings/snippets/history sync** (drives a Pro tier; requires accounts + backend).
 - **Custom vocabulary / dictionary at scale** — names, jargon, code identifiers; per-app.
