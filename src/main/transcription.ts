@@ -7,6 +7,16 @@ import { missingContentWords } from "@shared/contentGuard";
 
 const MAX_SINGLE_STT_CLIP_SECONDS = 30;
 const STT_CHUNK_OVERLAP_SECONDS = 2;
+const LOW_LOGPROB_THRESHOLD = -1.2;
+
+const STRONGER_STT_MODELS: Record<string, string> = {
+  groq: "whisper-large-v3",
+};
+
+export interface TranscriptionAttempt {
+  clip: AudioClip;
+  model: string;
+}
 
 interface TranscribeOptions {
   languageOverride?: string;
@@ -47,12 +57,15 @@ export class TranscriptionService {
     for (let providerIndex = 0; providerIndex < chain.length; providerIndex += 1) {
       const { id, provider, apiKey } = chain[providerIndex]!;
       const clips = options?.retryClip ? [clip, options.retryClip] : [clip];
-      for (let clipIndex = 0; clipIndex < clips.length; clipIndex += 1) {
+      const attempts = buildTranscriptionAttempts(id, provider.models, clips, settings.transcriptionModel);
+      for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+        const attempt = attempts[attemptIndex]!;
         const startedAt = Date.now();
         try {
-          const result = await transcribePossiblyChunked(provider, clips[clipIndex]!, {
+          const result = await transcribePossiblyChunked(provider, attempt.clip, {
             apiKey,
             language,
+            model: attempt.model || undefined,
             prompt: speechContextPrompt,
             temperature: 0
           });
@@ -68,11 +81,12 @@ export class TranscriptionService {
             quality,
           };
           providerAttempts.push({ provider: id, success: true, latencyMs: Date.now() - startedAt, quality });
-          if (options?.rejectResult?.(withQuality)) {
+          const lowConfidence = quality.avgLogprob != null && quality.avgLogprob < LOW_LOGPROB_THRESHOLD;
+          if (options?.rejectResult?.(withQuality) || lowConfidence) {
             lastRejectedResult = withQuality;
-            const canRetrySameProvider = clipIndex === 0 && clips.length > 1;
-            if (canRetrySameProvider) {
-              warn("transcription", `Provider "${id}" returned suspicious transcript; retrying with untrimmed audio`);
+            const hasNextAttempt = attemptIndex < attempts.length - 1;
+            if (hasNextAttempt) {
+              warn("transcription", `Provider "${id}" returned a low-confidence transcript; retrying transcription`);
               continue;
             }
             if (settings.failoverEnabled && providerIndex < chain.length - 1) {
@@ -281,13 +295,30 @@ async function transcribePossiblyChunked(
   return mergeChunkedTranscriptionResults(results, chunks);
 }
 
-function splitAudioClip(clip: AudioClip, maxDurationSeconds: number, overlapSeconds: number): AudioClip[] {
+export function buildTranscriptionAttempts(
+  providerId: string,
+  providerModels: TranscriptionProvider["models"],
+  clips: AudioClip[],
+  configuredModel: string,
+): TranscriptionAttempt[] {
+  const model = providerModels.some((candidate) => candidate.id === configuredModel) ? configuredModel : "";
+  const attempts = clips.map((clip) => ({ clip, model }));
+  const strongerModel = STRONGER_STT_MODELS[providerId];
+  if (strongerModel && configuredModel !== strongerModel) {
+    const firstClip = clips[0];
+    if (firstClip) attempts.push({ clip: firstClip, model: strongerModel });
+  }
+  return attempts;
+}
+
+export function splitAudioClip(clip: AudioClip, maxDurationSeconds: number, overlapSeconds: number): AudioClip[] {
   const samplesPerChunk = Math.max(1, Math.floor(clip.sampleRate * maxDurationSeconds));
   const overlapSamples = Math.max(0, Math.min(samplesPerChunk - 1, Math.floor(clip.sampleRate * overlapSeconds)));
   const stepSamples = Math.max(1, samplesPerChunk - overlapSamples);
   const chunks: AudioClip[] = [];
   for (let start = 0; start < clip.pcmData.length; start += stepSamples) {
-    const end = Math.min(clip.pcmData.length, start + samplesPerChunk);
+    const nominalEnd = Math.min(clip.pcmData.length, start + samplesPerChunk);
+    const end = snapChunkEndToSilence(clip, start, nominalEnd);
     const pcmData = clip.pcmData.slice(start, end);
     chunks.push({
       pcmData,
@@ -298,6 +329,26 @@ function splitAudioClip(clip: AudioClip, maxDurationSeconds: number, overlapSeco
     if (end >= clip.pcmData.length) break;
   }
   return chunks.length > 0 ? chunks : [clip];
+}
+
+function snapChunkEndToSilence(clip: AudioClip, start: number, nominalEnd: number): number {
+  if (clip.rmsFrames.length === 0 || nominalEnd >= clip.pcmData.length) return nominalEnd;
+
+  const windowSamples = Math.floor(clip.sampleRate * 2);
+  const windowStart = Math.max(start + 1, nominalEnd - windowSamples);
+  const windowEnd = Math.min(clip.pcmData.length, nominalEnd + windowSamples);
+  const framesPerSample = clip.rmsFrames.length / clip.pcmData.length;
+  const firstFrame = Math.max(0, Math.floor(windowStart * framesPerSample));
+  const lastFrame = Math.min(clip.rmsFrames.length - 1, Math.ceil(windowEnd * framesPerSample) - 1);
+  if (firstFrame > lastFrame) return nominalEnd;
+
+  let minimumFrame = firstFrame;
+  for (let frame = firstFrame + 1; frame <= lastFrame; frame += 1) {
+    if (clip.rmsFrames[frame]! < clip.rmsFrames[minimumFrame]!) minimumFrame = frame;
+  }
+
+  const snappedEnd = Math.round((minimumFrame + 0.5) / framesPerSample);
+  return snappedEnd > start ? Math.min(snappedEnd, clip.pcmData.length) : nominalEnd;
 }
 
 function sliceRmsFramesForSamples(clip: AudioClip, startSample: number, endSample: number): number[] {

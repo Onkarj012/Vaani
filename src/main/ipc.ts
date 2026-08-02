@@ -208,6 +208,7 @@ const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) =
       && !value.split(/[\\/]+/).includes("..");
   },
   transcriptionProvider: (value) => isBoundedString(value, MAX_ID_LENGTH, false),
+  transcriptionModel: (value) => isBoundedString(value, MAX_ID_LENGTH),
   formattingProvider: (value) => isBoundedString(value, MAX_ID_LENGTH, false),
   formattingModel: (value) => isBoundedString(value, MAX_ID_LENGTH, false),
   providerApiKeys: (value) => Array.isArray(value) && value.length <= 32 && value.every(isProviderApiKey),

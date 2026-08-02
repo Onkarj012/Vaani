@@ -36,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   recordingsPath: "",
   // Phase 1
   transcriptionProvider: "groq",
+  transcriptionModel: "",
   formattingProvider: "groq-llm",
   formattingModel: "llama-3.1-8b-instant",
   providerApiKeys: [],
@@ -135,7 +136,10 @@ export interface ProviderInfo {
 export const KNOWN_PROVIDERS: ProviderInfo[] = [
   {
     id: "groq", name: "Groq Whisper", type: "stt",
-    models: [{ id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" }],
+    models: [
+      { id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" },
+      { id: "whisper-large-v3", name: "Whisper Large v3" },
+    ],
     requiresApiKey: true, defaultModel: "whisper-large-v3-turbo",
     locality: "cloud", estimatedCost: "low", privacyLevel: "cloud-audio", supportsConfidence: true, latencyClass: "fast",
   },

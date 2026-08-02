@@ -269,6 +269,7 @@ export interface Settings {
   recordingsPath: string;
   // Phase 1: Provider settings
   transcriptionProvider: string;
+  transcriptionModel: string;
   formattingProvider: string;
   formattingModel: string;
   providerApiKeys: ProviderApiKey[];

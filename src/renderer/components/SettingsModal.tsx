@@ -282,6 +282,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <p className="mt-1.5 text-xs text-faint">{providerSummary(activeStt)}</p>
           </div>
 
+          {activeStt && activeStt.models.length > 0 && (
+            <div>
+              <FieldLabel>Transcription Model</FieldLabel>
+              <Select
+                value={settings.transcriptionModel}
+                onChange={(v) => updateSettings({ transcriptionModel: v })}
+                options={[{ value: '', label: 'Provider default' }, ...activeStt.models.map((m) => ({ value: m.id, label: m.name }))]}
+              />
+            </div>
+          )}
+
           {activeStt?.requiresApiKey && (
             <div>
               <FieldLabel>{activeStt.name} API Key</FieldLabel>

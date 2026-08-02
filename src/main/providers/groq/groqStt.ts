@@ -18,7 +18,10 @@ export const GroqSttProvider: TranscriptionProvider = {
   id: "groq",
   name: "Groq Whisper",
   requiresApiKey: true,
-  models: [{ id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" }],
+  models: [
+    { id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" },
+    { id: "whisper-large-v3", name: "Whisper Large v3" },
+  ],
 
   async transcribe(clip, options): Promise<TranscriptionResult> {
     debug("groq", `transcribe called: hasApiKey=${!!options.apiKey}, clipDuration=${clip.durationSeconds.toFixed(2)}s, samples=${clip.pcmData.length}`);
