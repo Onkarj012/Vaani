@@ -1,0 +1,8 @@
+[
+  { "name": "slash trigger", "rawText": "my email is /address", "settingsOverrides": { "snippets": [{ "trigger": "address", "content": "onkarj012@gmail.com" }] }, "expected": "My email is onkarj012@gmail.com." },
+  { "name": "spoken trigger at start", "rawText": "snippet email is the best way", "settingsOverrides": { "snippets": [{ "trigger": "email", "content": "hi@example.com" }] }, "expected": "Hi@example.com is the best way." },
+  { "name": "spoken trigger in sentence", "rawText": "contact me at snippet email please", "settingsOverrides": { "snippets": [{ "trigger": "email", "content": "hi@example.com" }] }, "expected": "Contact me at hi@example.com please." },
+  { "name": "spoken trigger after punctuation", "rawText": "hello, snippet email please", "settingsOverrides": { "snippets": [{ "trigger": "email", "content": "hi@example.com" }] }, "expected": "Hello, hi@example.com please." },
+  { "name": "unknown trigger unchanged", "rawText": "use snippet unknown here", "settingsOverrides": { "snippets": [{ "trigger": "email", "content": "hi@example.com" }] }, "expected": "Use snippet unknown here." },
+  { "name": "snippet content is not rescanned", "rawText": "use snippet greeting here", "settingsOverrides": { "snippets": [{ "trigger": "greeting", "content": "say snippet email to start" }, { "trigger": "email", "content": "hi@example.com" }] }, "expected": "Use say snippet email to start here." }
+]

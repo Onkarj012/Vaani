@@ -1,0 +1,65 @@
+[
+  {
+    "name": "collapses adjacent duplicate words",
+    "rawText": "hello hello world",
+    "settingsOverrides": {},
+    "stage": "deterministicFormat",
+    "expected": "Hello world."
+  },
+  {
+    "name": "collapses repeated whitespace",
+    "rawText": "hello   world",
+    "settingsOverrides": {},
+    "stage": "deterministicFormat",
+    "expected": "Hello world."
+  },
+  {
+    "name": "capitalizes each sentence",
+    "rawText": "hello. next sentence! how are you",
+    "settingsOverrides": {},
+    "stage": "deterministicFormat",
+    "expected": "Hello. Next sentence! How are you."
+  },
+  {
+    "name": "preserves existing terminal question punctuation",
+    "rawText": "what is this?",
+    "settingsOverrides": {},
+    "stage": "deterministicFormat",
+    "expected": "What is this?"
+  },
+  {
+    "name": "normalizes spoken percentages and dollars",
+    "rawText": "five percent and ten dollars",
+    "settingsOverrides": {},
+    "stage": "deterministicFormat",
+    "expected": "5% and $10."
+  },
+  {
+    "name": "keeps standalone one as prose",
+    "rawText": "one thing to remember",
+    "settingsOverrides": {},
+    "stage": "deterministicFormat",
+    "expected": "One thing to remember."
+  },
+  {
+    "name": "formats a new line and smart punctuation",
+    "rawText": "first new line \"hello\" -- world",
+    "settingsOverrides": {},
+    "stage": "deterministicFormat",
+    "expected": "First.\n“hello” – world."
+  },
+  {
+    "name": "formats a new paragraph and ellipsis",
+    "rawText": "first new paragraph hello... world",
+    "settingsOverrides": {},
+    "stage": "deterministicFormat",
+    "expected": "First.\n\nHello… World."
+  },
+  {
+    "name": "formats sequential paragraphs",
+    "rawText": "first new paragraph second new paragraph third",
+    "settingsOverrides": {},
+    "stage": "deterministicFormat",
+    "expected": "First.\n\nSecond.\n\nThird."
+  }
+]

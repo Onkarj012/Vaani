@@ -1,0 +1,5 @@
+[
+  { "name": "duplicate product word", "rawText": "github github should only appear once", "settingsOverrides": {}, "expected": "Github should only appear once." },
+  { "name": "duplicate is removed", "rawText": "please please send the message", "settingsOverrides": {}, "expected": "Please send the message." },
+  { "name": "triple duplicate one-pass caveat", "rawText": "want want want this", "settingsOverrides": {}, "expected": "Want want this.", "knownBug": "adjacent duplicate collapse runs once, leaving two copies in a triple repetition" }
+]
