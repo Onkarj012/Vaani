@@ -1,10 +1,10 @@
 [
   { "name": "proper noun correction", "rawText": "the app is bani", "settingsOverrides": { "customCorrections": [{ "spoken": "bani", "written": "Vaani" }] }, "expected": "The app is Vaani." },
   { "name": "multiword correction", "rawText": "my name is Om Kar", "settingsOverrides": { "customCorrections": [{ "spoken": "Om Kar", "written": "Onkar" }] }, "expected": "My name is Onkar." },
-  { "name": "longest correction is overwritten by shorter rule", "rawText": "send it to new york city", "settingsOverrides": { "customCorrections": [{ "spoken": "new york", "written": "NY" }, { "spoken": "new york city", "written": "New York City" }] }, "expected": "Send it to NY City.", "knownBug": "corrections are applied sequentially, so a shorter rule can rewrite part of a longer replacement" },
+  { "name": "longest correction is overwritten by shorter rule", "rawText": "send it to new york city", "settingsOverrides": { "customCorrections": [{ "spoken": "new york", "written": "NY" }, { "spoken": "new york city", "written": "New York City" }] }, "expected": "Send it to New York City." },
   { "name": "case insensitive correction", "rawText": "the final word is bani", "settingsOverrides": { "customCorrections": [{ "spoken": "BANI", "written": "Vaani" }] }, "expected": "The final word is Vaani." },
   { "name": "correction with cleanup disabled", "rawText": "my name is Om Kar", "settingsOverrides": { "cleanupEnabled": false, "customCorrections": [{ "spoken": "Om Kar", "written": "Onkar" }] }, "expected": "my name is Onkar" },
   { "name": "unknown word unchanged", "rawText": "send this to llmn", "settingsOverrides": {}, "expected": "Send this to llmn." },
   { "name": "correction at sentence start", "rawText": "bani is ready", "settingsOverrides": { "customCorrections": [{ "spoken": "bani", "written": "Vaani" }] }, "expected": "Vaani is ready." },
-  { "name": "correction boundary misses closing quote", "rawText": "say bani\" now", "settingsOverrides": { "customCorrections": [{ "spoken": "bani", "written": "Vaani" }] }, "expected": "Say bani\" now.", "knownBug": "dictionary correction does not match a word followed by a closing quote" }
+  { "name": "correction boundary misses closing quote", "rawText": "say bani\" now", "settingsOverrides": { "customCorrections": [{ "spoken": "bani", "written": "Vaani" }] }, "expected": "Say Vaani\" now." }
 ]

@@ -1,10 +1,15 @@
-import type { DictationCorrectionTrace, Settings } from "@shared/types";
+import type { CustomCorrection, DictationCorrectionTrace, Settings, Snippet } from "@shared/types";
 import { NUMBER_WORDS, parseNumberWords } from "@shared/numberWords";
+import { editDistance, normalizedEditDistance } from "@shared/textDistance";
+import { phoneticKeysEqual } from "@shared/phonetics";
 
 interface TextCleanupInput {
   rawText: string;
   settings: Settings;
   trace?: TextCleanupTrace;
+  skipCorrections?: boolean;
+  appProfileId?: string | null;
+  placeholderResolver?: (name: "date" | "time" | "clipboard") => string;
 }
 
 export interface TextCleanupTrace {
@@ -226,15 +231,17 @@ function shouldNormalizeNumberRun(normalized: string): boolean {
 
 function collapseAdjacentDuplicateWords(text: string): string {
   const preserveRepeats = new Set(["ha", "no", "ok", "okay", "really", "so", "very", "yes"]);
-  return text.replace(
-    /\b([\p{L}\p{N}][\p{L}\p{N}'-]{2,})([,.!?;:]?)(\s+)\1\b/giu,
-    (match, word: string, punctuation: string, spacing: string) => {
-      if (preserveRepeats.has(word.toLowerCase())) {
-        return match;
-      }
-      return `${word}${punctuation}${spacing}`.trimEnd();
-    }
-  );
+  let next = text;
+  while (true) {
+    const collapsed = next.replace(
+      /\b([\p{L}\p{N}][\p{L}\p{N}'-]*)([,.!?;:]?)(\s+)\1\b/giu,
+      (match, word: string, punctuation: string, spacing: string) => preserveRepeats.has(word.toLowerCase())
+        ? match
+        : `${word}${punctuation}${spacing}`.trimEnd(),
+    );
+    if (collapsed === next) return next;
+    next = collapsed;
+  }
 }
 
 function normalizeLineWhitespace(text: string): string {
@@ -330,28 +337,83 @@ function formatMultilineText(text: string, settings: Settings): string {
     .trim();
 }
 
-function applyCorrections(text: string, corrections: Array<{ spoken: string; written: string }>, trace?: TextCleanupTrace): string {
-  return [...corrections]
-    .sort((left, right) => right.spoken.trim().length - left.spoken.trim().length)
-    .reduce((currentText, { spoken, written }) => {
-      const trimmedSpoken = spoken.trim();
-      if (!trimmedSpoken) return currentText;
-      const pattern = new RegExp(`(^|\\s)${escapeRegExp(trimmedSpoken)}(?=\\s|$|[,.!?])`, "gi");
-      let matched = false;
-      const nextText = currentText.replace(pattern, (_, prefix) => {
-        matched = true;
-        return `${prefix}${written}`;
-      });
-      if (matched) trace?.correctionsApplied.push({ spoken: trimmedSpoken, written });
-      return nextText;
-    }, text);
+interface TextReplacement {
+  start: number;
+  end: number;
+  value: string;
+  correction?: DictationCorrectionTrace;
 }
 
-function applySnippets(text: string, snippets: Array<{ trigger: string; content: string }>): string {
+const MAX_EDIT_RATIO = 0.5;
+const TOKEN_PATTERN = /[\p{L}\p{N}][\p{L}\p{N}'-]*/gu;
+const OPEN_BOUNDARY = "(^|[\\s([\\{\\\"'“‘])";
+const CLOSE_BOUNDARY = "(?=\\s|$|[,.!?;:)\\]}\\\"'“”‘’…-])";
+
+function fuzzyReplacementCandidates(text: string, correction: CustomCorrection): TextReplacement[] {
+  const spoken = correction.spoken.trim();
+  if (correction.fuzzy !== true || spoken.length < 4) return [];
+  const tokens = [...text.matchAll(TOKEN_PATTERN)];
+  const wordCount = spoken.split(/\s+/).length;
+  const candidates: TextReplacement[] = [];
+  for (let index = 0; index < tokens.length; index++) {
+    for (const count of [wordCount - 1, wordCount, wordCount + 1]) {
+      if (count < 1 || index + count > tokens.length) continue;
+      const first = tokens[index];
+      const last = tokens[index + count - 1];
+      if (first?.index === undefined || last?.index === undefined) continue;
+      const start = first.index;
+      const end = last.index + last[0].length;
+      const candidate = text.slice(start, end);
+      if (normalizedEditDistance(candidate, spoken) >= MAX_EDIT_RATIO) continue;
+      if (editDistance(candidate.toLowerCase(), spoken.toLowerCase()) > 2) continue;
+      if (!phoneticKeysEqual(candidate, spoken)) continue;
+      candidates.push({ start, end, value: correction.written, correction: { spoken, written: correction.written } });
+    }
+  }
+  return candidates;
+}
+
+export function applyDictionary(text: string, settings: Settings, trace?: TextCleanupTrace): string {
+  const replacements: TextReplacement[] = [];
+  for (const correction of settings.customCorrections ?? []) {
+    if (correction.enabled === false) continue;
+    const spoken = correction.spoken.trim();
+    if (!spoken) continue;
+    const pattern = new RegExp(
+      correction.wholeWord === false ? escapeRegExp(spoken) : `${OPEN_BOUNDARY}${escapeRegExp(spoken)}${CLOSE_BOUNDARY}`,
+      correction.caseSensitive ? "g" : "gi",
+    );
+    for (const match of text.matchAll(pattern)) {
+      const prefixLength = correction.wholeWord === false ? 0 : (match[1]?.length ?? 0);
+      const start = (match.index ?? 0) + prefixLength;
+      replacements.push({ start, end: start + spoken.length, value: correction.written, correction: { spoken, written: correction.written } });
+    }
+    replacements.push(...fuzzyReplacementCandidates(text, correction));
+  }
+  const selected: TextReplacement[] = [];
+  for (const candidate of replacements.sort((left, right) => (right.end - right.start) - (left.end - left.start) || left.start - right.start)) {
+    if (selected.some(existing => candidate.start < existing.end && candidate.end > existing.start)) continue;
+    selected.push(candidate);
+  }
+  const matched = new Set<string>();
+  for (const replacement of selected) if (replacement.correction) matched.add(JSON.stringify(replacement.correction));
+  for (const encoded of matched) trace?.correctionsApplied.push(JSON.parse(encoded) as DictationCorrectionTrace);
+  return [...selected].sort((left, right) => right.start - left.start).reduce(
+    (current, replacement) => `${current.slice(0, replacement.start)}${replacement.value}${current.slice(replacement.end)}`,
+    text,
+  );
+}
+
+function applySnippets(
+  text: string,
+  snippets: Snippet[],
+  appProfileId: string | null | undefined,
+  placeholderResolver?: (name: "date" | "time" | "clipboard") => string,
+): string {
   // Longest-trigger-first so overlapping triggers resolve to the longest match.
   const ordered = [...snippets]
-    .map(({ trigger, content }) => ({ trigger: trigger.trim(), content }))
-    .filter(({ trigger }) => trigger.length > 0)
+    .map(snippet => ({ ...snippet, trigger: snippet.trigger.trim() }))
+    .filter(({ trigger, appProfileIds }) => trigger.length > 0 && (!appProfileIds || (appProfileId !== null && appProfileId !== undefined && appProfileIds.includes(appProfileId))))
     .sort((left, right) => right.trigger.length - left.trigger.length);
 
   if (ordered.length === 0) return text;
@@ -362,29 +424,36 @@ function applySnippets(text: string, snippets: Array<{ trigger: string; content:
   // cross-form cascade (e.g. a typed snippet whose body contains `snippet name`
   // expanding again on a separate spoken pass).
   const alternation = ordered.map(({ trigger }) => escapeRegExp(trigger)).join("|");
+  const bareAlternation = ordered
+    .filter(({ trigger, matchBareTrigger }) => (matchBareTrigger ?? false) && (trigger.length >= 6 || trigger.split(/\s+/).length >= 2))
+    .map(({ trigger }) => escapeRegExp(trigger))
+    .join("|");
   const combined = new RegExp(
     `(^|\\s)/(${alternation})(?=\\s|$|[,.!?;:])` +
-      `|(^|[\\s,.!?;:])snippet\\s+(${alternation})(?=\\s|$|[,.!?;:])`,
+      `|(^|[\\s,.!?;:])snippet\\s+(${alternation})(?=\\s|$|[,.!?;:])` +
+      (bareAlternation ? `|(^|[\\s,.!?;:])(${bareAlternation})(?=\\s|$|[,.!?;:])` : ""),
     "gi",
   );
 
-  const byTrigger = new Map(ordered.map(({ trigger, content }) => [trigger.toLowerCase(), content]));
-  const lookup = (raw: string): string => byTrigger.get(raw.toLowerCase()) ?? raw;
+  const byTrigger = new Map(ordered.map(snippet => [snippet.trigger.toLowerCase(), snippet.content]));
+  const lookup = (raw: string): string => (byTrigger.get(raw.toLowerCase()) ?? raw).replace(/\{\{(date|time|clipboard)\}\}/g, (_match, name: "date" | "time" | "clipboard") => placeholderResolver?.(name) ?? `{{${name}}}`);
 
   return text.replace(
     combined,
-    (_match, typedPrefix: string, typedName: string, spokenPrefix: string, spokenName: string) =>
+    (_match, typedPrefix: string, typedName: string, spokenPrefix: string, spokenName: string, barePrefix: string, bareName: string) =>
       typedName !== undefined
         ? `${typedPrefix}${lookup(typedName)}`
-        : `${spokenPrefix}${lookup(spokenName)}`,
+        : spokenName !== undefined
+          ? `${spokenPrefix}${lookup(spokenName)}`
+          : `${barePrefix}${lookup(bareName)}`,
   );
 }
 
-export function cleanupText({ rawText, settings, trace }: TextCleanupInput): string {
+export function cleanupText({ rawText, settings, trace, skipCorrections = false, appProfileId, placeholderResolver }: TextCleanupInput): string {
   // Dictionary corrections and snippet expansion are user-defined replacements —
   // apply them even when general cleanup is off, otherwise the dictionary never triggers.
-  const corrected = applyCorrections(rawText, settings.customCorrections ?? [], trace);
-  const expanded = applySnippets(corrected, settings.snippets ?? []);
+  const corrected = skipCorrections ? rawText : applyDictionary(rawText, settings, trace);
+  const expanded = applySnippets(corrected, settings.snippets ?? [], appProfileId, placeholderResolver);
 
   if (!settings.cleanupEnabled) {
     const deduped = collapseAdjacentDuplicateWords(expanded);

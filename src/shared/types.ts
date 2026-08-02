@@ -210,11 +210,19 @@ export interface CustomCorrection {
   spoken: string;
   written: string;
   source?: "auto-suggested" | "manual";
+  enabled?: boolean;
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
+  fuzzy?: boolean;
+  hitCount?: number;
+  lastUsedAt?: string;
 }
 
 export interface Snippet {
   trigger: string;
   content: string;
+  matchBareTrigger?: boolean;
+  appProfileIds?: string[];
 }
 
 export interface AppProfile {

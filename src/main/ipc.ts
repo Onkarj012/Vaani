@@ -123,10 +123,16 @@ function isBoundedStringArray(value: unknown, maxEntries = MAX_LIST_LENGTH, maxT
 }
 
 function isCustomCorrection(value: unknown): value is CustomCorrection {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["spoken", "written", "source"])) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["spoken", "written", "source", "enabled", "caseSensitive", "wholeWord", "fuzzy", "hitCount", "lastUsedAt"])) return false;
   return isBoundedString(value.spoken, MAX_CUSTOM_CORRECTION_TEXT_LENGTH, false)
     && isBoundedString(value.written, MAX_CUSTOM_CORRECTION_TEXT_LENGTH, false)
-    && (value.source === undefined || isOneOf(value.source, ["auto-suggested", "manual"]));
+    && (value.source === undefined || isOneOf(value.source, ["auto-suggested", "manual"]))
+    && (value.enabled === undefined || typeof value.enabled === "boolean")
+    && (value.caseSensitive === undefined || typeof value.caseSensitive === "boolean")
+    && (value.wholeWord === undefined || typeof value.wholeWord === "boolean")
+    && (value.fuzzy === undefined || typeof value.fuzzy === "boolean")
+    && (value.hitCount === undefined || (typeof value.hitCount === "number" && Number.isInteger(value.hitCount) && value.hitCount >= 0))
+    && (value.lastUsedAt === undefined || isBoundedString(value.lastUsedAt, MAX_SHORT_TEXT_LENGTH, false));
 }
 
 function isDictionarySuggestion(value: unknown): value is DictionarySuggestion {
@@ -147,9 +153,11 @@ function isProviderApiKey(value: unknown): boolean {
 }
 
 function isSnippet(value: unknown): boolean {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["trigger", "content"])) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["trigger", "content", "matchBareTrigger", "appProfileIds"])) return false;
   return isBoundedString(value.trigger, MAX_SHORT_TEXT_LENGTH, false)
-    && isBoundedString(value.content, MAX_TEXT_LENGTH, false);
+    && isBoundedString(value.content, MAX_TEXT_LENGTH, false)
+    && (value.matchBareTrigger === undefined || typeof value.matchBareTrigger === "boolean")
+    && (value.appProfileIds === undefined || isBoundedStringArray(value.appProfileIds, 100, MAX_ID_LENGTH));
 }
 
 function isAppProfile(value: unknown): boolean {

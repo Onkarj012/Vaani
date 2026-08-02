@@ -3,6 +3,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { createRequire } from "node:module";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioClip,
@@ -35,7 +36,7 @@ import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
-import { cleanupText } from "./text/cleanup";
+import { applyDictionary, cleanupText } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
@@ -320,7 +321,8 @@ export class DictationService {
       if (qualityDecision.action === "save") {
         debug("dictation", `submitAudioClip: transcript saved instead of inserted (${qualityDecision.reason}): "${transcription.rawText}"`);
         const cleanupTrace = { correctionsApplied: [] };
-        const cleanedText = cleanupText({ rawText: transcription.rawText, settings, trace: cleanupTrace });
+        const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
+        const cleanedText = cleanupText({ rawText: correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
         void this.patchTrace(payload.sessionId, {
           stages: {
             cleanedText,
@@ -350,26 +352,26 @@ export class DictationService {
         return;
       }
 
-      // Format via LLM using provider system
-      let formattedText = transcription.rawText;
-      let formatTrace: FormatTranscriptTraceResult = { text: transcription.rawText, formatterUsed: "none" };
+      // Apply dictionary terms before the formatter so it sees the intended spelling.
+      const cleanupTrace = { correctionsApplied: [] };
+      const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
+      let formattedText = correctedText;
+      let formatTrace: FormatTranscriptTraceResult = { text: correctedText, formatterUsed: "none" };
       try {
         let formattingTimer: ReturnType<typeof setTimeout> | null = null;
         const formattingStartedAt = Date.now();
         formatTrace = await Promise.race([
-          this.formatTranscriptWithTrace(transcription.rawText).finally(() => { if (formattingTimer) { clearTimeout(formattingTimer); formattingTimer = null; } }),
+          this.formatTranscriptWithTrace(correctedText).finally(() => { if (formattingTimer) { clearTimeout(formattingTimer); formattingTimer = null; } }),
           new Promise<never>((_, reject) => { formattingTimer = setTimeout(() => reject(new Error("Formatting timed out.")), FORMATTING_TIMEOUT_MS); }),
         ]);
         formattedText = formatTrace.text;
         void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
       } catch {
-        formattedText = transcription.rawText;
-        formatTrace = { text: transcription.rawText, formatterUsed: "none" };
+        formattedText = correctedText;
+        formatTrace = { text: correctedText, formatterUsed: "none" };
       }
 
-      const textForCleanup = formattedText !== transcription.rawText ? formattedText : transcription.rawText;
-      const cleanupTrace = { correctionsApplied: [] };
-      const cleanedText = cleanupText({ rawText: textForCleanup, settings, trace: cleanupTrace });
+      const cleanedText = cleanupText({ rawText: formattedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
       void this.patchTrace(payload.sessionId, {
         stages: {
           cleanedText,
@@ -1201,4 +1203,12 @@ function resolveAppProfile(appProfiles: NonNullable<Settings["appProfiles"]>, bu
   if (!bundleId || appProfiles.length === 0) return null;
   const id = bundleId.toLowerCase();
   return appProfiles.find(p => p.appBundleIds.some(b => b.toLowerCase() === id)) ?? null;
+}
+
+function resolveSnippetPlaceholder(name: "date" | "time" | "clipboard"): string {
+  const now = new Date();
+  if (name === "date") return now.toLocaleDateString();
+  if (name === "time") return now.toLocaleTimeString();
+  const { clipboard } = createRequire(import.meta.url)("electron") as typeof import("electron");
+  return clipboard.readText();
 }
