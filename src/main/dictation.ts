@@ -39,7 +39,7 @@ import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { applyDictionary, cleanupText } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
-import { TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
+import { getTranscriptionTimeoutMs, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
@@ -47,7 +47,6 @@ import { formatBuildIdentifier } from "@shared/buildIdentifier";
 import { evaluateInsertionAcceptance } from "@shared/insertionAcceptance";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
-const TRANSCRIPTION_TIMEOUT_MS = 30_000;
 const FORMATTING_TIMEOUT_MS = 20_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
@@ -304,14 +303,17 @@ export class DictationService {
       const appProfile = resolveAppProfile(settings.appProfiles ?? [], this.activeTarget?.appBundleId ?? null);
       let transcriptionTimer: ReturnType<typeof setTimeout> | null = null;
       const sttStartedAt = Date.now();
+      const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip.durationSeconds);
+      const transcriptionDeadlineAt = sttStartedAt + transcriptionTimeoutMs;
       const transcription = await Promise.race([
         this.transcription.transcribe(payload.clip, {
           ...(appProfile?.language ? { languageOverride: appProfile.language } : {}),
           ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
           retryClip: validationClip,
+          deadlineAt: transcriptionDeadlineAt,
           rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, payload.clip, result.quality).action === "retry",
         }).finally(() => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } }),
-        new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS); }),
+        new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), transcriptionTimeoutMs); }),
       ]);
       const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, payload.clip, transcription.quality));
       const quality = transcription.quality
@@ -626,9 +628,11 @@ export class DictationService {
 
   async demoTranscribe(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<string> {
     let demoTimer: ReturnType<typeof setTimeout> | null = null;
+    const transcriptionTimeoutMs = getTranscriptionTimeoutMs(clip.durationSeconds);
+    const transcriptionDeadlineAt = Date.now() + transcriptionTimeoutMs;
     const result = await Promise.race([
-      this.transcription.transcribe(clip).then(r => { if (demoTimer) { clearTimeout(demoTimer); demoTimer = null; } return r; }),
-      new Promise<never>((_, reject) => { demoTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), TRANSCRIPTION_TIMEOUT_MS); }),
+      this.transcription.transcribe(clip, { deadlineAt: transcriptionDeadlineAt }).then(r => { if (demoTimer) { clearTimeout(demoTimer); demoTimer = null; } return r; }),
+      new Promise<never>((_, reject) => { demoTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), transcriptionTimeoutMs); }),
     ]);
     return result.rawText;
   }

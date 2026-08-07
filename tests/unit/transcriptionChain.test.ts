@@ -382,6 +382,40 @@ describe("TranscriptionService failover chain", () => {
     expect(result.quality?.chunkOverlapSeconds).toBe(2);
   });
 
+  it("does not issue another chunk request after the transcription deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const groqTranscribe = vi.fn(() => new Promise<TranscriptionResult>((resolve) => {
+        setTimeout(() => resolve({ rawText: "chunk", formattedText: "chunk", language: "en" }), 50_000);
+      }));
+      registryState.providers.set("groq", provider("groq", groqTranscribe));
+      const { TranscriptionService, getTranscriptionTimeoutMs } = await import("@main/transcription");
+      const longClip: AudioClip = {
+        pcmData: new Array(181 * 16_000).fill(0.1),
+        sampleRate: 16_000,
+        durationSeconds: 181,
+        rmsFrames: [],
+      };
+      const service = new TranscriptionService(() => ({
+        ...DEFAULT_SETTINGS,
+        transcriptionProvider: "groq",
+        groqApiKey: "groq-key",
+      }));
+      const deadlineAt = Date.now() + getTranscriptionTimeoutMs(longClip.durationSeconds);
+      const result = service.transcribe(longClip, { deadlineAt });
+      const timedOut = expect(result).rejects.toThrow("Transcription deadline exceeded.");
+
+      await vi.advanceTimersByTimeAsync(50_000);
+      expect(groqTranscribe).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(50_000);
+
+      await timedOut;
+      expect(groqTranscribe).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("deduplicates overlapped words when merging long-recording chunks", async () => {
     const transcripts = [
       "alpha beta gamma delta",

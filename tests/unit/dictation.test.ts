@@ -179,6 +179,43 @@ describe("DictationService", () => {
     expect(overlay.setError).toHaveBeenCalledTimes(1);
   });
 
+  it("scales the demo transcription timeout for long clips", async () => {
+    const { service, transcription } = createDictationService();
+    transcription.transcribe.mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve({ rawText: "long result", formattedText: "long result", language: "en" }), 45_000);
+    }));
+
+    const result = service.demoTranscribe({
+      pcmData: [0.1],
+      sampleRate: 16_000,
+      durationSeconds: 181,
+      rmsFrames: [0.1],
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await expect(result).resolves.toBe("long result");
+  });
+
+  it("keeps the original 30-second timeout for a single-chunk clip", async () => {
+    const { service, transcription } = createDictationService();
+    transcription.transcribe.mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve({ rawText: "late result", formattedText: "late result", language: "en" }), 31_000);
+    }));
+
+    const result = service.demoTranscribe({
+      pcmData: [0.1],
+      sampleRate: 16_000,
+      durationSeconds: 1,
+      rmsFrames: [0.1],
+    });
+    const timedOut = expect(result).rejects.toThrow("Transcription timed out. Please try again.");
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await timedOut;
+    await vi.advanceTimersByTimeAsync(1_000);
+  });
+
   it("forwards audio bars while recording", () => {
     const { service, overlay, mainWindow } = createDictationService();
 

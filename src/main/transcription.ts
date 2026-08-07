@@ -5,8 +5,11 @@ import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { missingContentWords } from "@shared/contentGuard";
 
-const MAX_SINGLE_STT_CLIP_SECONDS = 30;
+export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
 const STT_CHUNK_OVERLAP_SECONDS = 2;
+const TRANSCRIPTION_BASE_TIMEOUT_MS = 30_000;
+const TRANSCRIPTION_PER_ADDITIONAL_CHUNK_TIMEOUT_MS = 10_000;
+export const MAX_TRANSCRIPTION_TIMEOUT_MS = 300_000;
 const LOW_LOGPROB_THRESHOLD = -1.2;
 
 const STRONGER_STT_MODELS: Record<string, string> = {
@@ -23,6 +26,28 @@ interface TranscribeOptions {
   providerOverride?: string;
   rejectResult?: (result: TranscriptionResult) => boolean;
   retryClip?: AudioClip;
+  deadlineAt?: number;
+}
+
+export function getTranscriptionTimeoutMs(durationSeconds: number): number {
+  const expectedChunkCount = Math.max(1, Math.ceil(Math.max(0, durationSeconds) / MAX_SINGLE_STT_CLIP_SECONDS));
+  return Math.min(
+    MAX_TRANSCRIPTION_TIMEOUT_MS,
+    TRANSCRIPTION_BASE_TIMEOUT_MS + (expectedChunkCount - 1) * TRANSCRIPTION_PER_ADDITIONAL_CHUNK_TIMEOUT_MS,
+  );
+}
+
+class TranscriptionDeadlineExceededError extends Error {
+  constructor() {
+    super("Transcription deadline exceeded.");
+    this.name = "TranscriptionDeadlineExceededError";
+  }
+}
+
+function throwIfTranscriptionDeadlineExceeded(deadlineAt?: number): void {
+  if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+    throw new TranscriptionDeadlineExceededError();
+  }
 }
 
 export interface FormatTranscriptTraceResult {
@@ -60,6 +85,7 @@ export class TranscriptionService {
       const attempts = buildTranscriptionAttempts(id, provider.models, clips, settings.transcriptionModel);
       for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
         const attempt = attempts[attemptIndex]!;
+        throwIfTranscriptionDeadlineExceeded(options?.deadlineAt);
         const startedAt = Date.now();
         try {
           const result = await transcribePossiblyChunked(provider, attempt.clip, {
@@ -67,8 +93,8 @@ export class TranscriptionService {
             language,
             model: attempt.model || undefined,
             prompt: speechContextPrompt,
-            temperature: 0
-          });
+            temperature: 0,
+          }, options?.deadlineAt);
           const quality = {
             ...result.quality,
             provider: result.quality?.provider ?? id,
@@ -103,6 +129,9 @@ export class TranscriptionService {
             providerAttempts,
           };
         } catch (error) {
+          if (error instanceof TranscriptionDeadlineExceededError || (options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt)) {
+            throw error instanceof TranscriptionDeadlineExceededError ? error : new TranscriptionDeadlineExceededError();
+          }
           if (isAuthError(error)) {
             throw error;
           }
@@ -279,6 +308,7 @@ async function transcribePossiblyChunked(
   provider: TranscriptionProvider,
   clip: AudioClip,
   options: Parameters<TranscriptionProvider["transcribe"]>[1],
+  deadlineAt?: number,
 ): Promise<TranscriptionResult> {
   if (clip.durationSeconds <= MAX_SINGLE_STT_CLIP_SECONDS) {
     return provider.transcribe(clip, options);
@@ -288,6 +318,7 @@ async function transcribePossiblyChunked(
   debug("transcription", `Chunking long clip for STT: ${clip.durationSeconds.toFixed(2)}s into ${chunks.length} chunks`);
   const results: TranscriptionResult[] = [];
   for (const [index, chunk] of chunks.entries()) {
+    throwIfTranscriptionDeadlineExceeded(deadlineAt);
     debug("transcription", `Transcribing chunk ${index + 1}/${chunks.length}: ${chunk.durationSeconds.toFixed(2)}s`);
     results.push(await provider.transcribe(chunk, options));
   }
