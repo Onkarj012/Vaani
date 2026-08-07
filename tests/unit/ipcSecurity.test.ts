@@ -243,4 +243,48 @@ describe("IPC security boundaries", () => {
     expect(await credentials.has("groq")).toBe(true);
     expect(await credentials.has("deepgram")).toBe(true);
   });
+
+  it("preserves dictionary metadata through a settings round-trip", async () => {
+    const correction = {
+      spoken: "get hub",
+      written: "GitHub",
+      source: "auto-suggested" as const,
+      fuzzy: true,
+      enabled: false,
+      hitCount: 7,
+      lastUsedAt: "2026-08-07T00:00:00.000Z",
+    };
+
+    await invokeHandlers.get(IpcChannel.UpdateSettings)?.(
+      { sender: mainSender },
+      { customCorrections: [correction] },
+    );
+
+    expect(settings.update).toHaveBeenCalledWith({ customCorrections: [correction] });
+  });
+
+  it("rejects the whole dictionary update when a correction is oversized or has malformed optional metadata", async () => {
+    await invokeHandlers.get(IpcChannel.UpdateSettings)?.(
+      { sender: mainSender },
+      {
+        customCorrections: [
+          { spoken: "x".repeat(41), written: "replacement" },
+          { spoken: "fuzzy rule", written: "Fuzzy rule", fuzzy: "yes", hitCount: -1 },
+        ],
+      },
+    );
+
+    expect(settings.update).not.toHaveBeenCalled();
+  });
+
+  it("defaults a new dictionary entry without source to manual", async () => {
+    await invokeHandlers.get(IpcChannel.UpdateSettings)?.(
+      { sender: mainSender },
+      { customCorrections: [{ spoken: "onkar", written: "Onkar" }] },
+    );
+
+    expect(settings.update).toHaveBeenCalledWith({
+      customCorrections: [{ spoken: "onkar", written: "Onkar", source: "manual" }],
+    });
+  });
 });

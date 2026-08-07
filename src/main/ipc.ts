@@ -78,6 +78,7 @@ const MAX_SHORT_TEXT_LENGTH = 512;
 const MAX_TEXT_LENGTH = 100_000;
 const MAX_SECRET_LENGTH = 8_192;
 const MAX_LIST_LENGTH = 500;
+const MAX_CUSTOM_CORRECTION_HIT_COUNT = 1_000_000;
 const MAX_AUDIO_DURATION_SECONDS = 600;
 const MAX_AUDIO_SAMPLES = 10_000_000;
 const MAX_RMS_FRAMES = 100_000;
@@ -131,8 +132,8 @@ function isCustomCorrection(value: unknown): value is CustomCorrection {
     && (value.caseSensitive === undefined || typeof value.caseSensitive === "boolean")
     && (value.wholeWord === undefined || typeof value.wholeWord === "boolean")
     && (value.fuzzy === undefined || typeof value.fuzzy === "boolean")
-    && (value.hitCount === undefined || (typeof value.hitCount === "number" && Number.isInteger(value.hitCount) && value.hitCount >= 0))
-    && (value.lastUsedAt === undefined || isBoundedString(value.lastUsedAt, MAX_SHORT_TEXT_LENGTH, false));
+    && (value.hitCount === undefined || (Number.isInteger(value.hitCount) && isFiniteNumberInRange(value.hitCount, 0, MAX_CUSTOM_CORRECTION_HIT_COUNT)))
+    && (value.lastUsedAt === undefined || (isBoundedString(value.lastUsedAt, MAX_SHORT_TEXT_LENGTH, false) && !Number.isNaN(Date.parse(value.lastUsedAt))));
 }
 
 function isDictionarySuggestion(value: unknown): value is DictionarySuggestion {
@@ -285,18 +286,29 @@ function isRecorderFailure(value: unknown): value is RecorderFailure {
     && isBoundedString(value.message, MAX_TEXT_LENGTH, false);
 }
 
-function sanitizeManualCustomCorrections(entries: Array<Partial<CustomCorrection>>): CustomCorrection[] {
+function sanitizeCustomCorrections(entries: Array<Partial<CustomCorrection>>): CustomCorrection[] {
   return entries.flatMap((entry) => {
-    if (typeof entry.spoken !== "string" || typeof entry.written !== "string") return [];
+    if (!isRecord(entry)
+      || !isBoundedString(entry.spoken, MAX_CUSTOM_CORRECTION_TEXT_LENGTH, false)
+      || !isBoundedString(entry.written, MAX_CUSTOM_CORRECTION_TEXT_LENGTH, false)) return [];
     const spoken = entry.spoken.trim();
     const written = entry.written.trim();
-    if (!spoken || !written) return [];
-    if (spoken.length > MAX_CUSTOM_CORRECTION_TEXT_LENGTH || written.length > MAX_CUSTOM_CORRECTION_TEXT_LENGTH) return [];
-    return [{
+    const correction: CustomCorrection = {
       spoken,
       written,
-      source: "manual",
-    }];
+      source: isOneOf(entry.source, ["auto-suggested", "manual"]) ? entry.source : "manual",
+    };
+    if (typeof entry.enabled === "boolean") correction.enabled = entry.enabled;
+    if (typeof entry.caseSensitive === "boolean") correction.caseSensitive = entry.caseSensitive;
+    if (typeof entry.wholeWord === "boolean") correction.wholeWord = entry.wholeWord;
+    if (typeof entry.fuzzy === "boolean") correction.fuzzy = entry.fuzzy;
+    if (Number.isInteger(entry.hitCount) && isFiniteNumberInRange(entry.hitCount, 0, MAX_CUSTOM_CORRECTION_HIT_COUNT)) {
+      correction.hitCount = entry.hitCount;
+    }
+    if (isBoundedString(entry.lastUsedAt, MAX_SHORT_TEXT_LENGTH, false) && !Number.isNaN(Date.parse(entry.lastUsedAt))) {
+      correction.lastUsedAt = entry.lastUsedAt;
+    }
+    return [correction];
   });
 }
 
@@ -466,10 +478,10 @@ export function registerIpcHandlers(opts: {
     if (Array.isArray(settingsPatch.customCorrections)) {
       // Trust model: auto suggestions must pass consent and safety gates before
       // reaching settings; generic settings updates are explicit Dictionary UI
-      // edits, so keep them working while applying minimal shape/length sanity.
+      // edits, so preserve valid metadata while applying shape/length sanity.
       settingsPatch = {
         ...settingsPatch,
-        customCorrections: sanitizeManualCustomCorrections(settingsPatch.customCorrections),
+        customCorrections: sanitizeCustomCorrections(settingsPatch.customCorrections),
       };
     }
 
