@@ -60,6 +60,22 @@ function log(label: string, data?: unknown): void {
   }
 }
 
+async function requestMicrophoneAccess(): Promise<void> {
+  const micStatus = systemPreferences.getMediaAccessStatus("microphone");
+  if (micStatus === "not-determined") {
+    try {
+      const granted = await systemPreferences.askForMediaAccess("microphone");
+      log("microphone:permission-requested", { granted });
+    } catch (error) {
+      log("microphone:permission-request-failed", { message: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+  if (micStatus === "denied" || micStatus === "restricted") {
+    log("microphone:permission-unavailable", { status: micStatus });
+  }
+}
+
 export function setCachedUpdateStatus(payload: UpdateNotificationPayload | null): void {
   cachedUpdateStatus = payload;
 }
@@ -337,6 +353,7 @@ async function loadWindowUrl(win: BrowserWindow): Promise<void> {
 
 async function bootstrap(): Promise<void> {
   log("bootstrap:start");
+  void requestMicrophoneAccess();
 
   // Migrate legacy data directory (.claude_vaani → .vaani)
   const home = app.getPath("home");

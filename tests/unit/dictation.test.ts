@@ -28,6 +28,7 @@ vi.mock("electron", () => ({
 
 function createDictationService(deps: {
   traces?: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> & Partial<Pick<DictationTraceStore, "getAll">>;
+  getMicrophonePermission?: () => string;
 } = {}) {
   let verifierTimeMs = 0;
   let focusedValue = "";
@@ -102,12 +103,28 @@ function createDictationService(deps: {
       injector,
       appDetector,
       traces: deps.traces,
+      getMicrophonePermission: deps.getMicrophonePermission,
       verifierNow: () => verifierTimeMs,
       verifierSleep: async (ms: number) => { verifierTimeMs += ms; },
     }
   );
 
   return { service, overlay, mainWindow, history, recorder, settings, transcription, injector, appDetector, verifierTime: () => verifierTimeMs };
+}
+
+function createTraceDeps() {
+  let trace: DictationTrace | null = null;
+  const traces: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> = {
+    upsert: vi.fn(async (next: DictationTrace) => { trace = next; }),
+    updateById: vi.fn(async (_id: string, updater: (current: DictationTrace) => DictationTrace) => {
+      if (!trace) throw new Error("Trace was not initialized.");
+      trace = updater(trace);
+      return trace;
+    }),
+    getById: vi.fn(async () => trace ?? undefined),
+    getBySessionId: vi.fn(async () => trace ?? undefined),
+  };
+  return { traces, getTrace: () => trace };
 }
 
 type MockedSettingsStore = ReturnType<typeof createDictationService>["settings"];
@@ -220,6 +237,69 @@ describe("DictationService", () => {
 
     expect(recorder.stopRecording).toHaveBeenCalledWith(sessionId);
     expect(overlay.setError).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects digitally silent audio with a microphone permission failure when access is not granted", async () => {
+    const traceDeps = createTraceDeps();
+    const { service } = createDictationService({
+      traces: traceDeps.traces,
+      getMicrophonePermission: () => "denied",
+    });
+    const permissionMessage = "Microphone access is not granted. Enable it in System Settings > Privacy & Security > Microphone, then restart Vaani.";
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0] }
+    });
+
+    expect(service.getState()).toMatchObject({ status: "error", message: permissionMessage });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "microphone_permission_denied", userMessage: permissionMessage });
+  });
+
+  it("keeps digitally silent audio on the no-speech path when microphone access is granted", async () => {
+    const traceDeps = createTraceDeps();
+    const { service } = createDictationService({
+      traces: traceDeps.traces,
+      getMicrophonePermission: () => "granted",
+    });
+    const noSpeechMessage = "No speech detected. Try speaking louder or closer to the microphone.";
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0] }
+    });
+
+    expect(service.getState()).toMatchObject({ status: "error", message: noSpeechMessage });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", userMessage: noSpeechMessage });
+  });
+
+  it("keeps quiet but nonzero audio on the no-speech path when microphone access is not granted", async () => {
+    const traceDeps = createTraceDeps();
+    const { service } = createDictationService({
+      traces: traceDeps.traces,
+      getMicrophonePermission: () => "denied",
+    });
+    const noSpeechMessage = "No speech detected. Try speaking louder or closer to the microphone.";
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.000001), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.000001] }
+    });
+
+    expect(service.getState()).toMatchObject({ status: "error", message: noSpeechMessage });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", userMessage: noSpeechMessage });
   });
 
   it("does not inject one-letter no-speech hallucinations", async () => {

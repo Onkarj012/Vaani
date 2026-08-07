@@ -61,6 +61,10 @@ const INSERTION_VERIFY_TIMEOUT_MS = 2_000;
 type ElectronModule = typeof import("electron") & { default?: typeof import("electron") };
 const electronModule = electron as unknown as ElectronModule;
 
+function getDefaultMicrophonePermission(): string {
+  return electron.systemPreferences.getMediaAccessStatus("microphone");
+}
+
 interface RecorderCommands {
   isReady: () => boolean;
   startRecording: (sessionId: string) => boolean;
@@ -74,6 +78,7 @@ interface DictationServiceDeps {
   transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
   injector?: Pick<TextInjector, "inject">;
   appDetector?: Pick<AppDetector, "getContext">;
+  getMicrophonePermission?: () => string;
   recorder?: RecorderCommands;
   credentials?: CredentialsStore;
   createSessionId?: () => string;
@@ -87,6 +92,7 @@ export class DictationService {
   private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
   private readonly injector: Pick<TextInjector, "inject">;
   private readonly appDetector: Pick<AppDetector, "getContext">;
+  private readonly getMicrophonePermission: () => string;
   private readonly createSessionId: () => string;
   private readonly traces: DictationTraceDeps | null;
   private readonly verifierNow: () => number;
@@ -114,6 +120,7 @@ export class DictationService {
     this.transcription = deps.transcription ?? new TranscriptionService(() => this.settings.get(), deps.credentials);
     this.injector = deps.injector ?? new TextInjector(() => this.settings.get());
     this.appDetector = deps.appDetector ?? new AppDetector();
+    this.getMicrophonePermission = deps.getMicrophonePermission ?? getDefaultMicrophonePermission;
     this.recorder = deps.recorder ?? null;
     this.createSessionId = deps.createSessionId ?? (() => crypto.randomUUID());
     this.traces = deps.traces ?? null;
@@ -256,8 +263,9 @@ export class DictationService {
     this.clearFinalizationTimer();
     const settings = this.settings.get();
     const validationClip = trimSilence(payload.clip, settings.silenceThreshold);
+    const rawAudio = analyzeAudioQuality(payload.clip, settings.silenceThreshold);
     const tracePatch: Partial<DictationTrace> = {
-      rawAudio: analyzeAudioQuality(payload.clip, settings.silenceThreshold),
+      rawAudio,
       trimmedAudio: analyzeAudioQuality(validationClip, settings.silenceThreshold),
     };
 
@@ -270,6 +278,12 @@ export class DictationService {
       tracePatch.rawAudioPath = rawAudioPath;
     }
     void this.patchTrace(payload.sessionId, tracePatch);
+
+    if (rawAudio.peakAmplitude === 0 && this.getMicrophonePermission() !== "granted") {
+      debug("dictation", "submitAudioClip: clip rejected (microphone permission is not granted)");
+      this.failSession(payload.sessionId, "Microphone access is not granted. Enable it in System Settings > Privacy & Security > Microphone, then restart Vaani.", "microphone_permission_denied");
+      return;
+    }
 
     if (!isValidClip(validationClip, settings.minClipDuration)) {
       debug("dictation", "submitAudioClip: clip rejected (too short or empty)");
@@ -847,7 +861,7 @@ export class DictationService {
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
     this.setState({ status: "error", sessionId, message });
-    void this.finishTrace(sessionId, reason === "no_speech" || reason === "fragment" ? "rejected" : "failed", reason, message);
+    void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message);
     this.scheduleReset(ERROR_RESET_MS);
   }
 
