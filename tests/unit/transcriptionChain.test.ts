@@ -189,7 +189,7 @@ describe("TranscriptionService failover chain", () => {
     expect(result.providerAttempts).toHaveLength(3);
   });
 
-  it("retries a suspicious successful transcript once for single-provider users", async () => {
+  it("makes three total attempts for a suspicious transcript with a single provider", async () => {
     const groqTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
       rawText: "thank you",
       formattedText: "thank you",
@@ -217,10 +217,10 @@ describe("TranscriptionService failover chain", () => {
       retryClip: { ...clip, durationSeconds: 2 },
     });
 
-    expect(groqTranscribe).toHaveBeenCalledTimes(2);
+    expect(groqTranscribe).toHaveBeenCalledTimes(3);
     expect(result.rawText).toBe("thank you");
-    expect(result.quality?.attemptCount).toBe(2);
-    expect(result.providerAttempts).toHaveLength(2);
+    expect(result.quality?.attemptCount).toBe(3);
+    expect(result.providerAttempts).toHaveLength(3);
   });
 
   it("returns the same provider retry result without calling fallback when retry succeeds", async () => {
@@ -339,7 +339,7 @@ describe("TranscriptionService failover chain", () => {
     expect(groqTranscribe).not.toHaveBeenCalled();
   });
 
-  it("chunks long recordings and merges the full transcript in order", async () => {
+  it("chunks long recordings at silence-snapped boundaries and merges the full transcript in order", async () => {
     const groqTranscribe = vi.fn(async (nextClip: AudioClip): Promise<TranscriptionResult> => {
       const chunkNumber = groqTranscribe.mock.calls.length;
       return {
@@ -375,7 +375,7 @@ describe("TranscriptionService failover chain", () => {
     const result = await service.transcribe(longClip);
 
     expect(groqTranscribe).toHaveBeenCalledTimes(6);
-    expect(groqTranscribe.mock.calls.map(([candidate]) => Math.round(candidate.durationSeconds))).toEqual([30, 30, 30, 30, 30, 20]);
+    expect(groqTranscribe.mock.calls.map(([candidate]) => Math.round(candidate.durationSeconds))).toEqual([28, 28, 28, 28, 28, 20]);
     expect(result.rawText).toBe("chunk-1 chunk-2 chunk-3 chunk-4 chunk-5 chunk-6");
     expect(result.quality?.segmentCount).toBe(6);
     expect(result.quality?.chunkCount).toBe(6);
