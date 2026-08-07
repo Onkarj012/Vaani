@@ -15,6 +15,7 @@ gates, and update the status row when done.
 | 003 | Make the menu bar icon open language and recent-history actions | P1 | M | — | DONE |
 | 004 | Add deterministic number normalization for common dictation phrases | P2 | M | — | DONE |
 | 005 | Make language choices provider-aware and honest | P2 | M | — | DONE |
+| 006 | Make `feat/text-pipeline-phase3` shippable | P0 | L | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale).
@@ -26,6 +27,9 @@ REJECTED (with one-line rationale).
 - Plan 004 and Plan 005 can run independently, but both touch user-facing text
   quality. Review them together before release so formatting and language behavior
   feel coherent.
+- Plan 006 was added on 2026-08-07 from the PR-readiness review of
+  `feat/text-pipeline-phase3`. It is independent of 001–005 (all DONE) and blocks the
+  next release; run it before any further feature work on that branch.
 - If executor capacity is limited, run 001 first because it addresses the
   highest-trust data-loss-feeling bug: Vaani can save correct history while
   pasting stale clipboard text into the active app.
