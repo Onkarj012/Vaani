@@ -59,21 +59,18 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
   const [permissions, setPermissions] = useState<PermissionStatus>({ microphone: "unknown", accessibility: "unknown" });
   const [busy, setBusy] = useState(false);
   const [micAttempted, setMicAttempted] = useState(false);
-  const [apiKey, setApiKey] = useState(() => {
-    const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === settings.transcriptionProvider);
-    return entry?.key ?? (settings.transcriptionProvider === "groq" ? settings.groqApiKey ?? "" : "");
-  });
+  const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
-  const [llmApiKey, setLlmApiKey] = useState(() => {
-    const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === settings.formattingProvider);
-    return entry?.key ?? "";
-  });
+  const [llmApiKey, setLlmApiKey] = useState("");
   const [showLlmApiKey, setShowLlmApiKey] = useState(false);
 
-  function upsertProviderKey(providerId: string, key: string) {
-    const current = settings.providerApiKeys ?? [];
-    const idx = current.findIndex((k) => k.providerId === providerId);
-    return idx >= 0 ? current.map((k, i) => (i === idx ? { providerId, key } : k)) : [...current, { providerId, key }];
+  async function saveProviderKey(providerId: string, key: string) {
+    if (!key.trim()) {
+      await window.vaani.clearProviderApiKey(providerId);
+    } else {
+      await window.vaani.setProviderApiKey(providerId, key);
+    }
+    await updateSettings({});
   }
 
   async function refreshPermissions() {
@@ -148,28 +145,27 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
       key="api"
       settings={settings}
       apiKey={apiKey}
+      hasConfiguredApiKey={!!(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.hasKey}
       showApiKey={showApiKey}
       llmApiKey={llmApiKey}
       showLlmApiKey={showLlmApiKey}
       onKeyChange={(v) => {
         setApiKey(v);
-        void updateSettings({ providerApiKeys: upsertProviderKey(settings.transcriptionProvider, v), ...(settings.transcriptionProvider === "groq" ? { groqApiKey: v } : {}) });
       }}
+      onKeyBlur={() => { void saveProviderKey(settings.transcriptionProvider, apiKey); }}
       onToggleShow={() => setShowApiKey(!showApiKey)}
       onProviderChange={(v) => {
         void updateSettings({ transcriptionProvider: v });
-        const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === v);
-        setApiKey(entry?.key ?? (v === "groq" ? settings.groqApiKey ?? "" : ""));
+        setApiKey("");
       }}
       onLlmKeyChange={(v) => {
         setLlmApiKey(v);
-        void updateSettings({ providerApiKeys: upsertProviderKey(settings.formattingProvider, v) });
       }}
+      onLlmKeyBlur={() => { void saveProviderKey(settings.formattingProvider, llmApiKey); }}
       onToggleLlmShow={() => setShowLlmApiKey(!showLlmApiKey)}
       onLlmProviderChange={(v) => {
         void updateSettings({ formattingProvider: v });
-        const entry = (settings.providerApiKeys ?? []).find((k) => k.providerId === v);
-        setLlmApiKey(entry?.key ?? "");
+        setLlmApiKey("");
       }}
       onLanguageChange={(v) => { void updateSettings({ language: v }); }}
     />,
@@ -184,11 +180,13 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
 
   const selectedSttProvider = KNOWN_PROVIDERS.find((p) => p.id === settings.transcriptionProvider && (p.type === "stt" || p.type === "local-stt"));
   const requiresApiKey = selectedSttProvider?.requiresApiKey !== false;
-  const hasRequiredSttKey = !requiresApiKey || !!apiKey.trim();
+  const hasConfiguredSttKey = !!(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.hasKey;
+  const hasRequiredSttKey = !requiresApiKey || !!apiKey.trim() || hasConfiguredSttKey;
   const selectedLlmProvider = KNOWN_PROVIDERS.find((p) => p.id === settings.formattingProvider && p.type === "llm");
   const llmRequiresKey = selectedLlmProvider?.requiresApiKey !== false;
   const llmNeedsOnboardingKey = llmRequiresKey && !EXCLUDED_LLM_KEY_PROVIDERS.has(selectedLlmProvider?.id ?? "");
-  const hasRequiredLlmKey = !llmNeedsOnboardingKey || !!llmApiKey.trim();
+  const hasConfiguredLlmKey = !!(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.formattingProvider)?.hasKey;
+  const hasRequiredLlmKey = !llmNeedsOnboardingKey || !!llmApiKey.trim() || hasConfiguredLlmKey;
   const hasRequiredApiKey = hasRequiredSttKey && hasRequiredLlmKey;
 
   const nextDisabled = (slide === 2 && !canContinueFromPermissions) || (slide === 3 && !hasRequiredApiKey) || busy;
@@ -344,15 +342,15 @@ function PermissionsSlide({
 }
 
 function ProviderApiSlide({
-  settings, apiKey, showApiKey, llmApiKey, showLlmApiKey,
-  onKeyChange, onToggleShow, onProviderChange, onLlmKeyChange, onToggleLlmShow, onLlmProviderChange, onLanguageChange,
+  settings, apiKey, hasConfiguredApiKey, showApiKey, llmApiKey, showLlmApiKey,
+  onKeyChange, onKeyBlur, onToggleShow, onProviderChange, onLlmKeyChange, onLlmKeyBlur, onToggleLlmShow, onLlmProviderChange, onLanguageChange,
 }: {
-  settings: Settings; apiKey: string; showApiKey: boolean; llmApiKey: string; showLlmApiKey: boolean;
-  onKeyChange: (v: string) => void; onToggleShow: () => void; onProviderChange: (v: string) => void;
-  onLlmKeyChange: (v: string) => void; onToggleLlmShow: () => void; onLlmProviderChange: (v: string) => void;
+  settings: Settings; apiKey: string; hasConfiguredApiKey: boolean; showApiKey: boolean; llmApiKey: string; showLlmApiKey: boolean;
+  onKeyChange: (v: string) => void; onKeyBlur: () => void; onToggleShow: () => void; onProviderChange: (v: string) => void;
+  onLlmKeyChange: (v: string) => void; onLlmKeyBlur: () => void; onToggleLlmShow: () => void; onLlmProviderChange: (v: string) => void;
   onLanguageChange: (v: string) => void;
 }) {
-  const isValid = apiKey.trim().length > 0;
+  const isValid = apiKey.trim().length > 0 || hasConfiguredApiKey;
   const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === "stt" || p.type === "local-stt");
   const activeProvider = sttProviders.find((p) => p.id === settings.transcriptionProvider);
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === "llm");
@@ -381,7 +379,7 @@ function ProviderApiSlide({
           <div>
             <label className="mb-1 block text-xs font-medium text-muted">{activeProvider?.name ?? "Provider"} API Key</label>
             <div className="relative">
-              <Input type={showApiKey ? "text" : "password"} value={apiKey} onChange={(e) => onKeyChange(e.target.value)} autoComplete="off" spellCheck={false}
+              <Input type={showApiKey ? "text" : "password"} value={apiKey} onChange={(e) => onKeyChange(e.target.value)} onBlur={onKeyBlur} autoComplete="off" spellCheck={false}
                 placeholder={activeProvider?.id === "openai" ? "sk-..." : activeProvider?.id === "deepgram" ? "Token..." : "gsk_..."} className="pr-11 font-mono" />
               <button type="button" onClick={onToggleShow} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
                 {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -401,7 +399,7 @@ function ProviderApiSlide({
           <div>
             <label className="mb-1 block text-xs font-medium text-muted">{activeLlm?.name ?? "Provider"} API Key</label>
             <div className="relative">
-              <Input type={showLlmApiKey ? "text" : "password"} value={llmApiKey} onChange={(e) => onLlmKeyChange(e.target.value)} autoComplete="off" spellCheck={false}
+              <Input type={showLlmApiKey ? "text" : "password"} value={llmApiKey} onChange={(e) => onLlmKeyChange(e.target.value)} onBlur={onLlmKeyBlur} autoComplete="off" spellCheck={false}
                 placeholder={activeLlm?.id === "anthropic" ? "sk-ant-..." : "sk-..."} className="pr-11 font-mono" />
               <button type="button" onClick={onToggleLlmShow} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
                 {showLlmApiKey ? <EyeOff size={16} /> : <Eye size={16} />}

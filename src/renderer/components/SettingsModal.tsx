@@ -242,11 +242,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setNewProfileLanguage('auto');
   };
 
-  const saveProviderKey = (providerId: string, key: string) => {
-    const current = settings.providerApiKeys ?? []
-    const existing = current.findIndex((p) => p.providerId === providerId)
-    const next = existing >= 0 ? current.map((p, i) => (i === existing ? { providerId, key } : p)) : [...current, { providerId, key }]
-    void updateSettings({ providerApiKeys: next })
+  const clearProviderKey = async (providerId: string) => {
+    await window.vaani.clearProviderApiKey(providerId)
+    await updateSettings({})
+  }
+
+  const saveProviderKey = async (providerId: string, key: string) => {
+    if (!key.trim()) {
+      await clearProviderKey(providerId)
+      return
+    }
+    await window.vaani.setProviderApiKey(providerId, key)
+    await updateSettings({})
   }
 
   const handleExportData = () => {
@@ -298,11 +305,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <FieldLabel>{activeStt.name} API Key</FieldLabel>
               <ApiKeyInput
                 value={sttKey}
-                onChange={(v) => { setSttKey(v); saveProviderKey(settings.transcriptionProvider, v) }}
-                onBlur={() => { if (settings.transcriptionProvider === 'groq') void updateSettings({ groqApiKey: sttKey }) }}
+                onChange={setSttKey}
+                onBlur={() => { void saveProviderKey(settings.transcriptionProvider, sttKey) }}
                 placeholder={activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
                 hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.hasKey}
-                onClear={() => saveProviderKey(settings.transcriptionProvider, '')}
+                onClear={() => { void clearProviderKey(settings.transcriptionProvider) }}
               />
             </div>
           )}
@@ -320,10 +327,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <FieldLabel>{activeLlm.name} API Key</FieldLabel>
               <ApiKeyInput
                 value={llmKey}
-                onChange={(v) => { setLlmKey(v); saveProviderKey(settings.formattingProvider, v) }}
+                onChange={setLlmKey}
+                onBlur={() => { void saveProviderKey(settings.formattingProvider, llmKey) }}
                 placeholder={activeLlm.id === 'openai-llm' ? 'sk-...' : activeLlm.id === 'anthropic' ? 'sk-ant-...' : activeLlm.id === 'openrouter' ? 'sk-or-...' : 'gsk_...'}
                 hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.formattingProvider)?.hasKey}
-                onClear={() => saveProviderKey(settings.formattingProvider, '')}
+                onClear={() => { void clearProviderKey(settings.formattingProvider) }}
               />
             </div>
           )}

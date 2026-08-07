@@ -371,6 +371,15 @@ export function registerIpcHandlers(opts: {
     return sanitized;
   }
 
+  function syncProviderApiKeyMetadata(providerId: string, addIfMissing: boolean): void {
+    const current = settings.get().providerApiKeys ?? [];
+    const next = current.map((pk) => ({ providerId: pk.providerId, key: "" }));
+    if (addIfMissing && !next.some((pk) => pk.providerId === providerId)) {
+      next.push({ providerId, key: "" });
+    }
+    settings.update({ providerApiKeys: next });
+  }
+
   ipcMain.handle(IpcChannel.GetDictationState, (event) => {
     requireAllowedSender(event, [mainWindow]);
     return dictation.getState();
@@ -438,25 +447,13 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.UpdateSettings, async (event, patch: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isSettingsPatch(patch)) return getSanitizedSettings();
-    const credentialPatch = patch;
     let settingsPatch: Partial<Settings> = { ...patch };
 
-    if (credentials) {
-      for (const pk of credentialPatch.providerApiKeys ?? []) {
-        if (!pk.providerId) continue;
-        if (typeof pk.key === "string") {
-          await credentials.set(pk.providerId, pk.key);
-        }
-      }
-      if (typeof credentialPatch.groqApiKey === "string") {
-        await credentials.set("groq", credentialPatch.groqApiKey);
-      }
-      if ("groqApiKey" in settingsPatch) {
-        settingsPatch.groqApiKey = "";
-      }
-      if ("providerApiKeys" in settingsPatch) {
-        settingsPatch.providerApiKeys = (settingsPatch.providerApiKeys ?? []).map((pk) => ({ providerId: pk.providerId, key: "" }));
-      }
+    if ("groqApiKey" in settingsPatch) {
+      settingsPatch.groqApiKey = "";
+    }
+    if ("providerApiKeys" in settingsPatch) {
+      settingsPatch.providerApiKeys = (settingsPatch.providerApiKeys ?? []).map((pk) => ({ providerId: pk.providerId, key: "" }));
     }
 
     if ("formattingProvider" in settingsPatch && typeof settingsPatch.formattingProvider === "string" && !("formattingModel" in settingsPatch)) {
@@ -590,6 +587,22 @@ export function registerIpcHandlers(opts: {
   });
 
   // Phase 1: Provider API key testing
+  ipcMain.handle(IpcChannel.SetProviderApiKey, async (event, providerId: unknown, apiKey: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!isBoundedString(providerId, MAX_ID_LENGTH, false) || !isBoundedString(apiKey, MAX_SECRET_LENGTH, false)) return undefined;
+    if (!credentials) return undefined;
+    await credentials.set(providerId, apiKey);
+    syncProviderApiKeyMetadata(providerId, true);
+  });
+
+  ipcMain.handle(IpcChannel.ClearProviderApiKey, async (event, providerId: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!isBoundedString(providerId, MAX_ID_LENGTH, false)) return undefined;
+    if (!credentials) return undefined;
+    await credentials.delete(providerId);
+    syncProviderApiKeyMetadata(providerId, false);
+  });
+
   ipcMain.handle(IpcChannel.TestApiKey, async (event, providerId: unknown, apiKey: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(providerId, MAX_ID_LENGTH, false) || !isBoundedString(apiKey, MAX_SECRET_LENGTH, false)) {
@@ -603,16 +616,12 @@ export function registerIpcHandlers(opts: {
     requireAllowedSender(event, [mainWindow]);
     const registry = getProviderRegistry();
     const statuses = await registry.getProviderStatus();
-    const currentSettings = settings.get();
-    const providerApiKeys = currentSettings.providerApiKeys ?? [];
 
     return Promise.all(statuses.map(async (s) => ({
       id: s.id,
       name: s.name,
       available: s.available,
-      configured: providerApiKeys.some(pk => pk.providerId === s.id && pk.key)
-        || (s.id === "groq" && !!currentSettings.groqApiKey)
-        || (credentials ? !!(await credentials.get(s.id)) : false),
+      configured: credentials ? await credentials.has(s.id) : false,
       type: s.type,
     })));
   });

@@ -145,11 +145,74 @@ describe("IPC security boundaries", () => {
     expect(settings.update).not.toHaveBeenCalled();
   });
 
-  it("deletes credentials when settings explicitly clear API keys", async () => {
+  it("sets one provider key without changing the other stored credentials", async () => {
     const backend = new MemoryCredentialBackend();
     const credentials = new CredentialsStore(backend);
     await credentials.set("openai", "openai-secret");
     await credentials.set("groq", "groq-secret");
+    await credentials.set("deepgram", "deepgram-secret");
+
+    const { registerIpcHandlers } = await import("@main/ipc");
+    registerIpcHandlers({
+      mainWindow: windowFor(mainSender),
+      recorder: { getWindow: () => windowFor(recorderSender) },
+      overlay: { getWindow: () => windowFor(overlaySender) },
+      dictation,
+      history,
+      settings,
+      hotkeys: { isPrimaryHotkeyActive: () => true },
+      credentials,
+    } as never);
+
+    await invokeHandlers.get(IpcChannel.SetProviderApiKey)?.(
+      { sender: mainSender },
+      "openai",
+      "openai-updated",
+    );
+
+    expect(await credentials.get("openai")).toBe("openai-updated");
+    expect(await credentials.get("groq")).toBe("groq-secret");
+    expect(await credentials.get("deepgram")).toBe("deepgram-secret");
+  });
+
+  it("clears exactly the named provider credential", async () => {
+    const backend = new MemoryCredentialBackend();
+    const credentials = new CredentialsStore(backend);
+    await credentials.set("openai", "openai-secret");
+    await credentials.set("groq", "groq-secret");
+    await credentials.set("deepgram", "deepgram-secret");
+    const deleteCredential = vi.spyOn(backend, "delete");
+
+    const { registerIpcHandlers } = await import("@main/ipc");
+    registerIpcHandlers({
+      mainWindow: windowFor(mainSender),
+      recorder: { getWindow: () => windowFor(recorderSender) },
+      overlay: { getWindow: () => windowFor(overlaySender) },
+      dictation,
+      history,
+      settings,
+      hotkeys: { isPrimaryHotkeyActive: () => true },
+      credentials,
+    } as never);
+
+    await invokeHandlers.get(IpcChannel.ClearProviderApiKey)?.(
+      { sender: mainSender },
+      "openai",
+    );
+
+    expect(deleteCredential).toHaveBeenCalledTimes(1);
+    expect(deleteCredential).toHaveBeenCalledWith("openai");
+    expect(await credentials.has("openai")).toBe(false);
+    expect(await credentials.has("groq")).toBe(true);
+    expect(await credentials.has("deepgram")).toBe(true);
+  });
+
+  it("does not delete credentials when settings carries redacted provider keys", async () => {
+    const backend = new MemoryCredentialBackend();
+    const credentials = new CredentialsStore(backend);
+    await credentials.set("openai", "openai-secret");
+    await credentials.set("groq", "groq-secret");
+    await credentials.set("deepgram", "deepgram-secret");
     const deleteCredential = vi.spyOn(backend, "delete");
 
     const { registerIpcHandlers } = await import("@main/ipc");
@@ -166,16 +229,18 @@ describe("IPC security boundaries", () => {
 
     await invokeHandlers.get(IpcChannel.UpdateSettings)?.(
       { sender: mainSender },
-      { providerApiKeys: [{ providerId: "openai", key: "" }] },
-    );
-    await invokeHandlers.get(IpcChannel.UpdateSettings)?.(
-      { sender: mainSender },
-      { groqApiKey: "" },
+      {
+        providerApiKeys: [
+          { providerId: "openai", key: "" },
+          { providerId: "groq", key: "" },
+          { providerId: "deepgram", key: "" },
+        ],
+      },
     );
 
-    expect(deleteCredential).toHaveBeenNthCalledWith(1, "openai");
-    expect(deleteCredential).toHaveBeenNthCalledWith(2, "groq");
-    expect(await credentials.has("openai")).toBe(false);
-    expect(await credentials.has("groq")).toBe(false);
+    expect(deleteCredential).not.toHaveBeenCalled();
+    expect(await credentials.has("openai")).toBe(true);
+    expect(await credentials.has("groq")).toBe(true);
+    expect(await credentials.has("deepgram")).toBe(true);
   });
 });

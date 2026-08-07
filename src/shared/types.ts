@@ -404,6 +404,8 @@ export interface VaaniAPI {
   reportRendererReady: () => void;
   reportRendererError: (payload: { message: string; stack?: string }) => void;
   testApiKey: (providerId: string, apiKey: string) => Promise<{ valid: boolean; message: string }>;
+  setProviderApiKey: (providerId: string, apiKey: string) => Promise<void>;
+  clearProviderApiKey: (providerId: string) => Promise<void>;
   getProviderStatus: () => Promise<{ id: string; name: string; available: boolean; configured: boolean; type: string }[]>;
   whisperListModels: () => Promise<string[]>;
   whisperLoadModel: (modelName: string) => Promise<boolean>;
