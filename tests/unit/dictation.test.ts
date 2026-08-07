@@ -5,6 +5,7 @@ import type { AudioVisualFrame, DictationTrace, Settings, TranscriptionResult } 
 import type { DictationTraceStore } from "@main/store/dictationTrace";
 import { DictationService } from "./dictation.fixture";
 import { nativeBridge } from "@main/nativeBridge";
+import { TranscriptionDeadlineExceededError } from "@main/transcription";
 
 vi.mock("electron", () => ({
   app: {
@@ -337,6 +338,44 @@ describe("DictationService", () => {
 
     expect(service.getState()).toMatchObject({ status: "error", message: noSpeechMessage });
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", userMessage: noSpeechMessage });
+  });
+
+  it("maps transcription deadline errors to a timeout failure", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription } = createDictationService({ traces: traceDeps.traces });
+    transcription.transcribe.mockRejectedValue(new TranscriptionDeadlineExceededError());
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+    await Promise.resolve();
+
+    expect(service.getState()).toMatchObject({ status: "error", message: "Transcription timed out. Please try again." });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "timeout", userMessage: "Transcription timed out. Please try again." });
+  });
+
+  it("keeps unrelated transcription failures classified as transcription errors", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription } = createDictationService({ traces: traceDeps.traces });
+    transcription.transcribe.mockRejectedValue(new Error("Provider unavailable."));
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+    await Promise.resolve();
+
+    expect(service.getState()).toMatchObject({ status: "error", message: "Provider unavailable." });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "transcription_error", userMessage: "Provider unavailable." });
   });
 
   it("does not inject one-letter no-speech hallucinations", async () => {

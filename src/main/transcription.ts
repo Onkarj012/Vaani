@@ -37,7 +37,7 @@ export function getTranscriptionTimeoutMs(durationSeconds: number): number {
   );
 }
 
-class TranscriptionDeadlineExceededError extends Error {
+export class TranscriptionDeadlineExceededError extends Error {
   constructor() {
     super("Transcription deadline exceeded.");
     this.name = "TranscriptionDeadlineExceededError";

@@ -39,7 +39,7 @@ import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { applyDictionary, cleanupText } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
-import { getTranscriptionTimeoutMs, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
+import { getTranscriptionTimeoutMs, TranscriptionDeadlineExceededError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
@@ -57,6 +57,13 @@ const EDIT_WATCH_TIMEOUT_MS = 60_000;
 const EDIT_PROMPT_IDLE_MS = 1_000;
 const INSERTION_VERIFY_POLL_INTERVAL_MS = 50;
 const INSERTION_VERIFY_TIMEOUT_MS = 2_000;
+const TRANSCRIPTION_TIMEOUT_MESSAGE = "Transcription timed out. Please try again.";
+class TranscriptionTimeoutError extends Error {
+  constructor() {
+    super(TRANSCRIPTION_TIMEOUT_MESSAGE);
+    this.name = "TranscriptionTimeoutError";
+  }
+}
 type ElectronModule = typeof import("electron") & { default?: typeof import("electron") };
 const electronModule = electron as unknown as ElectronModule;
 
@@ -313,7 +320,7 @@ export class DictationService {
           deadlineAt: transcriptionDeadlineAt,
           rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, payload.clip, result.quality).action === "retry",
         }).finally(() => { if (transcriptionTimer) { clearTimeout(transcriptionTimer); transcriptionTimer = null; } }),
-        new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new Error("Transcription timed out. Please try again.")), transcriptionTimeoutMs); }),
+          new Promise<never>((_, reject) => { transcriptionTimer = setTimeout(() => reject(new TranscriptionTimeoutError()), transcriptionTimeoutMs); }),
       ]);
       const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, payload.clip, transcription.quality));
       const quality = transcription.quality
@@ -508,8 +515,9 @@ export class DictationService {
       }
     } catch (error) {
       if (!this.isCurrentSession(payload.sessionId)) return;
-      const message = error instanceof Error ? error.message : "Dictation failed.";
-      this.failSession(payload.sessionId, message, message.toLowerCase().includes("timed out") ? "timeout" : "transcription_error");
+      const isTimeout = error instanceof TranscriptionDeadlineExceededError || error instanceof TranscriptionTimeoutError;
+      const message = isTimeout ? TRANSCRIPTION_TIMEOUT_MESSAGE : error instanceof Error ? error.message : "Dictation failed.";
+      this.failSession(payload.sessionId, message, isTimeout ? "timeout" : "transcription_error");
     }
   }
 
