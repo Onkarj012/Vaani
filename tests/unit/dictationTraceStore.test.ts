@@ -80,6 +80,7 @@ describe("DictationTraceStore", () => {
       id: "malformed",
       sessionId: "session-malformed",
       startedAt: "2026-06-29T00:00:00.000Z",
+      buildIdentifier: "1.2.3+abc1234",
       targetAppBundleId: "com.apple.TextEdit",
       targetAppName: "TextEdit",
       rawAudio: { durationSeconds: "bad" },
@@ -136,5 +137,6 @@ describe("DictationTraceStore", () => {
     expect(loaded?.outcome).toBe("started");
     expect(loaded?.rejectionReason).toBeUndefined();
     expect(loaded?.stages?.outcome).toBeUndefined();
+    expect(loaded?.buildIdentifier).toBe("1.2.3+abc1234");
   });
 });

@@ -9,6 +9,7 @@ import { nativeBridge } from "@main/nativeBridge";
 vi.mock("electron", () => ({
   app: {
     isPackaged: false,
+    getVersion: () => "1.1.3",
     getName: () => "Vaani Test",
     getPath: (name: string) => `/tmp/vaani-test/${name}`,
     setActivationPolicy: () => {},
@@ -25,7 +26,10 @@ vi.mock("electron", () => ({
   }
 }));
 
-function createDictationService(deps: { traces?: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> } = {}) {
+function createDictationService(deps: {
+  traces?: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> & Partial<Pick<DictationTraceStore, "getAll">>;
+} = {}) {
+  let verifierTimeMs = 0;
   let focusedValue = "";
   (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => focusedValue);
   (nativeBridge as { getFocusedSelection?: () => { location: number; length: number } | null }).getFocusedSelection = vi.fn(() => ({
@@ -92,10 +96,18 @@ function createDictationService(deps: { traces?: Pick<DictationTraceStore, "upse
     history as never,
     vi.fn(),
     overlay as never,
-    { recorder, transcription, injector, appDetector, traces: deps.traces }
+    {
+      recorder,
+      transcription,
+      injector,
+      appDetector,
+      traces: deps.traces,
+      verifierNow: () => verifierTimeMs,
+      verifierSleep: async (ms: number) => { verifierTimeMs += ms; },
+    }
   );
 
-  return { service, overlay, mainWindow, history, recorder, settings, transcription, injector, appDetector };
+  return { service, overlay, mainWindow, history, recorder, settings, transcription, injector, appDetector, verifierTime: () => verifierTimeMs };
 }
 
 type MockedSettingsStore = ReturnType<typeof createDictationService>["settings"];
@@ -297,6 +309,7 @@ describe("DictationService", () => {
       formatterUsed: "guard-fallback",
       contentGuardVerdict: { passed: false, missingWords: ["like"] },
     });
+    expect(["1.1.3+unresolved", "unresolved+unresolved"]).toContain(updatedTrace?.buildIdentifier);
   });
 
   it("saves no-speech hallucinations when quality retries are exhausted", async () => {
@@ -402,10 +415,13 @@ describe("DictationService", () => {
     const { service, history, injector, transcription } = createDictationService();
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
-    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
-      .mockReturnValueOnce("")
-      .mockReturnValueOnce("Hello")
-      .mockReturnValueOnce("Hello world.");
+    let readCount = 0;
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => {
+      readCount += 1;
+      if (readCount === 1) return "";
+      if (readCount <= 42) return "Hello";
+      return "Hello world.";
+    });
 
     service.beginHotkeySession();
     const sessionId = (service.getState() as { sessionId: string }).sessionId;
@@ -424,8 +440,48 @@ describe("DictationService", () => {
     }));
   });
 
+  it("waits through delayed insertion completion without repairing the partial value", async () => {
+    const { service, history, injector, transcription, verifierTime } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    let readCount = 0;
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => {
+      readCount += 1;
+      if (readCount === 1) return "";
+      if (readCount <= 5) return "Hello";
+      return "Hello world.";
+    });
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    expect(injector.inject).toHaveBeenCalledTimes(1);
+    expect(verifierTime()).toBeGreaterThan(180);
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
+      injectionStatus: "injected",
+      injectionMethod: "clipboard",
+    }));
+    expect(service.getState()).toMatchObject({ status: "completed", outcome: "injected" });
+  });
+
   it("saves to history when insertion verification is unreadable", async () => {
-    const { service, history, transcription } = createDictationService();
+    let trace: DictationTrace | null = null;
+    const traces = {
+      upsert: vi.fn(async (next: DictationTrace) => { trace = next; }),
+      updateById: vi.fn(async (_id: string, updater: (current: DictationTrace) => DictationTrace) => {
+        if (!trace) throw new Error("Trace was not initialized.");
+        trace = updater(trace);
+        return trace;
+      }),
+      getById: vi.fn(async () => trace ?? undefined),
+      getBySessionId: vi.fn(async () => trace ?? undefined),
+    };
+    const { service, history, transcription, injector, verifierTime } = createDictationService({ traces });
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
@@ -439,12 +495,22 @@ describe("DictationService", () => {
       sessionId,
       clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
     });
+    await Promise.resolve();
 
+    expect(injector.inject).toHaveBeenCalledTimes(1);
+    expect(verifierTime()).toBe(2_000);
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
       cleanedText: "Hello world.",
       injectionStatus: "saved",
       injectionMethod: null,
     }));
+    const updatedTrace = trace as DictationTrace | null;
+    expect(updatedTrace?.stages?.insertionVerification).toMatchObject({
+      readable: false,
+      passed: false,
+      repaired: false,
+      reason: "unreadable",
+    });
     expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", message: "Saved to history" });
   });
 
@@ -649,11 +715,12 @@ describe("DictationService", () => {
     });
     const nativeBridge = await import("@main/nativeBridge");
     const corrected = "The final word after the pause is Vaani.";
-    const getFocusedValue = vi.fn()
-      .mockReturnValueOnce("")
-      .mockReturnValueOnce(null)
-      .mockReturnValueOnce(null)
-      .mockReturnValue(corrected);
+    let readCount = 0;
+    const getFocusedValue = vi.fn(() => {
+      readCount += 1;
+      if (readCount <= 42) return readCount === 1 ? "" : null;
+      return corrected;
+    });
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
 
     service.beginHotkeySession();

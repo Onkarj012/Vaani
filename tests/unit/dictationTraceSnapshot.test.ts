@@ -77,7 +77,7 @@ describe("dictation trace snapshots", () => {
     })).toMatchObject({
       rawTranscript: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
       cleanedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
-      injectedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
+      injectedText: longText,
       correctionsApplied: [{
         spoken: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
         written: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,

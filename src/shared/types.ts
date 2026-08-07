@@ -157,6 +157,7 @@ export interface DictationTrace {
   id: string;
   sessionId: string;
   startedAt: string;
+  buildIdentifier?: string;
   completedAt?: string;
   hotkeyReleasedAt?: string;
   targetAppBundleId: string | null;

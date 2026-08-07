@@ -1,10 +1,11 @@
-import { BrowserWindow } from "electron";
+import * as electron from "electron";
 import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
+import type { BrowserWindow } from "electron";
 import type {
   AudioClip,
   AudioQualityMetrics,
@@ -42,6 +43,8 @@ import { TranscriptionService, type FormatTranscriptTraceResult } from "./transc
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
+import { formatBuildIdentifier } from "@shared/buildIdentifier";
+import { evaluateInsertionAcceptance } from "@shared/insertionAcceptance";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
@@ -53,13 +56,19 @@ const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 const EDIT_WATCH_INTERVAL_MS = 500;
 const EDIT_WATCH_TIMEOUT_MS = 60_000;
 const EDIT_PROMPT_IDLE_MS = 1_000;
-const INSERTION_VERIFY_DELAY_MS = 180;
+const INSERTION_VERIFY_POLL_INTERVAL_MS = 50;
+const INSERTION_VERIFY_TIMEOUT_MS = 2_000;
+type ElectronModule = typeof import("electron") & { default?: typeof import("electron") };
+const electronModule = electron as unknown as ElectronModule;
 
 interface RecorderCommands {
   isReady: () => boolean;
   startRecording: (sessionId: string) => boolean;
   stopRecording: (sessionId: string) => boolean;
 }
+
+type DictationTraceDeps = Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId">
+  & Partial<Pick<DictationTraceStore, "getAll">>;
 
 interface DictationServiceDeps {
   transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
@@ -68,7 +77,9 @@ interface DictationServiceDeps {
   recorder?: RecorderCommands;
   credentials?: CredentialsStore;
   createSessionId?: () => string;
-  traces?: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId">;
+  traces?: DictationTraceDeps;
+  verifierNow?: () => number;
+  verifierSleep?: (ms: number) => Promise<void>;
 }
 
 export class DictationService {
@@ -77,7 +88,9 @@ export class DictationService {
   private readonly injector: Pick<TextInjector, "inject">;
   private readonly appDetector: Pick<AppDetector, "getContext">;
   private readonly createSessionId: () => string;
-  private readonly traces: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> | null;
+  private readonly traces: DictationTraceDeps | null;
+  private readonly verifierNow: () => number;
+  private readonly verifierSleep: (ms: number) => Promise<void>;
   private readonly timers = new SessionTimers();
   private pendingEditPromptKey: string | null = null;
   private pendingEdit: { insertedText: string; correctedCandidate: string } | null = null;
@@ -104,6 +117,8 @@ export class DictationService {
     this.recorder = deps.recorder ?? null;
     this.createSessionId = deps.createSessionId ?? (() => crypto.randomUUID());
     this.traces = deps.traces ?? null;
+    this.verifierNow = deps.verifierNow ?? (() => performance.now());
+    this.verifierSleep = deps.verifierSleep ?? delay;
     this.startUptimeLogging();
   }
 
@@ -933,6 +948,7 @@ export class DictationService {
       id: traceId,
       sessionId,
       startedAt: new Date().toISOString(),
+      buildIdentifier: formatBuildIdentifier(getElectronAppVersion()),
       targetAppBundleId: this.activeTarget?.appBundleId ?? null,
       targetAppName: this.activeTarget?.appName ?? null,
       stages: { outcome: "started" },
@@ -971,6 +987,16 @@ export class DictationService {
       stages: { ...(patch.stages ?? {}), outcome },
       completedAt: new Date().toISOString(),
     });
+    if (!this.traces?.getAll) return;
+    const traces = await this.safeTraceOperation("evaluateInsertionAcceptance", sessionId, () => this.traces?.getAll?.());
+    if (!traces) return;
+    const acceptance = evaluateInsertionAcceptance(traces);
+    debug("dictation", `insertion acceptance status=${acceptance.status}`, {
+      status: acceptance.status,
+      aggregate: acceptance.rates.aggregate,
+      apps: acceptance.apps,
+      unknown: acceptance.unknown,
+    });
   }
 
   private async formatTranscriptWithTrace(rawText: string): Promise<FormatTranscriptTraceResult> {
@@ -989,12 +1015,12 @@ export class DictationService {
     baseline: string | null,
     target: Pick<AppContextResult, "appBundleId" | "appName"> | null
   ): Promise<InsertionVerificationTrace> {
-    await delay(INSERTION_VERIFY_DELAY_MS);
-    if (!sameTarget(target, this.appDetector.getContext())) {
+    const initialPoll = await this.pollInsertionValue(expectedText, target);
+    if (initialPoll.reason === "not-at-target") {
       return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
     }
 
-    const currentValue = safeFocusedValue();
+    const currentValue = initialPoll.value;
     if (currentValue === null) {
       return { readable: false, passed: false, repaired: false, reason: "unreadable" };
     }
@@ -1006,14 +1032,23 @@ export class DictationService {
     if (insertedFragment && expectedText.startsWith(insertedFragment)) {
       const missingSuffix = expectedText.slice(insertedFragment.length);
       if (missingSuffix.length > 0) {
+        if (!sameTarget(target, this.appDetector.getContext())) {
+          return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
+        }
         const repair = await this.injector.inject(missingSuffix, {
           appBundleId: target?.appBundleId ?? null,
           appName: target?.appName ?? null,
           selection: this.captureSelection(target),
         });
         if (repair.success) {
-          await delay(INSERTION_VERIFY_DELAY_MS);
-          const repairedValue = safeFocusedValue();
+          const repairedPoll = await this.pollInsertionValue(expectedText, target);
+          if (repairedPoll.reason === "not-at-target") {
+            return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
+          }
+          const repairedValue = repairedPoll.value;
+          if (repairedValue === null) {
+            return { readable: false, passed: false, repaired: false, reason: "unreadable" };
+          }
           if (repairedValue?.includes(expectedText)) {
             return { readable: true, passed: true, repaired: true, reason: "partial-suffix-repaired" };
           }
@@ -1023,6 +1058,31 @@ export class DictationService {
     }
 
     return { readable: true, passed: false, repaired: false, reason: insertedFragment ? "partial-unsafe" : "missing" };
+  }
+
+  private async pollInsertionValue(
+    expectedText: string,
+    target: Pick<AppContextResult, "appBundleId" | "appName"> | null
+  ): Promise<{ value: string | null; reason?: "not-at-target" }> {
+    let lastReadableValue: string | null = null;
+    const deadline = this.verifierNow() + INSERTION_VERIFY_TIMEOUT_MS;
+    while (true) {
+      if (this.verifierNow() >= deadline) break;
+      if (!sameTarget(target, this.appDetector.getContext())) {
+        return { value: null, reason: "not-at-target" };
+      }
+
+      const currentValue = safeFocusedValue();
+      if (currentValue !== null) {
+        lastReadableValue = currentValue;
+        if (currentValue.includes(expectedText)) return { value: currentValue };
+      }
+
+      const remainingMs = deadline - this.verifierNow();
+      if (remainingMs <= 0) break;
+      await this.verifierSleep(Math.min(INSERTION_VERIFY_POLL_INTERVAL_MS, remainingMs));
+    }
+    return { value: lastReadableValue };
   }
 
   private async safeTraceOperation<T>(
@@ -1038,6 +1098,10 @@ export class DictationService {
       return undefined;
     }
   }
+}
+
+function getElectronAppVersion(): string {
+  return electronModule.app?.getVersion() ?? electronModule.default?.app?.getVersion() ?? "unresolved";
 }
 
 function redactEntryForBugReport(entry: DictationEntry | null): DictationEntry | null {

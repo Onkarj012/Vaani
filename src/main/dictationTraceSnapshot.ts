@@ -13,7 +13,6 @@ export function buildTraceStageSnapshot(snapshot: DictationStageSnapshot): Dicta
   const next: DictationStageSnapshot = { ...snapshot };
   if (next.rawTranscript !== undefined) next.rawTranscript = truncateTraceText(next.rawTranscript);
   if (next.cleanedText !== undefined) next.cleanedText = truncateTraceText(next.cleanedText);
-  if (next.injectedText !== undefined) next.injectedText = truncateTraceText(next.injectedText);
   if (next.correctionsApplied) {
     next.correctionsApplied = next.correctionsApplied
       .slice(0, DICTATION_TRACE_ARRAY_LIMIT)

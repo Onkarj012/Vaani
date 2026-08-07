@@ -350,6 +350,45 @@ describe("cleanupText", () => {
       "4. Stop recording after a short pause.",
     ].join("\n"));
   });
+
+  // Documents a known defect: this assertion deliberately encodes buggy behaviour and must be updated when the defect is fixed. See .wayfinder/tickets/09-enumeration-duplication.md.
+  it("characterizes current duplicate-marker defect when spoken cues precede formatted list markers", () => {
+    const result = cleanupText({
+      rawText: [
+        "point one 1. Hypnosis",
+        "point two 2. Hypnotic therapy",
+        "point three 3. Evidence-based hypnosis.",
+      ].join("\n"),
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "1.",
+      "",
+      "1. Hypnosis.",
+      "2.",
+      "2. Hypnotic therapy.",
+      "3.",
+      "3. Evidence-based hypnosis.",
+    ].join("\n"));
+  });
+
+  it("preserves a pure already-formatted multiline list", () => {
+    const result = cleanupText({
+      rawText: [
+        "1. Hypnosis",
+        "2. Hypnotic therapy",
+        "3. Evidence-based hypnosis.",
+      ].join("\n"),
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "1. Hypnosis",
+      "2. Hypnotic therapy",
+      "3. Evidence-based hypnosis.",
+    ].join("\n"));
+  });
 });
 
 describe("applySnippets — spoken marker", () => {

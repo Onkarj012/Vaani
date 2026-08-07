@@ -83,6 +83,7 @@ function normalizeTraces(raw: unknown): DictationTrace[] {
       id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
       sessionId: typeof item.sessionId === "string" ? item.sessionId : "",
       startedAt: typeof item.startedAt === "string" ? item.startedAt : new Date().toISOString(),
+      ...(typeof item.buildIdentifier === "string" ? { buildIdentifier: item.buildIdentifier } : {}),
       completedAt: typeof item.completedAt === "string" ? item.completedAt : undefined,
       hotkeyReleasedAt: typeof item.hotkeyReleasedAt === "string" ? item.hotkeyReleasedAt : undefined,
       targetAppBundleId: typeof item.targetAppBundleId === "string" ? item.targetAppBundleId : null,
