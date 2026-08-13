@@ -532,7 +532,11 @@ export function registerIpcHandlers(opts: {
   });
   ipcMain.handle(IpcChannel.RequestMicrophonePermission, async (event) => {
     requireAllowedSender(event, [mainWindow]);
-    await systemPreferences.askForMediaAccess("microphone");
+    try {
+      await systemPreferences.askForMediaAccess("microphone");
+    } catch (error) {
+      throw error;
+    }
     return normalizeMediaStatus(systemPreferences.getMediaAccessStatus("microphone"));
   });
   ipcMain.handle(IpcChannel.RequestAccessibilityPermission, (event) => {

@@ -14,6 +14,7 @@ interface PermissionGuardProps {
 }
 
 const INITIAL_STATUS: PermissionStatus = { microphone: "unknown", accessibility: "unknown" };
+const MICROPHONE_ATTEMPT_GUIDANCE = "macOS did not grant microphone access. Enable Vaani in System Settings, then click Check Again.";
 
 function permissionLabel(state: MacOSPermissionState): string {
   switch (state) {
@@ -29,6 +30,8 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
   const [status, setStatus] = useState<PermissionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [microphoneAttempted, setMicrophoneAttempted] = useState(false);
+  const [microphoneGuidance, setMicrophoneGuidance] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const firstActionRef = useRef<HTMLButtonElement>(null);
   const requestInFlightRef = useRef(false);
@@ -37,7 +40,7 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
   const blocked = status === null || error !== null || !isPermissionReady(status ?? INITIAL_STATUS);
   const microphone = status?.microphone ?? "unknown";
   const accessibility = status?.accessibility ?? "unknown";
-  const microphoneRemediation = getMicrophonePermissionRemediation(microphone);
+  const microphoneRemediation = getMicrophonePermissionRemediation(microphone, microphoneAttempted);
   const accessibilityRemediation = getAccessibilityPermissionRemediation(accessibility);
   const hasRequiredAction = microphoneRemediation.action !== "none" || accessibilityRemediation.action !== "none";
   const checking = status === null && error === null;
@@ -91,6 +94,13 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
   }, []);
 
   useEffect(() => {
+    if (microphone === "granted") {
+      setMicrophoneAttempted(false);
+      setMicrophoneGuidance(null);
+    }
+  }, [microphone]);
+
+  useEffect(() => {
     onBlockingChange(blocked);
   }, [blocked, onBlockingChange]);
 
@@ -103,7 +113,7 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
     return () => window.clearTimeout(focusTimer);
   }, [blocked, focusKey]);
 
-  const runAction = useCallback(async (action: () => Promise<void>) => {
+  const runAction = useCallback(async (action: () => Promise<void>, refreshAfter = true) => {
     if (busy) return;
     setBusy(true);
     try {
@@ -112,16 +122,25 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
       setError(cause instanceof Error ? cause.message : "Vaani could not complete that permission action.");
     } finally {
       setBusy(false);
-      void refresh();
+      if (refreshAfter) void refresh();
     }
   }, [busy, refresh]);
 
   const requestMicrophone = useCallback(() => {
     if (!status || status.microphone !== "not-determined") return;
     void runAction(async () => {
-      await window.vaani.requestMicrophonePermission();
-    });
-  }, [runAction, status]);
+      const microphone = await window.vaani.requestMicrophonePermission();
+      setMicrophoneAttempted(true);
+      setStatus((current) => current ? { ...current, microphone } : current);
+      if (microphone === "granted") {
+        setMicrophoneGuidance(null);
+        await refresh();
+        return;
+      }
+      setMicrophoneGuidance(MICROPHONE_ATTEMPT_GUIDANCE);
+      await window.vaani.openPermissionSettings("microphone");
+    }, false);
+  }, [refresh, runAction, status]);
 
   const microphoneSettings = useCallback(() => {
     void runAction(() => window.vaani.openPermissionSettings("microphone"));
@@ -195,7 +214,7 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
               description="Records only while dictation is active."
               state={microphone}
               action={microphoneRemediation.action}
-              guidance={microphoneRemediation.guidance}
+              guidance={microphoneGuidance ?? microphoneRemediation.guidance}
               primaryRef={microphoneRemediation.action === "request" ? firstActionRef : undefined}
               busy={busy}
               onRequest={requestMicrophone}
@@ -269,7 +288,7 @@ function PermissionRow({
           {guidance && <p className="mt-2 text-xs leading-relaxed text-accent">{guidance}</p>}
           {!granted && action !== "none" && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {action === "request" && <Button ref={primaryRef} variant="accent" size="sm" onClick={onRequest} disabled={busy}>{title === "Microphone" ? "Allow Microphone" : "Enable Accessibility"}</Button>}
+              {action === "request" && <Button ref={primaryRef} variant="accent" size="sm" onClick={onRequest} disabled={busy}>{busy ? <Loader2 size={14} className="animate-spin-ui" /> : null}{title === "Microphone" ? "Allow Microphone" : "Enable Accessibility"}</Button>}
               {action === "open-settings" && <Button ref={primaryRef} variant="soft" size="sm" onClick={onSettings} disabled={busy}><ExternalLink size={14} /> Open Settings</Button>}
               {action === "retry" && <Button ref={primaryRef} variant="soft" size="sm" onClick={onRetry} disabled={busy}><RefreshCw size={14} /> Retry</Button>}
               {(action === "retry" || (title === "Accessibility" && action === "request")) && <Button variant="ghost" size="sm" onClick={onSettings} disabled={busy}><ExternalLink size={14} /> Settings</Button>}

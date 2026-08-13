@@ -21,7 +21,7 @@ vi.mock("electron", () => ({
   shell: { openExternal: vi.fn() },
   systemPreferences: {
     isTrustedAccessibilityClient: () => true,
-    getMediaAccessStatus: () => "granted",
+    getMediaAccessStatus: vi.fn(() => "granted"),
     askForMediaAccess: vi.fn(),
   },
 }));
@@ -103,6 +103,28 @@ describe("IPC security boundaries", () => {
     expect(await handler?.({ sender: mainSender })).toEqual([]);
     expect(() => handler?.({ sender: recorderSender })).toThrow("Unauthorized IPC sender");
     expect(() => handler?.({ sender: untrustedSender })).toThrow("Unauthorized IPC sender");
+  });
+
+  it("returns the live post-request microphone status", async () => {
+    const { systemPreferences } = await import("electron");
+    vi.mocked(systemPreferences.getMediaAccessStatus).mockReturnValue("not-determined");
+    vi.mocked(systemPreferences.askForMediaAccess).mockImplementation(async () => {
+      vi.mocked(systemPreferences.getMediaAccessStatus).mockReturnValue("denied");
+      return false;
+    });
+
+    const status = await invokeHandlers.get(IpcChannel.RequestMicrophonePermission)?.({ sender: mainSender });
+
+    expect(status).toBe("denied");
+    expect(systemPreferences.askForMediaAccess).toHaveBeenCalledWith("microphone");
+  });
+
+  it("preserves microphone request failures for the renderer", async () => {
+    const { systemPreferences } = await import("electron");
+    const failure = new Error("permission request failed");
+    vi.mocked(systemPreferences.askForMediaAccess).mockRejectedValueOnce(failure);
+
+    await expect(invokeHandlers.get(IpcChannel.RequestMicrophonePermission)?.({ sender: mainSender })).rejects.toBe(failure);
   });
 
   it("allows recorder channels only from the recorder renderer", async () => {
