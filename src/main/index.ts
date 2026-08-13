@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import type { UpdateNotificationPayload } from "@shared/types";
+import type { MacOSPermissionState, PermissionStatus, UpdateNotificationPayload } from "@shared/types";
 import { DictationService } from "./dictation";
 import { HotkeyManager } from "./hotkeys";
 import { registerIpcHandlers } from "./ipc";
@@ -18,6 +18,7 @@ import { CredentialsStore } from "./store/credentials";
 import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
+import { isPermissionReady } from "@shared/permissionGuard";
 import { getProviderRegistry } from "./providers";
 import { loadWhisperModel } from "./providers/local/whisperCpp";
 import { error } from "@main/log";
@@ -60,20 +61,27 @@ function log(label: string, data?: unknown): void {
   }
 }
 
-async function requestMicrophoneAccess(): Promise<void> {
-  const micStatus = systemPreferences.getMediaAccessStatus("microphone");
-  if (micStatus === "not-determined") {
-    try {
-      const granted = await systemPreferences.askForMediaAccess("microphone");
-      log("microphone:permission-requested", { granted });
-    } catch (error) {
-      log("microphone:permission-request-failed", { message: error instanceof Error ? error.message : String(error) });
-    }
-    return;
-  }
-  if (micStatus === "denied" || micStatus === "restricted") {
-    log("microphone:permission-unavailable", { status: micStatus });
-  }
+function getFreshPermissionStatus(): PermissionStatus {
+  const microphoneStatus = systemPreferences.getMediaAccessStatus("microphone");
+  const microphone = (["not-determined", "granted", "denied", "restricted"].includes(microphoneStatus)
+    ? microphoneStatus
+    : "unknown") as MacOSPermissionState;
+  return {
+    microphone,
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false) ? "granted" : "denied",
+  };
+}
+
+function pushPermissionStatus(status: PermissionStatus): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send(IpcChannel.PermissionStatusPush, status);
+}
+
+function warmNativeIfPermissionReady(): void {
+  const status = getFreshPermissionStatus();
+  if (!isPermissionReady(status)) return;
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+  recorderController?.warmNative();
 }
 
 export function setCachedUpdateStatus(payload: UpdateNotificationPayload | null): void {
@@ -289,14 +297,7 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
 
   win.on("focus", () => {
     log("window:focus");
-    if (win.webContents && !win.webContents.isDestroyed()) {
-      const micStatus = systemPreferences.getMediaAccessStatus("microphone");
-      const micState = (["not-determined", "granted", "denied", "restricted"].includes(micStatus) ? micStatus : "unknown") as import("@shared/types").MacOSPermissionState;
-      win.webContents.send(IpcChannel.PermissionStatusPush, {
-        microphone: micState,
-        accessibility: systemPreferences.isTrustedAccessibilityClient(false) ? "granted" : "denied",
-      });
-    }
+    pushPermissionStatus(getFreshPermissionStatus());
   });
 
   return win;
@@ -308,9 +309,9 @@ function configureRendererLifecycle(win: BrowserWindow): void {
     log("renderer:ready");
     rendererReady = true;
     clearMainWindowReadyTimeout();
-    if (!menuBarMode && !shouldSuppressDashboardActivation()) {
-      win.show();
-      win.focus();
+    if (!shouldSuppressDashboardActivation()) {
+      showMainWindow();
+      warmNativeIfPermissionReady();
     } else if (!menuBarMode) {
       log("renderer:ready-focus-suppressed");
       syncAppPresentation();
@@ -353,7 +354,6 @@ async function loadWindowUrl(win: BrowserWindow): Promise<void> {
 
 async function bootstrap(): Promise<void> {
   log("bootstrap:start");
-  void requestMicrophoneAccess();
 
   // Migrate legacy data directory (.claude_vaani → .vaani)
   const home = app.getPath("home");
@@ -446,13 +446,28 @@ async function bootstrap(): Promise<void> {
     { recorder: recorderController, credentials: credentialsStore, traces }
   );
   dictationService = dictation;
-  recorderController.warmNative();
+
+  const beginDictationIfPermitted = (source: "tray" | "hotkey"): boolean => {
+    const status = getFreshPermissionStatus();
+    if (status.microphone === "granted" && status.accessibility === "granted") {
+      warmNativeIfPermissionReady();
+      if (source === "hotkey") suppressDashboardActivation("hotkey");
+      dictation.beginHotkeySession();
+      if (source === "hotkey") preserveDockIfDashboardOpen();
+      return true;
+    }
+
+    log("dictation:blocked", { source, microphone: status.microphone, accessibility: status.accessibility });
+    pushPermissionStatus(status);
+    showMainWindow();
+    return false;
+  };
 
   try {
     trayController = createTray({
       openMainWindow: () => showMainWindow(),
       quit: () => { mutableApp.isQuitting = true; app.quit(); },
-      startDictation: () => dictation.beginHotkeySession(),
+      startDictation: () => { void beginDictationIfPermitted("tray"); },
       pasteLatest: () => { void dictation.pasteLatestEntry(); },
       getRecentHistory: async () => {
         const entries = await history.getAll();
@@ -469,11 +484,7 @@ async function bootstrap(): Promise<void> {
 
   hotkeyManager = new HotkeyManager(
     () => settings.get(),
-    () => {
-      suppressDashboardActivation("hotkey");
-      dictation.beginHotkeySession();
-      preserveDockIfDashboardOpen();
-    },
+    () => beginDictationIfPermitted("hotkey"),
     () => dictation.endHotkeySession(),
     () => dictation.cancelSession(),
     () => { dictation.pasteLatestEntry().catch((err) => { error("main", `paste latest failed: ${err instanceof Error ? err.message : String(err)}`); }); },
@@ -524,7 +535,6 @@ async function bootstrap(): Promise<void> {
   });
 
   await loadWindowUrl(mainWindow);
-  setTimeout(() => showMainWindow(), 100);
   setTimeout(() => hotkeyManager?.register(), 300);
 
   // Auto-updater (only in packaged builds)

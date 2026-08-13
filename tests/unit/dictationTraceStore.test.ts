@@ -139,4 +139,28 @@ describe("DictationTraceStore", () => {
     expect(loaded?.stages?.outcome).toBeUndefined();
     expect(loaded?.buildIdentifier).toBe("1.2.3+abc1234");
   });
+
+  it("retains baseline-unreadable insertion verification reasons on load", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-trace-test-"));
+    const filePath = join(tempDir, "traces.json");
+    const verification = { readable: false, passed: false, repaired: false, reason: "baseline-unreadable" };
+    await writeFile(filePath, JSON.stringify([{
+      ...trace("baseline-unreadable"),
+      injectionAttempts: [{
+        targetAppBundleId: "com.apple.TextEdit",
+        targetAppName: "TextEdit",
+        method: "clipboard",
+        success: true,
+        verification,
+      }],
+      stages: { insertionVerification: verification },
+    }]), "utf8");
+
+    const { DictationTraceStore } = await import("@main/store/dictationTrace");
+    const store = new DictationTraceStore(filePath);
+    const loaded = await store.getById("baseline-unreadable");
+
+    expect(loaded?.injectionAttempts?.[0]?.verification?.reason).toBe("baseline-unreadable");
+    expect(loaded?.stages?.insertionVerification?.reason).toBe("baseline-unreadable");
+  });
 });

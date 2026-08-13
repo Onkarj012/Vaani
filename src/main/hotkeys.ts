@@ -41,10 +41,11 @@ export class HotkeyManager {
   private escapeRegistered = false;
   private pendingReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private suppressNextRelease = false;
+  private rejectedPress = false;
 
   constructor(
     private readonly settingsProvider: () => Settings,
-    private readonly onPress: () => void,
+    private readonly onPress: () => void | boolean,
     private readonly onRelease: () => void,
     private readonly onCancel: () => void,
     private readonly onPasteLatest: () => void,
@@ -98,6 +99,7 @@ export class HotkeyManager {
     this.unregisterEscapeShortcut();
     this.isToggleRecording = false;
     this.suppressNextRelease = false;
+    this.rejectedPress = false;
 
     if (this.usingNativeMonitor) {
       try { nativeBridge.stopHotkeyMonitor?.(); } catch (error) { console.warn("[vaani] failed to stop native hotkey monitor:", error); }
@@ -139,14 +141,19 @@ export class HotkeyManager {
   }
 
   private handlePress(): void {
+    if (this.rejectedPress) return;
+
     const settings = this.settingsProvider();
     const mode: DictationMode = settings.dictationMode || "toggle";
     const now = Date.now();
 
     // Push-to-talk: start immediately on press, ignore double-press and toggle logic
     if (mode === "push-to-talk") {
+      if (this.onPress() === false) {
+        this.rejectedPress = true;
+        return;
+      }
       this.lastPressTime = now;
-      this.onPress();
       return;
     }
 
@@ -172,17 +179,28 @@ export class HotkeyManager {
       if (this.pendingReleaseTimer) {
         this.clearPendingRelease();
       }
+      if (this.onPress() === false) {
+        this.rejectedPress = true;
+        return;
+      }
       this.lastPressTime = now;
-      this.onPress();
       return;
     }
 
     // toggle-double mode: single press = push-to-talk, double press = toggle
+    if (this.onPress() === false) {
+      this.rejectedPress = true;
+      return;
+    }
     this.lastPressTime = now;
-    this.onPress();
   }
 
   private handleRelease(): void {
+    if (this.rejectedPress) {
+      this.rejectedPress = false;
+      return;
+    }
+
     const settings = this.settingsProvider();
     const mode: DictationMode = settings.dictationMode || "toggle";
 

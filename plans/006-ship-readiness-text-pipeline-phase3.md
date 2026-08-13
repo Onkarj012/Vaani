@@ -305,18 +305,14 @@ whether insertion is healthy enough to ship.
 
 So the shipped behavior is reachable only by hand-editing `~/.vaani` settings JSON.
 
-**Decision required — pick one and record it here:**
+**Decision — Option B, engine-only.** Land Phases 0–3 as pipeline infrastructure.
+Fuzzy dictionary matching, bare spoken snippet triggers, and per-app snippet scope
+remain opt-in engine/settings support and are not renderer-configurable in this
+release.
 
-- **A — ship the UI**: add a fuzzy toggle to the Dictionary form and
-  bare-trigger + app-scope controls to Snippets. Larger, but the features become real.
-  Depends on Step 4 (without metadata preservation, a fuzzy toggle would not survive
-  the next edit).
-- **B — ship as engine-only**: land Phases 0–3 as pipeline infrastructure, and state
-  in `CHANGELOG.md` that fuzzy matching and bare snippet triggers are not yet
-  user-configurable. Defer the UI to a follow-up plan.
-
-Either is defensible. What is not defensible is release notes implying these are
-usable features while no UI exists.
+The follow-up UI must support editing existing entries, warn when an ordinary-word
+bare trigger could collide with normal dictation, and represent “All apps” by
+omitting `appProfileIds`. It must never encode “All apps” as `appProfileIds: []`.
 
 ---
 

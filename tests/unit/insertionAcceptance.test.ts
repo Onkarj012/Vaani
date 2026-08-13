@@ -61,6 +61,7 @@ describe("evaluateInsertionAcceptance", () => {
       excludedMissingBuildIdentifier: 1,
       excludedDirtyBuildIdentifier: 1,
       excludedInvalidBuildIdentifier: 0,
+      excludedBaselineUnreadable: 0,
       eligible: 1,
       successful: 1,
       failed: 0,
@@ -83,6 +84,7 @@ describe("evaluateInsertionAcceptance", () => {
       excludedMissingBuildIdentifier: 0,
       excludedDirtyBuildIdentifier: 0,
       excludedInvalidBuildIdentifier: 4,
+      excludedBaselineUnreadable: 0,
       eligible: 1,
       successful: 1,
       failed: 0,
@@ -113,6 +115,87 @@ describe("evaluateInsertionAcceptance", () => {
     })]);
 
     expect(result.counts).toMatchObject({ eligible: 1, successful: 0, failed: 1 });
+  });
+
+  it("excludes baseline-unreadable attempts from the denominator and app buckets", () => {
+    const result = evaluateInsertionAcceptance([
+      trace("unassessable", {
+        outcome: "saved",
+        attempts: [{
+          ...successfulAttempt(),
+          verification: { readable: false, passed: false, repaired: false, reason: "baseline-unreadable" },
+        }],
+      }),
+      trace("eligible"),
+    ]);
+
+    expect(result.counts).toMatchObject({
+      excluded: 1,
+      excludedBaselineUnreadable: 1,
+      eligible: 1,
+      successful: 1,
+      failed: 0,
+    });
+    expect(result.apps).toHaveLength(1);
+    expect(result.apps[0]).toMatchObject({ eligible: 1, successful: 1 });
+  });
+
+  it("keeps readable verification failures eligible", () => {
+    const result = evaluateInsertionAcceptance([trace("readable-failure", {
+      outcome: "saved",
+      attempts: [{
+        ...successfulAttempt(),
+        verification: { readable: true, passed: false, repaired: false, reason: "missing" },
+      }],
+    })]);
+
+    expect(result.counts).toMatchObject({
+      excludedBaselineUnreadable: 0,
+      eligible: 1,
+      successful: 0,
+      failed: 1,
+    });
+  });
+
+  it("computes mixed success and failure rates without excluded baselines", () => {
+    const result = evaluateInsertionAcceptance([
+      trace("success"),
+      trace("failure", { attempts: [{ ...successfulAttempt(), success: false }] }),
+      trace("excluded", {
+        outcome: "saved",
+        attempts: [{
+          ...successfulAttempt(),
+          verification: { readable: false, passed: false, repaired: false, reason: "baseline-unreadable" },
+        }],
+      }),
+    ]);
+
+    expect(result.counts).toMatchObject({ excluded: 1, excludedBaselineUnreadable: 1, eligible: 2, successful: 1, failed: 1 });
+    expect(result.rates.aggregate).toEqual({ successful: 1, eligible: 2, rate: 0.5 });
+    expect(result.apps[0]).toMatchObject({ eligible: 2, successful: 1, failed: 1, rate: 0.5 });
+  });
+
+  it("does not pass when every clean observation has an unreadable baseline", () => {
+    const result = evaluateInsertionAcceptance(tracesFor(200, (index) => trace(`excluded-${index}`, {
+      outcome: "saved",
+      attempts: [{
+        ...successfulAttempt(),
+        verification: { readable: false, passed: false, repaired: false, reason: "baseline-unreadable" },
+      }],
+    })));
+
+    expect(result.status).toBe("fail");
+    expect(result.counts).toMatchObject({
+      inspected: 200,
+      qualifyingClean: 200,
+      excluded: 200,
+      excludedBaselineUnreadable: 200,
+      eligible: 0,
+      successful: 0,
+      failed: 0,
+    });
+    expect(result.apps).toHaveLength(0);
+    expect(result.rates.aggregate.rate).toBe(0);
   });
 
   it("uses only the final injection attempt", () => {

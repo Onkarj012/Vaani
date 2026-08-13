@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
-import type { AudioVisualFrame, DictationTrace, Settings, TranscriptionResult } from "@shared/types";
+import type { AudioVisualFrame, DictationTrace, InjectionResult, Settings, TranscriptionResult } from "@shared/types";
 import type { DictationTraceStore } from "@main/store/dictationTrace";
 import { DictationService } from "./dictation.fixture";
 import { nativeBridge } from "@main/nativeBridge";
@@ -82,9 +82,9 @@ function createDictationService(deps: {
   };
 
   const injector = {
-    inject: vi.fn(async (text: string) => {
+    inject: vi.fn(async (text: string): Promise<InjectionResult> => {
       focusedValue += text;
-      return { success: true, method: "clipboard" } as const;
+      return { success: true, method: "clipboard" };
     })
   };
 
@@ -144,6 +144,17 @@ function makeSettingsMutable(settings: MockedSettingsStore, initial: Settings = 
     return current;
   });
   return { current: () => current };
+}
+
+async function submitHelloWorld(service: ReturnType<typeof createDictationService>["service"]): Promise<void> {
+  service.beginHotkeySession();
+  const sessionId = (service.getState() as { sessionId: string }).sessionId;
+  service.reportRecorderStarted(sessionId);
+  service.endHotkeySession();
+  await service.submitAudioClip({
+    sessionId,
+    clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+  });
 }
 
 describe("DictationService", () => {
@@ -565,6 +576,146 @@ describe("DictationService", () => {
     const updatedTrace = trace as DictationTrace | null;
     expect(updatedTrace?.rawAudio?.durationSeconds).toBe(31);
     expect(updatedTrace?.trimmedAudio?.durationSeconds).toBeLessThan(31);
+  });
+
+  it("saves when an existing identical occurrence is unchanged after injection", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, history, injector, transcription } = createDictationService({ traces: traceDeps.traces });
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => "Hello world.");
+
+    await submitHelloWorld(service);
+    await Promise.resolve();
+
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
+    expect(traceDeps.getTrace()?.stages?.insertionVerification).toMatchObject({ passed: false, reason: "missing" });
+  });
+
+  it("passes when insertion increases an existing occurrence count", async () => {
+    const { service, history, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("Hello world.")
+      .mockReturnValue("Hello world. Hello world.");
+
+    await submitHelloWorld(service);
+
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "injected", injectionMethod: "clipboard" }));
+  });
+
+  it("passes when insertion increases the occurrence count from zero to one", async () => {
+    const { service, history, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValue("Hello world.");
+
+    await submitHelloWorld(service);
+
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "injected", injectionMethod: "clipboard" }));
+  });
+
+  it("does not pass when unrelated field changes leave the occurrence count unchanged", async () => {
+    const { service, history, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("Hello world. old")
+      .mockReturnValue("Hello world. new");
+
+    await submitHelloWorld(service);
+
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
+  });
+
+  it("records a distinct failure when the pre-insertion baseline is unreadable", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, history, injector, transcription, verifierTime } = createDictationService({ traces: traceDeps.traces });
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => null);
+
+    await submitHelloWorld(service);
+    await Promise.resolve();
+
+    expect(verifierTime()).toBe(0);
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
+    expect(traceDeps.getTrace()?.stages?.insertionVerification).toEqual({
+      readable: false,
+      passed: false,
+      repaired: false,
+      reason: "baseline-unreadable",
+    });
+  });
+
+  it("does not verify a pinned target from another app's baseline after focus drift", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, history, injector, transcription, appDetector } = createDictationService({ traces: traceDeps.traces });
+    const primaryTarget = { appBundleId: "com.apple.TextEdit", appName: "TextEdit", context: "default" as const };
+    const driftedTarget = { appBundleId: "com.apple.Notes", appName: "Notes", context: "default" as const };
+    let focusedTarget = primaryTarget;
+    appDetector.getContext.mockImplementation(() => focusedTarget);
+    transcription.transcribe.mockImplementation(async () => {
+      focusedTarget = driftedTarget;
+      return { rawText: "hello world", formattedText: "hello world", language: "en" };
+    });
+    injector.inject.mockImplementation(async () => {
+      focusedTarget = primaryTarget;
+      return { success: true, method: "clipboard" };
+    });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => (
+      focusedTarget === driftedTarget ? "" : "Hello world."
+    ));
+
+    await submitHelloWorld(service);
+    await Promise.resolve();
+
+    expect(injector.inject).toHaveBeenCalledWith("Hello world.", expect.objectContaining({
+      appBundleId: primaryTarget.appBundleId,
+      appName: primaryTarget.appName,
+    }));
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
+    expect(traceDeps.getTrace()?.stages?.insertionVerification).toEqual({
+      readable: false,
+      passed: false,
+      repaired: false,
+      reason: "baseline-unreadable",
+    });
+  });
+
+  it("captures the fallback target baseline immediately before fallback injection", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, history, injector, transcription, appDetector } = createDictationService({ traces: traceDeps.traces });
+    const primaryTarget = { appBundleId: "com.apple.TextEdit", appName: "TextEdit", context: "default" as const };
+    const fallbackTarget = { appBundleId: "com.apple.Notes", appName: "Notes", context: "default" as const };
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    appDetector.getContext
+      .mockReturnValueOnce(primaryTarget)
+      .mockReturnValueOnce(primaryTarget)
+      .mockReturnValueOnce(primaryTarget)
+      .mockReturnValue(fallbackTarget);
+    injector.inject
+      .mockResolvedValueOnce({ success: false, reason: "insertion_failed" })
+      .mockResolvedValueOnce({ success: true, method: "clipboard" });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValue("Hello world.");
+
+    await submitHelloWorld(service);
+    await Promise.resolve();
+
+    expect(injector.inject).toHaveBeenNthCalledWith(2, "Hello world.", expect.objectContaining({
+      appBundleId: fallbackTarget.appBundleId,
+      appName: fallbackTarget.appName,
+    }));
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
+    expect(traceDeps.getTrace()?.injectionAttempts?.at(-1)).toMatchObject({
+      targetAppBundleId: fallbackTarget.appBundleId,
+      verification: { passed: false, reason: "missing" },
+    });
   });
 
   it("repairs a safely detectable partial insertion with the missing suffix", async () => {

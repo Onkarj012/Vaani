@@ -14,6 +14,7 @@ export interface InsertionAcceptanceCounts {
   excludedMissingBuildIdentifier: number;
   excludedDirtyBuildIdentifier: number;
   excludedInvalidBuildIdentifier: number;
+  excludedBaselineUnreadable: number;
   eligible: number;
   successful: number;
   failed: number;
@@ -64,6 +65,7 @@ export function evaluateInsertionAcceptance(traces: readonly DictationTrace[]): 
     excludedMissingBuildIdentifier: 0,
     excludedDirtyBuildIdentifier: 0,
     excludedInvalidBuildIdentifier: 0,
+    excludedBaselineUnreadable: 0,
     eligible: 0,
     successful: 0,
     failed: 0,
@@ -98,6 +100,11 @@ export function evaluateInsertionAcceptance(traces: readonly DictationTrace[]): 
 
     const finalAttempt = trace.injectionAttempts[trace.injectionAttempts.length - 1];
     if (!finalAttempt) continue;
+    if (finalAttempt.verification?.reason === "baseline-unreadable") {
+      counts.excluded += 1;
+      counts.excludedBaselineUnreadable += 1;
+      continue;
+    }
     const successful = finalAttempt.success === true &&
       finalAttempt.verification?.readable === true &&
       finalAttempt.verification.passed === true;
@@ -152,7 +159,7 @@ export function evaluateInsertionAcceptance(traces: readonly DictationTrace[]): 
     counts.qualifyingClean < INSERTION_ACCEPTANCE_TRACE_WINDOW;
   const status: InsertionAcceptanceStatus = warm
     ? "warming"
-    : aggregateRate.rate >= INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD && apps.every((app) => app.passed)
+    : counts.eligible > 0 && aggregateRate.rate >= INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD && apps.every((app) => app.passed)
       ? "pass"
       : "fail";
 

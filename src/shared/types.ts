@@ -117,7 +117,7 @@ export interface InsertionVerificationTrace {
   readable: boolean;
   passed: boolean;
   repaired: boolean;
-  reason?: "expected-present" | "unreadable" | "partial-suffix-repaired" | "partial-unsafe" | "missing" | "not-at-target";
+  reason?: "expected-present" | "baseline-unreadable" | "unreadable" | "partial-suffix-repaired" | "partial-unsafe" | "missing" | "not-at-target";
 }
 
 export type DictationFormatterUsed = "llm" | "guard-fallback" | "deterministic" | "none";

@@ -447,7 +447,9 @@ export class DictationService {
         selection: this.activeSelection
       };
 
-      const verificationBaseline = safeFocusedValue();
+      const verificationFocus = this.appDetector.getContext();
+      let verificationBaseline = sameTarget(injectionTarget, verificationFocus) ? safeFocusedValue() : null;
+      let verificationTarget = this.activeTarget;
       let injection = await this.injector.inject(cleanedText, injectionTarget);
       const injectionAttempts: DictationTrace["injectionAttempts"] = [{
         targetAppBundleId: injectionTarget.appBundleId,
@@ -459,6 +461,8 @@ export class DictationService {
         const fallbackTarget = this.appDetector.getContext();
         if (isExternalTarget(fallbackTarget) && !sameTarget(injectionTarget, fallbackTarget)) {
           const fallbackSelection = this.captureSelection(fallbackTarget);
+          const fallbackVerificationFocus = this.appDetector.getContext();
+          const fallbackVerificationBaseline = sameTarget(fallbackTarget, fallbackVerificationFocus) ? safeFocusedValue() : null;
           injection = await this.injector.inject(cleanedText, {
             appBundleId: fallbackTarget.appBundleId,
             appName: fallbackTarget.appName,
@@ -471,14 +475,18 @@ export class DictationService {
             success: injection.success,
             fallbackReason: "primary-insertion-failed",
           });
-          if (injection.success) this.activeTarget = fallbackTarget;
+          if (injection.success) {
+            this.activeTarget = fallbackTarget;
+            verificationTarget = fallbackTarget;
+            verificationBaseline = fallbackVerificationBaseline;
+          }
         }
       }
       void this.patchTrace(payload.sessionId, { injectionAttempts });
       if (!this.isCurrentSession(payload.sessionId)) return;
 
       if (injection.success) {
-        const verification = await this.verifyInsertion(cleanedText, verificationBaseline, this.activeTarget);
+        const verification = await this.verifyInsertion(cleanedText, verificationBaseline, verificationTarget);
         const finalAttempt = injectionAttempts[injectionAttempts.length - 1];
         if (finalAttempt) finalAttempt.verification = verification;
         void this.patchTrace(payload.sessionId, {
@@ -1041,7 +1049,11 @@ export class DictationService {
     baseline: string | null,
     target: Pick<AppContextResult, "appBundleId" | "appName"> | null
   ): Promise<InsertionVerificationTrace> {
-    const initialPoll = await this.pollInsertionValue(expectedText, target);
+    if (baseline === null) {
+      return { readable: false, passed: false, repaired: false, reason: "baseline-unreadable" };
+    }
+    const baselineOccurrenceCount = countLiteralOccurrences(baseline, expectedText);
+    const initialPoll = await this.pollInsertionValue(expectedText, baselineOccurrenceCount, target);
     if (initialPoll.reason === "not-at-target") {
       return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
     }
@@ -1050,7 +1062,7 @@ export class DictationService {
     if (currentValue === null) {
       return { readable: false, passed: false, repaired: false, reason: "unreadable" };
     }
-    if (currentValue.includes(expectedText)) {
+    if (countLiteralOccurrences(currentValue, expectedText) > baselineOccurrenceCount) {
       return { readable: true, passed: true, repaired: false, reason: "expected-present" };
     }
 
@@ -1067,7 +1079,7 @@ export class DictationService {
           selection: this.captureSelection(target),
         });
         if (repair.success) {
-          const repairedPoll = await this.pollInsertionValue(expectedText, target);
+          const repairedPoll = await this.pollInsertionValue(expectedText, baselineOccurrenceCount, target);
           if (repairedPoll.reason === "not-at-target") {
             return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
           }
@@ -1075,7 +1087,7 @@ export class DictationService {
           if (repairedValue === null) {
             return { readable: false, passed: false, repaired: false, reason: "unreadable" };
           }
-          if (repairedValue?.includes(expectedText)) {
+          if (countLiteralOccurrences(repairedValue, expectedText) > baselineOccurrenceCount) {
             return { readable: true, passed: true, repaired: true, reason: "partial-suffix-repaired" };
           }
         }
@@ -1088,6 +1100,7 @@ export class DictationService {
 
   private async pollInsertionValue(
     expectedText: string,
+    baselineOccurrenceCount: number,
     target: Pick<AppContextResult, "appBundleId" | "appName"> | null
   ): Promise<{ value: string | null; reason?: "not-at-target" }> {
     let lastReadableValue: string | null = null;
@@ -1101,7 +1114,7 @@ export class DictationService {
       const currentValue = safeFocusedValue();
       if (currentValue !== null) {
         lastReadableValue = currentValue;
-        if (currentValue.includes(expectedText)) return { value: currentValue };
+        if (countLiteralOccurrences(currentValue, expectedText) > baselineOccurrenceCount) return { value: currentValue };
       }
 
       const remainingMs = deadline - this.verifierNow();
@@ -1199,6 +1212,18 @@ function safeFocusedValue(): string | null {
     return nativeBridge.getFocusedValue?.() ?? null;
   } catch {
     return null;
+  }
+}
+
+function countLiteralOccurrences(value: string, expectedText: string): number {
+  if (expectedText.length === 0) return 0;
+  let count = 0;
+  let searchFrom = 0;
+  while (true) {
+    const index = value.indexOf(expectedText, searchFrom);
+    if (index === -1) return count;
+    count += 1;
+    searchFrom = index + expectedText.length;
   }
 }
 

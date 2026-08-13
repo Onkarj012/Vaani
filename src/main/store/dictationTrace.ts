@@ -240,6 +240,7 @@ function normalizeInsertionVerification(value: unknown): NonNullable<DictationTr
   };
   if (
     value.reason === "expected-present" ||
+    value.reason === "baseline-unreadable" ||
     value.reason === "unreadable" ||
     value.reason === "partial-suffix-repaired" ||
     value.reason === "partial-unsafe" ||

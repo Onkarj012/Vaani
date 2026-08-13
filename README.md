@@ -64,6 +64,8 @@ The built app and DMG will be in `out/make/`.
 2. Open Vaani → Settings → paste your key(s)
 3. Or skip cloud entirely — select **Local (whisper.cpp)** for offline transcription
 
+Provider API keys are stored in macOS Keychain. Keys left in legacy settings are migrated to Keychain and removed from the settings file on startup.
+
 ### 2. Accessibility Permission
 
 On first launch Vaani will prompt for Accessibility access:
@@ -78,6 +80,8 @@ This is required for global hotkeys and text injection.
 ### 3. Microphone
 
 Vaani requests microphone access on first use. Click **Allow**.
+
+On every startup, Vaani checks both Microphone and Accessibility access and guides you to **System Settings** if either permission is missing. Rebuilt ad-hoc apps may need these permissions granted again.
 
 ## Usage
 
@@ -94,6 +98,8 @@ Press `Ctrl+Cmd+V` to re-insert your most recent dictation.
 ### Snippets
 
 Type `/` followed by a snippet name while dictating to expand it.
+
+Phase 3 also supports opt-in fuzzy dictionary matching, bare spoken snippet triggers, and per-app snippet scope in the engine. These advanced options are not yet configurable in the UI.
 
 ### Tips
 
@@ -145,7 +151,7 @@ src/
 ├── main/            # Electron main process
 │   ├── providers/   # Multi-provider STT + LLM engine (groq, openai, deepgram, anthropic, local, openai-compatible)
 │   ├── injection/   # AX + clipboard + keystroke injection (5 strategies, per-app policies)
-│   ├── store/       # Settings & history (JSON, ~/.vaani/)
+│   ├── store/       # Keychain credentials plus local settings, history, and traces
 │   ├── native/      # C++/Obj-C native addons (hotkey, injection, audio, whisper)
 │   └── text/        # Cleanup and formatting
 ├── renderer/        # React UI (pages, components, hooks, overlay)
@@ -174,7 +180,8 @@ bun run typecheck    # TypeScript check
 - Audio is never stored locally or on any server
 - Cloud transcription sends audio to your selected provider's API; their privacy policies apply
 - Local whisper.cpp mode keeps all audio on-device
-- Settings and history are stored locally in `~/.vaani/`
+- Provider API keys are stored in macOS Keychain; legacy settings keys migrate there on startup
+- Non-secret settings, history, and dictation traces are stored locally in `~/.vaani/`
 - No telemetry or analytics
 
 ## Known Limitations
@@ -184,12 +191,10 @@ bun run typecheck    # TypeScript check
 - Very short phrases (< 3 words) may not inject reliably in some apps
 - **Stale state after extended uptime** — App may become unresponsive after ~16 hours of continuous use. Restarting Vaani resolves this. Auto-recovery watchdog added in v1.0.4; root cause investigation ongoing.
 - **Capsule overlay** — The recording overlay (bottom-center pill) may occasionally not appear when dictation starts. It typically reappears on the next attempt. Visibility retry logic added in v1.0.4.
-- API keys are stored in plain JSON on disk. Keychain integration is planned for v1.1.
 - Notarization requires Apple Developer credentials. See installation workaround below.
 
-## Roadmap (v1.1+)
+## Roadmap
 
-- **macOS Keychain integration** — Secure API key storage replacing plain JSON
 - **Persistent stale state fix** — Root cause investigation and fix for long-uptime unresponsiveness
 - **Capsule reliability** — Eliminate intermittent overlay non-appearance
 - **Improved offline support** — Smarter offline/online switching without user intervention
