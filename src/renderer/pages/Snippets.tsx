@@ -51,8 +51,8 @@ export default function Snippets() {
               <div>
                 <h3 className="text-display text-lg text-ink">Snippets tutorial</h3>
                 <p className="mt-1 text-sm leading-relaxed text-muted">
-                  Snippets are slash commands that expand into longer text. Type{' '}
-                  <code className="rounded-md bg-bg px-1.5 py-0.5 font-mono text-xs">/email</code> and Vaani replaces it with your full signature.
+                  Snippets expand into longer text. Type{' '}
+                  <code className="rounded-md bg-bg px-1.5 py-0.5 font-mono text-xs">/email</code> or say &ldquo;snippet email&rdquo; or &ldquo;slash email&rdquo; and Vaani replaces it with your full signature.
                 </p>
               </div>
               <button onClick={() => updateSettings({ snippetsOnboarded: true })} className="shrink-0 text-xs font-semibold text-muted hover:text-ink">Dismiss</button>
@@ -124,7 +124,7 @@ export default function Snippets() {
                     <code className="rounded-lg bg-accent/10 px-2 py-1 font-mono text-sm font-semibold text-accent">/{snippet.trigger}</code>
                     <span className="label-meta flex items-center gap-1 text-[10px] text-faint"><Zap size={10} />Snippet</span>
                   </div>
-                  <p className="mb-1 text-[11px] text-faint">say: &ldquo;snippet {snippet.trigger}&rdquo;</p>
+                  <p className="mb-1 text-[11px] text-faint">say: &ldquo;snippet {snippet.trigger}&rdquo; or &ldquo;slash {snippet.trigger}&rdquo;</p>
                   <p className="line-clamp-2 text-sm leading-relaxed text-muted">{snippet.content}</p>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">

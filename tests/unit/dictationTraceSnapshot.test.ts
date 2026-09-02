@@ -71,7 +71,7 @@ describe("dictation trace snapshots", () => {
     expect(buildTraceStageSnapshot({
       rawTranscript: longText,
       cleanedText: longText,
-      injectedText: longText,
+      injectedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
       correctionsApplied: [{ spoken: longText, written: longText }],
       contentGuardVerdict: { passed: false, missingWords: [longText] },
     })).toMatchObject({

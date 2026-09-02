@@ -1,6 +1,6 @@
-import { isLanguageSupportedByProvider } from "@shared/defaults";
+import { isLanguageSupportedByProvider, resolveProfileLanguage } from "@shared/defaults";
 
-export { isLanguageSupportedByProvider };
+export { isLanguageSupportedByProvider, resolveProfileLanguage };
 
 const MAX_PROMPT_CHARS = 600;
 

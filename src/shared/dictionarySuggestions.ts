@@ -1,4 +1,6 @@
 import { digitizeNumberWords } from "./numberWords";
+import { normalizedEditDistance } from "./textDistance";
+export { editDistance, normalizedEditDistance } from "./textDistance";
 
 export interface DictionarySuggestion {
   spoken: string;
@@ -180,30 +182,4 @@ function hasIdentifierShape(word: string): boolean {
   if (/[0-9@._-]/.test(word) && /[A-Za-z]/.test(word)) return true;
   if (/^[A-Z0-9]{2,10}$/.test(word) && /[A-Z]/.test(word)) return true;
   return /^[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*$/.test(word);
-}
-
-function editDistance(a: string, b: string): number {
-  const m = a.length;
-  const n = b.length;
-  const prev = new Array<number>(n + 1);
-  const curr = new Array<number>(n + 1);
-  for (let j = 0; j <= n; j++) prev[j] = j;
-  for (let i = 1; i <= m; i++) {
-    curr[0] = i;
-    for (let j = 1; j <= n; j++) {
-      curr[j] = a[i - 1] === b[j - 1]
-        ? (prev[j - 1] ?? 0)
-        : 1 + Math.min(prev[j] ?? 0, curr[j - 1] ?? 0, prev[j - 1] ?? 0);
-    }
-    for (let j = 0; j <= n; j++) prev[j] = curr[j] ?? 0;
-  }
-  return prev[n] ?? 0;
-}
-
-function normalizedEditDistance(a: string, b: string): number {
-  const al = a.toLowerCase();
-  const bl = b.toLowerCase();
-  const maxLen = Math.max(al.length, bl.length);
-  if (maxLen === 0) return 0;
-  return editDistance(al, bl) / maxLen;
 }

@@ -1,4 +1,4 @@
-import type { Settings } from "@shared/types";
+import type { ProviderKeyValidation, Settings } from "@shared/types";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -135,10 +135,24 @@ export class CredentialsStore {
   }
 }
 
+function sanitizeValidation(validation: ProviderKeyValidation | null | undefined): ProviderKeyValidation | null {
+  if (!validation) return null;
+  return {
+    valid: validation.valid,
+    message: validation.message,
+    testedAt: validation.testedAt,
+  };
+}
+
 export function sanitizeSettingsForRenderer(settings: Settings): Settings {
   return {
     ...settings,
     groqApiKey: "",
-    providerApiKeys: (settings.providerApiKeys ?? []).map((pk) => ({ providerId: pk.providerId, key: "" })),
+    providerApiKeys: (settings.providerApiKeys ?? []).map((pk) => ({
+      providerId: pk.providerId,
+      key: "",
+      hasKey: pk.hasKey === true || pk.key.trim().length > 0,
+      lastValidation: sanitizeValidation(pk.lastValidation),
+    })),
   };
 }

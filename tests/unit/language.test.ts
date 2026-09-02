@@ -4,6 +4,7 @@ import {
   isLanguageSupportedByProvider,
   normalizeDeepgramLanguage,
   normalizeWhisperLanguage,
+  resolveProfileLanguage,
   resolveLanguageForProvider,
   resolveReportedLanguage
 } from "../../src/main/providers/language";
@@ -24,6 +25,12 @@ describe("transcription language helpers", () => {
   it("does not report auto-detected language as English by default", () => {
     expect(resolveReportedLanguage("auto")).toBeNull();
     expect(resolveReportedLanguage("hi")).toBe("hi");
+  });
+
+  it("inherits the global language when an app profile is unset or auto", () => {
+    expect(resolveProfileLanguage(undefined, "hi")).toBe("hi");
+    expect(resolveProfileLanguage("auto", "mr")).toBe("mr");
+    expect(resolveProfileLanguage("en", "hi")).toBe("en");
   });
 
   it("builds prompts with only user vocabulary — no instruction strings", () => {
@@ -55,5 +62,8 @@ describe("transcription language helpers", () => {
     expect(resolveLanguageForProvider("pa", "deepgram")).toBeNull();
     // English-only local model with a non-English code -> auto-detect (undefined).
     expect(resolveLanguageForProvider("hi", "local-whisper", "tiny.en")).toBeUndefined();
+    expect(resolveLanguageForProvider("mr", "deepgram")).toBeNull();
+    expect(resolveLanguageForProvider("pa", "deepgram")).toBeNull();
+    expect(resolveLanguageForProvider("en", "deepgram")).toBe("en");
   });
 });

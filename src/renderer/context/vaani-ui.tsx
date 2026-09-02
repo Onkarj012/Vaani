@@ -8,7 +8,7 @@ import {
   type ReactNode
 } from "react";
 import type { DictationEntry, DictationState, Settings, UpdateNotificationPayload } from "@shared/types";
-import { DEFAULT_SETTINGS } from "@shared/defaults";
+import { buildResetSettingsPatch } from "@renderer/lib/settingsReset";
 import {
   computeEntryFacts,
   countWords,
@@ -33,6 +33,8 @@ export interface HistoryItemView {
   app: string;
   traceId: string | null;
   injectionStatus: DictationEntry["injectionStatus"];
+  language: string | null;
+  detectedLanguage: string | null;
 }
 
 export interface WordHistoryView {
@@ -206,8 +208,8 @@ export function VaaniUiProvider({
   }, []);
 
   const resetSettings = useCallback(async () => {
-    await updateSettings(DEFAULT_SETTINGS);
-  }, [updateSettings]);
+    await updateSettings(buildResetSettingsPatch(settings));
+  }, [settings, updateSettings]);
 
   const copyHistoryEntry = useCallback(async (text: string) => {
     await window.vaani.copyText(text);
@@ -227,7 +229,7 @@ export function VaaniUiProvider({
     const current = settings.customCorrections ?? [];
     const exists = current.findIndex((c) => c.spoken.toLowerCase() === spokenNorm.toLowerCase());
     const next = exists >= 0
-      ? current.map((c, index) => index === exists ? { ...c, written: writtenNorm, source: "manual" as const } : c)
+      ? current.map((c, index) => index === exists ? { ...c, written: writtenNorm } : c)
       : [...current, { spoken: spokenNorm, written: writtenNorm, source: "manual" as const }];
     await updateSettings({ customCorrections: next });
   }, [settings.customCorrections, updateSettings]);
@@ -382,7 +384,9 @@ function mapHistoryItems(entries: DictationEntry[]): HistoryItemView[] {
       wordCount: countWords(entry.cleanedText),
       app: normalizeAppName(entry.appName),
       traceId: entry.traceId ?? null,
-      injectionStatus: entry.injectionStatus
+      injectionStatus: entry.injectionStatus,
+      language: entry.language ?? null,
+      detectedLanguage: entry.detectedLanguage ?? null,
     }));
 }
 

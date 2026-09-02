@@ -11,6 +11,8 @@ import type {
   CustomCorrection,
   MacOSPermissionState,
   PermissionStatus,
+  ProviderApiKey,
+  ProviderKeyValidation,
   RecorderFailure,
   RecorderSubmission,
   Settings,
@@ -89,21 +91,22 @@ function sanitizeManualCustomCorrections(entries: Array<Partial<CustomCorrection
 }
 
 async function buildRendererApiKeys(
-  providerApiKeys: Array<{ providerId: string; key: string }>,
+  providerApiKeys: ProviderApiKey[],
   credentials: CredentialsStore
-): Promise<Array<{ providerId: string; key: string; hasKey: boolean }>> {
+): Promise<ProviderApiKey[]> {
   const mapped = await Promise.all(
     providerApiKeys.map(async (pk) => ({
       providerId: pk.providerId,
       key: '',
       hasKey: await credentials.has(pk.providerId),
+      lastValidation: pk.lastValidation ?? null,
     }))
   );
   const hasGroq = mapped.some((pk) => pk.providerId === 'groq');
   if (!hasGroq) {
     const groqHasKey = await credentials.has('groq');
     if (groqHasKey) {
-      mapped.push({ providerId: 'groq', key: '', hasKey: true });
+      mapped.push({ providerId: 'groq', key: '', hasKey: true, lastValidation: null });
     }
   }
   return mapped;
@@ -142,6 +145,24 @@ export function registerIpcHandlers(opts: {
       hotkeys.reregister();
     }
     return current;
+  }
+
+  function syncProviderApiKeyMetadata(providerId: string, hasKey: boolean, lastValidation: ProviderKeyValidation | null): void {
+    const current = settings.get().providerApiKeys ?? [];
+    const next = current.map((pk) => ({
+      providerId: pk.providerId,
+      key: '',
+      hasKey: pk.hasKey,
+      lastValidation: pk.lastValidation ?? null,
+    }));
+    const provider = next.find((pk) => pk.providerId === providerId);
+    if (provider) {
+      provider.hasKey = hasKey;
+      provider.lastValidation = lastValidation;
+    } else {
+      next.push({ providerId, key: '', hasKey, lastValidation });
+    }
+    settings.update({ providerApiKeys: next });
   }
 
   function sendUpdateNotification(payload: UpdateNotificationPayload): void {
@@ -297,9 +318,23 @@ export function registerIpcHandlers(opts: {
   }));
 
   // Phase 1: Provider API key testing
+  ipcMain.handle(IpcChannel.SetProviderApiKey, async (_e, providerId: string, apiKey: string) => {
+    if (!credentials) return sanitizeSettingsForRenderer(settings.get());
+    await credentials.set(providerId, apiKey);
+    syncProviderApiKeyMetadata(providerId, true, null);
+    return sanitizeSettingsForRenderer(settings.get());
+  });
+  ipcMain.handle(IpcChannel.ClearProviderApiKey, async (_e, providerId: string) => {
+    if (credentials) await credentials.delete(providerId);
+    syncProviderApiKeyMetadata(providerId, false, null);
+    return sanitizeSettingsForRenderer(settings.get());
+  });
   ipcMain.handle(IpcChannel.TestApiKey, async (_e, providerId: string, apiKey: string) => {
     const registry = getProviderRegistry();
-    return validateSubmittedApiKey(providerId, apiKey, (id) => registry.getTranscription(id) || registry.getFormatting(id));
+    const result = await validateSubmittedApiKey(providerId, apiKey, (id) => registry.getTranscription(id) || registry.getFormatting(id));
+    const hasKey = credentials ? await credentials.has(providerId) : false;
+    syncProviderApiKeyMetadata(providerId, hasKey, { ...result, testedAt: new Date().toISOString() });
+    return result;
   });
 
   ipcMain.handle(IpcChannel.GetProviderStatus, async () => {
