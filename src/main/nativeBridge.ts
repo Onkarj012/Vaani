@@ -14,6 +14,12 @@ interface NativeInjectionResult {
   reason?: InjectionFailureReason | string;
 }
 
+export interface NativeLoadFailure {
+  kind: "packaged-native-load-failure";
+  message: string;
+  path: string | null;
+}
+
 interface NativeBridge {
   isAccessibilityTrusted?: () => boolean;
   injectText?: (text: string) => NativeInjectionResult;
@@ -21,6 +27,7 @@ interface NativeBridge {
   typeText?: (text: string) => boolean;
   getFocusedSelection?: () => SelectionRange | null;
   getFocusedValue?: () => string | null;
+  getFocusedElementIdentity?: () => string | null;
   setFocusedSelection?: (location: number, length: number) => boolean;
   getFrontmostApplication?: () => { bundleId?: string; name?: string };
   startHotkeyMonitor?: (accelerator: string, callback: (isPressed: boolean) => void) => boolean;
@@ -42,9 +49,12 @@ interface NativeBridge {
   audioCaptureStop?: () => void;
   audioCaptureListInputDevices?: () => AudioInputDevice[];
   audioCaptureIsRunning?: () => boolean;
+  audioCaptureSetRouteChangeHandler?: (callback: (fingerprint?: string) => void) => (() => void) | void;
 }
 
 let cachedBridge: NativeBridge | null = null;
+let cachedNativeLoadFailure: NativeLoadFailure | null = null;
+const nativeLoadFailureListeners = new Set<(failure: NativeLoadFailure) => void>();
 
 function candidatePaths(): string[] {
   // packaged app: extraResource copies to Contents/Resources/
@@ -68,6 +78,8 @@ function candidatePaths(): string[] {
 }
 
 function loadNativeAddon(): NativeBridge {
+  if (cachedNativeLoadFailure) return {};
+  let failedPath: string | null = null;
   for (const candidatePath of candidatePaths()) {
     if (!existsSync(candidatePath)) {
       continue;
@@ -78,13 +90,21 @@ function loadNativeAddon(): NativeBridge {
       debug("native", `loaded native module from: ${candidatePath}`);
       return addon;
     } catch (error) {
+      failedPath = candidatePath;
       debug("native", `failed to load native module from: ${candidatePath} (${error instanceof Error ? error.message : String(error)})`);
     }
   }
 
   debug("native", "no native module found, using fallback bridge");
   if (app.isPackaged) {
-    throw new Error("Vaani native module not found in packaged resources - refusing to start with a broken/missing native bridge");
+    cachedNativeLoadFailure = {
+      kind: "packaged-native-load-failure",
+      message: "Vaani native module could not be loaded from packaged resources.",
+      path: failedPath,
+    };
+    for (const listener of nativeLoadFailureListeners) listener(cachedNativeLoadFailure);
+    debug("native", "cached packaged native-load failure; retries disabled");
+    return {};
   }
 
   return {};
@@ -103,9 +123,23 @@ function getNativeBridge(): NativeBridge {
   return cachedBridge;
 }
 
+export function getNativeLoadFailure(): NativeLoadFailure | null {
+  return cachedNativeLoadFailure;
+}
+
+export function subscribeNativeLoadFailure(listener: (failure: NativeLoadFailure) => void): () => void {
+  nativeLoadFailureListeners.add(listener);
+  if (cachedNativeLoadFailure) listener(cachedNativeLoadFailure);
+  return () => nativeLoadFailureListeners.delete(listener);
+}
+
 function reloadNativeBridge(): void {
+  if (cachedNativeLoadFailure) return;
   cachedBridge = null;
   const bridge = loadNativeAddon();
+  if (cachedNativeLoadFailure && app.isPackaged) {
+    throw new Error("Vaani native module not found in packaged resources - refusing to start with a broken/missing native bridge");
+  }
   cachedBridge = bridge;
   debug("native", "reloaded native module");
 }

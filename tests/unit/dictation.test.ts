@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
-import type { AudioVisualFrame, DictationTrace, InjectionResult, Settings, TranscriptionResult } from "@shared/types";
+import type { AudioClip, AudioVisualFrame, DictationTrace, InjectionResult, Settings, TranscriptionResult } from "@shared/types";
 import type { DictationTraceStore } from "@main/store/dictationTrace";
+import type { RecoveryJournalStore } from "@main/store/recoveryJournal";
+import type { EncryptedRecoveryAudioStore } from "@main/audio/recoveryAudio";
+import { createRecoveryEntry, type RecoveryEntry, type RecoveryEntrySeed, type RecoveryErrorClass, type RecoveryInsertionPreparation, type RecoveryTransitionInput } from "@shared/recovery";
 import { DictationService } from "./dictation.fixture";
+import { selectRecoveryText } from "@main/dictation";
 import { nativeBridge } from "@main/nativeBridge";
-import { TranscriptionDeadlineExceededError } from "@main/transcription";
+import { TranscriptionDeadlineExceededError, type TranscribeOptions } from "@main/transcription";
 
 vi.mock("electron", () => ({
   app: {
@@ -24,20 +28,31 @@ vi.mock("electron", () => ({
     defaultSession: {
       setPermissionRequestHandler: () => {}
     }
+  },
+  systemPreferences: {
+    getMediaAccessStatus: vi.fn(() => "granted"),
+    isTrustedAccessibilityClient: vi.fn(() => true),
+    askForMediaAccess: vi.fn(async () => true)
   }
 }));
 
 function createDictationService(deps: {
   traces?: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> & Partial<Pick<DictationTraceStore, "getAll">>;
   getMicrophonePermission?: () => string;
+  recovery?: Pick<RecoveryJournalStore, "create" | "getById" | "transition"> & Partial<Pick<RecoveryJournalStore, "prepareInsertion" | "recordInsertionOutcome" | "updateRecoveryMode" | "markRouteHandoff">>;
+  recoveryAudio?: Pick<EncryptedRecoveryAudioStore, "spool" | "deleteForSession" | "withDecryptedAudio">;
+  recoveryReady?: () => boolean;
+  copyText?: (text: string) => Promise<boolean> | boolean;
 } = {}) {
   let verifierTimeMs = 0;
   let focusedValue = "";
+  let focusedElementIdentity = "test-field";
   (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => focusedValue);
   (nativeBridge as { getFocusedSelection?: () => { location: number; length: number } | null }).getFocusedSelection = vi.fn(() => ({
     location: focusedValue.length,
     length: 0,
   }));
+  (nativeBridge as { getFocusedElementIdentity?: () => string | null }).getFocusedElementIdentity = vi.fn(() => focusedElementIdentity);
 
   const overlay = {
     setPressed: vi.fn(),
@@ -77,7 +92,7 @@ function createDictationService(deps: {
   };
 
   const transcription = {
-    transcribe: vi.fn(async (): Promise<TranscriptionResult> => ({ rawText: "open get hub", formattedText: "open get hub", language: "en" })),
+    transcribe: vi.fn(async (_clip: AudioClip, _options?: TranscribeOptions): Promise<TranscriptionResult> => ({ rawText: "open get hub", formattedText: "open get hub", language: "en" })),
     formatTranscript: vi.fn(async (text: string) => text)
   };
 
@@ -104,6 +119,10 @@ function createDictationService(deps: {
       injector,
       appDetector,
       traces: deps.traces,
+      recovery: deps.recovery,
+      recoveryAudio: deps.recoveryAudio,
+      recoveryReady: deps.recoveryReady,
+      copyText: deps.copyText,
       getMicrophonePermission: deps.getMicrophonePermission,
       verifierNow: () => verifierTimeMs,
       verifierSleep: async (ms: number) => { verifierTimeMs += ms; },
@@ -126,6 +145,32 @@ function createTraceDeps() {
     getBySessionId: vi.fn(async () => trace ?? undefined),
   };
   return { traces, getTrace: () => trace };
+}
+
+function createInsertionRecovery(sessionId: string) {
+  let entry: RecoveryEntry = createRecoveryEntry({ id: sessionId, sessionId, buildIdentifier: "1.0.0+abc1234" });
+  const recovery = {
+    create: vi.fn(async (next: RecoveryEntry | RecoveryEntrySeed) => { entry = "schemaVersion" in next ? next : createRecoveryEntry(next); return entry; }),
+    getById: vi.fn(async () => entry),
+    transition: vi.fn(async (input: RecoveryTransitionInput) => {
+      entry = {
+        ...entry,
+        state: input.to,
+        attempt: input.attempt,
+        text: { ...entry.text, ...input.text },
+      };
+      return entry;
+    }),
+    prepareInsertion: vi.fn(async (_id: string, _sessionId: string, preparation: RecoveryInsertionPreparation) => {
+      entry = { ...entry, insertion: { status: "pending", outcome: "pending", ...preparation } };
+      return entry;
+    }),
+    recordInsertionOutcome: vi.fn(async (_id: string, _sessionId: string, outcome: "delivered" | "copied" | "recoverable", details: { method?: "ax" | "clipboard" | null; reason?: RecoveryErrorClass; detail?: string } = {}) => {
+      entry = { ...entry, insertion: { ...(entry.insertion ?? { status: "pending" }), status: outcome === "delivered" ? "verified" : "failed", outcome, ...details }, terminal: outcome === "recoverable" ? null : outcome, state: outcome === "delivered" ? "delivered" : outcome === "copied" ? "copied" : "recoverable" };
+      return entry;
+    }),
+  };
+  return { recovery, getEntry: () => entry };
 }
 
 type MockedSettingsStore = ReturnType<typeof createDictationService>["settings"];
@@ -158,6 +203,46 @@ async function submitHelloWorld(service: ReturnType<typeof createDictationServic
 }
 
 describe("DictationService", () => {
+  it("selects formatted recovery text before cleaned and raw text", () => {
+    expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: "formatted" })).toBe("formatted");
+    expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: null })).toBe("cleaned");
+    expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: null, formattedText: null })).toBe("raw");
+  });
+
+  it("aborts recovery formatting when a new dictation starts and does not store the late result", async () => {
+    const recoveryFixture = createInsertionRecovery("recovery-formatting");
+    const current = recoveryFixture.getEntry();
+    current.state = "recoverable";
+    current.text.rawTranscript = "raw recovery text";
+    let resolveFormat: (value: string) => void = () => undefined;
+    const deferredFormat = new Promise<string>((resolve) => { resolveFormat = resolve; });
+    const { service, transcription } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+    transcription.formatTranscript.mockReturnValueOnce(deferredFormat);
+
+    const retry = service.retryRecoveryFormatting("recovery-formatting");
+    for (let index = 0; index < 10 && recoveryFixture.recovery.transition.mock.calls.length < 1; index += 1) await Promise.resolve();
+    service.cancelSession();
+    resolveFormat("late formatted text");
+    await expect(retry).resolves.toBe(false);
+    expect(recoveryFixture.getEntry().text.formattedText).toBeNull();
+  });
+
+  it("revalidates recovery insertion before the injector and leaves one retryable outcome", async () => {
+    const recoveryFixture = createInsertionRecovery("recovery-insertion");
+    const current = recoveryFixture.getEntry();
+    current.state = "text_ready";
+    current.text = { rawTranscript: "raw", cleanedText: "cleaned", formattedText: "formatted" };
+    const { service, injector } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+
+    const retry = service.retryRecoveryInsertion("recovery-insertion");
+    await Promise.resolve();
+    service.cancelSession();
+    await expect(retry).resolves.toBe(false);
+    expect(recoveryFixture.getEntry().insertion?.outcome).not.toBe("delivered");
+    await expect(service.retryRecoveryInsertion("recovery-insertion")).resolves.toBe(false);
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -336,7 +421,7 @@ describe("DictationService", () => {
       traces: traceDeps.traces,
       getMicrophonePermission: () => "denied",
     });
-    const noSpeechMessage = "No speech detected. Try speaking louder or closer to the microphone.";
+    const permissionMessage = "Microphone access is not granted. Enable it in System Settings > Privacy & Security > Microphone, then restart Vaani.";
 
     service.beginHotkeySession();
     const sessionId = (service.getState() as { sessionId: string }).sessionId;
@@ -347,8 +432,8 @@ describe("DictationService", () => {
       clip: { pcmData: new Array(16_000).fill(0.000001), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.000001] }
     });
 
-    expect(service.getState()).toMatchObject({ status: "error", message: noSpeechMessage });
-    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", userMessage: noSpeechMessage });
+    expect(service.getState()).toMatchObject({ status: "error", message: permissionMessage });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "microphone_permission_denied", userMessage: permissionMessage });
   });
 
   it("maps transcription deadline errors to a timeout failure", async () => {
@@ -429,6 +514,25 @@ describe("DictationService", () => {
       cleanedText,
       injectionStatus: "injected",
     }));
+  });
+
+  it("uses the effective app language and surfaces provider detection", async () => {
+    const { service, history, overlay, settings, transcription } = createDictationService();
+    makeSettingsMutable(settings, {
+      ...DEFAULT_SETTINGS,
+      language: "hi",
+      appProfiles: [{ id: "text-edit", name: "TextEdit", appBundleIds: ["com.apple.TextEdit"], language: "auto" }],
+    });
+    transcription.transcribe.mockImplementation(async (...args) => {
+      const options = args[1] as { languageOverride?: string } | undefined;
+      expect(options).toMatchObject({ languageOverride: "hi" });
+      return { rawText: "namaste world", formattedText: "namaste world", language: null, detectedLanguage: "hi" };
+    });
+
+    await submitHelloWorld(service);
+
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ detectedLanguage: "hi" }));
+    expect(overlay.setSuccess).toHaveBeenCalledWith("hi");
   });
 
   it("uses cleaned raw transcript when content guard rejects LLM formatting", async () => {
@@ -514,6 +618,195 @@ describe("DictationService", () => {
     expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", message: "Saved to history" });
   });
 
+  it("prepares insertion before injection and copies a failed active request", async () => {
+    const recoveryFixture = createInsertionRecovery("session-1");
+    const { service, transcription, injector, history } = createDictationService({
+      recovery: recoveryFixture.recovery,
+      recoveryReady: () => true,
+      copyText: () => true,
+    });
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    injector.inject.mockResolvedValue({ success: false, reason: "insertion_failed" });
+
+    await submitHelloWorld(service);
+
+    const prepareOrder = recoveryFixture.recovery.prepareInsertion.mock.invocationCallOrder[0];
+    const outcomeOrder = recoveryFixture.recovery.recordInsertionOutcome.mock.invocationCallOrder[0];
+    if (prepareOrder === undefined || outcomeOrder === undefined) throw new Error("Insertion recovery calls were not recorded.");
+    expect(prepareOrder).toBeLessThan(outcomeOrder);
+    expect(recoveryFixture.getEntry().insertion).toMatchObject({
+      outcome: "copied",
+      baselineReadable: true,
+      intendedStrategy: "ax",
+      textHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+    expect(service.getState()).toMatchObject({ status: "completed", message: "Copied to clipboard" });
+  });
+
+  it("revalidates focused element identity after awaited preparation", async () => {
+    const recoveryFixture = createInsertionRecovery("identity-session");
+    const { service, history, injector } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+    const identity = nativeBridge as { getFocusedElementIdentity?: ReturnType<typeof vi.fn> };
+    identity.getFocusedElementIdentity = vi.fn()
+      .mockReturnValueOnce("field-a")
+      .mockReturnValueOnce("field-a")
+      .mockReturnValue("field-b");
+    recoveryFixture.recovery.prepareInsertion.mockImplementationOnce(async () => {
+      await Promise.resolve();
+      return recoveryFixture.getEntry();
+    });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+  });
+
+  it("fails closed for same-app identical-value fields without stable identity", async () => {
+    const { service, history, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    (nativeBridge as { getFocusedElementIdentity?: () => string | null }).getFocusedElementIdentity = vi.fn(() => null);
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+  });
+
+  it("creates recoverable insertion when clipboard fallback fails", async () => {
+    const recoveryFixture = createInsertionRecovery("session-1");
+    const { service, transcription, injector } = createDictationService({
+      recovery: recoveryFixture.recovery,
+      recoveryReady: () => true,
+      copyText: () => false,
+    });
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => "");
+
+    await submitHelloWorld(service);
+
+    expect(recoveryFixture.getEntry().insertion).toMatchObject({ outcome: "recoverable", status: "failed" });
+    expect(service.getState()).toMatchObject({ status: "completed", message: "Saved for recovery" });
+  });
+
+  it("fences transcription and insertion while lifecycle audio retention is stalled", async () => {
+    const recoveryFixture = createInsertionRecovery("lifecycle-session");
+    let releaseSpool: ((result: { mode: "full"; audio: NonNullable<RecoveryEntry["audio"]> }) => void) | null = null;
+    const recoveryAudio = {
+      spool: vi.fn(() => new Promise<{ mode: "full"; audio: NonNullable<RecoveryEntry["audio"]> }>((resolve) => {
+        releaseSpool = resolve;
+      })),
+      deleteForSession: vi.fn(async () => undefined),
+      withDecryptedAudio: async <T>(_sessionId: string, _operation: (path: string) => Promise<T> | T): Promise<T> => {
+        throw new Error("not used in lifecycle fence test");
+      },
+    };
+    const { service, settings, transcription } = createDictationService({
+      recovery: recoveryFixture.recovery,
+      recoveryAudio,
+      recoveryReady: () => true,
+    });
+    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, retainFailedAudio: true });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    const clip: AudioClip = { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] };
+
+    const interruption = service.handleLifecycleInterruption(sessionId, 1, "sleep", "interrupted", clip);
+    await vi.waitFor(() => expect(recoveryAudio.spool).toHaveBeenCalledTimes(1));
+    await service.submitAudioClip({ sessionId, clip });
+    expect(transcription.transcribe).not.toHaveBeenCalled();
+
+    releaseSpool!({ mode: "full", audio: { kind: "encrypted-session-file", path: "/managed/lifecycle-session.v1.enc" } });
+    await interruption;
+    expect(transcription.transcribe).not.toHaveBeenCalled();
+  });
+
+  it("waits for stalled recovery audio retention during flush", async () => {
+    const recoveryFixture = createInsertionRecovery("flush-session");
+    let releaseSpool: (() => void) | null = null;
+    const recoveryAudio = {
+      spool: vi.fn(() => new Promise<{ mode: "full"; audio: NonNullable<RecoveryEntry["audio"]> }>((resolve) => {
+        releaseSpool = () => resolve({ mode: "full", audio: { kind: "encrypted-session-file", path: "/managed/flush-session.v1.enc" } });
+      })),
+      deleteForSession: vi.fn(async () => undefined),
+      withDecryptedAudio: async <T>(_sessionId: string, _operation: (path: string) => Promise<T> | T): Promise<T> => {
+        throw new Error("not used in flush fence test");
+      },
+    };
+    const { service, settings } = createDictationService({ recovery: recoveryFixture.recovery, recoveryAudio, recoveryReady: () => true });
+    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, retainFailedAudio: true });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.handleRecorderFailure({ sessionId, message: "recorder failed" }, {
+      pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1],
+    });
+    await vi.waitFor(() => expect(recoveryAudio.spool).toHaveBeenCalledTimes(1));
+
+    let flushed = false;
+    const flush = service.flushRecovery().then(() => { flushed = true; });
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    expect(flushed).toBe(false);
+    releaseSpool!();
+    await flush;
+    expect(flushed).toBe(true);
+  });
+
+  it("records verified recovery delivery after cancellation between verification and journal commit", async () => {
+    const recoveryFixture = createInsertionRecovery("recovery-session");
+    const entry = recoveryFixture.getEntry();
+    entry.state = "text_ready";
+    entry.text.cleanedText = "Hello world.";
+    entry.text.formattedText = "Hello world.";
+    const { service, injector } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
+      .mockReturnValue("Hello world.");
+    injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
+    let getByIdCount = 0;
+    recoveryFixture.recovery.getById.mockImplementation(async () => {
+      getByIdCount += 1;
+      if (getByIdCount === 5) service.cancelSession();
+      return recoveryFixture.getEntry();
+    });
+
+    const result = await service.retryRecoveryInsertion(entry.id);
+
+    expect(result).toBe(true);
+    expect(injector.inject).toHaveBeenCalledWith("Hello world.", expect.anything());
+    expect(recoveryFixture.recovery.recordInsertionOutcome).toHaveBeenCalledWith(
+      entry.id,
+      entry.sessionId,
+      "delivered",
+      expect.objectContaining({ method: "clipboard" }),
+    );
+    expect(recoveryFixture.getEntry().terminal).toBe("delivered");
+  });
+
+  it("rejects recovery insertion while a fresh dictation is active", async () => {
+    const recoveryFixture = createInsertionRecovery("session-1");
+    const { service } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+
+    service.beginHotkeySession();
+    await expect(service.retryRecoveryInsertion("session-1")).resolves.toBe(false);
+    expect(recoveryFixture.recovery.getById).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a terminal recovery outcome", async () => {
+    const recoveryFixture = createInsertionRecovery("session-1");
+    const { service, injector } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+    const current = recoveryFixture.getEntry();
+    current.state = "copied";
+    current.terminal = "copied";
+    current.insertion = { status: "failed", outcome: "copied", method: "clipboard" };
+
+    await expect(service.retryRecoveryInsertion("session-1")).resolves.toBe(false);
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
   it("sends short non-silent clips to transcription untrimmed", async () => {
     const { service, transcription } = createDictationService();
     const clip = {
@@ -589,7 +882,7 @@ describe("DictationService", () => {
     await Promise.resolve();
 
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
-    expect(traceDeps.getTrace()?.stages?.insertionVerification).toMatchObject({ passed: false, reason: "missing" });
+    expect(traceDeps.getTrace()?.stages?.insertionVerification).toMatchObject({ passed: false, reason: "timeout" });
   });
 
   it("passes when insertion increases an existing occurrence count", async () => {
@@ -597,6 +890,7 @@ describe("DictationService", () => {
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("Hello world.")
       .mockReturnValueOnce("Hello world.")
       .mockReturnValue("Hello world. Hello world.");
 
@@ -611,6 +905,7 @@ describe("DictationService", () => {
     injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValue("Hello world.");
 
     await submitHelloWorld(service);
@@ -624,6 +919,7 @@ describe("DictationService", () => {
     injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("Hello world. old")
+      .mockReturnValueOnce("Hello world. old")
       .mockReturnValue("Hello world. new");
 
     await submitHelloWorld(service);
@@ -636,7 +932,9 @@ describe("DictationService", () => {
     const { service, history, injector, transcription, verifierTime } = createDictationService({ traces: traceDeps.traces });
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
-    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => null);
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValue(null);
 
     await submitHelloWorld(service);
     await Promise.resolve();
@@ -647,7 +945,7 @@ describe("DictationService", () => {
       readable: false,
       passed: false,
       repaired: false,
-      reason: "baseline-unreadable",
+      reason: "not-at-target",
     });
   });
 
@@ -673,16 +971,13 @@ describe("DictationService", () => {
     await submitHelloWorld(service);
     await Promise.resolve();
 
-    expect(injector.inject).toHaveBeenCalledWith("Hello world.", expect.objectContaining({
-      appBundleId: primaryTarget.appBundleId,
-      appName: primaryTarget.appName,
-    }));
+    expect(injector.inject).not.toHaveBeenCalled();
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
     expect(traceDeps.getTrace()?.stages?.insertionVerification).toEqual({
       readable: false,
       passed: false,
       repaired: false,
-      reason: "baseline-unreadable",
+      reason: "not-at-target",
     });
   });
 
@@ -696,11 +991,13 @@ describe("DictationService", () => {
       .mockReturnValueOnce(primaryTarget)
       .mockReturnValueOnce(primaryTarget)
       .mockReturnValueOnce(primaryTarget)
+      .mockReturnValueOnce(primaryTarget)
       .mockReturnValue(fallbackTarget);
     injector.inject
       .mockResolvedValueOnce({ success: false, reason: "insertion_failed" })
       .mockResolvedValueOnce({ success: true, method: "clipboard" });
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValue("Hello world.");
 
@@ -714,20 +1011,33 @@ describe("DictationService", () => {
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
     expect(traceDeps.getTrace()?.injectionAttempts?.at(-1)).toMatchObject({
       targetAppBundleId: fallbackTarget.appBundleId,
-      verification: { passed: false, reason: "missing" },
+      verification: { passed: false, reason: "timeout" },
     });
   });
 
-  it("repairs a safely detectable partial insertion with the missing suffix", async () => {
+  it("fails closed when the focused field changes within the same app", async () => {
+    const { service, history, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    (nativeBridge as { getFocusedSelection?: () => { location: number; length: number } | null }).getFocusedSelection = vi.fn()
+      .mockReturnValueOnce({ location: 0, length: 0 })
+      .mockReturnValue({ location: 12, length: 0 });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+    expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved" });
+  });
+
+  it("does not claim delivery for partial mutation at the verification deadline", async () => {
     const { service, history, injector, transcription } = createDictationService();
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
     let readCount = 0;
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => {
       readCount += 1;
-      if (readCount === 1) return "";
-      if (readCount <= 42) return "Hello";
-      return "Hello world.";
+      if (readCount <= 2) return "";
+      return "Hello";
     });
 
     service.beginHotkeySession();
@@ -740,10 +1050,10 @@ describe("DictationService", () => {
     });
 
     expect(injector.inject).toHaveBeenNthCalledWith(1, "Hello world.", expect.anything());
-    expect(injector.inject).toHaveBeenNthCalledWith(2, " world.", expect.anything());
+    expect(injector.inject).toHaveBeenCalledTimes(1);
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
-      injectionStatus: "injected",
-      injectionMethod: "clipboard",
+      injectionStatus: "saved",
+      injectionMethod: null,
     }));
   });
 
@@ -753,8 +1063,8 @@ describe("DictationService", () => {
     let readCount = 0;
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => {
       readCount += 1;
-      if (readCount === 1) return "";
-      if (readCount <= 5) return "Hello";
+      if (readCount <= 2) return "";
+      if (readCount <= 6) return "Hello";
       return "Hello world.";
     });
 
@@ -792,6 +1102,7 @@ describe("DictationService", () => {
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValueOnce(null);
 
     service.beginHotkeySession();
@@ -816,7 +1127,7 @@ describe("DictationService", () => {
       readable: false,
       passed: false,
       repaired: false,
-      reason: "unreadable",
+      reason: "timeout",
     });
     expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", message: "Saved to history" });
   });
@@ -865,6 +1176,7 @@ describe("DictationService", () => {
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("Open get hub.")
       .mockReturnValueOnce("Open get hub.")
       .mockReturnValue("Open GitHub.");
@@ -907,6 +1219,7 @@ describe("DictationService", () => {
     const corrected = "The final word after the pause is Vaani.";
     const getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValueOnce(inserted)
       .mockReturnValue(inserted);
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
@@ -947,6 +1260,7 @@ describe("DictationService", () => {
     const corrected = "I'm making a LaTeX editor called WriteTex.";
     const getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValueOnce(inserted)
       .mockReturnValue(inserted);
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
@@ -985,6 +1299,7 @@ describe("DictationService", () => {
     const inserted = "The final word after the pause is Baani.";
     const corrected = "The final word after the pause is Vaani.";
     const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValueOnce(null)
       .mockReturnValueOnce(null)
@@ -1025,7 +1340,7 @@ describe("DictationService", () => {
     let readCount = 0;
     const getFocusedValue = vi.fn(() => {
       readCount += 1;
-      if (readCount <= 42) return readCount === 1 ? "" : null;
+      if (readCount <= 43) return readCount <= 2 ? "" : null;
       return corrected;
     });
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
@@ -1106,6 +1421,7 @@ describe("DictationService", () => {
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("Open get hub.")
       .mockReturnValueOnce("Open get hub.")
       .mockReturnValue("Open GitHub.");
@@ -1161,6 +1477,7 @@ describe("DictationService", () => {
     const nativeBridge = await import("@main/nativeBridge");
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("My email.")
       .mockReturnValueOnce("My email.")
       .mockReturnValue("onkarj012@gmail.com");
@@ -1189,6 +1506,7 @@ describe("DictationService", () => {
     transcription.transcribe.mockResolvedValue({ rawText: "use versel", formattedText: "use versel", language: "en" });
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValueOnce("Use versel.")
       .mockReturnValueOnce("Use versel.")
@@ -1229,6 +1547,7 @@ describe("DictationService", () => {
     transcription.transcribe.mockResolvedValue({ rawText: "sentence", formattedText: "sentence", language: "en" });
     const nativeBridge = await import("@main/nativeBridge");
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValueOnce("Sentence.")
       .mockReturnValueOnce("Sentence.")

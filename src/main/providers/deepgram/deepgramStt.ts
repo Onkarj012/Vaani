@@ -1,8 +1,9 @@
 import type { TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
-import { normalizeDeepgramLanguage, resolveReportedLanguage } from "@main/providers/language";
+import { resolveLanguageForProvider, resolveReportedLanguage } from "@main/providers/language";
 import { validateBearerEndpoint } from "../validation";
 import { createWavBuffer, fetchWithTimeout } from "@main/providers/shared/audioUtils";
+import { throwIfAborted } from "@main/cancellation";
 
 export const DeepgramSttProvider: TranscriptionProvider = {
   id: "deepgram",
@@ -19,7 +20,7 @@ export const DeepgramSttProvider: TranscriptionProvider = {
     const wavBuffer = createWavBuffer(clip);
     const model = options.model || "nova-3";
     let url = `https://api.deepgram.com/v1/listen?model=${model}`;
-    const language = normalizeDeepgramLanguage(options.language);
+    const language = resolveLanguageForProvider(options.language, "deepgram", model);
     if (language) {
       url += `&language=${encodeURIComponent(language)}`;
     } else {
@@ -33,11 +34,11 @@ export const DeepgramSttProvider: TranscriptionProvider = {
         "Content-Type": "audio/wav",
       },
       body: new Uint8Array(wavBuffer),
+      signal: options.signal,
     });
+    throwIfAborted(options.signal);
 
-    if (!response.ok) {
-      throw new Error(`Deepgram API is temporarily unavailable. Please try again.`);
-    }
+    if (!response.ok) throw new Error(`Deepgram API request failed with status ${response.status}.`);
 
     const data = await response.json() as {
       results?: {
@@ -47,6 +48,7 @@ export const DeepgramSttProvider: TranscriptionProvider = {
         }[];
       };
     };
+    throwIfAborted(options.signal);
 
     const alternative = data.results?.channels?.[0]?.alternatives?.[0];
     const rawText = alternative?.transcript?.trim() ?? "";

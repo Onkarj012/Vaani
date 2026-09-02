@@ -3,6 +3,9 @@ import type { DictationTrace, InjectionAttemptTrace } from "@shared/types";
 import {
   INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD,
   INSERTION_ACCEPTANCE_APP_THRESHOLD,
+  INSERTION_ACCEPTANCE_APP_BINDING_COUNT,
+  INSERTION_ACCEPTANCE_MIN_TRIALS,
+  INSERTION_ACCEPTANCE_REQUIRED_CLASSES,
   evaluateInsertionAcceptance,
 } from "@shared/insertionAcceptance";
 
@@ -91,11 +94,11 @@ describe("evaluateInsertionAcceptance", () => {
     });
   });
 
-  it("stays warming when fewer than 200 stored slots are available", () => {
-    const result = evaluateInsertionAcceptance(tracesFor(199));
+  it("stays warming until the minimum 100 eligible trials are available", () => {
+    const result = evaluateInsertionAcceptance(tracesFor(INSERTION_ACCEPTANCE_MIN_TRIALS - 1));
 
     expect(result.status).toBe("warming");
-    expect(result.counts.inspected).toBe(199);
+    expect(result.counts.inspected).toBe(INSERTION_ACCEPTANCE_MIN_TRIALS - 1);
   });
 
   it("excludes rejected observations from the eligible denominator", () => {
@@ -176,7 +179,7 @@ describe("evaluateInsertionAcceptance", () => {
   });
 
   it("does not pass when every clean observation has an unreadable baseline", () => {
-    const result = evaluateInsertionAcceptance(tracesFor(200, (index) => trace(`excluded-${index}`, {
+    const result = evaluateInsertionAcceptance(tracesFor(INSERTION_ACCEPTANCE_MIN_TRIALS, (index) => trace(`excluded-${index}`, {
       outcome: "saved",
       attempts: [{
         ...successfulAttempt(),
@@ -186,10 +189,10 @@ describe("evaluateInsertionAcceptance", () => {
 
     expect(result.status).toBe("fail");
     expect(result.counts).toMatchObject({
-      inspected: 200,
-      qualifyingClean: 200,
-      excluded: 200,
-      excludedBaselineUnreadable: 200,
+      inspected: INSERTION_ACCEPTANCE_MIN_TRIALS,
+      qualifyingClean: INSERTION_ACCEPTANCE_MIN_TRIALS,
+      excluded: INSERTION_ACCEPTANCE_MIN_TRIALS,
+      excludedBaselineUnreadable: INSERTION_ACCEPTANCE_MIN_TRIALS,
       eligible: 0,
       successful: 0,
       failed: 0,
@@ -251,41 +254,55 @@ describe("evaluateInsertionAcceptance", () => {
     expect(result.counts).toMatchObject({ eligible: 3, successful: 1, failed: 2 });
   });
 
-  it("exempts an app at nine observations and binds it at ten", () => {
-    const exempt = evaluateInsertionAcceptance(tracesFor(9, (index) => trace(`exempt-${index}`, {
+  it("does not bind an app at 99 trials and binds it at 100", () => {
+    const exempt = evaluateInsertionAcceptance(tracesFor(99, (index) => trace(`exempt-${index}`, {
       attempts: [{ ...successfulAttempt("com.example.Exempt", "Exempt"), success: false }],
     })));
-    const bound = evaluateInsertionAcceptance(tracesFor(10, (index) => trace(`bound-${index}`, {
+    const bound = evaluateInsertionAcceptance(tracesFor(INSERTION_ACCEPTANCE_APP_BINDING_COUNT, (index) => trace(`bound-${index}`, {
       attempts: [{ ...successfulAttempt("com.example.Bound", "Bound"), success: false }],
     })));
 
-    expect(exempt.apps[0]).toMatchObject({ targetAppBundleId: "com.example.Exempt", eligible: 9, bound: false, passed: true });
-    expect(bound.apps[0]).toMatchObject({ targetAppBundleId: "com.example.Bound", eligible: 10, bound: true, passed: false });
+    expect(exempt.apps[0]).toMatchObject({ targetAppBundleId: "com.example.Exempt", eligible: 99, bound: false, passed: true });
+    expect(bound.apps[0]).toMatchObject({ targetAppBundleId: "com.example.Bound", eligible: 100, bound: true, passed: false });
   });
 
-  it("passes exact aggregate and app thresholds, and fails one below either boundary", () => {
-    const passing = evaluateInsertionAcceptance(tracesFor(200, (index) => {
-      const app = index < 10 ? "com.example.Bound" : null;
-      const successful = index >= 1 && index < 191;
+  it("uses synthetic fixtures for exact aggregate and app thresholds", () => {
+    const passing = evaluateInsertionAcceptance(tracesFor(INSERTION_ACCEPTANCE_MIN_TRIALS, (index) => {
+      const app = index < 100 ? "com.example.Bound" : null;
+      const successful = index < 98;
       return trace(`pass-${index}`, {
-        attempts: [{ ...successfulAttempt(app, app ? "Bound" : null), success: successful }],
+        attempts: [{ ...successfulAttempt(app, app ? "Bound" : null), targetFieldClass: `field-${index % 20}`, success: successful }],
       });
     }));
-    const aggregateBelow = evaluateInsertionAcceptance(tracesFor(200, (index) => trace(`aggregate-${index}`, {
-      attempts: [{ ...successfulAttempt(), success: index < 189 }],
+    const aggregateBelow = evaluateInsertionAcceptance(tracesFor(INSERTION_ACCEPTANCE_MIN_TRIALS, (index) => trace(`aggregate-${index}`, {
+      attempts: [{ ...successfulAttempt(), targetFieldClass: `field-${index % 20}`, success: index < 97 }],
     })));
-    const appBelow = evaluateInsertionAcceptance(tracesFor(200, (index) => trace(`app-${index}`, {
-      attempts: [{ ...successfulAttempt(index < 10 ? "com.example.Bound" : null, index < 10 ? "Bound" : null), success: index < 8 },
+    const appBelow = evaluateInsertionAcceptance(tracesFor(INSERTION_ACCEPTANCE_MIN_TRIALS, (index) => trace(`app-${index}`, {
+      attempts: [{ ...successfulAttempt(index < 100 ? "com.example.Bound" : null, index < 100 ? "Bound" : null), targetFieldClass: `field-${index % 20}`, success: index < 100 ? index < 94 : true },
       ],
     })));
 
-    expect(INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD).toBe(0.95);
-    expect(INSERTION_ACCEPTANCE_APP_THRESHOLD).toBe(0.9);
+    expect(INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD).toBe(0.98);
+    expect(INSERTION_ACCEPTANCE_APP_THRESHOLD).toBe(0.95);
     expect(passing.status).toBe("pass");
-    expect(passing.rates.aggregate.rate).toBe(0.95);
-    expect(passing.apps[0]).toMatchObject({ eligible: 10, successful: 9, rate: 0.9, bound: true, passed: true });
+    expect(passing.rates.aggregate.rate).toBe(0.98);
+    expect(passing.apps[0]).toMatchObject({ eligible: 100, successful: 98, rate: 0.98, bound: true, passed: true });
     expect(aggregateBelow.status).toBe("fail");
     expect(appBelow.status).toBe("fail");
-    expect(appBelow.apps[0]).toMatchObject({ eligible: 10, successful: 8, bound: true, passed: false });
+    expect(appBelow.apps[0]).toMatchObject({ eligible: 100, successful: 94, rate: 0.94, bound: true, passed: false });
+  });
+
+  it("represents the required twenty deterministic app and field classes", () => {
+    const classes = [
+      "native-single-line", "native-multiline", "native-rich-text", "native-password", "native-search",
+      "browser-single-line", "browser-multiline", "browser-rich-text", "browser-composer", "browser-search",
+      "terminal-shell", "terminal-editor", "chat-composer", "chat-thread", "mail-body",
+      "document-body", "spreadsheet-cell", "code-editor", "note-body", "dialog-input",
+    ];
+    const result = evaluateInsertionAcceptance(tracesFor(INSERTION_ACCEPTANCE_MIN_TRIALS, (index) => trace(`matrix-${index}`, {
+      attempts: [{ ...successfulAttempt(`com.example.Matrix${index % classes.length}`, "Matrix"), targetFieldClass: classes[index % classes.length] }],
+    })));
+    expect(result.representedClasses).toHaveLength(INSERTION_ACCEPTANCE_REQUIRED_CLASSES);
+    expect(result.status).toBe("pass");
   });
 });

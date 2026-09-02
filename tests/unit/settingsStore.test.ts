@@ -173,4 +173,29 @@ describe("SettingsStore", () => {
     expect(store.update({ fillerWords: ["um"] }).fillerWordsCustomized).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
+
+  it("persists provider validation metadata across reloads", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-settings-test-"));
+    const filePath = join(tempDir, "settings.json");
+    const validation = {
+      valid: true,
+      message: "Provider API key is valid.",
+      testedAt: "2026-09-01T00:00:00.000Z",
+    };
+
+    const { SettingsStore } = await import("../../src/main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+    store.update({ providerApiKeys: [{ providerId: "openai", key: "", hasKey: true, lastValidation: validation }] });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const reloaded = new SettingsStore(filePath);
+    await reloaded.init();
+    expect(reloaded.get().providerApiKeys).toEqual([{
+      providerId: "openai",
+      key: "",
+      hasKey: true,
+      lastValidation: validation,
+    }]);
+  });
 });

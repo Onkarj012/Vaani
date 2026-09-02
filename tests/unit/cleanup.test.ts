@@ -412,10 +412,28 @@ describe("applySnippets — spoken marker", () => {
       expected: "My address is hi@example.com.",
     },
     {
-      name: "slash marker no longer expands (spoken 'slash' is ordinary speech)",
-      raw: "send to slash email now",
+      name: "slash marker at start",
+      raw: "slash email is the best way",
       snippets: [{ trigger: "email", content: "hi@example.com" }],
-      expected: "Send to slash email now.",
+      expected: "Hi@example.com is the best way.",
+    },
+    {
+      name: "slash marker mid-sentence",
+      raw: "contact me at slash email please",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Contact me at hi@example.com please.",
+    },
+    {
+      name: "slash marker at end",
+      raw: "my address is slash email",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "My address is hi@example.com.",
+    },
+    {
+      name: "slash marker after punctuation",
+      raw: "hello, slash email please",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Hello, hi@example.com please.",
     },
     {
       name: "inserted content is not re-expanded (no double-expansion)",
@@ -442,6 +460,18 @@ describe("applySnippets — spoken marker", () => {
       expected: "Use hi@example.com here.",
     },
     {
+      name: "case-insensitive slash marker",
+      raw: "use SLASH Email here",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Use hi@example.com here.",
+    },
+    {
+      name: "slash marker does not match a longer spoken word",
+      raw: "use slashed email here",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Use slashed email here.",
+    },
+    {
       name: "case-insensitive trigger name",
       raw: "use snippet EMAIL here",
       snippets: [{ trigger: "email", content: "hi@example.com" }],
@@ -454,8 +484,23 @@ describe("applySnippets — spoken marker", () => {
       expected: "Use snippet unknown here.",
     },
     {
+      name: "unknown slash name leaves transcript unchanged",
+      raw: "use slash unknown here",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Use slash unknown here.",
+    },
+    {
       name: "multiple snippets expand",
       raw: "from snippet name to snippet email",
+      snippets: [
+        { trigger: "name", content: "Alice" },
+        { trigger: "email", content: "alice@example.com" },
+      ],
+      expected: "From Alice to alice@example.com.",
+    },
+    {
+      name: "both spoken markers expand",
+      raw: "from slash name to snippet email",
       snippets: [
         { trigger: "name", content: "Alice" },
         { trigger: "email", content: "alice@example.com" },
@@ -500,4 +545,28 @@ describe("applySnippets — spoken marker", () => {
       expect(result).toBe(expected)
     })
   }
+
+  it("expands spoken slash markers when cleanup is disabled", () => {
+    expect(cleanupText({
+      rawText: "use slash email here",
+      settings: createSettings({
+        cleanupEnabled: false,
+        snippets: [{ trigger: "email", content: "hi@example.com" }],
+      }),
+    })).toBe("use hi@example.com here");
+  });
+
+  it("keeps spoken slash expansion scoped to the active app profile", () => {
+    const snippet = { trigger: "profile phrase", content: "expanded", appProfileIds: ["work"] };
+    expect(cleanupText({
+      rawText: "say slash profile phrase",
+      settings: createSettings({ snippets: [snippet] }),
+      appProfileId: "work",
+    })).toBe("Say expanded.");
+    expect(cleanupText({
+      rawText: "say slash profile phrase",
+      settings: createSettings({ snippets: [snippet] }),
+      appProfileId: "home",
+    })).toBe("Say slash profile phrase.");
+  });
 })

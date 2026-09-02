@@ -17,7 +17,14 @@ describe("shouldGrantMediaPermission", () => {
     expect(shouldGrantMediaPermission(recorderWebContents, "notifications", undefined, [mainWebContents, recorderWebContents])).toBe(false);
   });
 
-  it("treats an unspecified media type list as audio-only", () => {
-    expect(shouldGrantMediaPermission(recorderWebContents, "media", undefined, [recorderWebContents])).toBe(true);
+  it("rejects empty or unspecified media type lists", () => {
+    expect(shouldGrantMediaPermission(recorderWebContents, "media", undefined, [recorderWebContents])).toBe(false);
+    expect(shouldGrantMediaPermission(recorderWebContents, "media", { mediaTypes: [] }, [recorderWebContents])).toBe(false);
+  });
+
+  it("rejects video and unknown media types", () => {
+    expect(shouldGrantMediaPermission(recorderWebContents, "media", { mediaTypes: ["video"] }, [recorderWebContents])).toBe(false);
+    expect(shouldGrantMediaPermission(recorderWebContents, "media", { mediaTypes: ["audio", "video"] }, [recorderWebContents])).toBe(false);
+    expect(shouldGrantMediaPermission(recorderWebContents, "media", { mediaTypes: ["unknown"] }, [recorderWebContents])).toBe(false);
   });
 });

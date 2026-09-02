@@ -1,9 +1,11 @@
 import type { DictationTrace } from "./types";
 
 export const INSERTION_ACCEPTANCE_TRACE_WINDOW = 200;
-export const INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD = 0.95;
-export const INSERTION_ACCEPTANCE_APP_THRESHOLD = 0.9;
-export const INSERTION_ACCEPTANCE_APP_BINDING_COUNT = 10;
+export const INSERTION_ACCEPTANCE_MIN_TRIALS = 100;
+export const INSERTION_ACCEPTANCE_REQUIRED_CLASSES = 20;
+export const INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD = 0.98;
+export const INSERTION_ACCEPTANCE_APP_THRESHOLD = 0.95;
+export const INSERTION_ACCEPTANCE_APP_BINDING_COUNT = 100;
 
 export type InsertionAcceptanceStatus = "warming" | "pass" | "fail";
 
@@ -47,6 +49,7 @@ export interface InsertionAcceptanceReport {
   };
   apps: InsertionAcceptanceAppReport[];
   unknown: InsertionAcceptanceUnknownReport;
+  representedClasses: string[];
 }
 
 interface MutableAppReport {
@@ -72,6 +75,7 @@ export function evaluateInsertionAcceptance(traces: readonly DictationTrace[]): 
   };
   const appReports = new Map<string, MutableAppReport>();
   const unknownReport = { successful: 0, eligible: 0 };
+  const representedClasses = new Set<string>();
 
   for (const trace of inspectedTraces) {
     const buildIdentifier = trace.buildIdentifier;
@@ -113,10 +117,12 @@ export function evaluateInsertionAcceptance(traces: readonly DictationTrace[]): 
     else counts.failed += 1;
 
     if (finalAttempt.targetAppBundleId === null) {
+      representedClasses.add(`${finalAttempt.targetAppBundleId ?? "unknown"}:${finalAttempt.targetFieldClass ?? "unknown"}`);
       unknownReport.eligible += 1;
       if (successful) unknownReport.successful += 1;
       continue;
     }
+    representedClasses.add(`${finalAttempt.targetAppBundleId}:${finalAttempt.targetFieldClass ?? "unknown"}`);
     const existing = appReports.get(finalAttempt.targetAppBundleId);
     const app = existing ?? {
       targetAppBundleId: finalAttempt.targetAppBundleId,
@@ -155,11 +161,12 @@ export function evaluateInsertionAcceptance(traces: readonly DictationTrace[]): 
     bound: false,
     passed: true,
   };
-  const warm = inspectedTraces.length < INSERTION_ACCEPTANCE_TRACE_WINDOW ||
-    counts.qualifyingClean < INSERTION_ACCEPTANCE_TRACE_WINDOW;
+  const warm = counts.qualifyingClean < INSERTION_ACCEPTANCE_MIN_TRIALS;
   const status: InsertionAcceptanceStatus = warm
     ? "warming"
-    : counts.eligible > 0 && aggregateRate.rate >= INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD && apps.every((app) => app.passed)
+    : aggregateRate.rate >= INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD &&
+      apps.every((app) => app.passed) &&
+      representedClasses.size >= INSERTION_ACCEPTANCE_REQUIRED_CLASSES
       ? "pass"
       : "fail";
 
@@ -169,6 +176,7 @@ export function evaluateInsertionAcceptance(traces: readonly DictationTrace[]): 
     rates: { aggregate: aggregateRate, apps },
     apps,
     unknown,
+    representedClasses: [...representedClasses],
   };
 }
 

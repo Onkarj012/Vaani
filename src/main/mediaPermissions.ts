@@ -1,5 +1,5 @@
 export interface MediaPermissionDetails {
-  mediaTypes?: string[];
+  mediaTypes?: readonly string[];
 }
 
 export function shouldGrantMediaPermission(
@@ -12,6 +12,6 @@ export function shouldGrantMediaPermission(
     return false;
   }
 
-  const mediaTypes = details?.mediaTypes ?? [];
-  return mediaTypes.length === 0 || mediaTypes.every((type) => type === "audio");
+  const mediaTypes = details?.mediaTypes;
+  return Array.isArray(mediaTypes) && mediaTypes.length > 0 && mediaTypes.every((type) => type === "audio");
 }

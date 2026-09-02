@@ -3,6 +3,8 @@ import type { MacOSPermissionState, PermissionStatus } from "@shared/types";
 import {
   getAccessibilityPermissionRemediation,
   getMicrophonePermissionRemediation,
+  getPermissionStatusIndicator,
+  getPermissionStatusLabel,
   isPermissionReady,
 } from "@shared/permissionGuard";
 
@@ -17,6 +19,20 @@ describe("permission guard policy", () => {
         expect(isPermissionReady(status)).toBe(microphone === "granted" && accessibility === "granted");
       }
     }
+  });
+
+  it("summarizes the persistent indicator for ready and incomplete states", () => {
+    expect(getPermissionStatusIndicator({ microphone: "granted", accessibility: "granted" })).toEqual({
+      allGranted: true,
+      label: "Ready",
+      description: "Microphone and Accessibility are enabled for dictation.",
+    });
+    expect(getPermissionStatusIndicator({ microphone: "granted", accessibility: "denied" })).toEqual({
+      allGranted: false,
+      label: "Action needed",
+      description: "Accessibility needs access before dictation can run.",
+    });
+    expect(getPermissionStatusLabel("not-determined")).toBe("Needs approval");
   });
 
   it("maps every microphone state to deterministic remediation", () => {

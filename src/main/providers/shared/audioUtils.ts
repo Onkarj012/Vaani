@@ -1,4 +1,5 @@
 import type { AudioClip } from "@shared/types";
+import { createCancellationScope } from "@main/cancellation";
 
 export const STT_TIMEOUT_MS = 20_000;
 
@@ -30,7 +31,17 @@ export function fetchWithTimeout(
   init: RequestInit,
   timeoutMs = STT_TIMEOUT_MS,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  const scope = createCancellationScope(init.signal ?? undefined, Date.now() + timeoutMs);
+  return (async () => {
+    try {
+      const response = await fetch(input, { ...init, signal: scope.signal });
+      if (scope.signal.aborted && !init.signal?.aborted) throw new Error("Request timed out.");
+      return response;
+    } catch (error) {
+      if (scope.signal.aborted && !init.signal?.aborted) throw new Error("Request timed out.");
+      throw error;
+    } finally {
+      scope.dispose();
+    }
+  })();
 }

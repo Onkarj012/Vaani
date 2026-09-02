@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IpcChannel } from "@shared/ipc";
+import { DEFAULT_SETTINGS } from "@shared/defaults";
+import type { DictationEntry, Settings } from "@shared/types";
 import { CredentialsStore, MemoryCredentialBackend } from "@main/store/credentials";
 
 const invokeHandlers = new Map<string, (...args: unknown[]) => unknown>();
@@ -49,17 +51,17 @@ vi.mock("@main/providers/local/whisperCpp", () => ({
 }));
 vi.mock("@main/providers/apiKeyValidation", () => ({ validateSubmittedApiKey: vi.fn() }));
 
-function windowFor(sender: object) {
+function windowFor(sender: { send: (...args: unknown[]) => void }) {
   return { webContents: sender, isDestroyed: () => false };
 }
 
 describe("IPC security boundaries", () => {
-  const mainSender = {};
-  const recorderSender = {};
-  const overlaySender = {};
-  const untrustedSender = {};
+  const mainSender = { send: vi.fn() };
+  const recorderSender = { send: vi.fn() };
+  const overlaySender = { send: vi.fn() };
+  const untrustedSender = { send: vi.fn() };
   const history = {
-    getAll: vi.fn(() => []),
+    getAll: vi.fn(async (): Promise<DictationEntry[]> => []),
     getById: vi.fn(),
     updateById: vi.fn(),
     getLatest: vi.fn(),
@@ -67,19 +69,30 @@ describe("IPC security boundaries", () => {
     clear: vi.fn(),
   };
   const dictation = {
-    getState: vi.fn(() => ({ status: "idle" })),
+    getState: vi.fn(() => ({ status: "idle" as const })),
+    getTrace: vi.fn(),
+    getActiveSessionForLifecycle: vi.fn(() => null),
+    reinjectEntry: vi.fn(),
+    retryEntry: vi.fn(),
+    copyRecoveryEntry: vi.fn(),
+    retryRecoveryTranscription: vi.fn(),
+    retryRecoveryFormatting: vi.fn(),
+    useRawRecoveryTranscript: vi.fn(),
+    retryRecoveryInsertion: vi.fn(),
+    exportBugReport: vi.fn(),
+    showDictionarySuggestions: vi.fn(),
+    purgeAutoSuggestedCorrections: vi.fn(() => DEFAULT_SETTINGS),
     submitAudioClip: vi.fn(),
+    reportRecorderReady: vi.fn(),
+    reportRecorderStarted: vi.fn(),
     updateAudioLevel: vi.fn(),
+    handleRecorderFailure: vi.fn(),
+    demoTranscribe: vi.fn(),
     navigateToHistoryEntry: vi.fn(),
   };
   const settings = {
-    get: vi.fn(() => ({
-      micDeviceId: undefined,
-      preWarmMic: false,
-      captureBackend: "renderer",
-      providerApiKeys: [],
-    })),
-    update: vi.fn((patch) => patch),
+    get: vi.fn(() => DEFAULT_SETTINGS),
+    update: vi.fn((patch: Partial<Settings>) => ({ ...DEFAULT_SETTINGS, ...patch })),
   };
 
   beforeEach(async () => {
@@ -89,13 +102,13 @@ describe("IPC security boundaries", () => {
     const { registerIpcHandlers } = await import("@main/ipc");
     registerIpcHandlers({
       mainWindow: windowFor(mainSender),
-      recorder: { getWindow: () => windowFor(recorderSender) },
+      recorder: { getWindow: () => windowFor(recorderSender), markReady: vi.fn() },
       overlay: { getWindow: () => windowFor(overlaySender) },
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true },
-    } as never);
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+    });
   });
 
   it("allows dashboard channels only from the main renderer", async () => {
@@ -177,14 +190,14 @@ describe("IPC security boundaries", () => {
     const { registerIpcHandlers } = await import("@main/ipc");
     registerIpcHandlers({
       mainWindow: windowFor(mainSender),
-      recorder: { getWindow: () => windowFor(recorderSender) },
+      recorder: { getWindow: () => windowFor(recorderSender), markReady: vi.fn() },
       overlay: { getWindow: () => windowFor(overlaySender) },
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
       credentials,
-    } as never);
+    });
 
     await invokeHandlers.get(IpcChannel.SetProviderApiKey)?.(
       { sender: mainSender },
@@ -195,6 +208,61 @@ describe("IPC security boundaries", () => {
     expect(await credentials.get("openai")).toBe("openai-updated");
     expect(await credentials.get("groq")).toBe("groq-secret");
     expect(await credentials.get("deepgram")).toBe("deepgram-secret");
+  });
+
+  it("persists sanitized provider key validation state through save, test, and clear", async () => {
+    const backend = new MemoryCredentialBackend();
+    const credentials = new CredentialsStore(backend);
+    const state: Settings = { ...DEFAULT_SETTINGS, providerApiKeys: [] };
+    const stateStore = {
+      get: vi.fn(() => state),
+      update: vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch)),
+    };
+    const { validateSubmittedApiKey } = await import("@main/providers/apiKeyValidation");
+    vi.mocked(validateSubmittedApiKey).mockResolvedValue({ valid: true, message: "Provider API key is valid." });
+
+    const { registerIpcHandlers } = await import("@main/ipc");
+    registerIpcHandlers({
+      mainWindow: windowFor(mainSender),
+      recorder: { getWindow: () => windowFor(recorderSender), markReady: vi.fn() },
+      overlay: { getWindow: () => windowFor(overlaySender) },
+      dictation,
+      history,
+      settings: stateStore,
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      credentials,
+    });
+
+    const saved = await invokeHandlers.get(IpcChannel.SetProviderApiKey)?.(
+      { sender: mainSender },
+      "openai",
+      "openai-secret",
+    ) as Settings;
+    expect(saved.providerApiKeys).toEqual([{
+      providerId: "openai",
+      key: "",
+      hasKey: true,
+      lastValidation: null,
+    }]);
+    expect(JSON.stringify(saved)).not.toContain("openai-secret");
+
+    await invokeHandlers.get(IpcChannel.TestApiKey)?.({ sender: mainSender }, "openai", "openai-secret");
+    expect(state.providerApiKeys[0]?.lastValidation).toMatchObject({
+      valid: true,
+      message: "Provider API key is valid.",
+    });
+    expect(state.providerApiKeys[0]?.lastValidation?.testedAt).toEqual(expect.any(String));
+
+    const cleared = await invokeHandlers.get(IpcChannel.ClearProviderApiKey)?.(
+      { sender: mainSender },
+      "openai",
+    ) as Settings;
+    expect(cleared.providerApiKeys).toEqual([{
+      providerId: "openai",
+      key: "",
+      hasKey: false,
+      lastValidation: null,
+    }]);
   });
 
   it("clears exactly the named provider credential", async () => {
@@ -208,14 +276,14 @@ describe("IPC security boundaries", () => {
     const { registerIpcHandlers } = await import("@main/ipc");
     registerIpcHandlers({
       mainWindow: windowFor(mainSender),
-      recorder: { getWindow: () => windowFor(recorderSender) },
+      recorder: { getWindow: () => windowFor(recorderSender), markReady: vi.fn() },
       overlay: { getWindow: () => windowFor(overlaySender) },
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
       credentials,
-    } as never);
+    });
 
     await invokeHandlers.get(IpcChannel.ClearProviderApiKey)?.(
       { sender: mainSender },
@@ -240,14 +308,14 @@ describe("IPC security boundaries", () => {
     const { registerIpcHandlers } = await import("@main/ipc");
     registerIpcHandlers({
       mainWindow: windowFor(mainSender),
-      recorder: { getWindow: () => windowFor(recorderSender) },
+      recorder: { getWindow: () => windowFor(recorderSender), markReady: vi.fn() },
       overlay: { getWindow: () => windowFor(overlaySender) },
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
       credentials,
-    } as never);
+    });
 
     await invokeHandlers.get(IpcChannel.UpdateSettings)?.(
       { sender: mainSender },
@@ -308,5 +376,51 @@ describe("IPC security boundaries", () => {
     expect(settings.update).toHaveBeenCalledWith({
       customCorrections: [{ spoken: "onkar", written: "Onkar", source: "manual" }],
     });
+  });
+
+  it("fences recovery reads, actions, and storage mutation while readiness is disabled", async () => {
+    const recovery = {
+      getUnresolved: vi.fn(async () => []),
+      getById: vi.fn(),
+      getAll: vi.fn(async () => []),
+    };
+    const recoveryAudio = {
+      deleteAudio: vi.fn(),
+      discard: vi.fn(),
+      cleanupExpired: vi.fn(),
+      getStorageUsage: vi.fn(),
+      playDecryptedAudio: vi.fn(),
+    };
+    const { registerIpcHandlers } = await import("@main/ipc");
+    registerIpcHandlers({
+      mainWindow: windowFor(mainSender),
+      recorder: { getWindow: () => windowFor(recorderSender), markReady: vi.fn() },
+      overlay: { getWindow: () => windowFor(overlaySender) },
+      dictation,
+      history,
+      settings,
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      recovery,
+      recoveryAudio,
+      recoveryReady: () => false,
+      consumeRestoredRecoveryNotice: vi.fn(),
+    });
+
+    expect(await invokeHandlers.get(IpcChannel.GetRecoveryEntries)?.({ sender: mainSender })).toEqual([]);
+    expect(await invokeHandlers.get(IpcChannel.GetRecoveryRestored)?.({ sender: mainSender })).toBeNull();
+    expect(await invokeHandlers.get(IpcChannel.CopyRecoveryEntry)?.({ sender: mainSender }, "entry")).toBe(false);
+    expect(await invokeHandlers.get(IpcChannel.RetryRecoveryTranscription)?.({ sender: mainSender }, "entry")).toBe(false);
+    expect(await invokeHandlers.get(IpcChannel.RetryRecoveryFormatting)?.({ sender: mainSender }, "entry")).toBe(false);
+    expect(await invokeHandlers.get(IpcChannel.UseRawRecoveryTranscript)?.({ sender: mainSender }, "entry")).toBe(false);
+    expect(await invokeHandlers.get(IpcChannel.RetryRecoveryInsertion)?.({ sender: mainSender }, "entry")).toBe(false);
+    expect(await invokeHandlers.get(IpcChannel.PlayRecoveryAudio)?.({ sender: mainSender }, "entry")).toBe(false);
+    expect(await invokeHandlers.get(IpcChannel.DeleteRecoveryAudio)?.({ sender: mainSender }, "entry")).toBe(false);
+    expect(await invokeHandlers.get(IpcChannel.DiscardRecoveryEntry)?.({ sender: mainSender }, "entry")).toBe(false);
+    expect(await invokeHandlers.get(IpcChannel.GetRecoveryStorageUsage)?.({ sender: mainSender })).toEqual({ bytes: 0, sessions: 0 });
+    expect(await invokeHandlers.get(IpcChannel.CleanupRecoveryAudio)?.({ sender: mainSender })).toEqual({ bytes: 0, sessions: 0 });
+    expect(await invokeHandlers.get(IpcChannel.ClearRecoveryAudio)?.({ sender: mainSender })).toEqual({ bytes: 0, sessions: 0 });
+    expect(recovery.getUnresolved).not.toHaveBeenCalled();
+    expect(recoveryAudio.cleanupExpired).not.toHaveBeenCalled();
+    expect(recoveryAudio.deleteAudio).not.toHaveBeenCalled();
   });
 });

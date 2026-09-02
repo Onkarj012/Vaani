@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session, systemPreferences } from "electron";
+import { app, BrowserWindow, ipcMain, powerMonitor, session, systemPreferences } from "electron";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync, existsSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,16 +13,24 @@ import { RecorderWindowController } from "./recorderWindow";
 import { CaptureBackendController, NativeCaptureService } from "./audio/nativeCapture";
 import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
+import { RecoveryJournalStore } from "./store/recoveryJournal";
+import { EncryptedRecoveryAudioStore } from "./audio/recoveryAudio";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { isPermissionReady } from "@shared/permissionGuard";
+import { isRecoveryEnabled } from "./recoveryReadiness";
 import { getProviderRegistry } from "./providers";
 import { loadWhisperModel } from "./providers/local/whisperCpp";
 import { error } from "@main/log";
 import { shouldGrantMediaPermission } from "./mediaPermissions";
+import { APP_DATA_DIR } from "@shared/defaults";
+import { RecoveryLifecycleCoordinator } from "./recoveryLifecycle";
+import { subscribeNativeLoadFailure, nativeBridge } from "./nativeBridge";
+import { consumeRestoredRecoveryNotice } from "./recoveryStartup";
+import { createQuitHandler } from "./quitCleanup";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
@@ -39,9 +47,14 @@ let hotkeyManager: HotkeyManager | null = null;
 let settingsStore: SettingsStore | null = null;
 let credentialsStore: CredentialsStore | null = null;
 let dictationService: DictationService | null = null;
+let lifecycleCoordinator: RecoveryLifecycleCoordinator | null = null;
+let unsubscribeNativeFailure: (() => void) | null = null;
+let recoveryJournal: RecoveryJournalStore | null = null;
 let menuBarMode = true;
 let rendererReady = false;
 let mainWindowOpenRequested = false;
+let restoredRecoveryIds: string[] = [];
+const restoredRecoveryNoticeState: { deliveredBatch: string | null } = { deliveredBatch: null };
 let mainWindowReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDockVisible: boolean | null = null;
 let suppressDashboardActivationUntil = 0;
@@ -195,6 +208,10 @@ function preserveDockIfDashboardOpen(): void {
 function cleanupRuntimeResources(): void {
   clearMainWindowReadyTimeout();
   dictationService?.destroy();
+  lifecycleCoordinator?.dispose();
+  lifecycleCoordinator = null;
+  unsubscribeNativeFailure?.();
+  unsubscribeNativeFailure = null;
   hotkeyManager?.unregister();
   hotkeyManager = null;
   recorderController?.destroy();
@@ -328,13 +345,14 @@ function configureRendererLifecycle(win: BrowserWindow): void {
   });
 }
 
-function configureMediaPermissions(getAllowedWebContents: () => readonly (object | null)[]): void {
+function configureMediaPermissions(getAllowedWebContents: () => readonly (object | null)[], onPermissionStatusChanged?: () => void): void {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     if (permission === "media") {
-      const mediaTypes = (details as { mediaTypes?: string[] }).mediaTypes ?? [];
+      const mediaTypes = (details as { mediaTypes?: readonly string[] } | undefined)?.mediaTypes;
       const granted = shouldGrantMediaPermission(webContents, permission, { mediaTypes }, getAllowedWebContents());
       callback(granted);
       log("permission:media", { granted, mediaTypes });
+      onPermissionStatusChanged?.();
       return;
     }
     callback(false);
@@ -367,7 +385,28 @@ async function bootstrap(): Promise<void> {
   settingsStore = settings;
   const history = new HistoryStore();
   const traces = new DictationTraceStore();
+  const recovery = new RecoveryJournalStore();
+  const recoveryAudio = new EncryptedRecoveryAudioStore(recovery, undefined, join(home, APP_DATA_DIR, "recovery-audio"));
+  recoveryJournal = recovery;
   await settings.init();
+  if (isRecoveryEnabled()) {
+    let recoveryUsable = true;
+    try {
+      await recovery.init();
+    } catch (startupError) {
+      recoveryUsable = false;
+      log("recovery:startup-repair-failed", { message: startupError instanceof Error ? startupError.message : String(startupError) });
+    }
+    if (recoveryUsable) {
+      await recoveryAudio.cleanupExpired().catch((startupError) => {
+        log("recovery:audio-expiry-failed", { message: startupError instanceof Error ? startupError.message : String(startupError) });
+      });
+      await recoveryAudio.reconcileOrphans().catch((startupError) => {
+        log("recovery:audio-orphan-cleanup-failed", { message: startupError instanceof Error ? startupError.message : String(startupError) });
+      });
+      restoredRecoveryIds = (await recovery.getUnresolved()).map((entry) => entry.id);
+    }
+  }
 
   // Initialize credentials store and migrate legacy API keys
   credentialsStore = new CredentialsStore();
@@ -402,7 +441,7 @@ async function bootstrap(): Promise<void> {
   configureMediaPermissions(() => [
     mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null,
     rendererRecorder.getWindow()?.webContents ?? null,
-  ]);
+  ], () => { void lifecycleCoordinator?.handlePermissionChanged(getFreshPermissionStatus()); });
   overlayController.setTheme("aurora");
   overlayController.setColorMode(initSettings.colorMode ?? "light");
   if (initSettings.accentColor) overlayController.setAccentColor(initSettings.accentColor);
@@ -424,7 +463,13 @@ async function bootstrap(): Promise<void> {
       reportRecorderStarted: (sessionId) => dictation.reportRecorderStarted(sessionId),
       submitAudioClip: (payload) => dictation.submitAudioClip(payload),
       updateAudioLevel: (frame) => dictation.updateAudioLevel(frame),
-      handleRecorderFailure: (payload) => dictation.handleRecorderFailure(payload),
+      handleRecorderFailure: (payload, partialClip) => {
+        if (payload.kind === "interrupted" && lifecycleCoordinator) {
+          void lifecycleCoordinator.handleCaptureInterruption(payload.sessionId, partialClip, payload.message);
+          return;
+        }
+        dictation.handleRecorderFailure(payload, partialClip);
+      },
     }
   );
   recorderController = new CaptureBackendController(
@@ -443,12 +488,35 @@ async function bootstrap(): Promise<void> {
     history,
     (label) => trayController.updateStatus(label),
     overlayController,
-    { recorder: recorderController, credentials: credentialsStore, traces }
+    { recorder: recorderController, credentials: credentialsStore, traces, recovery, recoveryAudio }
   );
   dictationService = dictation;
+  lifecycleCoordinator = new RecoveryLifecycleCoordinator({
+    journal: recovery,
+    capture: recorderController,
+    dictation: {
+      getActiveSession: () => dictation.getActiveSessionForLifecycle(),
+      handleLifecycleSuspended: (sessionId, generation, partialClip) => dictation.handleLifecycleSuspended(sessionId, generation, partialClip),
+      handleLifecycleInterruption: (sessionId, generation, message, errorClass, partialClip, routeHandoff) => dictation.handleLifecycleInterruption(sessionId, generation, message, errorClass, partialClip, routeHandoff),
+      handleLifecycleRouteHandoff: (sessionId, generation, handoff) => dictation.handleLifecycleRouteHandoff(sessionId, generation, handoff),
+    },
+    getPermissionStatus: getFreshPermissionStatus,
+    recoveryReady: isRecoveryEnabled,
+    reportStatus: (message) => trayController.updateStatus(message),
+  });
+  unsubscribeNativeFailure = subscribeNativeLoadFailure((failure) => {
+    void lifecycleCoordinator?.handleNativeLoadFailure(failure);
+  });
+  lifecycleCoordinator.attach(powerMonitor, {
+    subscribe: (listener) => {
+      const subscribe = nativeBridge.audioCaptureSetRouteChangeHandler;
+      return subscribe?.(listener);
+    },
+  });
 
   const beginDictationIfPermitted = (source: "tray" | "hotkey"): boolean => {
     const status = getFreshPermissionStatus();
+    void lifecycleCoordinator?.handlePermissionChanged(status);
     if (status.microphone === "granted" && status.accessibility === "granted") {
       warmNativeIfPermissionReady();
       if (source === "hotkey") suppressDashboardActivation("hotkey");
@@ -500,6 +568,12 @@ async function bootstrap(): Promise<void> {
     recorder: rendererRecorder,
     overlay: overlayController,
     credentials: credentialsStore,
+    recovery,
+    recoveryAudio,
+    consumeRestoredRecoveryNotice: () => {
+      return consumeRestoredRecoveryNotice(restoredRecoveryIds, restoredRecoveryNoticeState);
+    },
+    onPermissionStatusChanged: (status) => { void lifecycleCoordinator?.handlePermissionChanged(status); },
     onSettingsUpdated: (_updated, patch) => {
       if ("theme" in patch) overlayController?.setTheme("aurora");
       if ("colorMode" in patch && patch.colorMode) overlayController?.setColorMode(patch.colorMode);
@@ -603,7 +677,19 @@ if (!hasLock) { log("second-instance:exit"); app.quit(); }
 
 app.on("second-instance", () => { log("second-instance:focus"); showMainWindow(); });
 
-app.on("before-quit", () => { mutableApp.isQuitting = true; cleanupRuntimeResources(); });
+app.on("before-quit", createQuitHandler({
+  flush: async () => {
+    await dictationService?.flushRecovery();
+    await lifecycleCoordinator?.flush();
+    await recoveryJournal?.flush();
+  },
+  cleanup: () => {
+    mutableApp.isQuitting = true;
+    cleanupRuntimeResources();
+    recoveryJournal = null;
+  },
+  quit: () => app.quit(),
+}));
 
 app.whenReady()
   .then(() => bootstrap())

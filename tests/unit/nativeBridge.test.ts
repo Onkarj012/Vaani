@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { join } from "node:path";
 
 const hoisted = vi.hoisted(() => {
-  const app = { isPackaged: false };
+  const app = { isPackaged: false, isReady: vi.fn(() => true) };
   const existsSync = vi.fn((_path: string) => false);
   const requireNative = vi.fn();
   const createRequire = vi.fn(() => requireNative);

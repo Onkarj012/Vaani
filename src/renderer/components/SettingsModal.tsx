@@ -1,19 +1,22 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Globe, Mic, Keyboard, Type, Palette, Monitor, Volume2, Download, Trash2,
   Eye, EyeOff, Check, AlertTriangle, X, Database, HardDrive, Plug, RefreshCw, Sun, Moon,
+  ShieldCheck,
 } from 'lucide-react'
 import { useVaaniUi } from '../context/vaani-ui'
 import { useColorMode } from '../context/color-mode'
 import { HotkeyCapture } from './HotkeyCapture'
-import { KNOWN_PROVIDERS, SUPPORTED_LANGUAGES, isLanguageSupportedByProvider } from '@shared/defaults'
+import { KNOWN_PROVIDERS, SUPPORTED_LANGUAGES, getLanguageLabel, isLanguageSupportedByProvider, resolveProfileLanguage } from '@shared/defaults'
 import { Select } from '@renderer/components/ui/Select'
 import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
 import { createExportPayload } from '@renderer/exportData'
-import type { AudioInputDevice } from '@shared/types'
+import type { AudioInputDevice, ProviderKeyValidation, Settings } from '@shared/types'
+import type { RecoveryStorageUsage } from '@shared/recovery'
+import { decideProviderKeyDraft } from '@renderer/lib/providerKeyDraft'
 
 const sidebarItems = [
   { id: 'api', label: 'API & Providers', icon: Plug },
@@ -26,6 +29,7 @@ const sidebarItems = [
   { id: 'audio', label: 'Audio', icon: Volume2 },
   { id: 'updates', label: 'Updates', icon: Download },
   { id: 'data', label: 'Data', icon: Database },
+  { id: 'recovery', label: 'Recovery', icon: ShieldCheck },
 ]
 
 const sectionDescriptions: Record<string, string> = {
@@ -39,6 +43,7 @@ const sectionDescriptions: Record<string, string> = {
   audio: 'Silence detection and noise gate',
   updates: 'Check for app updates',
   data: 'Export, clear history, and reset settings',
+  recovery: 'Keep failed dictation work available and private',
 }
 
 const languages = SUPPORTED_LANGUAGES.map((l) => ({ value: l.value, label: l.label }))
@@ -117,17 +122,30 @@ function providerSummary(provider: typeof KNOWN_PROVIDERS[number] | undefined): 
 }
 
 function ApiKeyInput({
-  value, onChange, onBlur, placeholder, hasKey, onClear,
+  value, onChange, onBlur, onCancel, placeholder, hasKey, lastValidation, onClear, onTest, testing,
 }: {
   value: string;
   onChange: (v: string) => void;
   onBlur?: () => void;
+  onCancel?: () => void;
   placeholder: string;
   hasKey?: boolean;
+  lastValidation?: ProviderKeyValidation | null;
   onClear?: () => void;
+  onTest?: () => void;
+  testing?: boolean;
 }) {
   const [visible, setVisible] = useState(false)
   const [replacing, setReplace] = useState(false)
+  const cancelRequested = useRef(false)
+
+  useEffect(() => {
+    if (hasKey && !value) setReplace(false)
+  }, [hasKey, value])
+
+  useEffect(() => {
+    if (lastValidation?.valid) setReplace(false)
+  }, [lastValidation?.valid])
 
   if (hasKey && !replacing && !value) {
     return (
@@ -137,6 +155,14 @@ function ApiKeyInput({
           <span className="flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent">
             <Check size={10} /> Saved
           </span>
+          {lastValidation?.valid && (
+            <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">
+              <Check size={10} /> Validated
+            </span>
+          )}
+          {lastValidation && !lastValidation.valid && (
+            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-500">Test failed</span>
+          )}
         </div>
         <button
           type="button"
@@ -152,6 +178,9 @@ function ApiKeyInput({
         >
           Clear
         </button>
+        {lastValidation && !lastValidation.valid && (
+          <p className="absolute left-0 top-full mt-1 text-xs text-red-500/80">{lastValidation.message}</p>
+        )}
       </div>
     )
   }
@@ -163,7 +192,7 @@ function ApiKeyInput({
           type={visible ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onBlur={onBlur}
+          onBlur={() => { if (!cancelRequested.current) onBlur?.() }}
           placeholder={placeholder}
           className="pr-11 font-mono"
           autoFocus={replacing}
@@ -180,11 +209,31 @@ function ApiKeyInput({
       {replacing && (
         <button
           type="button"
-          onClick={() => { onChange(''); setReplace(false); }}
+          onMouseDown={(event) => { event.preventDefault(); cancelRequested.current = true; }}
+          onClick={() => {
+            cancelRequested.current = true;
+            onCancel?.();
+            setReplace(false);
+            window.setTimeout(() => { cancelRequested.current = false; }, 0);
+          }}
           className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-ink/30 hover:text-ink"
         >
           Cancel
         </button>
+      )}
+      {onTest && (
+        <button
+          type="button"
+          disabled={testing || !value.trim()}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onTest}
+          className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-ink/30 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {testing ? 'Testing…' : 'Test'}
+        </button>
+      )}
+      {lastValidation && !lastValidation.valid && (
+        <p className="absolute mt-12 text-xs text-red-500/80">{lastValidation.message}</p>
       )}
     </div>
   )
@@ -203,10 +252,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [sttKey, setSttKey] = useState('')
   const [llmKey, setLlmKey] = useState('')
+  const [testingProvider, setTestingProvider] = useState<string | null>(null)
   const [newProfileName, setNewProfileName] = useState('')
   const [newProfileBundleId, setNewProfileBundleId] = useState('')
-  const [newProfileLanguage, setNewProfileLanguage] = useState('auto')
+  const [newProfileLanguage, setNewProfileLanguage] = useState('')
   const [audioDevices, setAudioDevices] = useState<AudioInputDevice[]>([])
+  const [recoveryUsage, setRecoveryUsage] = useState<RecoveryStorageUsage>({ bytes: 0, sessions: 0 })
+  const [recoveryBusy, setRecoveryBusy] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
@@ -214,13 +266,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     void window.vaani.listAudioInputDevices().then(setAudioDevices).catch(() => setAudioDevices([]))
   }, [isOpen])
 
+  useEffect(() => {
+    if (!isOpen || activeSection !== 'recovery') return
+    void window.vaani.getRecoveryStorageUsage().then(setRecoveryUsage).catch(() => setRecoveryUsage({ bytes: 0, sessions: 0 }))
+  }, [activeSection, isOpen])
+
   useEffect(() => { setCustomHex(settings.accentColor) }, [settings.accentColor])
 
   useEffect(() => {
     const pk = settings.providerApiKeys ?? []
-    setSttKey(pk.find((p) => p.providerId === settings.transcriptionProvider)?.key ?? (settings.transcriptionProvider === 'groq' ? settings.groqApiKey : ''))
+    setSttKey(pk.find((p) => p.providerId === settings.transcriptionProvider)?.key ?? '')
     setLlmKey(pk.find((p) => p.providerId === settings.formattingProvider)?.key ?? '')
-  }, [settings.transcriptionProvider, settings.formattingProvider, settings.providerApiKeys, settings.groqApiKey])
+  }, [settings.transcriptionProvider, settings.formattingProvider, settings.providerApiKeys])
 
   if (!isOpen) return null
 
@@ -234,12 +291,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       id: crypto.randomUUID(),
       name: newProfileName.trim() || bundleId,
       appBundleIds: [bundleId],
-      language: newProfileLanguage,
+      ...(newProfileLanguage ? { language: newProfileLanguage } : {}),
     };
     void updateSettings({ appProfiles: [...existingProfiles, profile] });
     setNewProfileName('');
     setNewProfileBundleId('');
-    setNewProfileLanguage('auto');
+    setNewProfileLanguage('');
   };
 
   const clearProviderKey = async (providerId: string) => {
@@ -248,12 +305,32 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }
 
   const saveProviderKey = async (providerId: string, key: string) => {
-    if (!key.trim()) {
-      await clearProviderKey(providerId)
-      return
-    }
+    if (decideProviderKeyDraft(key, "blur") !== "save") return
     await window.vaani.setProviderApiKey(providerId, key)
     await updateSettings({})
+  }
+
+  const testProviderKey = async (providerId: string, key: string) => {
+    if (!key.trim()) return
+    setTestingProvider(providerId)
+    try {
+      await saveProviderKey(providerId, key)
+      await window.vaani.testApiKey(providerId, key)
+      await updateSettings({})
+    } finally {
+      setTestingProvider(null)
+    }
+  }
+
+  const cleanupRecovery = async () => {
+    setRecoveryBusy(true)
+    try { setRecoveryUsage(await window.vaani.cleanupRecoveryAudio()) } finally { setRecoveryBusy(false) }
+  }
+
+  const clearRecoveryAudio = async () => {
+    if (!window.confirm('Delete all retained recovery audio? Text recovery will stay in History.')) return
+    setRecoveryBusy(true)
+    try { setRecoveryUsage(await window.vaani.clearRecoveryAudio()) } finally { setRecoveryBusy(false) }
   }
 
   const handleExportData = () => {
@@ -267,6 +344,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'stt' || p.type === 'local-stt')
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'llm')
+  const appLanguageOptions = [
+    { value: '', label: `Use global (${getLanguageLabel(settings.language) ?? settings.language})` },
+    ...languages.filter((language) => language.value !== 'auto'),
+  ]
   const activeStt = sttProviders.find((p) => p.id === settings.transcriptionProvider)
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider)
   const activeLlmModels = activeLlm?.models ?? []
@@ -306,10 +387,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <ApiKeyInput
                 value={sttKey}
                 onChange={setSttKey}
-                onBlur={() => { void saveProviderKey(settings.transcriptionProvider, sttKey) }}
+                onBlur={() => { if (decideProviderKeyDraft(sttKey, "blur") === "save") void saveProviderKey(settings.transcriptionProvider, sttKey) }}
+                onCancel={() => setSttKey('')}
                 placeholder={activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
                 hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.hasKey}
+                lastValidation={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.lastValidation}
                 onClear={() => { void clearProviderKey(settings.transcriptionProvider) }}
+                onTest={() => { void testProviderKey(settings.transcriptionProvider, sttKey) }}
+                testing={testingProvider === settings.transcriptionProvider}
               />
             </div>
           )}
@@ -328,10 +413,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <ApiKeyInput
                 value={llmKey}
                 onChange={setLlmKey}
-                onBlur={() => { void saveProviderKey(settings.formattingProvider, llmKey) }}
+                onBlur={() => { if (decideProviderKeyDraft(llmKey, "blur") === "save") void saveProviderKey(settings.formattingProvider, llmKey) }}
+                onCancel={() => setLlmKey('')}
                 placeholder={activeLlm.id === 'openai-llm' ? 'sk-...' : activeLlm.id === 'anthropic' ? 'sk-ant-...' : activeLlm.id === 'openrouter' ? 'sk-or-...' : 'gsk_...'}
                 hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.formattingProvider)?.hasKey}
+                lastValidation={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.formattingProvider)?.lastValidation}
                 onClear={() => { void clearProviderKey(settings.formattingProvider) }}
+                onTest={() => { void testProviderKey(settings.formattingProvider, llmKey) }}
+                testing={testingProvider === settings.formattingProvider}
               />
             </div>
           )}
@@ -386,41 +475,44 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <FieldLabel>Per-App Language</FieldLabel>
             <p className="mb-2 text-xs text-faint">Override the default language for a specific app using its bundle ID.</p>
             <div className="space-y-2">
-              {(settings.appProfiles ?? []).map((profile) => (
+              {(settings.appProfiles ?? []).map((profile) => {
+                const effectiveLanguage = resolveProfileLanguage(profile.language, settings.language);
+                const profileLanguage = profile.language && profile.language !== 'auto' ? profile.language : '';
+                return (
                 <div key={profile.id} className="flex items-center gap-2 rounded-xl border border-line p-3">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm text-ink">{profile.name}</div>
                     <div className="truncate text-xs text-faint">{profile.appBundleIds.join(', ')}</div>
                   </div>
                   <Select
-                    value={profile.language ?? 'auto'}
+                    value={profileLanguage}
                     onChange={(v) => {
                       const next = (settings.appProfiles ?? []).map((p) => {
                         if (p.id !== profile.id) return p;
                         const provider = p.transcriptionProvider;
                         return {
                           ...p,
-                          language: v,
-                          transcriptionProvider: provider && isLanguageSupportedByProvider(v, provider, settings.localWhisperModel)
+                          language: v || undefined,
+                          transcriptionProvider: provider && isLanguageSupportedByProvider(v || settings.language, provider, settings.localWhisperModel)
                             ? provider
                             : undefined,
                         };
                       });
                       void updateSettings({ appProfiles: next });
                     }}
-                    options={languages}
+                    options={appLanguageOptions}
                   />
                   <Select
-                    value={profile.transcriptionProvider && isLanguageSupportedByProvider(profile.language ?? 'auto', profile.transcriptionProvider, settings.localWhisperModel) ? profile.transcriptionProvider : ''}
+                    value={profile.transcriptionProvider && isLanguageSupportedByProvider(effectiveLanguage, profile.transcriptionProvider, settings.localWhisperModel) ? profile.transcriptionProvider : ''}
                     onChange={(v) => {
-                      if (v && !isLanguageSupportedByProvider(profile.language ?? 'auto', v, settings.localWhisperModel)) return;
+                      if (v && !isLanguageSupportedByProvider(effectiveLanguage, v, settings.localWhisperModel)) return;
                       const next = (settings.appProfiles ?? []).map((p) => p.id === profile.id ? { ...p, transcriptionProvider: v || undefined } : p);
                       void updateSettings({ appProfiles: next });
                     }}
                     options={[
                       { value: '', label: 'Default STT' },
                       ...sttProviders
-                        .filter((p) => isLanguageSupportedByProvider(profile.language ?? 'auto', p.id, settings.localWhisperModel))
+                        .filter((p) => isLanguageSupportedByProvider(effectiveLanguage, p.id, settings.localWhisperModel))
                         .map((p) => ({ value: p.id, label: p.name })),
                     ]}
                   />
@@ -435,12 +527,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <X size={13} />
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <div className="mt-2 flex gap-2">
               <Input placeholder="App name" value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)} />
               <Input placeholder="Bundle ID (e.g. com.tinyspeck.slackmacgap)" value={newProfileBundleId} onChange={(e) => setNewProfileBundleId(e.target.value)} />
-              <Select value={newProfileLanguage} onChange={setNewProfileLanguage} options={languages} />
+              <Select value={newProfileLanguage} onChange={setNewProfileLanguage} options={appLanguageOptions} />
               <Button variant="outline" onClick={addAppProfile}>Add</Button>
             </div>
           </div>
@@ -642,6 +735,42 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
       )}
+
+      {activeSection === 'recovery' && (
+        <div className="space-y-6">
+          <div>
+            <FieldLabel>Unresolved audio retention</FieldLabel>
+            <Select
+              value={String(settings.recoveryRetentionDays)}
+              onChange={(value) => updateSettings({ recoveryRetentionDays: parseRecoveryRetentionDays(value) })}
+              options={[1, 3, 7, 14].map((days) => ({ value: String(days), label: `${days} day${days === 1 ? '' : 's'}` }))}
+            />
+            <p className="mt-1.5 text-xs text-faint">Encrypted audio is removed when this window ends. Bounded text stays until you discard its recovery item.</p>
+          </div>
+          <Row title="Retain failed audio" desc="Keep encrypted audio for retry and crash recovery">
+            <Toggle checked={settings.retainFailedAudio} onChange={(value) => updateSettings({ retainFailedAudio: value })} />
+          </Row>
+          {!settings.retainFailedAudio && (
+            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-700">
+              New failures will keep text only. Audio retry and audio recovery after a crash will not be available.
+            </div>
+          )}
+          <div className="rounded-2xl border border-line bg-surface p-4">
+            <div className="flex items-center gap-3">
+              <HardDrive size={16} className="text-muted" />
+              <div>
+                <div className="text-sm font-medium text-ink">Recovery storage</div>
+                <div className="text-xs text-faint">{formatBytes(recoveryUsage.bytes)} across {recoveryUsage.sessions} unresolved item{recoveryUsage.sessions === 1 ? '' : 's'}</div>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="soft" size="sm" onClick={() => { void cleanupRecovery() }} disabled={recoveryBusy}><RefreshCw size={13} /> Clear expired audio</Button>
+              <Button variant="destructive" size="sm" onClick={() => { void clearRecoveryAudio() }} disabled={recoveryBusy}><Trash2 size={13} /> Clear all audio</Button>
+            </div>
+          </div>
+          <p className="text-xs leading-relaxed text-faint">Recovery audio is ciphertext on disk. When it expires or you delete it, the audio reference is removed but the bounded transcript and error details remain. Playback decrypts only for the explicit action and removes its temporary file afterward.</p>
+        </div>
+      )}
     </div>
   )
 
@@ -697,4 +826,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       )}
     </AnimatePresence>
   )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1_024) return `${bytes} B`
+  if (bytes < 1_024 * 1_024) return `${(bytes / 1_024).toFixed(1)} KB`
+  return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`
+}
+
+function parseRecoveryRetentionDays(value: string): Settings['recoveryRetentionDays'] {
+  if (value === '1') return 1
+  if (value === '7') return 7
+  if (value === '14') return 14
+  return 3
 }

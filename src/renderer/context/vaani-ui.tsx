@@ -8,7 +8,8 @@ import {
   type ReactNode
 } from "react";
 import type { DictationEntry, DictationState, Settings, UpdateNotificationPayload } from "@shared/types";
-import { DEFAULT_SETTINGS } from "@shared/defaults";
+import type { RecoveryEntryView, RecoveryStorageUsage } from "@shared/recovery";
+import { buildResetSettingsPatch } from "@renderer/lib/settingsReset";
 import {
   computeEntryFacts,
   countWords,
@@ -33,6 +34,8 @@ export interface HistoryItemView {
   app: string;
   traceId: string | null;
   injectionStatus: DictationEntry["injectionStatus"];
+  language: string | null;
+  detectedLanguage: string | null;
 }
 
 export interface WordHistoryView {
@@ -70,6 +73,18 @@ interface HistoryModel {
   reinjectEntry: (id: string) => Promise<void>;
   retryEntry: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
+  recoveryEntries: RecoveryEntryView[];
+  retryRecoveryTranscription: (id: string) => Promise<void>;
+  retryRecoveryFormatting: (id: string) => Promise<void>;
+  useRawRecoveryTranscript: (id: string) => Promise<void>;
+  retryRecoveryInsertion: (id: string) => Promise<void>;
+  copyRecoveryEntry: (id: string) => Promise<boolean>;
+  playRecoveryAudio: (id: string) => Promise<boolean>;
+  deleteRecoveryAudio: (id: string) => Promise<boolean>;
+  discardRecoveryEntry: (id: string) => Promise<boolean>;
+  getRecoveryStorageUsage: () => Promise<RecoveryStorageUsage>;
+  cleanupRecoveryAudio: () => Promise<RecoveryStorageUsage>;
+  clearRecoveryAudio: () => Promise<RecoveryStorageUsage>;
 }
 
 interface VaaniUiContextValue {
@@ -96,6 +111,18 @@ interface VaaniUiContextValue {
   reinjectHistoryEntry: (id: string) => Promise<void>;
   retryHistoryEntry: (id: string) => Promise<void>;
   clearHistory: () => Promise<void>;
+  recoveryEntries: RecoveryEntryView[];
+  retryRecoveryTranscription: (id: string) => Promise<void>;
+  retryRecoveryFormatting: (id: string) => Promise<void>;
+  useRawRecoveryTranscript: (id: string) => Promise<void>;
+  retryRecoveryInsertion: (id: string) => Promise<void>;
+  copyRecoveryEntry: (id: string) => Promise<boolean>;
+  playRecoveryAudio: (id: string) => Promise<boolean>;
+  deleteRecoveryAudio: (id: string) => Promise<boolean>;
+  discardRecoveryEntry: (id: string) => Promise<boolean>;
+  getRecoveryStorageUsage: () => Promise<RecoveryStorageUsage>;
+  cleanupRecoveryAudio: () => Promise<RecoveryStorageUsage>;
+  clearRecoveryAudio: () => Promise<RecoveryStorageUsage>;
   copyHistoryEntry: (text: string) => Promise<void>;
   addDictionaryWord: (input: { word: string; replacement?: string; category?: string }) => Promise<void>;
   removeDictionaryWord: (word: string) => Promise<void>;
@@ -206,8 +233,8 @@ export function VaaniUiProvider({
   }, []);
 
   const resetSettings = useCallback(async () => {
-    await updateSettings(DEFAULT_SETTINGS);
-  }, [updateSettings]);
+    await updateSettings(buildResetSettingsPatch(settings));
+  }, [settings.providerApiKeys, updateSettings]);
 
   const copyHistoryEntry = useCallback(async (text: string) => {
     await window.vaani.copyText(text);
@@ -308,6 +335,18 @@ export function VaaniUiProvider({
     retryHistoryEntry: history.retryEntry,
     clearHistory: history.clearAll,
     copyHistoryEntry,
+    recoveryEntries: history.recoveryEntries,
+    retryRecoveryTranscription: history.retryRecoveryTranscription,
+    retryRecoveryFormatting: history.retryRecoveryFormatting,
+    useRawRecoveryTranscript: history.useRawRecoveryTranscript,
+    retryRecoveryInsertion: history.retryRecoveryInsertion,
+    copyRecoveryEntry: history.copyRecoveryEntry,
+    playRecoveryAudio: history.playRecoveryAudio,
+    deleteRecoveryAudio: history.deleteRecoveryAudio,
+    discardRecoveryEntry: history.discardRecoveryEntry,
+    getRecoveryStorageUsage: history.getRecoveryStorageUsage,
+    cleanupRecoveryAudio: history.cleanupRecoveryAudio,
+    clearRecoveryAudio: history.clearRecoveryAudio,
     addDictionaryWord,
     removeDictionaryWord,
     addSnippet,
@@ -370,7 +409,7 @@ function mapSnippets(snippets: Array<{ trigger: string; content: string }>): Sni
   }));
 }
 
-function mapHistoryItems(entries: DictationEntry[]): HistoryItemView[] {
+export function mapHistoryItems(entries: DictationEntry[]): HistoryItemView[] {
   return [...entries]
     .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))
     .map((entry) => ({
@@ -382,7 +421,9 @@ function mapHistoryItems(entries: DictationEntry[]): HistoryItemView[] {
       wordCount: countWords(entry.cleanedText),
       app: normalizeAppName(entry.appName),
       traceId: entry.traceId ?? null,
-      injectionStatus: entry.injectionStatus
+      injectionStatus: entry.injectionStatus,
+      language: entry.language ?? null,
+      detectedLanguage: entry.detectedLanguage ?? null,
     }));
 }
 

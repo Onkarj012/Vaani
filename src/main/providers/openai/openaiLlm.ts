@@ -2,14 +2,26 @@ import type { FormattingProvider } from "../types";
 import { addedContentWords, missingContentWords } from "@shared/contentGuard";
 import { FORMATTING_PROMPT, MIN_WORDS_FOR_FORMATTING, STRICT_FORMATTING_PROMPT } from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
+import { isAbortError } from "@main/cancellation";
+import { createCancellationScope } from "@main/cancellation";
 
 const LLM_TIMEOUT_MS = 20_000;
 const ADDED_CONTENT_WORD_SLACK = 3;
 
 function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = LLM_TIMEOUT_MS): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  const scope = createCancellationScope(init.signal ?? undefined, Date.now() + timeoutMs);
+  return (async () => {
+    try {
+      const response = await fetch(input, { ...init, signal: scope.signal });
+      if (scope.signal.aborted && !init.signal?.aborted) throw new Error("Request timed out.");
+      return response;
+    } catch (error) {
+      if (scope.signal.aborted && !init.signal?.aborted) throw new Error("Request timed out.");
+      throw error;
+    } finally {
+      scope.dispose();
+    }
+  })();
 }
 
 const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will format|here['\u2019]s the|let me|as requested|i hope|i think|i believe|the answer is|based on|as an ai|sure!?|certainly!?|of course!?)\b/i;
@@ -37,9 +49,10 @@ async function requestFormatting(text: string, options: Parameters<FormattingPro
         { role: "user", content: `<transcript>\n${text}\n</transcript>` },
       ],
     }),
+    signal: options.signal,
   });
 
-  if (!response.ok) throw new Error(`OpenAI API is temporarily unavailable. Please try again.`);
+  if (!response.ok) throw new Error(`OpenAI API request failed with status ${response.status}.`);
   const data = await response.json() as { choices: { message: { content: string } }[] };
   return data.choices[0]?.message?.content?.trim() || null;
 }
@@ -73,7 +86,8 @@ export const OpenAILlmProvider: FormattingProvider = {
         return strictFormatted;
       }
       return formatted;
-    } catch {
+    } catch (error) {
+      if (options.signal?.aborted || isAbortError(error)) throw error;
       return text;
     }
   },

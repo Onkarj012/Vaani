@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard,
@@ -21,6 +21,7 @@ import PermissionGuard from '@renderer/components/PermissionGuard'
 import UpdateBanner from '@renderer/components/UpdateBanner'
 import devanagariLightUrl from '../../../assets/iconset/devanagari/devanagari_light.svg?url'
 import devanagariDarkUrl from '../../../assets/iconset/devanagari/devanagari_dark.svg?url'
+import type { RecoveryRestoredNotice } from '@shared/types'
 
 const navItems = [
   { path: '/app', label: 'Dashboard', icon: LayoutDashboard },
@@ -112,9 +113,17 @@ export default function AppLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [permissionsBlocked, setPermissionsBlocked] = useState(true)
+  const [restoredNotice, setRestoredNotice] = useState<RecoveryRestoredNotice | null>(null)
+  const navigate = useNavigate()
   const { settings, settingsLoading, updateSettings } = useVaaniUi()
   const { notification, dismiss } = useUpdateNotification()
   const onboardingOpen = !settingsLoading && !settings.onboardingCompleted
+
+  useEffect(() => {
+    void window.vaani.getRecoveryRestoredNotice().then((notice) => {
+      if (notice) setRestoredNotice(notice)
+    }).catch(() => undefined)
+  }, [])
 
   return (
     <div className="relative flex min-h-screen bg-bg">
@@ -144,6 +153,15 @@ export default function AppLayout() {
           </header>
 
           {notification && <UpdateBanner notification={notification} onDismiss={dismiss} />}
+          {restoredNotice && (
+            <div className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-2xl bg-accent/10 px-4 py-3 text-sm text-accent lg:mx-12">
+              <span>{restoredNotice.count} unfinished dictation{restoredNotice.count === 1 ? '' : 's'} restored. Nothing was inserted automatically.</span>
+              <div className="flex shrink-0 items-center gap-2">
+                <button onClick={() => { setRestoredNotice(null); navigate('/app/history') }} className="rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white">Open History</button>
+                <button aria-label="Dismiss restored items notice" onClick={() => setRestoredNotice(null)} className="rounded-full p-1 text-accent hover:bg-accent/10"><span aria-hidden="true">×</span></button>
+              </div>
+            </div>
+          )}
 
           <main className={`flex-1 px-6 py-8 lg:px-12 ${onboardingOpen ? 'touch-none overflow-hidden' : 'overflow-y-auto'}`}>
             <Outlet />

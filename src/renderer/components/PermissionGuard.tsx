@@ -4,6 +4,7 @@ import type { MacOSPermissionState, PermissionStatus } from "@shared/types";
 import {
   getAccessibilityPermissionRemediation,
   getMicrophonePermissionRemediation,
+  getPermissionStatusLabel,
   isPermissionReady,
 } from "@shared/permissionGuard";
 import { Button } from "@renderer/components/ui/button";
@@ -15,16 +16,6 @@ interface PermissionGuardProps {
 
 const INITIAL_STATUS: PermissionStatus = { microphone: "unknown", accessibility: "unknown" };
 const MICROPHONE_ATTEMPT_GUIDANCE = "macOS did not grant microphone access. Enable Vaani in System Settings, then click Check Again.";
-
-function permissionLabel(state: MacOSPermissionState): string {
-  switch (state) {
-    case "granted": return "Granted";
-    case "not-determined": return "Needs approval";
-    case "denied": return "Not granted";
-    case "restricted": return "Restricted";
-    case "unknown": return "Could not verify";
-  }
-}
 
 export default function PermissionGuard({ onBlockingChange }: PermissionGuardProps) {
   const [status, setStatus] = useState<PermissionStatus | null>(null);
@@ -281,7 +272,7 @@ function PermissionRow({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold text-ink">{title}</div>
             <div className={`flex items-center gap-1.5 text-xs font-medium ${granted ? "text-accent" : "text-muted"}`}>
-              {granted ? <CheckCircle2 size={14} /> : null}{permissionLabel(state)}
+              {granted ? <CheckCircle2 size={14} /> : null}{getPermissionStatusLabel(state)}
             </div>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted">{description}</p>

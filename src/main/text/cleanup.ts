@@ -431,6 +431,7 @@ function applySnippets(
   const combined = new RegExp(
     `(^|\\s)/(${alternation})(?=\\s|$|[,.!?;:])` +
       `|(^|[\\s,.!?;:])snippet\\s+(${alternation})(?=\\s|$|[,.!?;:])` +
+      `|(^|[\\s,.!?;:])slash\\s+(${alternation})(?=\\s|$|[,.!?;:])` +
       (bareAlternation ? `|(^|[\\s,.!?;:])(${bareAlternation})(?=\\s|$|[,.!?;:])` : ""),
     "gi",
   );
@@ -440,11 +441,13 @@ function applySnippets(
 
   return text.replace(
     combined,
-    (_match, typedPrefix: string, typedName: string, spokenPrefix: string, spokenName: string, barePrefix: string, bareName: string) =>
+    (_match, typedPrefix: string, typedName: string, snippetPrefix: string, snippetName: string, slashPrefix: string, slashName: string, barePrefix: string, bareName: string) =>
       typedName !== undefined
         ? `${typedPrefix}${lookup(typedName)}`
-        : spokenName !== undefined
-          ? `${spokenPrefix}${lookup(spokenName)}`
+        : snippetName !== undefined
+          ? `${snippetPrefix}${lookup(snippetName)}`
+          : slashName !== undefined
+            ? `${slashPrefix}${lookup(slashName)}`
           : `${barePrefix}${lookup(bareName)}`,
   );
 }

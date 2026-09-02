@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { FormattingProvider, TranscriptionProvider } from "@main/providers/types";
+import { createCancellationScope } from "@main/cancellation";
 
 const registryState = vi.hoisted(() => ({
   providers: new Map<string, TranscriptionProvider>(),
@@ -509,7 +510,7 @@ describe("TranscriptionService failover chain", () => {
     const result = await service.formatTranscriptDetailed("um I like this");
 
     expect(result).toEqual({
-      text: "um I like this",
+      text: "Um I like this.",
       formatterUsed: "guard-fallback",
       contentGuardVerdict: { passed: false, missingWords: ["like"] },
     });
@@ -555,9 +556,149 @@ describe("TranscriptionService failover chain", () => {
 
     expect(format).toHaveBeenCalledTimes(2);
     expect(result).toEqual({
-      text: "alpha beta\n\nGamma delta.",
+      text: "Alpha beta.\n\nGamma delta.",
       formatterUsed: "guard-fallback",
       contentGuardVerdict: { passed: false, missingWords: ["beta"] },
     });
+  });
+
+  it("retries one transient recovery failure before accepting the provider result", async () => {
+    const transcribe = vi.fn()
+      .mockRejectedValueOnce(new Error("network timeout"))
+      .mockResolvedValueOnce({ rawText: "retry result", formattedText: "retry result", language: "en" } satisfies TranscriptionResult);
+    registryState.providers.set("groq", provider("groq", transcribe));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+
+    const result = await service.transcribe(clip, { recovery: true });
+
+    expect(result.rawText).toBe("retry result");
+    expect(transcribe).toHaveBeenCalledTimes(2);
+    expect(result.providerAttempts?.map((attempt) => attempt.errorClass)).toEqual(["transient_network", undefined]);
+  });
+
+  it("fails over after the bounded recovery retry and records the full attempt sequence", async () => {
+    const primary = vi.fn()
+      .mockRejectedValueOnce(new Error("503 provider failure"))
+      .mockRejectedValueOnce(new Error("503 provider failure"));
+    const fallback = vi.fn(async (): Promise<TranscriptionResult> => ({ rawText: "local rescue", formattedText: "local rescue", language: "en" }));
+    registryState.providers.set("openai", provider("openai", primary));
+    registryState.providers.set("local-whisper", provider("local-whisper", fallback, false));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "openai",
+      providerApiKeys: [{ providerId: "openai", key: "openai-key" }],
+      failoverEnabled: true,
+    }));
+
+    const result = await service.transcribe(clip, { recovery: true });
+
+    expect(result.rawText).toBe("local rescue");
+    expect(primary).toHaveBeenCalledTimes(2);
+    expect(fallback).toHaveBeenCalledTimes(1);
+    expect(result.providerAttempts).toHaveLength(3);
+    expect(result.providerAttempts?.map((attempt) => attempt.provider)).toEqual(["openai", "openai", "local-whisper"]);
+  });
+
+  it.each([
+    "401 Unauthorized",
+    "malformed audio payload",
+  ] as const)("does not retry permanent recovery error %s", async (message) => {
+    const transcribe = vi.fn(async () => { throw new Error(message); });
+    registryState.providers.set("groq", provider("groq", transcribe));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+
+    await expect(service.transcribe(clip, { recovery: true })).rejects.toThrow(message);
+    expect(transcribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks cancellation at the local Whisper boundary", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { LocalWhisperProvider } = await import("@main/providers/local/whisperCpp");
+
+    await expect(LocalWhisperProvider.transcribe(clip, { signal: controller.signal })).rejects.toThrow("aborted");
+  });
+
+  it("delivers cancellation to an in-flight provider and never starts another provider", async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const transcribe = vi.fn((_clip: AudioClip, options: Parameters<TranscriptionProvider["transcribe"]>[1]) => {
+      receivedSignal = options.signal;
+      return new Promise<TranscriptionResult>((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+    });
+    const fallback = vi.fn();
+    registryState.providers.set("groq", provider("groq", transcribe));
+    registryState.providers.set("openai", provider("openai", fallback));
+    const { TranscriptionCancelledError, TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key", failoverEnabled: true, providerApiKeys: [{ providerId: "openai", key: "openai-key" }] }));
+
+    const pending = service.transcribe(clip, { signal: controller.signal, recovery: true });
+    controller.abort();
+
+    await expect(pending).rejects.toBeInstanceOf(TranscriptionCancelledError);
+    expect(receivedSignal?.aborted).toBe(true);
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it("passes one cancellation signal through every long-clip chunk", async () => {
+    const signals: AbortSignal[] = [];
+    const transcribe = vi.fn(async (_clip: AudioClip, options: Parameters<TranscriptionProvider["transcribe"]>[1]): Promise<TranscriptionResult> => {
+      if (options.signal) signals.push(options.signal);
+      return { rawText: "chunk", formattedText: "chunk", language: "en" };
+    });
+    registryState.providers.set("groq", provider("groq", transcribe));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const longClip: AudioClip = { pcmData: new Array(61 * 16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 61, rmsFrames: [] };
+
+    await service.transcribe(longClip, { recovery: true });
+
+    expect(signals.length).toBe(3);
+    expect(new Set(signals).size).toBe(1);
+  });
+
+  it("passes cancellation through recovery formatting blocks", async () => {
+    let receivedSignal: AbortSignal | undefined;
+    const controller = new AbortController();
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async (_text: string, options) => {
+      receivedSignal = options.signal;
+      return new Promise<string>((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+    })));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+
+    const pending = service.formatTranscriptDetailed("alpha beta", { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toThrow("Transcription was cancelled.");
+    expect(receivedSignal?.aborted).toBe(true);
+  });
+
+  it("lets active dictation preempt background recovery before a provider call", async () => {
+    const transcribe = vi.fn();
+    registryState.providers.set("groq", provider("groq", transcribe));
+    const { RecoveryYieldedError, TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+
+    await expect(service.transcribe(clip, { recovery: true, shouldYieldToActiveDictation: () => true })).rejects.toBeInstanceOf(RecoveryYieldedError);
+    expect(transcribe).not.toHaveBeenCalled();
+  });
+
+  it("clears deadline timers when a cancellation scope is disposed", () => {
+    vi.useFakeTimers();
+    try {
+      const scope = createCancellationScope(undefined, Date.now() + 1000);
+      scope.dispose();
+      vi.advanceTimersByTime(1000);
+      expect(scope.signal.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

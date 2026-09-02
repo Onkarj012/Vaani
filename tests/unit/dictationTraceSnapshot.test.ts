@@ -71,13 +71,13 @@ describe("dictation trace snapshots", () => {
     expect(buildTraceStageSnapshot({
       rawTranscript: longText,
       cleanedText: longText,
-      injectedText: longText,
+      injectedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
       correctionsApplied: [{ spoken: longText, written: longText }],
       contentGuardVerdict: { passed: false, missingWords: [longText] },
     })).toMatchObject({
       rawTranscript: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
       cleanedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
-      injectedText: longText,
+      injectedText: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
       correctionsApplied: [{
         spoken: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,
         written: `${"x".repeat(DICTATION_TRACE_TEXT_LIMIT - 1)}…`,

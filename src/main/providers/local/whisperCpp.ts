@@ -1,6 +1,7 @@
 import type { TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { resolveReportedLanguage } from "@main/providers/language";
+import { throwIfAborted } from "@main/cancellation";
 
 /**
  * Local Whisper provider using the native whisper.cpp addon.
@@ -43,6 +44,7 @@ export const LocalWhisperProvider: TranscriptionProvider = {
   ],
 
   async transcribe(clip, options): Promise<TranscriptionResult> {
+    throwIfAborted(options.signal);
     const mod = getWhisperModule();
     if (!mod?.whisperTranscribe) {
       throw new Error("Local Whisper is not available. Go to Settings → Offline Mode to configure.");
@@ -54,6 +56,7 @@ export const LocalWhisperProvider: TranscriptionProvider = {
 
     const pcmData = new Float32Array(clip.pcmData);
     const result = mod.whisperTranscribe(pcmData, clip.sampleRate);
+    throwIfAborted(options.signal);
     if (!result?.trim()) throw new Error("No speech detected.");
     const rawText = result.trim();
     return {
@@ -71,7 +74,7 @@ export const LocalWhisperProvider: TranscriptionProvider = {
 
   async isAvailable(): Promise<boolean> {
     const mod = getWhisperModule();
-    return !!(mod?.whisperTranscribe);
+    return !!(mod?.whisperTranscribe && mod.whisperIsModelLoaded?.());
   },
 };
 

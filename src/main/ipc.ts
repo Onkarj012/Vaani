@@ -1,4 +1,4 @@
-import { app, type BrowserWindow, clipboard, ipcMain, shell, systemPreferences } from "electron";
+import { app, clipboard, ipcMain, shell, systemPreferences } from "electron";
 import { isAbsolute, join, normalize } from "node:path";
 import { homedir } from "node:os";
 import { autoUpdater } from "electron-updater";
@@ -11,25 +11,30 @@ import type {
   CustomCorrection,
   MacOSPermissionState,
   PermissionStatus,
+  ProviderApiKey,
+  ProviderKeyValidation,
   RecorderFailure,
   RecorderSubmission,
+  RecorderSuspensionAck,
   Settings,
   UpdateNotificationPayload
 } from "@shared/types";
+import { toRecoveryEntryView, type RecoveryEntryView, type RecoveryRestoredNotice, type RecoveryStorageUsage } from "@shared/recovery";
 import { DictationService } from "./dictation";
 import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore, sanitizeSettingsForRenderer } from "./store/credentials";
 import { HotkeyManager } from "./hotkeys";
 import { nativeBridge } from "./nativeBridge";
-import type { RecorderWindowController } from "./recorderWindow";
-import type { OverlayController } from "./overlay";
+import type { RecoveryJournalStore } from "./store/recoveryJournal";
+import type { EncryptedRecoveryAudioStore } from "./audio/recoveryAudio";
 import { listNativeInputDevices } from "./audio/nativeCapture";
 import { getProviderRegistry } from "./providers";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { loadWhisperModel, freeWhisperModel, listDownloadedModels, isModelLoaded } from "./providers/local/whisperCpp";
 import { cachedUpdateStatus, setCachedUpdateStatus } from "./index";
 import { validateSubmittedApiKey } from "./providers/apiKeyValidation";
+import { isRecoveryEnabled } from "./recoveryReadiness";
 
 function isNewerVersion(latest: string, current: string): boolean {
   const parse = (v: string) => {
@@ -84,14 +89,15 @@ const MAX_AUDIO_SAMPLES = 10_000_000;
 const MAX_RMS_FRAMES = 100_000;
 
 type IpcSenderEvent = Electron.IpcMainEvent | Electron.IpcMainInvokeEvent;
+type IpcWindow = { webContents: { send: (channel: string, ...args: unknown[]) => void }; isDestroyed: () => boolean };
 
-function isSenderAllowed(event: IpcSenderEvent, allowed: Array<BrowserWindow | null | undefined>): boolean {
+function isSenderAllowed(event: IpcSenderEvent, allowed: Array<IpcWindow | null | undefined>): boolean {
   return allowed.some((window) => (
     !!window && !window.isDestroyed() && event.sender === window.webContents
   ));
 }
 
-function requireAllowedSender(event: IpcSenderEvent, allowed: Array<BrowserWindow | null | undefined>): void {
+function requireAllowedSender(event: IpcSenderEvent, allowed: Array<IpcWindow | null | undefined>): void {
   if (!isSenderAllowed(event, allowed)) {
     throw new Error("Unauthorized IPC sender");
   }
@@ -147,10 +153,20 @@ function isDictionarySuggestions(value: unknown): value is DictionarySuggestion[
 }
 
 function isProviderApiKey(value: unknown): boolean {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["providerId", "key", "hasKey"])) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["providerId", "key", "hasKey", "lastValidation"])) return false;
   return isBoundedString(value.providerId, MAX_ID_LENGTH, false)
     && isBoundedString(value.key, MAX_SECRET_LENGTH)
-    && (value.hasKey === undefined || typeof value.hasKey === "boolean");
+    && (value.hasKey === undefined || typeof value.hasKey === "boolean")
+    && (value.lastValidation === undefined || value.lastValidation === null || isProviderKeyValidation(value.lastValidation));
+}
+
+function isProviderKeyValidation(value: unknown): value is ProviderKeyValidation {
+  return isRecord(value)
+    && hasOnlyKeys(value, ["valid", "message", "testedAt"])
+    && typeof value.valid === "boolean"
+    && isBoundedString(value.message, MAX_SHORT_TEXT_LENGTH)
+    && isBoundedString(value.testedAt, MAX_SHORT_TEXT_LENGTH, false)
+    && !Number.isNaN(Date.parse(value.testedAt));
 }
 
 function isSnippet(value: unknown): boolean {
@@ -216,6 +232,8 @@ const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) =
       && isAbsolute(normalized)
       && !value.split(/[\\/]+/).includes("..");
   },
+  recoveryRetentionDays: (value) => value === 1 || value === 3 || value === 7 || value === 14,
+  retainFailedAudio: (value) => typeof value === "boolean",
   transcriptionProvider: (value) => isBoundedString(value, MAX_ID_LENGTH, false),
   transcriptionModel: (value) => isBoundedString(value, MAX_ID_LENGTH),
   formattingProvider: (value) => isBoundedString(value, MAX_ID_LENGTH, false),
@@ -281,9 +299,20 @@ function isAudioVisualFrame(value: unknown): value is AudioVisualFrame {
 
 function isRecorderFailure(value: unknown): value is RecorderFailure {
   return isRecord(value)
-    && hasOnlyKeys(value, ["sessionId", "message"])
+    && hasOnlyKeys(value, ["sessionId", "message", "kind", "partialClip"])
     && isBoundedString(value.sessionId, MAX_ID_LENGTH, false)
-    && isBoundedString(value.message, MAX_TEXT_LENGTH, false);
+    && isBoundedString(value.message, MAX_TEXT_LENGTH, false)
+    && (value.kind === undefined || isOneOf(value.kind, ["interrupted", "microphone_permission_denied", "recorder_failure"]))
+    && (value.partialClip === undefined || isAudioClip(value.partialClip));
+}
+
+function isRecorderSuspensionAck(value: unknown): value is RecorderSuspensionAck {
+  return isRecord(value)
+    && hasOnlyKeys(value, ["sessionId", "ok", "partialClip", "message"])
+    && isBoundedString(value.sessionId, MAX_ID_LENGTH, false)
+    && typeof value.ok === "boolean"
+    && (value.message === undefined || isBoundedString(value.message, MAX_TEXT_LENGTH, false))
+    && (value.partialClip === undefined || isAudioClip(value.partialClip));
 }
 
 function sanitizeCustomCorrections(entries: Array<Partial<CustomCorrection>>): CustomCorrection[] {
@@ -313,21 +342,22 @@ function sanitizeCustomCorrections(entries: Array<Partial<CustomCorrection>>): C
 }
 
 async function buildRendererApiKeys(
-  providerApiKeys: Array<{ providerId: string; key: string }>,
-  credentials: CredentialsStore
-): Promise<Array<{ providerId: string; key: string; hasKey: boolean }>> {
+  providerApiKeys: ProviderApiKey[],
+  credentials: Pick<CredentialsStore, "has">
+): Promise<ProviderApiKey[]> {
   const mapped = await Promise.all(
     providerApiKeys.map(async (pk) => ({
       providerId: pk.providerId,
       key: '',
       hasKey: await credentials.has(pk.providerId),
+      lastValidation: pk.lastValidation ?? null,
     }))
   );
   const hasGroq = mapped.some((pk) => pk.providerId === 'groq');
   if (!hasGroq) {
     const groqHasKey = await credentials.has('groq');
     if (groqHasKey) {
-      mapped.push({ providerId: 'groq', key: '', hasKey: true });
+      mapped.push({ providerId: 'groq', key: '', hasKey: true, lastValidation: null });
     }
   }
   return mapped;
@@ -338,18 +368,26 @@ async function openPermissionSettings(permission: keyof PermissionStatus): Promi
   await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`);
 }
 
-export function registerIpcHandlers(opts: {
-  mainWindow: BrowserWindow | null;
-  dictation: DictationService;
-  history: HistoryStore;
-  settings: SettingsStore;
-  hotkeys: HotkeyManager;
-  recorder?: RecorderWindowController;
-  overlay?: OverlayController;
-  credentials?: CredentialsStore;
+export interface RegisterIpcHandlersOptions {
+  mainWindow: IpcWindow | null;
+  dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry">;
+  history: Pick<HistoryStore, "getAll" | "getById" | "updateById" | "getLatest" | "delete" | "clear">;
+  settings: Pick<SettingsStore, "get" | "update">;
+  hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "reregister" | "setCaptureActive">;
+  recorder?: { getWindow: () => IpcWindow | null; markReady: () => void; acknowledgeLifecycleSuspension?: (ack: RecorderSuspensionAck) => boolean };
+  overlay?: { getWindow: () => IpcWindow | null };
+  credentials?: Pick<CredentialsStore, "has" | "set" | "delete">;
+  recovery?: Pick<RecoveryJournalStore, "getUnresolved" | "getById"> & Partial<Pick<RecoveryJournalStore, "getAll">>;
+  recoveryAudio?: Pick<EncryptedRecoveryAudioStore, "deleteAudio" | "discard" | "cleanupExpired" | "getStorageUsage"> & Partial<Pick<EncryptedRecoveryAudioStore, "playDecryptedAudio">>;
+  recoveryReady?: () => boolean;
+  consumeRestoredRecoveryNotice?: () => RecoveryRestoredNotice | null;
   onSettingsUpdated?: (settings: Settings, patch: Partial<Settings>) => void;
-}): void {
-  const { mainWindow, dictation, history, settings, hotkeys, recorder, overlay, credentials, onSettingsUpdated } = opts;
+  onPermissionStatusChanged?: (status: PermissionStatus) => void;
+}
+
+export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
+  const { mainWindow, dictation, history, settings, hotkeys, recorder, overlay, credentials, recovery, recoveryAudio, consumeRestoredRecoveryNotice, onSettingsUpdated, onPermissionStatusChanged } = opts;
+  const recoveryReady = opts.recoveryReady ?? isRecoveryEnabled;
   let lastAccessibilityGranted = getPermissionStatus().accessibility === "granted";
   let lastPermissionHotkeyRefresh = 0;
 
@@ -366,6 +404,7 @@ export function registerIpcHandlers(opts: {
       lastPermissionHotkeyRefresh = Date.now();
       hotkeys.reregister();
     }
+    onPermissionStatusChanged?.(current);
     return current;
   }
 
@@ -383,11 +422,24 @@ export function registerIpcHandlers(opts: {
     return sanitized;
   }
 
-  function syncProviderApiKeyMetadata(providerId: string, addIfMissing: boolean): void {
+  function syncProviderApiKeyMetadata(
+    providerId: string,
+    hasKey: boolean,
+    lastValidation: ProviderKeyValidation | null,
+  ): void {
     const current = settings.get().providerApiKeys ?? [];
-    const next = current.map((pk) => ({ providerId: pk.providerId, key: "" }));
-    if (addIfMissing && !next.some((pk) => pk.providerId === providerId)) {
-      next.push({ providerId, key: "" });
+    const next = current.map((pk) => ({
+      providerId: pk.providerId,
+      key: "",
+      hasKey: pk.hasKey,
+      lastValidation: pk.lastValidation ?? null,
+    }));
+    const provider = next.find((pk) => pk.providerId === providerId);
+    if (!provider) {
+      next.push({ providerId, key: "", hasKey, lastValidation });
+    } else {
+      provider.hasKey = hasKey;
+      provider.lastValidation = lastValidation;
     }
     settings.update({ providerApiKeys: next });
   }
@@ -425,6 +477,86 @@ export function registerIpcHandlers(opts: {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(id, MAX_ID_LENGTH, false)) return undefined;
     return dictation.retryEntry(id);
+  });
+  ipcMain.handle(IpcChannel.CopyRecoveryEntry, (event, id: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady() || !isBoundedString(id, MAX_ID_LENGTH, false)) return false;
+    return dictation.copyRecoveryEntry(id);
+  });
+  ipcMain.handle(IpcChannel.GetRecoveryEntries, async (event) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady() || !recovery) return [] satisfies RecoveryEntryView[];
+    const entries = await recovery.getUnresolved();
+    return entries.map(toRecoveryEntryView);
+  });
+  ipcMain.handle(IpcChannel.GetRecoveryRestored, (event) => {
+    requireAllowedSender(event, [mainWindow]);
+    return recoveryReady() ? consumeRestoredRecoveryNotice?.() ?? null : null;
+  });
+  ipcMain.handle(IpcChannel.RetryRecoveryTranscription, (event, id: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady() || !isBoundedString(id, MAX_ID_LENGTH, false)) return false;
+    return dictation.retryRecoveryTranscription(id);
+  });
+  ipcMain.handle(IpcChannel.RetryRecoveryFormatting, (event, id: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady() || !isBoundedString(id, MAX_ID_LENGTH, false)) return false;
+    return dictation.retryRecoveryFormatting(id);
+  });
+  ipcMain.handle(IpcChannel.UseRawRecoveryTranscript, (event, id: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady() || !isBoundedString(id, MAX_ID_LENGTH, false)) return false;
+    return dictation.useRawRecoveryTranscript(id);
+  });
+  ipcMain.handle(IpcChannel.RetryRecoveryInsertion, (event, id: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady() || !isBoundedString(id, MAX_ID_LENGTH, false)) return false;
+    return dictation.retryRecoveryInsertion(id);
+  });
+  ipcMain.handle(IpcChannel.PlayRecoveryAudio, async (event, id: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady() || !isBoundedString(id, MAX_ID_LENGTH, false) || !recovery || !recoveryAudio?.playDecryptedAudio) return false;
+    const entry = await recovery.getById(id);
+    if (!entry?.audio || entry.terminal) return false;
+    await recoveryAudio.playDecryptedAudio(entry.sessionId);
+    return true;
+  });
+  ipcMain.handle(IpcChannel.DeleteRecoveryAudio, async (event, id: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady() || !isBoundedString(id, MAX_ID_LENGTH, false) || !recovery || !recoveryAudio) return false;
+    const entry = await recovery.getById(id);
+    if (!entry?.audio || entry.terminal) return false;
+    await recoveryAudio.deleteAudio(entry.sessionId);
+    return true;
+  });
+  ipcMain.handle(IpcChannel.DiscardRecoveryEntry, async (event, id: unknown) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady() || !isBoundedString(id, MAX_ID_LENGTH, false) || !recoveryAudio) return false;
+    const entry = await recovery?.getById(id);
+    if (!entry || entry.terminal) return false;
+    await recoveryAudio.discard(entry.id, entry.sessionId);
+    return true;
+  });
+  ipcMain.handle(IpcChannel.GetRecoveryStorageUsage, async (event) => {
+    requireAllowedSender(event, [mainWindow]);
+    return recoveryReady() ? recoveryAudio?.getStorageUsage() ?? { bytes: 0, sessions: 0 } satisfies RecoveryStorageUsage : { bytes: 0, sessions: 0 };
+  });
+  ipcMain.handle(IpcChannel.CleanupRecoveryAudio, async (event) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady()) return { bytes: 0, sessions: 0 };
+    await recoveryAudio?.cleanupExpired();
+    return recoveryAudio?.getStorageUsage() ?? { bytes: 0, sessions: 0 } satisfies RecoveryStorageUsage;
+  });
+  ipcMain.handle(IpcChannel.ClearRecoveryAudio, async (event) => {
+    requireAllowedSender(event, [mainWindow]);
+    if (!recoveryReady()) return { bytes: 0, sessions: 0 };
+    if (recoveryAudio && recovery) {
+      const entries = await recovery.getAll?.() ?? await recovery.getUnresolved();
+      for (const entry of entries) {
+        if (entry.audio) await recoveryAudio.deleteAudio(entry.sessionId);
+      }
+    }
+    return recoveryAudio?.getStorageUsage() ?? { bytes: 0, sessions: 0 } satisfies RecoveryStorageUsage;
   });
   ipcMain.handle(IpcChannel.GetDictationTrace, (event, traceId: unknown) => {
     requireAllowedSender(event, [mainWindow]);
@@ -465,7 +597,16 @@ export function registerIpcHandlers(opts: {
       settingsPatch.groqApiKey = "";
     }
     if ("providerApiKeys" in settingsPatch) {
-      settingsPatch.providerApiKeys = (settingsPatch.providerApiKeys ?? []).map((pk) => ({ providerId: pk.providerId, key: "" }));
+      const currentKeys = settings.get().providerApiKeys ?? [];
+      settingsPatch.providerApiKeys = (settingsPatch.providerApiKeys ?? []).map((pk) => {
+        const current = currentKeys.find((entry) => entry.providerId === pk.providerId);
+        return {
+          providerId: pk.providerId,
+          key: "",
+          hasKey: current?.hasKey,
+          lastValidation: current?.lastValidation ?? null,
+        };
+      });
     }
 
     if ("formattingProvider" in settingsPatch && typeof settingsPatch.formattingProvider === "string" && !("formattingModel" in settingsPatch)) {
@@ -582,7 +723,12 @@ export function registerIpcHandlers(opts: {
   ipcMain.handle(IpcChannel.RecorderFailure, (event, payload: unknown) => {
     requireAllowedSender(event, [recorder?.getWindow()]);
     if (!isRecorderFailure(payload)) return undefined;
-    return dictation.handleRecorderFailure(payload);
+    return dictation.handleRecorderFailure(payload, payload.partialClip);
+  });
+  ipcMain.handle(IpcChannel.RecorderSuspended, (event, payload: unknown) => {
+    requireAllowedSender(event, [recorder?.getWindow()]);
+    if (!isRecorderSuspensionAck(payload)) return undefined;
+    return recorder?.acknowledgeLifecycleSuspension?.(payload);
   });
   ipcMain.handle(IpcChannel.PrepareRecordingInput, (event) => {
     requireAllowedSender(event, [recorder?.getWindow()]);
@@ -605,18 +751,20 @@ export function registerIpcHandlers(opts: {
   // Phase 1: Provider API key testing
   ipcMain.handle(IpcChannel.SetProviderApiKey, async (event, providerId: unknown, apiKey: unknown) => {
     requireAllowedSender(event, [mainWindow]);
-    if (!isBoundedString(providerId, MAX_ID_LENGTH, false) || !isBoundedString(apiKey, MAX_SECRET_LENGTH, false)) return undefined;
-    if (!credentials) return undefined;
+    if (!isBoundedString(providerId, MAX_ID_LENGTH, false) || !isBoundedString(apiKey, MAX_SECRET_LENGTH, false)) return getSanitizedSettings();
+    if (!credentials) return getSanitizedSettings();
     await credentials.set(providerId, apiKey);
-    syncProviderApiKeyMetadata(providerId, true);
+    syncProviderApiKeyMetadata(providerId, true, null);
+    return getSanitizedSettings();
   });
 
   ipcMain.handle(IpcChannel.ClearProviderApiKey, async (event, providerId: unknown) => {
     requireAllowedSender(event, [mainWindow]);
-    if (!isBoundedString(providerId, MAX_ID_LENGTH, false)) return undefined;
-    if (!credentials) return undefined;
+    if (!isBoundedString(providerId, MAX_ID_LENGTH, false)) return getSanitizedSettings();
+    if (!credentials) return getSanitizedSettings();
     await credentials.delete(providerId);
-    syncProviderApiKeyMetadata(providerId, false);
+    syncProviderApiKeyMetadata(providerId, false, null);
+    return getSanitizedSettings();
   });
 
   ipcMain.handle(IpcChannel.TestApiKey, async (event, providerId: unknown, apiKey: unknown) => {
@@ -625,7 +773,12 @@ export function registerIpcHandlers(opts: {
       return { valid: false, message: "Invalid provider credentials." };
     }
     const registry = getProviderRegistry();
-    return validateSubmittedApiKey(providerId, apiKey, (id) => registry.getTranscription(id) || registry.getFormatting(id));
+    const result = await validateSubmittedApiKey(providerId, apiKey, (id) => registry.getTranscription(id) || registry.getFormatting(id));
+    const hasKey = credentials
+      ? await credentials.has(providerId)
+      : settings.get().providerApiKeys?.some((pk) => pk.providerId === providerId && pk.hasKey === true) ?? false;
+    syncProviderApiKeyMetadata(providerId, hasKey, { ...result, testedAt: new Date().toISOString() });
+    return result;
   });
 
   ipcMain.handle(IpcChannel.GetProviderStatus, async (event) => {

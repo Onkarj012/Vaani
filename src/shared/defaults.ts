@@ -34,6 +34,8 @@ export const DEFAULT_SETTINGS: Settings = {
   dictationMode: "toggle",
   saveRecordings: false,
   recordingsPath: "",
+  recoveryRetentionDays: 3,
+  retainFailedAudio: true,
   // Phase 1
   transcriptionProvider: "groq",
   transcriptionModel: "",
@@ -93,6 +95,15 @@ export const SUPPORTED_LANGUAGES: LanguageInfo[] = [
   { value: "pt", label: "Portuguese", whisper: true, deepgram: true, localEn: false },
   { value: "ru", label: "Russian", whisper: true, deepgram: true, localEn: false },
 ];
+
+export function getLanguageLabel(language: string | null | undefined): string | null {
+  if (!language) return null;
+  return SUPPORTED_LANGUAGES.find((entry) => entry.value === language)?.label ?? language;
+}
+
+export function resolveProfileLanguage(profileLanguage: string | undefined, globalLanguage: string): string {
+  return profileLanguage && profileLanguage !== "auto" ? profileLanguage : globalLanguage;
+}
 
 // Pure support check used by both the provider chain and the Settings UI.
 export function isLanguageSupportedByProvider(
