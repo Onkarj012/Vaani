@@ -34,6 +34,8 @@ export const DEFAULT_SETTINGS: Settings = {
   dictationMode: "toggle",
   saveRecordings: false,
   recordingsPath: "",
+  recoveryRetentionDays: 3,
+  retainFailedAudio: true,
   // Phase 1
   transcriptionProvider: "groq",
   transcriptionModel: "",

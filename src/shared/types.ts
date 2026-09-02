@@ -1,4 +1,29 @@
 import type { DictionarySuggestion } from "./dictionarySuggestions";
+import type { RecoveryEntryView, RecoveryInsertionTerminalOutcome, RecoveryRestoredNotice, RecoveryStorageUsage } from "./recovery";
+export type {
+  RecoveryAttempt,
+  RecoveryEntry,
+  RecoveryEntryView,
+  RecoveryError,
+  RecoveryErrorClass,
+  RecoveryInsertionOutcome,
+  RecoveryInsertionView,
+  RecoveryInsertionPreparation,
+  RecoveryInsertionTerminalOutcome,
+  RecoveryProviderAttempt,
+  RecoveryRetention,
+  RecoveryRetentionMetadata,
+  RecoveryMode,
+  RecoveryState,
+  RecoveryTarget,
+  RecoveryTargetFingerprint,
+  RecoveryTerminal,
+  RecoveryTerminalOutcome,
+  RecoveryTextReferences,
+  RecoveryTransitionInput,
+  RecoveryRestoredNotice,
+  RecoveryStorageUsage,
+} from "./recovery";
 
 // ─── Dictation State ─────────────────────────────────────────────────────────
 
@@ -23,6 +48,7 @@ export type DictationState =
       status: "completed";
       sessionId: string;
       outcome: DictationCompletionOutcome;
+      recoveryOutcome?: RecoveryInsertionTerminalOutcome;
       text: string;
       message: string;
       detectedLanguage?: string | null;
@@ -99,14 +125,21 @@ export type DictationRejectionReason = "no_speech" | "microphone_permission_deni
 export interface ProviderAttemptTrace {
   provider: string;
   success: boolean;
+  attempt?: number;
   latencyMs?: number;
   error?: string;
+  outcome?: "succeeded" | "failed" | "cancelled";
+  errorClass?: import("./recovery").RecoveryErrorClass;
+  startedAt?: string;
+  completedAt?: string;
+  deadlineAt?: string | null;
   quality?: TranscriptionQualityMetadata;
 }
 
 export interface InjectionAttemptTrace {
   targetAppBundleId: string | null;
   targetAppName: string | null;
+  targetFieldClass?: string | null;
   method?: InjectionMethod | null;
   success: boolean;
   fallbackReason?: string;
@@ -117,7 +150,7 @@ export interface InsertionVerificationTrace {
   readable: boolean;
   passed: boolean;
   repaired: boolean;
-  reason?: "expected-present" | "unreadable" | "partial-suffix-repaired" | "partial-unsafe" | "missing" | "not-at-target";
+  reason?: "expected-present" | "baseline-unreadable" | "unreadable" | "timeout" | "partial-suffix-repaired" | "partial-unsafe" | "missing" | "not-at-target";
 }
 
 export type DictationFormatterUsed = "llm" | "guard-fallback" | "deterministic" | "none";
@@ -157,6 +190,7 @@ export interface DictationTrace {
   id: string;
   sessionId: string;
   startedAt: string;
+  buildIdentifier?: string;
   completedAt?: string;
   hotkeyReleasedAt?: string;
   targetAppBundleId: string | null;
@@ -282,6 +316,8 @@ export interface Settings {
   dictationMode: DictationMode;
   saveRecordings: boolean;
   recordingsPath: string;
+  recoveryRetentionDays: 1 | 3 | 7 | 14;
+  retainFailedAudio: boolean;
   // Phase 1: Provider settings
   transcriptionProvider: string;
   transcriptionModel: string;
@@ -330,12 +366,15 @@ export interface TranscriptionOptions {
   prompt?: string;
   temperature?: number;
   streaming?: boolean;
+  signal?: AbortSignal;
+  recovery?: boolean;
 }
 
 export interface FormattingOptions {
   model?: string;
   style?: "default" | "strict" | "casual";
   systemPrompt?: string;
+  signal?: AbortSignal;
 }
 
 export type InjectionResult =
@@ -350,6 +389,15 @@ export interface RecorderSubmission {
 export interface RecorderFailure {
   sessionId: string;
   message: string;
+  kind?: "interrupted" | "microphone_permission_denied" | "recorder_failure";
+  partialClip?: AudioClip;
+}
+
+export interface RecorderSuspensionAck {
+  sessionId: string;
+  ok: boolean;
+  partialClip?: AudioClip;
+  message?: string;
 }
 
 export interface RecorderConfig {
@@ -383,6 +431,19 @@ export interface VaaniAPI {
   deleteEntry: (id: string) => Promise<void>;
   reinjectEntry: (id: string) => Promise<void>;
   retryHistoryEntry: (id: string) => Promise<void>;
+  getRecoveryEntries: () => Promise<RecoveryEntryView[]>;
+  retryRecoveryTranscription: (id: string) => Promise<boolean>;
+  retryRecoveryFormatting: (id: string) => Promise<boolean>;
+  useRawRecoveryTranscript: (id: string) => Promise<boolean>;
+  retryRecoveryInsertion: (id: string) => Promise<boolean>;
+  copyRecoveryEntry: (id: string) => Promise<boolean>;
+  playRecoveryAudio: (id: string) => Promise<boolean>;
+  deleteRecoveryAudio: (id: string) => Promise<boolean>;
+  discardRecoveryEntry: (id: string) => Promise<boolean>;
+  getRecoveryStorageUsage: () => Promise<RecoveryStorageUsage>;
+  cleanupRecoveryAudio: () => Promise<RecoveryStorageUsage>;
+  clearRecoveryAudio: () => Promise<RecoveryStorageUsage>;
+  getRecoveryRestoredNotice: () => Promise<RecoveryRestoredNotice | null>;
   getDictationTrace: (traceId: string) => Promise<DictationTrace | undefined>;
   exportBugReport: (entryId: string) => Promise<DictationBugReport>;
   clearHistory: () => Promise<void>;
@@ -426,11 +487,15 @@ declare global {
     __VAANI_RECORDER__: {
       onStartRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       onStopRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onAbortRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onSuspendRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onResumeRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       submitAudioClip: (payload: RecorderSubmission) => Promise<void>;
       reportRecorderReady: () => Promise<void>;
       reportRecorderStarted: (sessionId: string) => Promise<void>;
       reportAudioFrame: (frame: AudioVisualFrame) => Promise<void>;
       reportRecorderFailure: (payload: RecorderFailure) => Promise<void>;
+      reportRecorderSuspended: (payload: RecorderSuspensionAck) => Promise<void>;
       prepareRecordingInput: () => Promise<number | null>;
       restoreRecordingInput: (deviceId: number | null) => Promise<boolean>;
       getRecorderConfig: () => Promise<RecorderConfig>;

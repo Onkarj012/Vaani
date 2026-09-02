@@ -63,6 +63,32 @@ describe("shouldUseNativeBackend", () => {
 });
 
 describe("CaptureBackendController", () => {
+  it("routes renderer lifecycle suspension and cancellation through the active backend", () => {
+    const config: RecorderConfig = { preWarmMic: false, captureBackend: "renderer" };
+    const native = new NativeCaptureService(() => config, {
+      reportRecorderStarted: vi.fn(),
+      submitAudioClip: vi.fn(),
+      updateAudioLevel: vi.fn(),
+      handleRecorderFailure: vi.fn(),
+    }, {});
+    const renderer = {
+      isReady: vi.fn(() => true),
+      startRecording: vi.fn(() => true),
+      stopRecording: vi.fn(() => true),
+      abortRecording: vi.fn(),
+      suspendForLifecycle: vi.fn(() => ({ wasRunning: true, sessionId: "renderer-session" })),
+      resumeAfterLifecycle: vi.fn(() => ({ ok: true as const, selectedDeviceUid: null })),
+    };
+    const controller = new CaptureBackendController(() => config, native, renderer);
+
+    expect(controller.startRecording("renderer-session")).toBe(true);
+    expect(controller.suspendForLifecycle()).toEqual({ wasRunning: true, sessionId: "renderer-session" });
+    expect(renderer.suspendForLifecycle).toHaveBeenCalledTimes(1);
+    expect(controller.resumeAfterLifecycle()).toMatchObject({ ok: true });
+    controller.abortRecording("renderer-session");
+    expect(renderer.abortRecording).toHaveBeenCalledWith("renderer-session");
+  });
+
   it("falls back to renderer when native start fails", () => {
     const config: RecorderConfig = { preWarmMic: true, captureBackend: "native" };
     const native = {
@@ -85,6 +111,33 @@ describe("CaptureBackendController", () => {
 });
 
 describe("NativeCaptureService", () => {
+  it("keeps suspension retryable after a failed resume and makes a later success idempotent", () => {
+    const config: RecorderConfig = { preWarmMic: true, captureBackend: "native", micDeviceId: "built-in" };
+    let startSucceeds = true;
+    const sink: NativeCaptureSink = {
+      reportRecorderStarted: vi.fn(),
+      submitAudioClip: vi.fn(),
+      updateAudioLevel: vi.fn(),
+      handleRecorderFailure: vi.fn(),
+    };
+    const bridge = {
+      audioCaptureStart: vi.fn(() => startSucceeds),
+      audioCaptureStop: vi.fn(),
+      audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+      audioCaptureIsRunning: vi.fn(() => false),
+    };
+    const service = new NativeCaptureService(() => config, sink, bridge);
+    expect(service.warm()).toBe(true);
+    service.suspendForLifecycle();
+    startSucceeds = false;
+    expect(service.resumeAfterLifecycle()).toMatchObject({ ok: false });
+    startSucceeds = true;
+    expect(service.resumeAfterLifecycle()).toMatchObject({ ok: true, selectedDeviceUid: "built-in" });
+    const startsAfterSuccessfulResume = bridge.audioCaptureStart.mock.calls.length;
+    expect(service.resumeAfterLifecycle()).toMatchObject({ ok: true, selectedDeviceUid: "built-in" });
+    expect(bridge.audioCaptureStart).toHaveBeenCalledTimes(startsAfterSuccessfulResume);
+  });
+
   it("defers capture rebuilds while a session is active", () => {
     let config: RecorderConfig = { preWarmMic: true, captureBackend: "native", micDeviceId: "built-in" };
     const sink: NativeCaptureSink = {
@@ -112,5 +165,27 @@ describe("NativeCaptureService", () => {
 
     expect(bridge.audioCaptureStop).not.toHaveBeenCalled();
     expect(sink.reportRecorderStarted).toHaveBeenCalledWith("s1");
+  });
+
+  it("aborts a native session before state reset without submitting a clip", () => {
+    const config: RecorderConfig = { preWarmMic: false, captureBackend: "native" };
+    const sink: NativeCaptureSink = {
+      reportRecorderStarted: vi.fn(),
+      submitAudioClip: vi.fn(),
+      updateAudioLevel: vi.fn(),
+      handleRecorderFailure: vi.fn(),
+    };
+    const bridge = {
+      audioCaptureStart: vi.fn(() => true),
+      audioCaptureStop: vi.fn(),
+      audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+      audioCaptureIsRunning: vi.fn(() => false),
+    };
+    const service = new NativeCaptureService(() => config, sink, bridge);
+    expect(service.startRecording("native-session")).toBe(true);
+    service.abortRecording("native-session");
+    expect(bridge.audioCaptureStop).toHaveBeenCalled();
+    expect(service.stopRecording("native-session")).toBe(true);
+    expect(sink.submitAudioClip).not.toHaveBeenCalled();
   });
 });

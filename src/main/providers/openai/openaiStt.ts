@@ -3,6 +3,7 @@ import type { TranscriptionProvider } from "../types";
 import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
 import { unavailableValidation, validateBearerEndpoint } from "../validation";
 import { createWavBuffer, fetchWithTimeout } from "@main/providers/shared/audioUtils";
+import { throwIfAborted } from "@main/cancellation";
 
 export const OpenAISttProvider: TranscriptionProvider = {
   id: "openai",
@@ -35,17 +36,18 @@ export const OpenAISttProvider: TranscriptionProvider = {
       method: "POST",
       headers: { Authorization: `Bearer ${options.apiKey}` },
       body: formData,
+      signal: options.signal,
     });
+    throwIfAborted(options.signal);
 
-    if (!response.ok) {
-      throw new Error(`OpenAI API is temporarily unavailable. Please try again.`);
-    }
+    if (!response.ok) throw new Error(`OpenAI API request failed with status ${response.status}.`);
 
     const data = await response.json() as {
       text: string;
       language?: string;
       segments?: Array<{ avg_logprob?: number; compression_ratio?: number; no_speech_prob?: number }>;
-    };
+      };
+    throwIfAborted(options.signal);
     const rawText = (data.text ?? "").trim();
     if (!rawText) throw new Error("No speech detected.");
     const resolvedLanguage = resolveReportedLanguage(options.language);
@@ -110,13 +112,14 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
       method: "POST",
       headers: { Authorization: `Bearer ${options.apiKey}` },
       body: formData,
+      signal: options.signal,
     });
+    throwIfAborted(options.signal);
 
-    if (!response.ok) {
-      throw new Error(`OpenAI Compatible API is temporarily unavailable. Please try again.`);
-    }
+    if (!response.ok) throw new Error(`OpenAI Compatible API request failed with status ${response.status}.`);
 
     const data = await response.json() as { text: string; language?: string };
+    throwIfAborted(options.signal);
     const rawText = (data.text ?? "").trim();
     if (!rawText) throw new Error("No speech detected.");
     const resolvedLanguage = resolveReportedLanguage(options.language);

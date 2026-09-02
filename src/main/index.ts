@@ -1,10 +1,10 @@
-import { app, BrowserWindow, ipcMain, session, systemPreferences } from "electron";
+import { app, BrowserWindow, ipcMain, powerMonitor, session, systemPreferences } from "electron";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync, existsSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import type { UpdateNotificationPayload } from "@shared/types";
+import type { MacOSPermissionState, PermissionStatus, UpdateNotificationPayload } from "@shared/types";
 import { DictationService } from "./dictation";
 import { HotkeyManager } from "./hotkeys";
 import { registerIpcHandlers } from "./ipc";
@@ -13,14 +13,23 @@ import { RecorderWindowController } from "./recorderWindow";
 import { CaptureBackendController, NativeCaptureService } from "./audio/nativeCapture";
 import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
+import { RecoveryJournalStore } from "./store/recoveryJournal";
+import { EncryptedRecoveryAudioStore } from "./audio/recoveryAudio";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
+import { isPermissionReady } from "@shared/permissionGuard";
+import { isRecoveryEnabled } from "./recoveryReadiness";
 import { getProviderRegistry } from "./providers";
 import { loadWhisperModel } from "./providers/local/whisperCpp";
 import { error } from "@main/log";
+import { APP_DATA_DIR } from "@shared/defaults";
+import { RecoveryLifecycleCoordinator } from "./recoveryLifecycle";
+import { subscribeNativeLoadFailure, nativeBridge } from "./nativeBridge";
+import { consumeRestoredRecoveryNotice } from "./recoveryStartup";
+import { createQuitHandler } from "./quitCleanup";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
@@ -37,9 +46,14 @@ let hotkeyManager: HotkeyManager | null = null;
 let settingsStore: SettingsStore | null = null;
 let credentialsStore: CredentialsStore | null = null;
 let dictationService: DictationService | null = null;
+let lifecycleCoordinator: RecoveryLifecycleCoordinator | null = null;
+let unsubscribeNativeFailure: (() => void) | null = null;
+let recoveryJournal: RecoveryJournalStore | null = null;
 let menuBarMode = true;
 let rendererReady = false;
 let mainWindowOpenRequested = false;
+let restoredRecoveryIds: string[] = [];
+const restoredRecoveryNoticeState: { deliveredBatch: string | null } = { deliveredBatch: null };
 let mainWindowReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDockVisible: boolean | null = null;
 let suppressDashboardActivationUntil = 0;
@@ -57,6 +71,29 @@ function log(label: string, data?: unknown): void {
   } catch {
     // best-effort logging
   }
+}
+
+function getFreshPermissionStatus(): PermissionStatus {
+  const microphoneStatus = systemPreferences.getMediaAccessStatus("microphone");
+  const microphone = (["not-determined", "granted", "denied", "restricted"].includes(microphoneStatus)
+    ? microphoneStatus
+    : "unknown") as MacOSPermissionState;
+  return {
+    microphone,
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false) ? "granted" : "denied",
+  };
+}
+
+function pushPermissionStatus(status: PermissionStatus): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send(IpcChannel.PermissionStatusPush, status);
+}
+
+function warmNativeIfPermissionReady(): void {
+  const status = getFreshPermissionStatus();
+  if (!isPermissionReady(status)) return;
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+  recorderController?.warmNative();
 }
 
 export function setCachedUpdateStatus(payload: UpdateNotificationPayload | null): void {
@@ -170,6 +207,10 @@ function preserveDockIfDashboardOpen(): void {
 function cleanupRuntimeResources(): void {
   clearMainWindowReadyTimeout();
   dictationService?.destroy();
+  lifecycleCoordinator?.dispose();
+  lifecycleCoordinator = null;
+  unsubscribeNativeFailure?.();
+  unsubscribeNativeFailure = null;
   hotkeyManager?.unregister();
   hotkeyManager = null;
   recorderController?.destroy();
@@ -198,6 +239,11 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
       backgroundThrottling: false
     }
   });
+
+  win.webContents.on("will-navigate", (event) => {
+    event.preventDefault();
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
   win.webContents.on("did-start-loading", () => {
     log("renderer:start-loading", { rendererReady });
@@ -267,14 +313,7 @@ function createMainWindow(trayEnabled: () => boolean): BrowserWindow {
 
   win.on("focus", () => {
     log("window:focus");
-    if (win.webContents && !win.webContents.isDestroyed()) {
-      const micStatus = systemPreferences.getMediaAccessStatus("microphone");
-      const micState = (["not-determined", "granted", "denied", "restricted"].includes(micStatus) ? micStatus : "unknown") as import("@shared/types").MacOSPermissionState;
-      win.webContents.send(IpcChannel.PermissionStatusPush, {
-        microphone: micState,
-        accessibility: systemPreferences.isTrustedAccessibilityClient(false) ? "granted" : "denied",
-      });
-    }
+    pushPermissionStatus(getFreshPermissionStatus());
   });
 
   return win;
@@ -286,9 +325,9 @@ function configureRendererLifecycle(win: BrowserWindow): void {
     log("renderer:ready");
     rendererReady = true;
     clearMainWindowReadyTimeout();
-    if (!menuBarMode && !shouldSuppressDashboardActivation()) {
-      win.show();
-      win.focus();
+    if (!shouldSuppressDashboardActivation()) {
+      showMainWindow();
+      warmNativeIfPermissionReady();
     } else if (!menuBarMode) {
       log("renderer:ready-focus-suppressed");
       syncAppPresentation();
@@ -305,13 +344,14 @@ function configureRendererLifecycle(win: BrowserWindow): void {
   });
 }
 
-function configureMediaPermissions(): void {
+function configureMediaPermissions(onPermissionStatusChanged?: () => void): void {
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
     if (permission === "media") {
       const mediaTypes = (details as { mediaTypes?: string[] }).mediaTypes ?? [];
       const audioOnly = mediaTypes.length === 0 || mediaTypes.every((type) => type === "audio");
       callback(audioOnly);
       log("permission:media", { audioOnly, mediaTypes });
+      onPermissionStatusChanged?.();
       return;
     }
     callback(false);
@@ -344,7 +384,28 @@ async function bootstrap(): Promise<void> {
   settingsStore = settings;
   const history = new HistoryStore();
   const traces = new DictationTraceStore();
+  const recovery = new RecoveryJournalStore();
+  const recoveryAudio = new EncryptedRecoveryAudioStore(recovery, undefined, join(home, APP_DATA_DIR, "recovery-audio"));
+  recoveryJournal = recovery;
   await settings.init();
+  if (isRecoveryEnabled()) {
+    let recoveryUsable = true;
+    try {
+      await recovery.init();
+    } catch (startupError) {
+      recoveryUsable = false;
+      log("recovery:startup-repair-failed", { message: startupError instanceof Error ? startupError.message : String(startupError) });
+    }
+    if (recoveryUsable) {
+      await recoveryAudio.cleanupExpired().catch((startupError) => {
+        log("recovery:audio-expiry-failed", { message: startupError instanceof Error ? startupError.message : String(startupError) });
+      });
+      await recoveryAudio.reconcileOrphans().catch((startupError) => {
+        log("recovery:audio-orphan-cleanup-failed", { message: startupError instanceof Error ? startupError.message : String(startupError) });
+      });
+      restoredRecoveryIds = (await recovery.getUnresolved()).map((entry) => entry.id);
+    }
+  }
 
   // Initialize credentials store and migrate legacy API keys
   credentialsStore = new CredentialsStore();
@@ -366,7 +427,6 @@ async function bootstrap(): Promise<void> {
   lastDockVisible = null;
 
   let trayReady = false;
-  configureMediaPermissions();
 
   mainWindow = createMainWindow(() => trayReady);
   configureRendererLifecycle(mainWindow);
@@ -377,6 +437,7 @@ async function bootstrap(): Promise<void> {
     preWarmMic: settings.get().preWarmMic,
     captureBackend: settings.get().captureBackend,
   }));
+  configureMediaPermissions(() => { void lifecycleCoordinator?.handlePermissionChanged(getFreshPermissionStatus()); });
   overlayController.setTheme("aurora");
   overlayController.setColorMode(initSettings.colorMode ?? "light");
   if (initSettings.accentColor) overlayController.setAccentColor(initSettings.accentColor);
@@ -398,7 +459,13 @@ async function bootstrap(): Promise<void> {
       reportRecorderStarted: (sessionId) => dictation.reportRecorderStarted(sessionId),
       submitAudioClip: (payload) => dictation.submitAudioClip(payload),
       updateAudioLevel: (frame) => dictation.updateAudioLevel(frame),
-      handleRecorderFailure: (payload) => dictation.handleRecorderFailure(payload),
+      handleRecorderFailure: (payload, partialClip) => {
+        if (payload.kind === "interrupted" && lifecycleCoordinator) {
+          void lifecycleCoordinator.handleCaptureInterruption(payload.sessionId, partialClip, payload.message);
+          return;
+        }
+        dictation.handleRecorderFailure(payload, partialClip);
+      },
     }
   );
   recorderController = new CaptureBackendController(
@@ -417,16 +484,54 @@ async function bootstrap(): Promise<void> {
     history,
     (label) => trayController.updateStatus(label),
     overlayController,
-    { recorder: recorderController, credentials: credentialsStore, traces }
+    { recorder: recorderController, credentials: credentialsStore, traces, recovery, recoveryAudio }
   );
   dictationService = dictation;
-  recorderController.warmNative();
+  lifecycleCoordinator = new RecoveryLifecycleCoordinator({
+    journal: recovery,
+    capture: recorderController,
+    dictation: {
+      getActiveSession: () => dictation.getActiveSessionForLifecycle(),
+      handleLifecycleSuspended: (sessionId, generation, partialClip) => dictation.handleLifecycleSuspended(sessionId, generation, partialClip),
+      handleLifecycleInterruption: (sessionId, generation, message, errorClass, partialClip, routeHandoff) => dictation.handleLifecycleInterruption(sessionId, generation, message, errorClass, partialClip, routeHandoff),
+      handleLifecycleRouteHandoff: (sessionId, generation, handoff) => dictation.handleLifecycleRouteHandoff(sessionId, generation, handoff),
+    },
+    getPermissionStatus: getFreshPermissionStatus,
+    recoveryReady: isRecoveryEnabled,
+    reportStatus: (message) => trayController.updateStatus(message),
+  });
+  unsubscribeNativeFailure = subscribeNativeLoadFailure((failure) => {
+    void lifecycleCoordinator?.handleNativeLoadFailure(failure);
+  });
+  lifecycleCoordinator.attach(powerMonitor, {
+    subscribe: (listener) => {
+      const subscribe = nativeBridge.audioCaptureSetRouteChangeHandler;
+      return subscribe?.(listener);
+    },
+  });
+
+  const beginDictationIfPermitted = (source: "tray" | "hotkey"): boolean => {
+    const status = getFreshPermissionStatus();
+    void lifecycleCoordinator?.handlePermissionChanged(status);
+    if (status.microphone === "granted" && status.accessibility === "granted") {
+      warmNativeIfPermissionReady();
+      if (source === "hotkey") suppressDashboardActivation("hotkey");
+      dictation.beginHotkeySession();
+      if (source === "hotkey") preserveDockIfDashboardOpen();
+      return true;
+    }
+
+    log("dictation:blocked", { source, microphone: status.microphone, accessibility: status.accessibility });
+    pushPermissionStatus(status);
+    showMainWindow();
+    return false;
+  };
 
   try {
     trayController = createTray({
       openMainWindow: () => showMainWindow(),
       quit: () => { mutableApp.isQuitting = true; app.quit(); },
-      startDictation: () => dictation.beginHotkeySession(),
+      startDictation: () => { void beginDictationIfPermitted("tray"); },
       pasteLatest: () => { void dictation.pasteLatestEntry(); },
       getRecentHistory: async () => {
         const entries = await history.getAll();
@@ -443,11 +548,7 @@ async function bootstrap(): Promise<void> {
 
   hotkeyManager = new HotkeyManager(
     () => settings.get(),
-    () => {
-      suppressDashboardActivation("hotkey");
-      dictation.beginHotkeySession();
-      preserveDockIfDashboardOpen();
-    },
+    () => beginDictationIfPermitted("hotkey"),
     () => dictation.endHotkeySession(),
     () => dictation.cancelSession(),
     () => { dictation.pasteLatestEntry().catch((err) => { error("main", `paste latest failed: ${err instanceof Error ? err.message : String(err)}`); }); },
@@ -461,7 +562,14 @@ async function bootstrap(): Promise<void> {
     settings,
     hotkeys: hotkeyManager,
     recorder: rendererRecorder,
+    overlay: overlayController,
     credentials: credentialsStore,
+    recovery,
+    recoveryAudio,
+    consumeRestoredRecoveryNotice: () => {
+      return consumeRestoredRecoveryNotice(restoredRecoveryIds, restoredRecoveryNoticeState);
+    },
+    onPermissionStatusChanged: (status) => { void lifecycleCoordinator?.handlePermissionChanged(status); },
     onSettingsUpdated: (_updated, patch) => {
       if ("theme" in patch) overlayController?.setTheme("aurora");
       if ("colorMode" in patch && patch.colorMode) overlayController?.setColorMode(patch.colorMode);
@@ -497,7 +605,6 @@ async function bootstrap(): Promise<void> {
   });
 
   await loadWindowUrl(mainWindow);
-  setTimeout(() => showMainWindow(), 100);
   setTimeout(() => hotkeyManager?.register(), 300);
 
   // Auto-updater (only in packaged builds)
@@ -566,7 +673,19 @@ if (!hasLock) { log("second-instance:exit"); app.quit(); }
 
 app.on("second-instance", () => { log("second-instance:focus"); showMainWindow(); });
 
-app.on("before-quit", () => { mutableApp.isQuitting = true; cleanupRuntimeResources(); });
+app.on("before-quit", createQuitHandler({
+  flush: async () => {
+    await dictationService?.flushRecovery();
+    await lifecycleCoordinator?.flush();
+    await recoveryJournal?.flush();
+  },
+  cleanup: () => {
+    mutableApp.isQuitting = true;
+    cleanupRuntimeResources();
+    recoveryJournal = null;
+  },
+  quit: () => app.quit(),
+}));
 
 app.whenReady()
   .then(() => bootstrap())

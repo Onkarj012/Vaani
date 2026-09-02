@@ -58,6 +58,7 @@ function createService() {
     isReady: vi.fn(() => true),
     startRecording: vi.fn(() => true),
     stopRecording: vi.fn(() => true),
+    abortRecording: vi.fn(),
   };
   const transcription = {
     transcribe: vi.fn(async (): Promise<TranscriptionResult> => ({ rawText: "hello", formattedText: "hello", language: "en" })),
@@ -80,6 +81,7 @@ function createService() {
       transcription,
       injector,
       appDetector,
+      getMicrophonePermission: () => "granted",
       createSessionId: () => `session-${++nextSession}`,
     }
   );
@@ -113,7 +115,7 @@ describe("DictationService FSM characterization", () => {
   });
 
   it("cancel during transcribing prevents the eventual transcription from injecting or saving history", async () => {
-    const { service, transcription, injector, history } = createService();
+    const { service, transcription, injector, history, recorder } = createService();
     const pending = deferred<TranscriptionResult>();
     transcription.transcribe.mockReturnValueOnce(pending.promise);
 
@@ -125,6 +127,7 @@ describe("DictationService FSM characterization", () => {
     await Promise.resolve();
 
     service.cancelSession();
+    expect(recorder.abortRecording).toHaveBeenCalledWith(sessionId);
     pending.resolve({ rawText: "late text", formattedText: "late text", language: "en" });
     await submit;
 
@@ -133,14 +136,15 @@ describe("DictationService FSM characterization", () => {
     expect(service.getState()).toEqual({ status: "idle" });
   });
 
-  it("reinjectEntry currently injects a stored entry even when recording is active", async () => {
-    const { service, injector, history } = createService();
+  it("rejects restored insertion while recording is active", async () => {
+    const { service, injector, history, overlay } = createService();
 
     service.beginHotkeySession();
     await service.reinjectEntry("stored");
 
-    expect(history.getById).toHaveBeenCalledWith("stored");
-    expect(injector.inject).toHaveBeenCalledWith("hello", expect.objectContaining({ appName: "TextEdit" }));
-    expect(service.getState()).toMatchObject({ status: "completed", text: "hello" });
+    expect(history.getById).not.toHaveBeenCalled();
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "starting" });
+    expect(overlay.setError).toHaveBeenCalledWith();
   });
 });
