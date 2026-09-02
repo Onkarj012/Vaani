@@ -1,4 +1,5 @@
 import type { DictationEntry, Settings } from "@shared/types";
+import { bounded } from "@shared/recovery";
 
 export function createExportPayload(settings: Settings, history: DictationEntry[]) {
   return {
@@ -15,20 +16,16 @@ export function createExportPayload(settings: Settings, history: DictationEntry[
     },
     history: history.map((entry) => ({
       ...entry,
-      id: boundedExport(entry.id),
-      traceId: entry.traceId ? boundedExport(entry.traceId) : null,
-      rawText: boundedExport(entry.rawText),
-      formattedText: boundedExport(entry.formattedText),
-      cleanedText: boundedExport(entry.cleanedText),
-      appBundleId: entry.appBundleId ? boundedExport(entry.appBundleId) : null,
-      appName: entry.appName ? boundedExport(entry.appName) : null,
-      language: entry.language ? boundedExport(entry.language) : null,
-      detectedLanguage: entry.detectedLanguage ? boundedExport(entry.detectedLanguage) : null,
+      id: bounded(entry.id),
+      traceId: entry.traceId ? bounded(entry.traceId) : null,
+      rawText: bounded(entry.rawText),
+      formattedText: bounded(entry.formattedText),
+      cleanedText: bounded(entry.cleanedText),
+      appBundleId: entry.appBundleId ? bounded(entry.appBundleId) : null,
+      appName: entry.appName ? bounded(entry.appName) : null,
+      language: entry.language ? bounded(entry.language) : null,
+      detectedLanguage: entry.detectedLanguage ? bounded(entry.detectedLanguage) : null,
       rawAudioPath: null,
     })),
   };
-}
-
-function boundedExport(value: string): string {
-  return value.slice(0, 500);
 }

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Globe, Mic, Keyboard, Type, Palette, Monitor, Volume2, Download, Trash2,
   Eye, EyeOff, Check, AlertTriangle, X, Database, HardDrive, Plug, RefreshCw, Sun, Moon,
+  ShieldCheck,
 } from 'lucide-react'
 import { useVaaniUi } from '../context/vaani-ui'
 import { useColorMode } from '../context/color-mode'
@@ -13,7 +14,8 @@ import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
 import { createExportPayload } from '@renderer/exportData'
-import type { AudioInputDevice, ProviderKeyValidation } from '@shared/types'
+import type { AudioInputDevice, ProviderKeyValidation, Settings } from '@shared/types'
+import type { RecoveryStorageUsage } from '@shared/recovery'
 import { decideProviderKeyDraft } from '@renderer/lib/providerKeyDraft'
 
 const sidebarItems = [
@@ -27,6 +29,7 @@ const sidebarItems = [
   { id: 'audio', label: 'Audio', icon: Volume2 },
   { id: 'updates', label: 'Updates', icon: Download },
   { id: 'data', label: 'Data', icon: Database },
+  { id: 'recovery', label: 'Recovery', icon: ShieldCheck },
 ]
 
 const sectionDescriptions: Record<string, string> = {
@@ -40,6 +43,7 @@ const sectionDescriptions: Record<string, string> = {
   audio: 'Silence detection and noise gate',
   updates: 'Check for app updates',
   data: 'Export, clear history, and reset settings',
+  recovery: 'Keep failed dictation work available and private',
 }
 
 const languages = SUPPORTED_LANGUAGES.map((l) => ({ value: l.value, label: l.label }))
@@ -253,12 +257,19 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [newProfileBundleId, setNewProfileBundleId] = useState('')
   const [newProfileLanguage, setNewProfileLanguage] = useState('')
   const [audioDevices, setAudioDevices] = useState<AudioInputDevice[]>([])
+  const [recoveryUsage, setRecoveryUsage] = useState<RecoveryStorageUsage>({ bytes: 0, sessions: 0 })
+  const [recoveryBusy, setRecoveryBusy] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
     void window.vaani.getAppVersion().then(setAppVersion).catch(() => setAppVersion(null))
     void window.vaani.listAudioInputDevices().then(setAudioDevices).catch(() => setAudioDevices([]))
   }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen || activeSection !== 'recovery') return
+    void window.vaani.getRecoveryStorageUsage().then(setRecoveryUsage).catch(() => setRecoveryUsage({ bytes: 0, sessions: 0 }))
+  }, [activeSection, isOpen])
 
   useEffect(() => { setCustomHex(settings.accentColor) }, [settings.accentColor])
 
@@ -309,6 +320,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     } finally {
       setTestingProvider(null)
     }
+  }
+
+  const cleanupRecovery = async () => {
+    setRecoveryBusy(true)
+    try { setRecoveryUsage(await window.vaani.cleanupRecoveryAudio()) } finally { setRecoveryBusy(false) }
+  }
+
+  const clearRecoveryAudio = async () => {
+    if (!window.confirm('Delete all retained recovery audio? Text recovery will stay in History.')) return
+    setRecoveryBusy(true)
+    try { setRecoveryUsage(await window.vaani.clearRecoveryAudio()) } finally { setRecoveryBusy(false) }
   }
 
   const handleExportData = () => {
@@ -714,6 +736,41 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </div>
       )}
 
+      {activeSection === 'recovery' && (
+        <div className="space-y-6">
+          <div>
+            <FieldLabel>Unresolved audio retention</FieldLabel>
+            <Select
+              value={String(settings.recoveryRetentionDays)}
+              onChange={(value) => updateSettings({ recoveryRetentionDays: parseRecoveryRetentionDays(value) })}
+              options={[1, 3, 7, 14].map((days) => ({ value: String(days), label: `${days} day${days === 1 ? '' : 's'}` }))}
+            />
+            <p className="mt-1.5 text-xs text-faint">Encrypted audio is removed when this window ends. Bounded text stays until you discard its recovery item.</p>
+          </div>
+          <Row title="Retain failed audio" desc="Keep encrypted audio for retry and crash recovery">
+            <Toggle checked={settings.retainFailedAudio} onChange={(value) => updateSettings({ retainFailedAudio: value })} />
+          </Row>
+          {!settings.retainFailedAudio && (
+            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-700">
+              New failures will keep text only. Audio retry and audio recovery after a crash will not be available.
+            </div>
+          )}
+          <div className="rounded-2xl border border-line bg-surface p-4">
+            <div className="flex items-center gap-3">
+              <HardDrive size={16} className="text-muted" />
+              <div>
+                <div className="text-sm font-medium text-ink">Recovery storage</div>
+                <div className="text-xs text-faint">{formatBytes(recoveryUsage.bytes)} across {recoveryUsage.sessions} unresolved item{recoveryUsage.sessions === 1 ? '' : 's'}</div>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="soft" size="sm" onClick={() => { void cleanupRecovery() }} disabled={recoveryBusy}><RefreshCw size={13} /> Clear expired audio</Button>
+              <Button variant="destructive" size="sm" onClick={() => { void clearRecoveryAudio() }} disabled={recoveryBusy}><Trash2 size={13} /> Clear all audio</Button>
+            </div>
+          </div>
+          <p className="text-xs leading-relaxed text-faint">Recovery audio is ciphertext on disk. When it expires or you delete it, the audio reference is removed but the bounded transcript and error details remain. Playback decrypts only for the explicit action and removes its temporary file afterward.</p>
+        </div>
+      )}
     </div>
   )
 
@@ -769,4 +826,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       )}
     </AnimatePresence>
   )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1_024) return `${bytes} B`
+  if (bytes < 1_024 * 1_024) return `${(bytes / 1_024).toFixed(1)} KB`
+  return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`
+}
+
+function parseRecoveryRetentionDays(value: string): Settings['recoveryRetentionDays'] {
+  if (value === '1') return 1
+  if (value === '7') return 7
+  if (value === '14') return 14
+  return 3
 }
