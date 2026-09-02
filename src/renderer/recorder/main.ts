@@ -21,11 +21,15 @@ declare global {
     __VAANI_RECORDER__: {
       onStartRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       onStopRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onAbortRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onSuspendRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onResumeRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       submitAudioClip: (payload: RecorderSubmission) => Promise<void>;
       reportRecorderReady: () => Promise<void>;
       reportRecorderStarted: (sessionId: string) => Promise<void>;
       reportAudioFrame: (frame: AudioVisualFrame) => Promise<void>;
-      reportRecorderFailure: (payload: RecorderFailure) => Promise<void>;
+  reportRecorderFailure: (payload: RecorderFailure) => Promise<void>;
+  reportRecorderSuspended: (payload: { sessionId: string; ok: boolean; partialClip?: AudioClip; message?: string }) => Promise<void>;
       prepareRecordingInput: () => Promise<number | null>;
       restoreRecordingInput: (deviceId: number | null) => Promise<boolean>;
       getRecorderConfig: () => Promise<RecorderConfig>;
@@ -56,6 +60,18 @@ window.__VAANI_RECORDER__.onStartRecording((command) => {
 
 window.__VAANI_RECORDER__.onStopRecording(({ sessionId }) => {
   void stopRecording(sessionId);
+});
+
+window.__VAANI_RECORDER__.onAbortRecording(({ sessionId }) => {
+  void abortRecording(sessionId);
+});
+
+window.__VAANI_RECORDER__.onSuspendRecording(({ sessionId }) => {
+  void suspendRecording(sessionId);
+});
+
+window.__VAANI_RECORDER__.onResumeRecording(() => {
+  void resumeAfterLifecycle();
 });
 
 window.__VAANI_RECORDER__.onRecorderConfigChanged((config) => {
@@ -136,6 +152,46 @@ async function stopRecording(sessionId: string): Promise<void> {
   }
 
   await window.__VAANI_RECORDER__.submitAudioClip({ sessionId, clip });
+}
+
+async function abortRecording(sessionId: string): Promise<void> {
+  if (activeSessionId !== sessionId) return;
+  await cleanupSession();
+  await shutdownWarmCapture();
+}
+
+async function suspendRecording(sessionId: string): Promise<void> {
+  const suspendedSessionId = activeSessionId;
+  if (suspendedSessionId !== sessionId) {
+    await shutdownWarmCapture();
+    return;
+  }
+  try {
+    const clip = finalizeClip(sessionChunks.slice(), audioContext?.sampleRate ?? DEFAULT_INPUT_SAMPLE_RATE);
+    await cleanupSession();
+    await shutdownWarmCapture();
+    await window.__VAANI_RECORDER__.reportRecorderSuspended({
+      sessionId,
+      ok: true,
+      ...(clip ? { partialClip: clip } : {}),
+    });
+  } catch (error) {
+    await window.__VAANI_RECORDER__.reportRecorderSuspended({
+      sessionId,
+      ok: false,
+      message: error instanceof Error ? error.message : "Renderer capture could not be suspended.",
+    });
+  }
+}
+
+async function resumeAfterLifecycle(): Promise<void> {
+  if (!currentConfig.preWarmMic) return;
+  try {
+    await ensureWarmCapture(currentConfig);
+  } catch (error) {
+    console.warn("[vaani][recorder] lifecycle resume unavailable:", error);
+    await shutdownWarmCapture();
+  }
 }
 
 async function reportFailure(sessionId: string, message: string): Promise<void> {

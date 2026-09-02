@@ -13,7 +13,7 @@ vi.mock("electron", () => ({
     }
   },
   BrowserWindow: class {
-    webContents = { send: () => {}, on: () => {}, once: () => {} };
+    webContents = { send: () => {}, on: () => {}, once: () => {}, setWindowOpenHandler: () => {} };
     constructor() {}
     isDestroyed() { return false; }
     destroy() {}

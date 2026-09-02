@@ -3,6 +3,8 @@ export interface InjectionTargetLike {
   appName: string | null;
 }
 
+export type ExistingInjectionStrategy = "ax" | "clipboard";
+
 const CLIPBOARD_ONLY_TOKENS = [
   "electron",
   "antigravity",
@@ -77,6 +79,15 @@ export function shouldPreferClipboardInjection(text: string, target?: InjectionT
   }
 
   return isClipboardOnlyTarget(target);
+}
+
+export function intendedInjectionStrategy(
+  text: string,
+  target: InjectionTargetLike | undefined,
+  mode: "auto" | ExistingInjectionStrategy,
+): ExistingInjectionStrategy {
+  if (mode === "ax" || mode === "clipboard") return mode;
+  return shouldPreferClipboardInjection(text, target) ? "clipboard" : "ax";
 }
 
 export function shouldPreferTypingInjection(target?: InjectionTargetLike): boolean {
