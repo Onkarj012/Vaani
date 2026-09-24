@@ -11,6 +11,7 @@ import { KNOWN_PROVIDERS } from "@shared/defaults";
 import devanagariLightUrl from "../../../assets/iconset/devanagari/devanagari_light.svg?url";
 import devanagariDarkUrl from "../../../assets/iconset/devanagari/devanagari_dark.svg?url";
 import { useColorMode } from "../context/color-mode";
+import { decideProviderKeyDraft } from "@renderer/lib/providerKeyDraft";
 import { Select } from "@/components/ui/Select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -65,11 +66,8 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
   const [showLlmApiKey, setShowLlmApiKey] = useState(false);
 
   async function saveProviderKey(providerId: string, key: string) {
-    if (!key.trim()) {
-      await window.vaani.clearProviderApiKey(providerId);
-    } else {
-      await window.vaani.setProviderApiKey(providerId, key);
-    }
+    if (decideProviderKeyDraft(key, "blur") !== "save") return;
+    await window.vaani.setProviderApiKey(providerId, key);
     await updateSettings({});
   }
 

@@ -214,8 +214,65 @@ export interface DictationTrace {
 }
 
 export interface DictationBugReport {
-  entry: DictationEntry | null;
-  trace: DictationTrace | null;
+  entry: Pick<DictationEntry,
+    | "id"
+    | "traceId"
+    | "timestamp"
+    | "durationSeconds"
+    | "injectionStatus"
+    | "injectionMethod"
+    | "language"
+    | "detectedLanguage"
+  > | null;
+  trace: (Pick<DictationTrace,
+    | "id"
+    | "sessionId"
+    | "startedAt"
+    | "buildIdentifier"
+    | "completedAt"
+    | "hotkeyReleasedAt"
+    | "sttProvider"
+    | "sttLatencyMs"
+    | "formattingLatencyMs"
+    | "transcriptLength"
+    | "injectionMethod"
+    | "outcome"
+    | "rejectionReason"
+  > & {
+    rawAudio?: AudioQualityMetrics;
+    trimmedAudio?: AudioQualityMetrics;
+    quality?: Omit<TranscriptionQualityMetadata, "decision"> & {
+      decision?: Pick<TranscriptQualityDecision, "action">;
+    };
+    qualityDecision?: Pick<TranscriptQualityDecision, "action">;
+    providerAttempts?: Array<Pick<ProviderAttemptTrace,
+      | "provider"
+      | "success"
+      | "attempt"
+      | "latencyMs"
+      | "outcome"
+      | "errorClass"
+      | "startedAt"
+      | "completedAt"
+      | "deadlineAt"
+    > & {
+      quality?: Omit<TranscriptionQualityMetadata, "decision"> & {
+        decision?: Pick<TranscriptQualityDecision, "action">;
+      };
+    }>;
+    injectionAttempts?: Array<Pick<InjectionAttemptTrace, "method" | "success"> & {
+      verification?: InsertionVerificationTrace;
+    }>;
+    stages?: Pick<DictationStageSnapshot,
+      | "formatterUsed"
+      | "injectionStrategy"
+      | "outcome"
+    > & {
+      qualityDecision?: Omit<DictationStageQualityDecision, "reason">;
+      contentGuardVerdict?: Pick<DictationContentGuardVerdict, "passed">;
+      insertionVerification?: InsertionVerificationTrace;
+    };
+  }) | null;
   generatedAt: string;
   appVersion?: string;
 }

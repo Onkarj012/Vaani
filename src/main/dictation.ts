@@ -53,6 +53,7 @@ import type { RecoveryJournalStore } from "./store/recoveryJournal";
 import type { EncryptedRecoveryAudioStore } from "./audio/recoveryAudio";
 import { isRecoveryEnabled } from "./recoveryReadiness";
 import { intendedInjectionStrategy } from "./injection/policy";
+import { createDictationBugReport } from "./dictationBugReport";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
 const FORMATTING_TIMEOUT_MS = 20_000;
@@ -912,12 +913,7 @@ export class DictationService {
   async exportBugReport(entryId: string, appVersion?: string): Promise<DictationBugReport> {
     const entry = await this.history.getById(entryId) ?? null;
     const trace = entry?.traceId ? await this.safeTraceOperation("exportBugReport", entry.traceId, () => this.traces?.getById(entry.traceId ?? "")) ?? null : null;
-    return {
-      entry: redactEntryForBugReport(entry),
-      trace: redactTraceForBugReport(trace),
-      generatedAt: new Date().toISOString(),
-      appVersion,
-    };
+    return createDictationBugReport(entry, trace, new Date().toISOString(), appVersion);
   }
 
   async pasteLatestEntry(): Promise<void> {
@@ -1804,14 +1800,6 @@ export class DictationService {
 
 function getElectronAppVersion(): string {
   return electronModule.app?.getVersion() ?? electronModule.default?.app?.getVersion() ?? "unresolved";
-}
-
-function redactEntryForBugReport(entry: DictationEntry | null): DictationEntry | null {
-  return entry ? { ...entry, rawAudioPath: entry.rawAudioPath ? null : entry.rawAudioPath } : null;
-}
-
-function redactTraceForBugReport(trace: DictationTrace | null): DictationTrace | null {
-  return trace ? { ...trace, rawAudioPath: trace.rawAudioPath ? null : trace.rawAudioPath } : null;
 }
 
 function clippedCopy(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] } {

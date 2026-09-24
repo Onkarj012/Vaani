@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
-import type { AudioClip, AudioVisualFrame, DictationTrace, InjectionResult, Settings, TranscriptionResult } from "@shared/types";
+import type { AudioClip, AudioVisualFrame, DictationEntry, DictationTrace, InjectionResult, Settings, TranscriptionResult } from "@shared/types";
 import type { DictationTraceStore } from "@main/store/dictationTrace";
 import type { RecoveryJournalStore } from "@main/store/recoveryJournal";
 import type { EncryptedRecoveryAudioStore } from "@main/audio/recoveryAudio";
@@ -1132,15 +1132,115 @@ describe("DictationService", () => {
     expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", message: "Saved to history" });
   });
 
-  it("redacts local audio paths from exported bug reports", async () => {
-    const trace: DictationTrace = {
+  it("bug report export excludes content canaries and preserves diagnostic metadata", async () => {
+    const contentCanaries = [
+      "ENTRY_RAW_CANARY",
+      "ENTRY_FORMATTED_CANARY",
+      "ENTRY_CLEANED_CANARY",
+      "ENTRY_TARGET_BUNDLE_CANARY",
+      "ENTRY_TARGET_NAME_CANARY",
+      "ENTRY_AUDIO_PATH_CANARY",
+      "TRACE_TARGET_BUNDLE_CANARY",
+      "TRACE_TARGET_NAME_CANARY",
+      "TRACE_AUDIO_PATH_CANARY",
+      "TRACE_USER_MESSAGE_CANARY",
+      "TRACE_DECISION_REASON_CANARY",
+      "QUALITY_DECISION_REASON_CANARY",
+      "PROVIDER_ERROR_CANARY",
+      "PROVIDER_DECISION_REASON_CANARY",
+      "INJECTION_TARGET_BUNDLE_CANARY",
+      "INJECTION_TARGET_NAME_CANARY",
+      "INJECTION_FIELD_CANARY",
+      "INJECTION_FALLBACK_CANARY",
+      "STAGE_RAW_CANARY",
+      "STAGE_DECISION_REASON_CANARY",
+      "STAGE_CLEANED_CANARY",
+      "STAGE_CORRECTION_SPOKEN_CANARY",
+      "STAGE_CORRECTION_WRITTEN_CANARY",
+      "STAGE_MISSING_WORD_CANARY",
+      "STAGE_INJECTED_CANARY",
+      "UNEXPECTED_TRACE_CANARY",
+      "UNEXPECTED_ENTRY_CANARY",
+    ];
+    const trace: DictationTrace & { unexpectedContent: string } = {
       id: "trace-1",
       sessionId: "session-1",
       startedAt: "2026-06-29T00:00:00.000Z",
-      targetAppBundleId: "com.apple.TextEdit",
-      targetAppName: "TextEdit",
+      completedAt: "2026-06-29T00:00:02.000Z",
+      buildIdentifier: "1.2.3+build.4",
+      targetAppBundleId: "TRACE_TARGET_BUNDLE_CANARY",
+      targetAppName: "TRACE_TARGET_NAME_CANARY",
       outcome: "saved",
-      rawAudioPath: "/Users/onkarj012/Documents/Vaani Recordings/raw.wav",
+      rejectionReason: "insertion_failed",
+      rawAudioPath: "/private/TRACE_AUDIO_PATH_CANARY/raw.wav",
+      sttProvider: "groq",
+      sttLatencyMs: 321,
+      formattingLatencyMs: 45,
+      transcriptLength: 27,
+      injectionMethod: "ax",
+      rawAudio: {
+        durationSeconds: 1.5,
+        sampleRate: 16_000,
+        sampleCount: 24_000,
+        rmsAverage: 0.1,
+        rmsPeak: 0.2,
+        peakAmplitude: 0.3,
+        clippingRatio: 0,
+        silenceRatio: 0.15,
+      },
+      qualityDecision: { action: "save", reason: "TRACE_DECISION_REASON_CANARY" },
+      quality: {
+        provider: "groq",
+        attemptCount: 1,
+        supportsConfidence: true,
+        confidence: 0.91,
+        transcriptLength: 27,
+        decision: { action: "save", reason: "QUALITY_DECISION_REASON_CANARY" },
+      },
+      providerAttempts: [{
+        provider: "groq",
+        success: false,
+        attempt: 1,
+        latencyMs: 300,
+        error: "PROVIDER_ERROR_CANARY",
+        outcome: "failed",
+        errorClass: "timeout",
+        quality: {
+          provider: "groq",
+          attemptCount: 1,
+          supportsConfidence: false,
+          transcriptLength: 0,
+          decision: { action: "retry", reason: "PROVIDER_DECISION_REASON_CANARY" },
+        },
+      }],
+      injectionAttempts: [{
+        targetAppBundleId: "INJECTION_TARGET_BUNDLE_CANARY",
+        targetAppName: "INJECTION_TARGET_NAME_CANARY",
+        targetFieldClass: "INJECTION_FIELD_CANARY",
+        method: "ax",
+        success: false,
+        fallbackReason: "INJECTION_FALLBACK_CANARY",
+        verification: { readable: true, passed: false, repaired: false, reason: "missing" },
+      }],
+      stages: {
+        rawTranscript: "STAGE_RAW_CANARY",
+        qualityDecision: {
+          action: "save",
+          reason: "STAGE_DECISION_REASON_CANARY",
+          confidence: 0.91,
+          attemptCount: 1,
+        },
+        cleanedText: "STAGE_CLEANED_CANARY",
+        formatterUsed: "deterministic",
+        contentGuardVerdict: { passed: false, missingWords: ["STAGE_MISSING_WORD_CANARY"] },
+        correctionsApplied: [{ spoken: "STAGE_CORRECTION_SPOKEN_CANARY", written: "STAGE_CORRECTION_WRITTEN_CANARY" }],
+        injectedText: "STAGE_INJECTED_CANARY",
+        injectionStrategy: "ax",
+        insertionVerification: { readable: true, passed: false, repaired: false, reason: "missing" },
+        outcome: "saved",
+      },
+      userMessage: "TRACE_USER_MESSAGE_CANARY",
+      unexpectedContent: "UNEXPECTED_TRACE_CANARY",
     };
     const traces = {
       upsert: vi.fn(),
@@ -1149,26 +1249,68 @@ describe("DictationService", () => {
       getBySessionId: vi.fn(),
     };
     const { service, history } = createDictationService({ traces });
-    history.getById.mockResolvedValue({
+    const entry: DictationEntry & { unexpectedContent: string } = {
       id: "entry-1",
       traceId: "trace-1",
       timestamp: "2026-06-29T00:00:00.000Z",
-      rawText: "hello",
-      formattedText: "hello",
-      cleanedText: "Hello.",
-      durationSeconds: 1,
-      appBundleId: "com.apple.TextEdit",
-      appName: "TextEdit",
+      rawText: "ENTRY_RAW_CANARY",
+      formattedText: "ENTRY_FORMATTED_CANARY",
+      cleanedText: "ENTRY_CLEANED_CANARY",
+      durationSeconds: 1.5,
+      appBundleId: "ENTRY_TARGET_BUNDLE_CANARY",
+      appName: "ENTRY_TARGET_NAME_CANARY",
       injectionStatus: "saved",
-      injectionMethod: null,
+      injectionMethod: "ax",
       language: "en",
-      rawAudioPath: "/Users/onkarj012/Documents/Vaani Recordings/raw.wav",
-    });
+      detectedLanguage: "en",
+      rawAudioPath: "/private/ENTRY_AUDIO_PATH_CANARY/raw.wav",
+      unexpectedContent: "UNEXPECTED_ENTRY_CANARY",
+    };
+    history.getById.mockResolvedValue(entry);
 
     const report = await service.exportBugReport("entry-1", "1.2.3");
+    const serialized = JSON.stringify(report);
 
-    expect(report.entry?.rawAudioPath).toBeNull();
-    expect(report.trace?.rawAudioPath).toBeNull();
+    for (const canary of contentCanaries) expect(serialized).not.toContain(canary);
+    expect(serialized).not.toContain("rawAudioPath");
+    expect(report).toMatchObject({
+      entry: {
+        id: "entry-1",
+        traceId: "trace-1",
+        timestamp: "2026-06-29T00:00:00.000Z",
+        durationSeconds: 1.5,
+        injectionStatus: "saved",
+        injectionMethod: "ax",
+        language: "en",
+        detectedLanguage: "en",
+      },
+      trace: {
+        id: "trace-1",
+        sessionId: "session-1",
+        buildIdentifier: "1.2.3+build.4",
+        sttProvider: "groq",
+        sttLatencyMs: 321,
+        formattingLatencyMs: 45,
+        transcriptLength: 27,
+        rawAudio: { sampleRate: 16_000, sampleCount: 24_000, silenceRatio: 0.15 },
+        qualityDecision: { action: "save" },
+        quality: { provider: "groq", confidence: 0.91, decision: { action: "save" } },
+        providerAttempts: [{ provider: "groq", success: false, errorClass: "timeout", quality: { decision: { action: "retry" } } }],
+        injectionAttempts: [{ method: "ax", success: false, verification: { reason: "missing" } }],
+        stages: {
+          qualityDecision: { action: "save", confidence: 0.91, attemptCount: 1 },
+          formatterUsed: "deterministic",
+          contentGuardVerdict: { passed: false },
+          injectionStrategy: "ax",
+          insertionVerification: { reason: "missing" },
+          outcome: "saved",
+        },
+        injectionMethod: "ax",
+        outcome: "saved",
+        rejectionReason: "insertion_failed",
+      },
+      appVersion: "1.2.3",
+    });
   });
 
   it("prompts for a dictionary correction shortly after the user edits inserted text", async () => {

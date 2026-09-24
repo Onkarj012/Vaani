@@ -274,6 +274,8 @@ describe("TranscriptionService failover chain", () => {
 
   it("honors always-offline by routing only to local whisper", async () => {
     const groqTranscribe = vi.fn();
+    const cloudFormat = vi.fn(async () => "cloud output");
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", cloudFormat));
     const localTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
       rawText: "local",
       formattedText: "local",
@@ -290,9 +292,70 @@ describe("TranscriptionService failover chain", () => {
       groqApiKey: "groq-key",
     }));
 
-    await expect(service.transcribe(clip)).resolves.toMatchObject({ rawText: "local" });
+    const transcript = await service.transcribe(clip);
+    expect(transcript.rawText).toBe("local");
+    await expect(service.formatTranscriptDetailed(transcript.rawText)).resolves.toEqual({ text: "local", formatterUsed: "none" });
     expect(groqTranscribe).not.toHaveBeenCalled();
     expect(localTranscribe).toHaveBeenCalledTimes(1);
+    expect(cloudFormat).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to cloud when offline transcription fails", async () => {
+    const cloudTranscribe = vi.fn();
+    registryState.providers.set("groq", provider("groq", cloudTranscribe));
+    registryState.providers.set("local-whisper", provider("local-whisper", vi.fn(async () => {
+      throw new Error("local model unavailable");
+    }), false));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      offlineMode: "always-offline",
+      failoverEnabled: true,
+      groqApiKey: "groq-key",
+    }));
+
+    await expect(service.transcribe(clip)).rejects.toThrow("local model unavailable");
+    expect(cloudTranscribe).not.toHaveBeenCalled();
+  });
+
+  it.each(["groq-llm", "openai-llm", "anthropic", "openrouter", "keyless-remote"])(
+    "skips %s formatting in offline mode without looking up credentials",
+    async (formattingId) => {
+      const format = vi.fn(async () => "unexpected remote result");
+      registryState.formattingProviders.set(formattingId, formattingProvider(formattingId, format, formattingId !== "keyless-remote"));
+      const { CredentialsStore, MemoryCredentialBackend } = await import("@main/store/credentials");
+      const getCredential = vi.spyOn(CredentialsStore.prototype, "get");
+      const { TranscriptionService } = await import("@main/transcription");
+      const service = new TranscriptionService(() => ({
+        ...DEFAULT_SETTINGS,
+        offlineMode: "always-offline",
+        formattingProvider: formattingId,
+      }), new CredentialsStore(new MemoryCredentialBackend()));
+      const rawText = "Keep this identifier release_v1.3\n\nआणि हा मजकूर";
+
+      await expect(service.formatTranscriptDetailed(rawText)).resolves.toEqual({ text: rawText, formatterUsed: "none" });
+      expect(getCredential).not.toHaveBeenCalled();
+      expect(format).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["auto", "always-online"] as const)("keeps cloud formatting available in %s mode", async (offlineMode) => {
+    const format = vi.fn(async (text: string) => text);
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, offlineMode, groqApiKey: "groq-key" }));
+
+    await expect(service.formatTranscriptDetailed("Keep this text unchanged")).resolves.toMatchObject({ formatterUsed: "llm" });
+    expect(format).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors cancellation when skipping offline formatting", async () => {
+    const { TranscriptionService, TranscriptionCancelledError } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, offlineMode: "always-offline" }));
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(service.formatTranscriptDetailed("private text", { signal: controller.signal })).rejects.toBeInstanceOf(TranscriptionCancelledError);
   });
 
   it("honors always-online by excluding local whisper fallback", async () => {

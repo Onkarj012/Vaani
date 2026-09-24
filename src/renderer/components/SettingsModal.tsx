@@ -439,7 +439,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div>
             <FieldLabel>Offline Mode</FieldLabel>
             <Select value={settings.offlineMode} onChange={(v) => updateSettings({ offlineMode: v as 'auto' | 'always-offline' | 'always-online' })}
-              options={[{ value: 'auto', label: 'Auto' }, { value: 'always-offline', label: 'Prefer Offline' }, { value: 'always-online', label: 'Always Online' }]} dropUp />
+              options={[{ value: 'auto', label: 'Auto' }, { value: 'always-offline', label: 'Always Offline' }, { value: 'always-online', label: 'Always Online' }]} dropUp />
           </div>
 
           {settings.transcriptionProvider === 'local-whisper' && (

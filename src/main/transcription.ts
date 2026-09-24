@@ -263,6 +263,12 @@ export class TranscriptionService {
     const scope = createCancellationScope(options?.signal, options?.deadlineAt);
     try {
       const settings = this.settingsProvider();
+      // Offline policy covers the entire pipeline, including LLM formatting.
+      // The current formatting registry contains remote providers only.
+      if (settings.offlineMode === "always-offline") {
+        throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
+        return { text: rawText, formatterUsed: "none" };
+      }
       const registry = getProviderRegistry();
       const llmId = settings.formattingProvider || "groq-llm";
       const provider = registry.getFormatting(llmId);
