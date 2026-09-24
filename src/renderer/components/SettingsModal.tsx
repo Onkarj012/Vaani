@@ -747,14 +747,15 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             />
             <p className="mt-1.5 text-xs text-faint">Encrypted audio is removed when this window ends. Bounded text stays until you discard its recovery item.</p>
           </div>
-          <Row title="Retain failed audio" desc="Keep encrypted audio for retry and crash recovery">
+          <Row title="Retain failed audio" desc="Opt in to encrypted audio for retries when recovery is available">
             <Toggle checked={settings.retainFailedAudio} onChange={(value) => updateSettings({ retainFailedAudio: value })} />
           </Row>
           {!settings.retainFailedAudio && (
             <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-700">
-              New failures will keep text only. Audio retry and audio recovery after a crash will not be available.
+              Failed audio retention is off. When recovery is available, new failures will keep text only.
             </div>
           )}
+          <p className="text-xs leading-relaxed text-faint">Turning this off stops new retention. Previously retained audio remains until it expires or you clear it below. Save Recordings is a separate preference for WAV files.</p>
           <div className="rounded-2xl border border-line bg-surface p-4">
             <div className="flex items-center gap-3">
               <HardDrive size={16} className="text-muted" />

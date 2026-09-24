@@ -21,7 +21,7 @@ testable; do not include unrelated worktree files.
 | PR | Branch | Deliverable | Depends on | Status |
 |---|---|---|---|---|
 | 01 | `fix/release-01-privacy-boundaries` | Preserve onboarding credentials; enforce offline formatting; redact diagnostic exports | baseline | IMPLEMENTED LOCALLY |
-| 02 | `fix/release-02-session-consent` | Freeze session routes and define recording/recovery consent and upgrade defaults | 01 | TODO |
+| 02 | `fix/release-02-session-consent` | Freeze session routes and define recording/recovery consent and upgrade defaults | 01 | IMPLEMENTED LOCALLY |
 | 03 | `fix/release-03-insertion-safety` | Cancel pending insertion and preserve the intended target across failures | 02 | TODO |
 | 04 | `fix/release-04-recovery-outcomes` | Store acknowledgements, readiness state, and truthful recovery UI | 02, 03 | TODO |
 | 05 | `feat/release-05-dictionary-snippets` | Edit existing rules/snippets without losing metadata; expose stable options | 01 | TODO |
@@ -51,11 +51,11 @@ public release. Each task belongs to the numbered PR above.
 
 ### 02 — Session routes and consent
 
-- [ ] Capture provider, model, language, formatter, failover, target, retention, and consent at session start.
-- [ ] Use that configuration across transcription, formatting, and recovery retries; require an explicit route change.
-- [ ] Keep secret key material out of persisted snapshots and let consent revocation take effect immediately.
-- [ ] Separate ordinary recording consent from failed-audio retention; set safe upgrade/reset defaults.
-- [ ] Test mid-session setting changes, recording deletion, expiry, storage bounds, and revocation.
+- [x] Capture provider, model, language, formatter, failover, target, retention, and consent at session start.
+- [x] Use that configuration across transcription, formatting, and recovery retries; require an explicit route change.
+- [x] Keep secret key material out of persisted snapshots and let consent revocation take effect immediately.
+- [x] Separate ordinary recording consent from failed-audio retention; set safe upgrade/reset defaults.
+- [x] Test mid-session setting changes, recording deletion, expiry, storage bounds, and revocation.
 
 ### 03 — Insertion safety
 
@@ -142,6 +142,25 @@ an active session. Update privacy copy. Recovery remains gated off.
 Exit: mid-session settings changes do not silently change provider/billing; retries
 follow the declared route; disabled retention writes no audio in its respective
 path; revocation and upgrade tests pass.
+
+Implementation evidence (2026-09-24):
+
+- Branch `fix/release-02-session-consent`, stacked on PR 01 commit `7ad7c9e`.
+- Opus 5.5 implemented the allowlisted snapshot schema and journal tests; the parent
+  integrated live sessions, recovery retries, consent migration, and persistence.
+  A separate Opus review was checked against source before accepting its findings.
+- Full suite: 49 files / 534 tests passed; TypeScript check passed. Coverage includes
+  start/current WAV consent, frozen paths/routes, current credentials, offline
+  cancellation boundaries, failed-write acknowledgement, reset/upgrade behavior,
+  recovery revocation, and the existing deletion/expiry/storage-cap tests.
+- Retention revocation stops new saves; existing saved audio remains until explicit
+  deletion or recovery expiry. Opting in during recording does not retain that clip.
+- Legacy recovery entries without snapshots remain readable but retries fail with
+  guidance to copy/use raw text. A local-model retry requires restoring its captured
+  model rather than silently using another. Recovery remains disabled.
+- Pending-insertion cancellation and target safety remain PR 03. Packaged app,
+  Keychain/restart, and real microphone/hardware checks remain PR 06; unit tests do
+  not establish release readiness.
 
 ## PR 03: insertion safety
 

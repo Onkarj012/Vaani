@@ -8,6 +8,7 @@ import { readJsonFile, writeJsonFile } from "./base";
 type StoredSettings = Partial<Settings> & {
   nativeCaptureOptIn?: boolean;
   preWarmMicOptIn?: boolean;
+  failedAudioRetentionOptIn?: boolean;
 };
 
 const LEGACY_DEFAULT_FILLER_WORDS = [
@@ -35,6 +36,7 @@ export class SettingsStore {
   private pendingWrite: Promise<void> = Promise.resolve();
   private nativeCaptureOptedIn = false;
   private preWarmMicOptedIn = false;
+  private failedAudioRetentionOptedIn = false;
 
   constructor(filePath = join(app.getPath("home"), APP_DATA_DIR, "settings.json")) {
     this.filePath = filePath;
@@ -50,9 +52,11 @@ export class SettingsStore {
     const migrated = await this.migrateSettings(stored);
     this.nativeCaptureOptedIn = migrated.nativeCaptureOptIn === true;
     this.preWarmMicOptedIn = migrated.preWarmMicOptIn === true;
+    this.failedAudioRetentionOptedIn = migrated.failedAudioRetentionOptIn === true;
     const publicSettings = { ...migrated };
     delete publicSettings.nativeCaptureOptIn;
     delete publicSettings.preWarmMicOptIn;
+    delete publicSettings.failedAudioRetentionOptIn;
     this.cached = { ...DEFAULT_SETTINGS, ...publicSettings, theme: "aurora" };
     return this.cached;
   }
@@ -89,6 +93,13 @@ export class SettingsStore {
       changed = true;
     }
 
+    // Old builds defaulted this preference to true behind a disabled gate.
+    // An inherited value is not consent to retain audio when recovery is enabled.
+    if (next.retainFailedAudio === true && next.failedAudioRetentionOptIn !== true) {
+      next.retainFailedAudio = false;
+      changed = true;
+    }
+
     if (changed) {
       await writeJsonFile(this.filePath, next);
     }
@@ -118,13 +129,23 @@ export class SettingsStore {
     if (this.preWarmMicOptedIn && persisted.preWarmMic === true) {
       persisted.preWarmMicOptIn = true;
     }
+    if (patch.retainFailedAudio !== undefined) {
+      this.failedAudioRetentionOptedIn = patch.retainFailedAudio;
+    }
+    if (this.failedAudioRetentionOptedIn && persisted.retainFailedAudio) {
+      persisted.failedAudioRetentionOptIn = true;
+    }
     this.pendingWrite = this.pendingWrite
       .catch(() => undefined)
-      .then(() => writeJsonFile(this.filePath, persisted))
-      .catch((err) => {
-        error("settings", `Failed to persist settings to ${this.filePath}: ${err instanceof Error ? err.message : String(err)}`);
-      });
+      .then(() => writeJsonFile(this.filePath, persisted));
+    void this.pendingWrite.catch((err) => {
+      error("settings", `Failed to persist settings to ${this.filePath}: ${err instanceof Error ? err.message : String(err)}`);
+    });
     return next;
+  }
+
+  async flush(): Promise<void> {
+    await this.pendingWrite;
   }
 
   async init(): Promise<void> {

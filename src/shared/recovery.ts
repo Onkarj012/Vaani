@@ -1,3 +1,5 @@
+import { parseSessionSettings, type SessionSettingsSnapshot } from "./sessionSettings";
+
 export const RECOVERY_SCHEMA_VERSION = 1;
 export const RECOVERY_FIELD_MAX_LENGTH = 500;
 export const RECOVERY_MAX_ATTEMPTS = 64;
@@ -175,6 +177,7 @@ export interface RecoveryEntry {
   recoveryMode: RecoveryMode;
   routeHandoff?: RecoveryRouteHandoff | null;
   lifecycle?: RecoveryLifecycleFacts | null;
+  settingsSnapshot?: SessionSettingsSnapshot;
 }
 
 /** Renderer-safe recovery data. File paths and other storage details stay in the main process. */
@@ -211,6 +214,7 @@ export interface RecoveryEntrySeed {
   createdAt?: string;
   target?: Partial<RecoveryTargetFingerprint>;
   retentionMs?: number;
+  settingsSnapshot?: SessionSettingsSnapshot | null;
 }
 
 export interface RecoveryTransitionInput {
@@ -275,6 +279,7 @@ export function createRecoveryEntry(seed: RecoveryEntrySeed, now = new Date()): 
     appName: boundedOptional(seed.target?.appName),
     windowTitle: boundedOptional(seed.target?.windowTitle),
   };
+  const settingsSnapshot = seed.settingsSnapshot ? parseSessionSettings(seed.settingsSnapshot) : null;
   return {
     schemaVersion: RECOVERY_SCHEMA_VERSION,
     id: bounded(seed.id),
@@ -302,6 +307,7 @@ export function createRecoveryEntry(seed: RecoveryEntrySeed, now = new Date()): 
     recoveryMode: "full",
     routeHandoff: null,
     lifecycle: null,
+    ...(settingsSnapshot ? { settingsSnapshot } : {}),
   };
 }
 
@@ -364,6 +370,7 @@ export function sanitizeRecoveryEntry(entry: RecoveryEntry): RecoveryEntry {
     buildIdentifier: entry.buildIdentifier,
     createdAt: entry.createdAt,
     target: entry.target,
+    settingsSnapshot: entry.settingsSnapshot,
   });
   const next: RecoveryEntry = {
     ...normalized,
@@ -600,6 +607,7 @@ function migrateRecoveryEntry(value: Record<string, unknown>, index: number, now
       appName: typeof target.appName === "string" ? target.appName : null,
       windowTitle: typeof target.windowTitle === "string" ? target.windowTitle : null,
     },
+    settingsSnapshot: parseSessionSettings(value.settingsSnapshot),
   });
   entry.state = state;
   entry.attempt = boundedAttempt(typeof value.attempt === "number" ? value.attempt : 0);

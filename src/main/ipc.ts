@@ -372,7 +372,7 @@ export interface RegisterIpcHandlersOptions {
   mainWindow: IpcWindow | null;
   dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry">;
   history: Pick<HistoryStore, "getAll" | "getById" | "updateById" | "getLatest" | "delete" | "clear">;
-  settings: Pick<SettingsStore, "get" | "update">;
+  settings: Pick<SettingsStore, "get" | "update" | "flush">;
   hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "reregister" | "setCaptureActive">;
   recorder?: { getWindow: () => IpcWindow | null; markReady: () => void; acknowledgeLifecycleSuspension?: (ack: RecorderSuspensionAck) => boolean };
   overlay?: { getWindow: () => IpcWindow | null };
@@ -627,6 +627,12 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     }
 
     const updated = settings.update(settingsPatch);
+    // Apply privacy restrictions immediately, even while persistence is pending.
+    onSettingsUpdated?.(updated, settingsPatch);
+    // A consent change must survive restart before the renderer acknowledges it.
+    if ("saveRecordings" in settingsPatch || "retainFailedAudio" in settingsPatch) {
+      await settings.flush();
+    }
     if ("primaryHotkey" in settingsPatch || "pasteLatestHotkey" in settingsPatch) {
       hotkeys.reregister();
     }
@@ -637,7 +643,6 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     if ("formattingProvider" in settingsPatch) {
       getProviderRegistry().setActiveFormatting(updated.formattingProvider);
     }
-    onSettingsUpdated?.(updated, settingsPatch);
     const sanitized = sanitizeSettingsForRenderer(updated);
     if (credentials) {
       sanitized.providerApiKeys = await buildRendererApiKeys(updated.providerApiKeys ?? [], credentials);

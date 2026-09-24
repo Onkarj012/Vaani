@@ -1,6 +1,7 @@
+import { captureSessionSettings, restoreSessionSettings, type SessionSettingsSnapshot } from "@shared/sessionSettings";
 import * as electron from "electron";
 import { createHash } from "node:crypto";
-import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { writeFile, mkdir, readFile, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -123,6 +124,7 @@ export class DictationService {
   private pendingEdit: { insertedText: string; correctedCandidate: string } | null = null;
   private dictionaryPromptGeneration = 0;
   private activeSessionId: string | null = null;
+  private activeSessionSettings: SessionSettingsSnapshot | null = null;
   private activeTraceId: string | null = null;
   private activeTarget: AppContextResult | null = null;
   private activeSelection: SelectionRange | null = null;
@@ -147,7 +149,7 @@ export class DictationService {
     deps: DictationServiceDeps = {}
   ) {
     this.transcription = deps.transcription ?? new TranscriptionService(() => this.settings.get(), deps.credentials);
-    this.injector = deps.injector ?? new TextInjector(() => this.settings.get());
+    this.injector = deps.injector ?? new TextInjector(() => this.activeSessionSettings ? restoreSessionSettings(this.activeSessionSettings) : this.settings.get());
     this.appDetector = deps.appDetector ?? new AppDetector();
     this.getMicrophonePermission = deps.getMicrophonePermission ?? getDefaultMicrophonePermission;
     this.recorder = deps.recorder ?? null;
@@ -218,6 +220,15 @@ export class DictationService {
     this.sessionAbortController = new AbortController();
     this.activeSessionId = sessionId;
     this.activeTarget = this.appDetector.getContext();
+    const settings = this.settings.get();
+    const profile = resolveAppProfile(settings.appProfiles ?? [], this.activeTarget?.appBundleId);
+    this.activeSessionSettings = captureSessionSettings({
+      ...settings,
+      transcriptionProvider: profile?.transcriptionProvider ?? settings.transcriptionProvider,
+      formattingProvider: profile?.formattingProvider ?? settings.formattingProvider,
+      language: resolveProfileLanguage(profile?.language, settings.language),
+      customPrompt: profile?.customPrompt ?? settings.customPrompt,
+    });
     this.activeSelection = this.captureSelection(this.activeTarget);
     this.activeTargetValue = isExternalTarget(this.activeTarget) ? safeFocusedValue() : null;
     this.activeTargetIdentity = isExternalTarget(this.activeTarget) ? safeFocusedElementIdentity() : null;
@@ -304,7 +315,7 @@ export class DictationService {
       this.releaseRequestedDuringStart = false;
       // User released the hotkey before the mic was ready. Delay the stop so the
       // clip meets minClipDuration — otherwise the 0-length clip hits VAD rejection.
-      const minRecordMs = Math.max(this.settings.get().minClipDuration * 1000 + 250, 750);
+      const minRecordMs = Math.max((this.activeSessionSettings?.minClipDuration ?? this.settings.get().minClipDuration) * 1000 + 250, 750);
       setTimeout(() => {
         if (this.isCurrentSession(sessionId) && this.state.status === "recording") {
           this.endHotkeySession();
@@ -319,7 +330,12 @@ export class DictationService {
     }
 
     this.clearFinalizationTimer();
-    const settings = this.settings.get();
+    const snapshot = this.activeSessionSettings;
+    if (!snapshot) {
+      this.failSession(payload.sessionId, "The session configuration is missing. Start a new dictation.", "transcription_error");
+      return;
+    }
+    const settings = restoreSessionSettings(snapshot);
     const validationClip = trimSilence(payload.clip, settings.silenceThreshold);
     const rawAudio = analyzeAudioQuality(payload.clip, settings.silenceThreshold);
     const tracePatch: Partial<DictationTrace> = {
@@ -332,7 +348,7 @@ export class DictationService {
     // Save recording to disk if enabled
     let rawAudioPath: string | null = null;
     if (settings.saveRecordings) {
-      rawAudioPath = await this.saveRecordingToDisk(clippedCopy(payload.clip));
+      rawAudioPath = await this.saveRecordingToDisk(clippedCopy(payload.clip), snapshot);
       tracePatch.rawAudioPath = rawAudioPath;
     }
     void this.patchTrace(payload.sessionId, tracePatch);
@@ -356,26 +372,9 @@ export class DictationService {
       return;
     }
 
-    if (this.recovery && this.recoveryAudio && this.recoveryReady() && this.settings.get().retainFailedAudio) {
-      await this.recoveryEntryReady;
+    if (settings.retainFailedAudio && this.settings.get().retainFailedAudio) {
       try {
-        const recoveryEntry = await this.recovery.getById(payload.sessionId);
-        if (recoveryEntry) {
-          const audioResult = await this.recoveryAudio.spool(recoveryEntry, validationClip, settings.silenceThreshold);
-          if (audioResult.mode === "text-only") {
-            await this.recovery.updateRecoveryMode?.(
-              recoveryEntry.id,
-              recoveryEntry.sessionId,
-              "text-only",
-              {
-                class: audioResult.reason === "key-unavailable" || audioResult.reason === "key-corrupt"
-                  ? audioResult.reason === "key-corrupt" ? "recovery_key_corrupt" : "recovery_key_unavailable"
-                  : audioResult.reason === "cap-reached" ? "recovery_cap_reached" : "recovery_storage_failure",
-                detail: audioResult.detail,
-              },
-            );
-          }
-        }
+        await this.retainRecoveryAudio(payload.sessionId, validationClip);
       } catch (error) {
         debug("recovery", "audio spooling failed; continuing with text recovery", { sessionId: payload.sessionId, message: error instanceof Error ? error.message : String(error) });
       }
@@ -394,6 +393,7 @@ export class DictationService {
       const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip.durationSeconds);
       const transcriptionDeadlineAt = sttStartedAt + transcriptionTimeoutMs;
       const transcription = await this.transcription.transcribe(payload.clip, {
+        sessionSettings: snapshot,
         languageOverride: language,
         ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
           retryClip: validationClip,
@@ -487,7 +487,7 @@ export class DictationService {
       try {
         await this.transitionRecovery(payload.sessionId, "formatting", { text: { cleanedText: correctedText }, signal: operationSignal });
         const formattingStartedAt = Date.now();
-        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + FORMATTING_TIMEOUT_MS);
+        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + FORMATTING_TIMEOUT_MS, snapshot);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
         formattedText = formatTrace.text;
         void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
@@ -695,6 +695,7 @@ export class DictationService {
   reportHotkeyUnavailable(message: string): void {
     this.clearTimers();
     this.activeSessionId = null;
+    this.activeSessionSettings = null;
     this.activeTraceId = null;
     this.activeTarget = null;
     this.activeSelection = null;
@@ -772,6 +773,12 @@ export class DictationService {
     return true;
   }
 
+  private rejectLegacyRecoveryRoute(): false {
+    this.setState({ status: "error", sessionId: null, message: "This older recovery entry has no saved provider route. Copy or use its raw text, or start a new dictation." });
+    this.scheduleReset(ERROR_RESET_MS);
+    return false;
+  }
+
   async retryRecoveryTranscription(id: string): Promise<boolean> {
     if (this.rejectManualInsertionWhileActive() || this.manualRetriesInProgress.has(id) || !this.recoveryAudio?.withDecryptedAudio || !this.recovery || !this.recoveryReady()) return false;
     this.manualRetriesInProgress.add(id);
@@ -779,6 +786,8 @@ export class DictationService {
     try {
       let entry = await this.recovery.getById(id);
       if (!entry || entry.terminal || !entry.audio) return false;
+      if (!entry.settingsSnapshot) return this.rejectLegacyRecoveryRoute();
+      const sessionSettings = entry.settingsSnapshot;
       if (entry.state === "recoverable") {
         if (!await this.transitionRecoveryEntry(entry, "retry_wait", {}, action.signal)) return false;
         entry = await this.recovery.getById(id);
@@ -794,7 +803,7 @@ export class DictationService {
       }
       const transcription = await this.recoveryAudio.withDecryptedAudio(entry.sessionId, async (temporaryPath) => {
         const clip = parseRecoveryWav(await readFile(temporaryPath));
-        return this.transcription.transcribe(clip, { recovery: true, signal: action.signal, deadlineAt: Date.now() + getTranscriptionTimeoutMs(clip.durationSeconds) });
+        return this.transcription.transcribe(clip, { sessionSettings, recovery: true, signal: action.signal, deadlineAt: Date.now() + getTranscriptionTimeoutMs(clip.durationSeconds) });
       });
       if (action.signal.aborted) return false;
       const current = await this.recovery.getById(id);
@@ -825,8 +834,9 @@ export class DictationService {
       const entry = await this.recovery.getById(id);
       const rawText = entry?.text.rawTranscript;
       if (!entry || entry.terminal || !rawText || (entry.state !== "recoverable" && entry.state !== "transcript_ready")) return false;
+      if (!entry.settingsSnapshot) return this.rejectLegacyRecoveryRoute();
       if (!await this.transitionRecoveryEntry(entry, "formatting", {}, action.signal)) return false;
-      const formatted = await this.formatTranscriptWithTrace(rawText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS);
+      const formatted = await this.formatTranscriptWithTrace(rawText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS, entry.settingsSnapshot);
       if (action.signal.aborted) return false;
       const current = await this.recovery.getById(id);
       if (!current) return false;
@@ -981,12 +991,13 @@ export class DictationService {
   }
 
   async demoTranscribe(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<string> {
+    const action = this.beginRecoveryAction();
     const transcriptionTimeoutMs = getTranscriptionTimeoutMs(clip.durationSeconds);
     const transcriptionDeadlineAt = Date.now() + transcriptionTimeoutMs;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       const result = await Promise.race<TranscriptionResult>([
-        this.transcription.transcribe(clip, { deadlineAt: transcriptionDeadlineAt }),
+        this.transcription.transcribe(clip, { signal: action.signal, sessionSettings: captureSessionSettings(this.settings.get()), deadlineAt: transcriptionDeadlineAt }),
         new Promise<TranscriptionResult>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error(TRANSCRIPTION_TIMEOUT_MESSAGE)), transcriptionTimeoutMs);
         }),
@@ -994,6 +1005,8 @@ export class DictationService {
       return result.rawText;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
+      action.controller.abort("demo-finished");
+      this.finishRecoveryAction(action);
     }
   }
 
@@ -1045,9 +1058,9 @@ export class DictationService {
     this.mainWindow?.webContents.send(IpcChannel.Navigation, { route });
   }
 
-  private async saveRecordingToDisk(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<string | null> {
+  private async saveRecordingToDisk(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }, settings: SessionSettingsSnapshot): Promise<string | null> {
     try {
-      const settings = this.settings.get();
+      if (!settings.saveRecordings || !this.settings.get().saveRecordings) return null;
       const dir = settings.recordingsPath || join(homedir(), "Documents", "Vaani Recordings");
       if (!existsSync(dir)) await mkdir(dir, { recursive: true });
 
@@ -1074,7 +1087,9 @@ export class DictationService {
         const s = Math.max(-1, Math.min(1, clip.pcmData[i] ?? 0));
         buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
       }
+      if (!this.settings.get().saveRecordings) return null;
       await writeFile(filepath, buf);
+      if (!this.settings.get().saveRecordings) { await unlink(filepath); return null; }
       return filepath;
     } catch {
       // Best-effort saving
@@ -1296,6 +1311,7 @@ export class DictationService {
     this.sessionAbortController?.abort("session-reset");
     this.clearTimers();
     this.activeSessionId = null;
+    this.activeSessionSettings = null;
     this.activeTarget = null;
     this.activeSelection = null;
     this.activeTargetValue = null;
@@ -1373,7 +1389,8 @@ export class DictationService {
         appBundleId: this.activeTarget?.appBundleId,
         appName: this.activeTarget?.appName,
       },
-      retentionMs: this.settings.get().recoveryRetentionDays * 24 * 60 * 60 * 1000,
+      settingsSnapshot: this.activeSessionSettings ?? undefined,
+      retentionMs: (this.activeSessionSettings?.recoveryRetentionDays ?? this.settings.get().recoveryRetentionDays) * 24 * 60 * 60 * 1000,
     });
     await this.queueRecoveryMutation(async () => {
       await this.recovery?.create(entry);
@@ -1384,14 +1401,19 @@ export class DictationService {
     await this.recoveryEntryReady;
     const entry = await this.recovery?.getById(sessionId);
     if (!entry || !this.recoveryAudio || !this.recoveryReady()) return;
-    if (!this.settings.get().retainFailedAudio) {
+    if (!entry.settingsSnapshot?.retainFailedAudio || !this.settings.get().retainFailedAudio) {
       await this.recovery?.updateRecoveryMode?.(entry.id, entry.sessionId, "text-only", {
         class: "recovery_storage_failure",
         detail: "Failed-audio retention is disabled; text recovery is retained.",
       });
       return;
     }
-    const result = await this.recoveryAudio.spool(entry, clip, this.settings.get().silenceThreshold);
+    const result = await this.recoveryAudio.spool(entry, clip, entry.settingsSnapshot.silenceThreshold);
+    if (!this.settings.get().retainFailedAudio) {
+      await this.recoveryAudio.deleteForSession(sessionId);
+      await this.recovery?.updateRecoveryMode?.(entry.id, entry.sessionId, "text-only");
+      return;
+    }
     if (result.mode === "text-only") {
       await this.recovery?.updateRecoveryMode?.(
         entry.id,
@@ -1653,7 +1675,7 @@ export class DictationService {
     } else {
       this.updateTrayStatus("Error"); this.overlay.hide();
     }
-    if (state.status === "idle") { this.activeSessionId = null; this.activeTraceId = null; this.activeTarget = null; }
+    if (state.status === "idle") { this.activeSessionId = null; this.activeSessionSettings = null; this.activeTraceId = null; this.activeTarget = null; }
     this.mainWindow?.webContents.send(IpcChannel.DictationState, state);
   }
 
@@ -1716,11 +1738,11 @@ export class DictationService {
     });
   }
 
-  private async formatTranscriptWithTrace(rawText: string, signal?: AbortSignal, deadlineAt?: number): Promise<FormatTranscriptTraceResult> {
+  private async formatTranscriptWithTrace(rawText: string, signal?: AbortSignal, deadlineAt?: number, sessionSettings?: SessionSettingsSnapshot): Promise<FormatTranscriptTraceResult> {
     if (this.transcription.formatTranscriptDetailed) {
-      return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt });
+      return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt, sessionSettings });
     }
-    const text = await this.transcription.formatTranscript(rawText, { signal, deadlineAt });
+    const text = await this.transcription.formatTranscript(rawText, { signal, deadlineAt, sessionSettings });
     return {
       text,
       formatterUsed: text === rawText ? "none" : "llm",

@@ -90,9 +90,11 @@ describe("IPC security boundaries", () => {
     demoTranscribe: vi.fn(),
     navigateToHistoryEntry: vi.fn(),
   };
+  const onSettingsUpdated = vi.fn();
   const settings = {
     get: vi.fn(() => DEFAULT_SETTINGS),
     update: vi.fn((patch: Partial<Settings>) => ({ ...DEFAULT_SETTINGS, ...patch })),
+    flush: vi.fn(async (): Promise<void> => undefined),
   };
 
   beforeEach(async () => {
@@ -107,6 +109,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings,
+      onSettingsUpdated,
       hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
     });
   });
@@ -116,6 +119,26 @@ describe("IPC security boundaries", () => {
     expect(await handler?.({ sender: mainSender })).toEqual([]);
     expect(() => handler?.({ sender: recorderSender })).toThrow("Unauthorized IPC sender");
     expect(() => handler?.({ sender: untrustedSender })).toThrow("Unauthorized IPC sender");
+  });
+
+  it.each(["saveRecordings", "retainFailedAudio"] as const)("waits for %s consent to persist before acknowledging it", async (field) => {
+    let finishWrite: () => void = () => { throw new Error("write was not started"); };
+    const write = new Promise<void>((resolve) => { finishWrite = resolve; });
+    settings.flush.mockReturnValueOnce(write);
+    const settled = vi.fn();
+    const pending = Promise.resolve(invokeHandlers.get(IpcChannel.UpdateSettings)?.({ sender: mainSender }, { [field]: false }));
+    void pending.then(settled);
+    await Promise.resolve();
+    expect(settings.flush).toHaveBeenCalledTimes(1);
+    expect(onSettingsUpdated).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ [field]: false }));
+    expect(settled).not.toHaveBeenCalled();
+    finishWrite();
+    await expect(pending).resolves.toHaveProperty(field, false);
+  });
+
+  it("reports consent persistence failure instead of acknowledging a saved preference", async () => {
+    settings.flush.mockRejectedValueOnce(new Error("disk unavailable"));
+    await expect(invokeHandlers.get(IpcChannel.UpdateSettings)?.({ sender: mainSender }, { retainFailedAudio: false })).rejects.toThrow("disk unavailable");
   });
 
   it("returns the live post-request microphone status", async () => {
@@ -215,6 +238,7 @@ describe("IPC security boundaries", () => {
     const credentials = new CredentialsStore(backend);
     const state: Settings = { ...DEFAULT_SETTINGS, providerApiKeys: [] };
     const stateStore = {
+      flush: vi.fn(async (): Promise<void> => undefined),
       get: vi.fn(() => state),
       update: vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch)),
     };

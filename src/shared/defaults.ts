@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   saveRecordings: false,
   recordingsPath: "",
   recoveryRetentionDays: 3,
-  retainFailedAudio: true,
+  retainFailedAudio: false,
   // Phase 1
   transcriptionProvider: "groq",
   transcriptionModel: "",

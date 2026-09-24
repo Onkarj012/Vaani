@@ -1,3 +1,4 @@
+import { captureSessionSettings } from "@shared/sessionSettings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import type { AudioClip, TranscriptionResult } from "@shared/types";
@@ -44,6 +45,69 @@ describe("TranscriptionService failover chain", () => {
   beforeEach(() => {
     registryState.providers.clear();
     registryState.formattingProviders.clear();
+  });
+
+  it("keeps the captured route and language while resolving the current credential", async () => {
+    const settings = { ...DEFAULT_SETTINGS, language: "hi", groqApiKey: "old-key", failoverEnabled: false };
+    const snapshot = captureSessionSettings(settings);
+    settings.transcriptionProvider = "openai";
+    settings.language = "en";
+    settings.groqApiKey = "rotated-key";
+    const transcribe = vi.fn(async () => ({ rawText: "hello", formattedText: "hello", language: "hi" }));
+    const other = vi.fn();
+    registryState.providers.set("groq", provider("groq", transcribe));
+    registryState.providers.set("openai", provider("openai", other));
+    const { TranscriptionService } = await import("@main/transcription");
+    await new TranscriptionService(() => settings).transcribe(clip, { sessionSettings: snapshot });
+    expect(transcribe).toHaveBeenCalledWith(clip, expect.objectContaining({ language: "hi", apiKey: "rotated-key" }));
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it("keeps the captured formatter model and prompt", async () => {
+    const settings = { ...DEFAULT_SETTINGS, groqApiKey: "key", formattingModel: "original-model", customPrompt: "original-prompt" };
+    const snapshot = captureSessionSettings(settings);
+    settings.formattingProvider = "openai-llm";
+    settings.formattingModel = "new-model";
+    settings.customPrompt = "new-prompt";
+    const format = vi.fn(async (text: string) => text);
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
+    const { TranscriptionService } = await import("@main/transcription");
+    await new TranscriptionService(() => settings).formatTranscript("hello", { sessionSettings: snapshot });
+    expect(format).toHaveBeenCalledWith("hello", expect.objectContaining({ model: "original-model", systemPrompt: "original-prompt" }));
+  });
+
+  it("stops cloud failover after offline mode is enabled during a request", async () => {
+    const settings = { ...DEFAULT_SETTINGS, groqApiKey: "key", failoverEnabled: true, providerApiKeys: [{ providerId: "openai", key: "other-key" }] };
+    const other = vi.fn();
+    registryState.providers.set("groq", provider("groq", vi.fn(async () => {
+      settings.offlineMode = "always-offline";
+      throw new Error("failed");
+    })));
+    registryState.providers.set("openai", provider("openai", other));
+    const { TranscriptionService, TranscriptionCancelledError } = await import("@main/transcription");
+    await expect(new TranscriptionService(() => settings).transcribe(clip)).rejects.toBeInstanceOf(TranscriptionCancelledError);
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it("does not start a provider for a pre-cancelled request", async () => {
+    const transcribe = vi.fn();
+    registryState.providers.set("groq", provider("groq", transcribe));
+    const { TranscriptionService } = await import("@main/transcription");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "key" })).transcribe(clip, { signal: controller.signal })).rejects.toThrow();
+    expect(transcribe).not.toHaveBeenCalled();
+  });
+
+  it("skips captured cloud formatting when current consent requires offline", async () => {
+    const settings = { ...DEFAULT_SETTINGS, groqApiKey: "key" };
+    const snapshot = captureSessionSettings(settings);
+    settings.offlineMode = "always-offline";
+    const format = vi.fn();
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
+    const { TranscriptionService } = await import("@main/transcription");
+    await expect(new TranscriptionService(() => settings).formatTranscript("raw text", { sessionSettings: snapshot })).resolves.toBe("raw text");
+    expect(format).not.toHaveBeenCalled();
   });
 
   it("returns the primary provider result when it succeeds", async () => {
@@ -701,6 +765,7 @@ describe("TranscriptionService failover chain", () => {
     const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key", failoverEnabled: true, providerApiKeys: [{ providerId: "openai", key: "openai-key" }] }));
 
     const pending = service.transcribe(clip, { signal: controller.signal, recovery: true });
+    await vi.waitFor(() => expect(transcribe).toHaveBeenCalledOnce());
     controller.abort();
 
     await expect(pending).rejects.toBeInstanceOf(TranscriptionCancelledError);

@@ -8,9 +8,13 @@ import {
   applyRecoveryTransition,
   createRecoveryEntry,
   isLegalRecoveryTransition,
+  normalizeRecoveryDocument,
+  sanitizeRecoveryEntry,
   type RecoveryEntry,
   type RecoveryTransitionInput,
 } from "@shared/recovery";
+import { DEFAULT_SETTINGS } from "@shared/defaults";
+import { captureSessionSettings } from "@shared/sessionSettings";
 import { isRecoveryEnabled } from "@main/recoveryReadiness";
 import { RecoveryJournalStore } from "@main/store/recoveryJournal";
 import { consumeRestoredRecoveryNotice } from "@main/recoveryStartup";
@@ -223,5 +227,45 @@ describe("recovery transition pure function", () => {
     expect(() => applyRecoveryTransition(entry, transition(entry, "inserting"))).toThrow("Invalid recovery transition");
     expect(entry.state).toBe("capturing");
     expect(entry.attempt).toBe(0);
+  });
+});
+
+describe("recovery entry settings snapshot", () => {
+  const snapshot = () => captureSessionSettings({
+    ...structuredClone(DEFAULT_SETTINGS),
+    groqApiKey: "gsk-canary",
+    providerApiKeys: [{ providerId: "openai", key: "sk-canary" }],
+    snippets: [{ trigger: "sig", content: "Regards", appProfileIds: ["mail"] }],
+  });
+
+  it("keeps legacy entries without a snapshot readable", () => {
+    const entry = createRecoveryEntry({ id: "legacy", sessionId: "s", buildIdentifier: "b" });
+    expect("settingsSnapshot" in entry).toBe(false);
+    const { entries } = normalizeRecoveryDocument({ schemaVersion: RECOVERY_SCHEMA_VERSION, entries: [entry] });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.settingsSnapshot).toBeUndefined();
+  });
+
+  it("stores a deep copy of the snapshot and preserves it through sanitize and normalize", () => {
+    const source = snapshot();
+    const entry = createRecoveryEntry({ id: "e1", sessionId: "s", buildIdentifier: "b", settingsSnapshot: source });
+    source.snippets[0]?.appProfileIds?.push("mutated");
+    expect(entry.settingsSnapshot?.snippets[0]?.appProfileIds).toEqual(["mail"]);
+    expect(sanitizeRecoveryEntry(entry).settingsSnapshot).toEqual(entry.settingsSnapshot);
+    const { entries } = normalizeRecoveryDocument(JSON.parse(JSON.stringify({ schemaVersion: RECOVERY_SCHEMA_VERSION, entries: [entry] })));
+    expect(entries[0]?.settingsSnapshot).toEqual(entry.settingsSnapshot);
+    expect(JSON.stringify(entries)).not.toContain("canary");
+  });
+
+  it("drops malformed snapshots and strips nested key canaries from journal data", () => {
+    const entry = createRecoveryEntry({ id: "e2", sessionId: "s", buildIdentifier: "b" });
+    const malformed = normalizeRecoveryDocument([{ ...entry, settingsSnapshot: { ...snapshot(), schemaVersion: 99 } }]);
+    expect(malformed.entries[0]?.id).toBe("e2");
+    expect(malformed.entries[0]?.settingsSnapshot).toBeUndefined();
+
+    const tampered = { ...snapshot(), groqApiKey: "canary", snippets: [{ trigger: "t", content: "c", apiKey: "canary" }] };
+    const cleaned = normalizeRecoveryDocument([{ ...entry, settingsSnapshot: tampered }]);
+    expect(cleaned.entries[0]?.settingsSnapshot?.snippets).toEqual([{ trigger: "t", content: "c" }]);
+    expect(JSON.stringify(cleaned.entries)).not.toContain("canary");
   });
 });

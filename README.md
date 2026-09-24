@@ -181,7 +181,9 @@ bun run typecheck    # TypeScript check
 - Save Recordings is off by default. Enabling it saves WAV files locally for replay.
 - Cloud transcription sends audio to configured providers; cloud formatting sends transcript text. Provider retention policies apply.
 - Always Offline excludes cloud STT and skips provider formatting. Auto mode can use cloud formatting and configured failover even when Local Whisper is selected.
-- Failed-dictation recovery remains disabled in this build. Its future audio-retention consent and upgrade policy must be verified before enablement.
+- Failed-dictation recovery remains disabled in this build. Failed-audio retention is a separate opt-in, off by default; old inherited preferences and reset settings do not enable it.
+- Turning either audio-retention control off stops new saves, including pending saves. Previously saved audio remains until explicitly deleted (or, for recovery audio, until expiry). Recovery has a 50-session / 1 GB storage limit.
+- Provider, model, language, and formatting choices are captured when dictation starts. Switching to Always Offline cancels pending work. Older recovery entries without a saved route keep their text but cannot silently retry through current provider settings.
 - Copied bug reports contain a limited diagnostic summary, excluding transcript text and local audio paths. Export Data remains a separate, content-bearing export of settings and history.
 - Provider API keys are stored in macOS Keychain; legacy settings keys migrate there on startup
 - Non-secret settings, history, and dictation traces are stored locally in `~/.vaani/`

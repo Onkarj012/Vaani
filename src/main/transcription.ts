@@ -1,3 +1,4 @@
+import { captureSessionSettings, restoreSessionSettings, type SessionSettingsSnapshot } from "@shared/sessionSettings";
 import type { DictationContentGuardVerdict, DictationFormatterUsed, ProviderAttemptTrace, Settings, AudioClip, TranscriptionResult } from "@shared/types";
 import type { RecoveryErrorClass } from "@shared/recovery";
 import { getProviderRegistry } from "./providers";
@@ -24,7 +25,14 @@ export interface TranscriptionAttempt {
   model: string;
 }
 
+export interface FormattingOptions {
+  signal?: AbortSignal;
+  deadlineAt?: number;
+  sessionSettings?: SessionSettingsSnapshot;
+}
+
 export interface TranscribeOptions {
+  sessionSettings?: SessionSettingsSnapshot;
   languageOverride?: string;
   providerOverride?: string;
   rejectResult?: (result: TranscriptionResult) => boolean;
@@ -104,9 +112,13 @@ export class TranscriptionService {
   async transcribe(clip: AudioClip, options?: TranscribeOptions): Promise<TranscriptionResult> {
     const scope = createCancellationScope(options?.signal, options?.deadlineAt);
     try {
-      const settings = this.settingsProvider();
+      const settings = restoreSessionSettings(options?.sessionSettings ?? captureSessionSettings(this.settingsProvider()));
       const registry = getProviderRegistry();
       const primaryId = options?.providerOverride || settings.transcriptionProvider || "groq";
+      if ((primaryId === "local-whisper" || settings.offlineMode === "always-offline") &&
+          settings.localWhisperModel !== this.settingsProvider().localWhisperModel) {
+        throw new Error(`Restore local model "${settings.localWhisperModel}" to retry this session, or start a new dictation.`);
+      }
       const speechContextPrompt = buildSpeechContextPrompt(settings);
       const chain = await this.buildSttChain(settings, primaryId, registry);
       if (chain.length === 0) throw new Error(messageForEmptyChain(settings, primaryId));
@@ -141,7 +153,13 @@ export class TranscriptionService {
               temperature: 0,
               signal: scope.signal,
               recovery: options?.recovery,
-            }, options?.deadlineAt, scope.signal, options?.shouldYieldToActiveDictation);
+            }, options?.deadlineAt, scope.signal, options?.shouldYieldToActiveDictation, () => {
+              const current = this.settingsProvider();
+              if ((id !== "local-whisper" && current.offlineMode === "always-offline") ||
+                  (id === "local-whisper" && current.localWhisperModel !== settings.localWhisperModel)) {
+                throw new TranscriptionCancelledError();
+              }
+            });
             throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
             const quality = {
               ...result.quality,
@@ -231,7 +249,7 @@ export class TranscriptionService {
       if (!provider) {
         return;
       }
-      const apiKey = await this.resolveApiKey(settings, id);
+      const apiKey = await this.resolveApiKey(this.settingsProvider(), id);
       if (provider.requiresApiKey && !apiKey) {
         return;
       }
@@ -255,17 +273,17 @@ export class TranscriptionService {
     return chain;
   }
 
-  async formatTranscript(rawText: string, options?: { signal?: AbortSignal; deadlineAt?: number }): Promise<string> {
+  async formatTranscript(rawText: string, options?: FormattingOptions): Promise<string> {
     return (await this.formatTranscriptDetailed(rawText, options)).text;
   }
 
-  async formatTranscriptDetailed(rawText: string, options?: { signal?: AbortSignal; deadlineAt?: number }): Promise<FormatTranscriptTraceResult> {
+  async formatTranscriptDetailed(rawText: string, options?: FormattingOptions): Promise<FormatTranscriptTraceResult> {
     const scope = createCancellationScope(options?.signal, options?.deadlineAt);
     try {
-      const settings = this.settingsProvider();
+      const settings = restoreSessionSettings(options?.sessionSettings ?? captureSessionSettings(this.settingsProvider()));
       // Offline policy covers the entire pipeline, including LLM formatting.
       // The current formatting registry contains remote providers only.
-      if (settings.offlineMode === "always-offline") {
+      if (settings.offlineMode === "always-offline" || this.settingsProvider().offlineMode === "always-offline") {
         throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
         return { text: rawText, formatterUsed: "none" };
       }
@@ -273,8 +291,8 @@ export class TranscriptionService {
       const llmId = settings.formattingProvider || "groq-llm";
       const provider = registry.getFormatting(llmId);
       if (!provider) return { text: rawText, formatterUsed: "none" };
-      const configuredApiKey = configuredApiKeyFor(settings, llmId);
-      const apiKey = configuredApiKey ?? (this.credentials ? await this.resolveApiKey(settings, llmId) : null);
+      const configuredApiKey = configuredApiKeyFor(this.settingsProvider(), llmId);
+      const apiKey = configuredApiKey ?? (this.credentials ? await this.resolveApiKey(this.settingsProvider(), llmId) : null);
       if (provider.requiresApiKey && !apiKey) return { text: rawText, formatterUsed: "none" };
       throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
       const result = await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings, scope.signal);
@@ -344,6 +362,8 @@ export class TranscriptionService {
     settings: Settings,
     signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
+    if (signal.aborted) throw new TranscriptionCancelledError();
+    if (this.settingsProvider().offlineMode === "always-offline") return { text: rawText, formatterUsed: "none" };
     const formatted = await provider.format(rawText, {
       apiKey,
       model: settings.formattingModel,
@@ -394,11 +414,14 @@ async function transcribePossiblyChunked(
   deadlineAt?: number,
   signal?: AbortSignal,
   shouldYieldToActiveDictation?: () => boolean,
+  beforeProviderCall?: () => void,
 ): Promise<TranscriptionResult> {
   if (clip.durationSeconds <= MAX_SINGLE_STT_CLIP_SECONDS) {
     if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
       throw new TranscriptionDeadlineExceededError();
     }
+    throwIfTranscriptionDeadlineExceeded(deadlineAt, signal);
+    beforeProviderCall?.();
     const pending = provider.transcribe(clip, options);
     if (signal?.aborted) {
       void pending.catch(() => undefined);
@@ -414,6 +437,7 @@ async function transcribePossiblyChunked(
     if (shouldYieldToActiveDictation?.()) throw new RecoveryYieldedError();
     throwIfTranscriptionDeadlineExceeded(deadlineAt, signal);
     debug("transcription", `Transcribing chunk ${index + 1}/${chunks.length}: ${chunk.durationSeconds.toFixed(2)}s`);
+    beforeProviderCall?.();
     results.push(await provider.transcribe(chunk, options));
   }
 

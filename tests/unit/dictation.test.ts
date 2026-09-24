@@ -1,3 +1,7 @@
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { captureSessionSettings } from "@shared/sessionSettings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
@@ -148,7 +152,7 @@ function createTraceDeps() {
 }
 
 function createInsertionRecovery(sessionId: string) {
-  let entry: RecoveryEntry = createRecoveryEntry({ id: sessionId, sessionId, buildIdentifier: "1.0.0+abc1234" });
+  let entry: RecoveryEntry = createRecoveryEntry({ id: sessionId, sessionId, buildIdentifier: "1.0.0+abc1234", settingsSnapshot: captureSessionSettings(DEFAULT_SETTINGS) });
   const recovery = {
     create: vi.fn(async (next: RecoveryEntry | RecoveryEntrySeed) => { entry = "schemaVersion" in next ? next : createRecoveryEntry(next); return entry; }),
     getById: vi.fn(async () => entry),
@@ -203,6 +207,97 @@ async function submitHelloWorld(service: ReturnType<typeof createDictationServic
 }
 
 describe("DictationService", () => {
+  it.each([
+    { start: false, finish: false, count: 0 },
+    { start: false, finish: true, count: 0 },
+    { start: true, finish: false, count: 0 },
+    { start: true, finish: true, count: 1 },
+  ])("requires start and current WAV consent ($start -> $finish)", async ({ start, finish, count }) => {
+    const directory = await mkdtemp(join(tmpdir(), "vaani-consent-test-"));
+    try {
+      const { service, settings } = createDictationService();
+      makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, saveRecordings: start, recordingsPath: directory });
+      service.beginHotkeySession();
+      const sessionId = (service.getState() as { sessionId: string }).sessionId;
+      service.reportRecorderStarted(sessionId);
+      settings.update({ saveRecordings: finish, recordingsPath: join(directory, "changed") });
+      service.endHotkeySession();
+      await service.submitAudioClip({ sessionId, clip: { pcmData: new Array(16000).fill(0.1), sampleRate: 16000, durationSeconds: 1, rmsFrames: [0.1] } });
+      const files = await readdir(directory);
+      expect(files).toHaveLength(count);
+      expect(files.every((name) => name.endsWith(".wav"))).toBe(true);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the same start-time route through STT and formatting despite settings edits", async () => {
+    const fixture = createInsertionRecovery("snapshot-session");
+    const { service, settings, transcription } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true });
+    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, language: "hi", groqApiKey: "secret-canary" });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    settings.update({ language: "en", transcriptionProvider: "openai", customPrompt: "new prompt" });
+    service.endHotkeySession();
+    await service.submitAudioClip({ sessionId, clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] } });
+    const snapshot = fixture.getEntry().settingsSnapshot;
+    expect(snapshot).toMatchObject({ language: "hi", transcriptionProvider: "groq", customPrompt: "" });
+    expect(JSON.stringify(snapshot)).not.toContain("secret-canary");
+    expect(transcription.transcribe).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ sessionSettings: snapshot, languageOverride: "hi" }));
+    expect(transcription.formatTranscript).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ sessionSettings: snapshot }));
+  });
+
+  it("refuses legacy recovery formatting without a recorded route", async () => {
+    const fixture = createInsertionRecovery("legacy");
+    delete fixture.getEntry().settingsSnapshot;
+    fixture.getEntry().state = "recoverable";
+    fixture.getEntry().text.rawTranscript = "old text";
+    const { service, transcription } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true });
+    await expect(service.retryRecoveryFormatting("legacy")).resolves.toBe(false);
+    expect(transcription.formatTranscript).not.toHaveBeenCalled();
+    expect(fixture.recovery.transition).not.toHaveBeenCalled();
+  });
+
+  it("does not retain an earlier recording when consent is enabled mid-session", async () => {
+    const fixture = createInsertionRecovery("no-consent");
+    const recoveryAudio = {
+      spool: vi.fn(async () => ({ mode: "full" as const, audio: { kind: "encrypted-session-file" as const, path: "/managed/audio.enc" } })),
+      deleteForSession: vi.fn(async () => undefined),
+      withDecryptedAudio: async <T>(_id: string, _operation: (path: string) => Promise<T> | T): Promise<T> => { throw new Error("unused"); },
+    };
+    const { service, settings } = createDictationService({ recovery: fixture.recovery, recoveryAudio, recoveryReady: () => true });
+    makeSettingsMutable(settings);
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    settings.update({ retainFailedAudio: true });
+    service.handleRecorderFailure({ sessionId, message: "failed" }, { pcmData: [0.1], sampleRate: 16000, durationSeconds: 1, rmsFrames: [0.1] });
+    await service.flushRecovery();
+    expect(recoveryAudio.spool).not.toHaveBeenCalled();
+  });
+
+  it("removes newly spooled audio if retention is revoked while the write is pending", async () => {
+    const fixture = createInsertionRecovery("revoked");
+    let finish: () => void = () => undefined;
+    const recoveryAudio = {
+      spool: vi.fn(() => new Promise<{ mode: "full"; audio: NonNullable<RecoveryEntry["audio"]> }>((resolve) => {
+        finish = () => resolve({ mode: "full", audio: { kind: "encrypted-session-file", path: "/managed/audio.enc" } });
+      })),
+      deleteForSession: vi.fn(async () => undefined),
+      withDecryptedAudio: async <T>(_id: string, _operation: (path: string) => Promise<T> | T): Promise<T> => { throw new Error("unused"); },
+    };
+    const { service, settings } = createDictationService({ recovery: fixture.recovery, recoveryAudio, recoveryReady: () => true });
+    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, retainFailedAudio: true });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.handleRecorderFailure({ sessionId, message: "failed" }, { pcmData: [0.1], sampleRate: 16000, durationSeconds: 1, rmsFrames: [0.1] });
+    await vi.waitFor(() => expect(recoveryAudio.spool).toHaveBeenCalledOnce());
+    settings.update({ retainFailedAudio: false });
+    finish();
+    await service.flushRecovery();
+    expect(recoveryAudio.deleteForSession).toHaveBeenCalledWith(sessionId);
+  });
+
   it("selects formatted recovery text before cleaned and raw text", () => {
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: "formatted" })).toBe("formatted");
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: null })).toBe("cleaned");
