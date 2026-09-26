@@ -1,3 +1,4 @@
+import { recoveryReadinessMessage } from "@shared/recoveryReadiness";
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Search, Copy, RotateCcw, Trash2, Clock, Type, X, Check, AudioLines, Edit3, FileWarning, RefreshCw, Globe, Play, ShieldAlert } from 'lucide-react'
@@ -15,7 +16,7 @@ const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: {
 const item = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }
 
 export default function History() {
-  const { historyItems, updateHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry, retryHistoryEntry, copyHistoryEntry, recoveryEntries, reloadHistory, retryRecoveryTranscription, retryRecoveryFormatting, useRawRecoveryTranscript, retryRecoveryInsertion, copyRecoveryEntry, playRecoveryAudio, deleteRecoveryAudio, discardRecoveryEntry } = useVaaniUi()
+  const { historyItems, updateHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry, retryHistoryEntry, copyHistoryEntry, recoveryReadiness, recoveryEntries, reloadHistory, retryRecoveryTranscription, retryRecoveryFormatting, useRawRecoveryTranscript, retryRecoveryInsertion, copyRecoveryEntry, playRecoveryAudio, deleteRecoveryAudio, discardRecoveryEntry } = useVaaniUi()
   const [searchQuery, setSearchQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -103,6 +104,7 @@ export default function History() {
         )}
       </motion.div>
 
+      <p role="status" className="rounded-2xl border border-line p-4 text-sm text-muted">{recoveryReadinessMessage(recoveryReadiness)}</p>
       {recoveryEntries.length > 0 && (
         <RecoverySection total={recoveryEntries.length} items={recoveryItems} filter={recoveryFilter} onFilterChange={setRecoveryFilter} onAction={(id, action) => { void runRecoveryAction(id, action) }} />
       )}

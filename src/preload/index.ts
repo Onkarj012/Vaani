@@ -23,6 +23,7 @@ const api: VaaniAPI = {
   deleteEntry: (id) => ipcRenderer.invoke(IpcChannel.DeleteEntry, id),
   reinjectEntry: (id) => ipcRenderer.invoke(IpcChannel.ReinjectEntry, id),
   retryHistoryEntry: (id) => ipcRenderer.invoke(IpcChannel.RetryHistoryEntry, id),
+  getRecoveryReadiness: () => ipcRenderer.invoke(IpcChannel.GetRecoveryReadiness),
   getRecoveryEntries: () => ipcRenderer.invoke(IpcChannel.GetRecoveryEntries),
   retryRecoveryTranscription: (id) => ipcRenderer.invoke(IpcChannel.RetryRecoveryTranscription, id),
   retryRecoveryFormatting: (id) => ipcRenderer.invoke(IpcChannel.RetryRecoveryFormatting, id),

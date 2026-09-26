@@ -114,6 +114,22 @@ describe("IPC security boundaries", () => {
     });
   });
 
+  it("exposes disabled recovery without reading storage and protects its IPC sender", async () => {
+    await expect(invokeHandlers.get(IpcChannel.GetRecoveryReadiness)?.({ sender: mainSender })).resolves.toEqual({ state: "disabled", entryCount: null });
+    await expect(invokeHandlers.get(IpcChannel.GetRecoveryReadiness)?.({ sender: untrustedSender })).rejects.toThrow("Unauthorized IPC sender");
+  });
+
+  it.each([false, true])("reports readiness and storage failure independently from empty content (%s)", async (fails) => {
+    const { registerIpcHandlers } = await import("@main/ipc");
+    registerIpcHandlers({
+      mainWindow: windowFor(mainSender), dictation, history, settings,
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      recoveryReadiness: () => ({ state: "ready", entryCount: null }),
+      recovery: { getById: vi.fn(), getUnresolved: vi.fn(async () => { if (fails) throw new Error("disk failed"); return []; }) },
+    });
+    await expect(invokeHandlers.get(IpcChannel.GetRecoveryReadiness)?.({ sender: mainSender })).resolves.toEqual(fails ? { state: "degraded", entryCount: null } : { state: "ready", entryCount: 0 });
+  });
+
   it("allows dashboard channels only from the main renderer", async () => {
     const handler = invokeHandlers.get(IpcChannel.GetHistory);
     expect(await handler?.({ sender: mainSender })).toEqual([]);
@@ -375,6 +391,17 @@ describe("IPC security boundaries", () => {
     );
 
     expect(settings.update).toHaveBeenCalledWith({ customCorrections: [correction] });
+  });
+
+  it("keeps an empty replacement when editing a dictionary removal rule", async () => {
+    await invokeHandlers.get(IpcChannel.UpdateSettings)?.(
+      { sender: mainSender },
+      { customCorrections: [{ spoken: "filler", written: "", source: "manual" }] },
+    );
+
+    expect(settings.update).toHaveBeenCalledWith({
+      customCorrections: [{ spoken: "filler", written: "", source: "manual" }],
+    });
   });
 
   it("rejects the whole dictionary update when a correction is oversized or has malformed optional metadata", async () => {

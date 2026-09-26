@@ -436,6 +436,13 @@ export function repairRecoveryEntry(entry: RecoveryEntry, now = new Date()): Rec
 }
 
 export function normalizeRecoveryDocument(raw: unknown, now = new Date()): { entries: RecoveryEntry[]; changed: boolean } {
+  if (isRecord(raw) && raw.schemaVersion !== undefined && raw.schemaVersion !== RECOVERY_SCHEMA_VERSION) {
+    throw new Error("Unsupported recovery journal schema; original data was preserved.");
+  }
+  const candidates = Array.isArray(raw) ? raw : isRecord(raw) && Array.isArray(raw.entries) ? raw.entries : [];
+  if (candidates.some((entry) => isRecord(entry) && entry.schemaVersion !== undefined && entry.schemaVersion !== RECOVERY_SCHEMA_VERSION)) {
+    throw new Error("Unsupported recovery entry schema; original data was preserved.");
+  }
   if (!Array.isArray(raw) && !(isRecord(raw) && Array.isArray(raw.entries))) {
     throw new Error("Recovery journal has an invalid JSON shape.");
   }

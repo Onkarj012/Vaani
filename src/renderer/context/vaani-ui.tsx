@@ -1,3 +1,4 @@
+import type { RecoveryReadiness } from "@shared/recoveryReadiness";
 import {
   createContext,
   useCallback,
@@ -74,6 +75,7 @@ interface HistoryModel {
   retryEntry: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
   recoveryEntries: RecoveryEntryView[];
+  recoveryReadiness: RecoveryReadiness;
   retryRecoveryTranscription: (id: string) => Promise<void>;
   retryRecoveryFormatting: (id: string) => Promise<void>;
   useRawRecoveryTranscript: (id: string) => Promise<void>;
@@ -112,6 +114,7 @@ interface VaaniUiContextValue {
   retryHistoryEntry: (id: string) => Promise<void>;
   clearHistory: () => Promise<void>;
   recoveryEntries: RecoveryEntryView[];
+  recoveryReadiness: RecoveryReadiness;
   retryRecoveryTranscription: (id: string) => Promise<void>;
   retryRecoveryFormatting: (id: string) => Promise<void>;
   useRawRecoveryTranscript: (id: string) => Promise<void>;
@@ -336,6 +339,7 @@ export function VaaniUiProvider({
     clearHistory: history.clearAll,
     copyHistoryEntry,
     recoveryEntries: history.recoveryEntries,
+    recoveryReadiness: history.recoveryReadiness,
     retryRecoveryTranscription: history.retryRecoveryTranscription,
     retryRecoveryFormatting: history.retryRecoveryFormatting,
     useRawRecoveryTranscript: history.useRawRecoveryTranscript,

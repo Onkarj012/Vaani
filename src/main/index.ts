@@ -21,7 +21,7 @@ import { createTray, type TrayController } from "./tray";
 import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { isPermissionReady } from "@shared/permissionGuard";
-import { isRecoveryEnabled } from "./recoveryReadiness";
+import { isRecoveryEnabled, isRecoveryReady, setRecoveryRuntimeState } from "./recoveryReadiness";
 import { getProviderRegistry } from "./providers";
 import { loadWhisperModel } from "./providers/local/whisperCpp";
 import { error } from "@main/log";
@@ -390,21 +390,28 @@ async function bootstrap(): Promise<void> {
   recoveryJournal = recovery;
   await settings.init();
   if (isRecoveryEnabled()) {
+    setRecoveryRuntimeState("initializing");
     let recoveryUsable = true;
     try {
       await recovery.init();
     } catch (startupError) {
       recoveryUsable = false;
+      setRecoveryRuntimeState("degraded");
       log("recovery:startup-repair-failed", { message: startupError instanceof Error ? startupError.message : String(startupError) });
     }
     if (recoveryUsable) {
       await recoveryAudio.cleanupExpired().catch((startupError) => {
+        recoveryUsable = false;
         log("recovery:audio-expiry-failed", { message: startupError instanceof Error ? startupError.message : String(startupError) });
       });
       await recoveryAudio.reconcileOrphans().catch((startupError) => {
+        recoveryUsable = false;
         log("recovery:audio-orphan-cleanup-failed", { message: startupError instanceof Error ? startupError.message : String(startupError) });
       });
-      restoredRecoveryIds = (await recovery.getUnresolved()).map((entry) => entry.id);
+      try {
+        restoredRecoveryIds = (await recovery.getUnresolved()).map((entry) => entry.id);
+      } catch { recoveryUsable = false; }
+      setRecoveryRuntimeState(recoveryUsable ? "ready" : "degraded");
     }
   }
 
@@ -488,7 +495,7 @@ async function bootstrap(): Promise<void> {
     history,
     (label) => trayController.updateStatus(label),
     overlayController,
-    { recorder: recorderController, credentials: credentialsStore, traces, recovery, recoveryAudio }
+    { recorder: recorderController, credentials: credentialsStore, traces, recovery, recoveryAudio, recoveryReady: isRecoveryReady }
   );
   dictationService = dictation;
   lifecycleCoordinator = new RecoveryLifecycleCoordinator({
@@ -501,7 +508,7 @@ async function bootstrap(): Promise<void> {
       handleLifecycleRouteHandoff: (sessionId, generation, handoff) => dictation.handleLifecycleRouteHandoff(sessionId, generation, handoff),
     },
     getPermissionStatus: getFreshPermissionStatus,
-    recoveryReady: isRecoveryEnabled,
+    recoveryReady: isRecoveryReady,
     reportStatus: (message) => trayController.updateStatus(message),
   });
   unsubscribeNativeFailure = subscribeNativeLoadFailure((failure) => {

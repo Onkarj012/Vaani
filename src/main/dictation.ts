@@ -33,6 +33,7 @@ import { trimSilence, isValidClip } from "./audio/vad";
 import { evaluateSpeechGate } from "./audio/speechGate";
 import { AppDetector, type AppContextResult } from "./context/appDetector";
 import { TextInjector } from "./injection";
+import { cancelPendingClipboardRestore } from "./injection/clipboard";
 import { nativeBridge } from "./nativeBridge";
 import { debug } from "@main/log";
 import { OverlayController } from "./overlay";
@@ -161,6 +162,7 @@ export class DictationService {
     this.copyText = async (text) => {
       if (deps.copyText) return deps.copyText(text);
       try {
+        cancelPendingClipboardRestore();
         electron.clipboard.writeText(text);
         return electron.clipboard.readText() === text;
       } catch {
@@ -563,8 +565,8 @@ export class DictationService {
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
 
       const verificationFocus = this.appDetector.getContext();
-      let verificationBaseline = sameTarget(injectionTarget, verificationFocus) ? currentValue : null;
-      let verificationTarget: Pick<AppContextResult, "appBundleId" | "appName"> | null = this.activeTarget;
+      const verificationBaseline = sameTarget(injectionTarget, verificationFocus) ? currentValue : null;
+      const verificationTarget: Pick<AppContextResult, "appBundleId" | "appName"> | null = this.activeTarget;
       await this.prepareRecoveryInsertion(
         payload.sessionId,
         cleanedText,
@@ -584,41 +586,17 @@ export class DictationService {
         this.completeSession(payload.sessionId, "saved", cleanedText, failure.message, transcription.detectedLanguage || transcription.language, failure.outcome);
         return;
       }
-      let injection = await this.injector.inject(cleanedText, finalInjectionTarget);
+      const injection = await this.injector.inject(cleanedText, finalInjectionTarget, {
+        signal: operationSignal,
+        isTargetValid: () => this.isCurrentSession(payload.sessionId)
+          && this.isSameFocusedTarget(finalInjectionTarget, initialTargetIdentity),
+      });
       const injectionAttempts: DictationTrace["injectionAttempts"] = [{
         targetAppBundleId: finalInjectionTarget.appBundleId,
         targetAppName: finalInjectionTarget.appName,
         method: injection.success ? injection.method : null,
         success: injection.success,
       }];
-      if (!injection.success) {
-        const fallbackTarget = this.appDetector.getContext();
-        if (isExternalTarget(fallbackTarget) && !sameTarget(injectionTarget, fallbackTarget)) {
-          const fallbackSelection = this.captureSelection(fallbackTarget);
-          const fallbackVerificationFocus = this.appDetector.getContext();
-          const fallbackVerificationBaseline = sameTarget(fallbackTarget, fallbackVerificationFocus) ? safeFocusedValue() : null;
-          const fallbackIdentity = safeFocusedElementIdentity();
-          await this.prepareRecoveryInsertion(payload.sessionId, cleanedText, fallbackTarget, fallbackVerificationBaseline, settings.injectionMode);
-          const finalFallbackTarget = this.revalidateAutomaticTarget(fallbackTarget, fallbackSelection, fallbackVerificationBaseline, fallbackIdentity);
-          if (!finalFallbackTarget) {
-            injection = { success: false, reason: "insertion_failed" };
-          } else {
-            injection = await this.injector.inject(cleanedText, finalFallbackTarget);
-          }
-          injectionAttempts.push({
-            targetAppBundleId: finalFallbackTarget?.appBundleId ?? fallbackTarget.appBundleId,
-            targetAppName: finalFallbackTarget?.appName ?? fallbackTarget.appName,
-            method: injection.success ? injection.method : null,
-            success: injection.success,
-            fallbackReason: "primary-insertion-failed",
-          });
-          if (injection.success && finalFallbackTarget) {
-            this.activeTarget = fallbackTarget;
-            verificationTarget = finalFallbackTarget;
-            verificationBaseline = fallbackVerificationBaseline;
-          }
-        }
-      }
       void this.patchTrace(payload.sessionId, { injectionAttempts });
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
 
@@ -653,8 +631,8 @@ export class DictationService {
           this.watchForManualEdits(cleanedText, target);
         }
       } else {
-        const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, null, "insertion_failed");
-        debug("editwatch", "not-armed-injection-saved", { appBundleId: target.appBundleId, appName: target.appName });
+        const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, null, activeInsertionFailureDetail(injection.reason));
+        debug("editwatch", "not-armed-injection-saved", { appBundleId: target.appBundleId, appName: target.appName, reason: injection.reason });
         await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
         void this.finishTrace(payload.sessionId, "saved", "insertion_failed", failure.message, {
           injectionMethod: null,
@@ -883,6 +861,7 @@ export class DictationService {
       if (!entry || entry.terminal) return false;
       if (entry.state !== "text_ready" && entry.state !== "recoverable") return false;
       if (entry.insertion?.outcome === "delivered" || entry.insertion?.outcome === "copied") return false;
+      if (isUnresolvedInsertion(entry.insertion)) return false;
       const text = selectRecoveryText(entry.text);
       const target = this.currentInjectionTarget({ appBundleId: entry.target.appBundleId, appName: entry.target.appName });
       if (!text || !target) return false;
@@ -899,9 +878,11 @@ export class DictationService {
       const latestTarget = this.currentInjectionTarget({ appBundleId: entry.target.appBundleId, appName: entry.target.appName });
       const latestBaseline = latestTarget && sameTarget(latestTarget, this.appDetector.getContext()) ? safeFocusedValue() : null;
       if (actionGeneration !== this.sessionGeneration || !latestTarget || latestBaseline === null || !sameTarget(latestTarget, target)) return false;
-      const result = await this.performManualInsertion(text, latestTarget, "Could not verify insertion into the current text field.", action.signal, actionGeneration);
+      let uncertain = false;
+      const result = await this.performManualInsertion(text, latestTarget, "Could not verify insertion into the current text field.", action.signal, actionGeneration, () => { uncertain = true; });
       if (!result) {
-        if (!action.signal.aborted) await this.recordRecoveryInsertionOutcome(entry.sessionId, "recoverable", null, "insertion_failed", "Manual recovery retry was not verified.", entry.id, action.signal);
+        const detail = uncertain ? OUTCOME_UNCERTAIN_DETAIL : "Manual recovery retry was not verified.";
+        if (!action.signal.aborted) await this.recordRecoveryInsertionOutcome(entry.sessionId, "recoverable", null, "insertion_failed", detail, entry.id, action.signal);
         return false;
       }
       await this.recordRecoveryInsertionOutcome(entry.sessionId, "delivered", result.method, undefined, undefined, entry.id);
@@ -1117,6 +1098,7 @@ export class DictationService {
     unreadableMessage: string,
     signal?: AbortSignal,
     expectedGeneration = this.sessionGeneration,
+    onUncertain?: () => void,
   ): Promise<{ method: "ax" | "clipboard" } | null> {
     if (signal?.aborted || expectedGeneration !== this.sessionGeneration) return null;
     if (!target || !isExternalTarget(target)) {
@@ -1137,7 +1119,12 @@ export class DictationService {
       return null;
     }
     if (this.sessionGeneration !== expectedGeneration || signal?.aborted) return null;
-    const result = await this.injector.inject(text, target);
+    const identity = safeFocusedElementIdentity();
+    const result = await this.injector.inject(text, target, {
+      signal,
+      isTargetValid: () => this.sessionGeneration === expectedGeneration && this.isSameFocusedTarget(target, identity),
+    });
+    if (!result.success && result.reason === "outcome_uncertain") onUncertain?.();
     if (this.sessionGeneration !== expectedGeneration || signal?.aborted) return null;
     if (!result.success) {
       this.setState({ status: "error", sessionId: null, message: messageForInjectionFailure(result.reason) });
@@ -1147,6 +1134,7 @@ export class DictationService {
     const verification = await this.verifyInsertion(text, baseline, target);
     if (this.sessionGeneration !== expectedGeneration || signal?.aborted) return null;
     if (!verification.passed) {
+      onUncertain?.();
       this.setState({ status: "error", sessionId: null, message: "Insertion could not be verified. Use Copy to recover the text." });
       this.scheduleReset(ERROR_RESET_MS);
       return null;
@@ -1638,6 +1626,14 @@ export class DictationService {
       && initialIdentity === identity;
   }
 
+  private isSameFocusedTarget(
+    target: Pick<AppContextResult, "appBundleId" | "appName">,
+    identity: string | null,
+  ): boolean {
+    if (!sameTarget(target, this.appDetector.getContext())) return false;
+    return identity === null || safeFocusedElementIdentity() === identity;
+  }
+
   private revalidateAutomaticTarget(
     initialTarget: AppContextResult | null,
     initialSelection: SelectionRange | null,
@@ -1872,10 +1868,27 @@ function sameTarget(left: Pick<AppContextResult, "appBundleId" | "appName"> | nu
   return !!leftAppName && leftAppName === rightAppName;
 }
 
+const OUTCOME_UNCERTAIN_DETAIL = "outcome_uncertain";
+
+function activeInsertionFailureDetail(reason: InjectionFailureReason): string {
+  if (reason === "target_changed") return "stale_target";
+  if (reason === "outcome_uncertain") return OUTCOME_UNCERTAIN_DETAIL;
+  return "insertion_failed";
+}
+
+// An insertion that may already have reached the target must not be re-typed
+// automatically; the user can still copy the text explicitly.
+function isUnresolvedInsertion(insertion: RecoveryEntry["insertion"]): boolean {
+  if (!insertion) return false;
+  return insertion.outcome === "pending" || insertion.detail === OUTCOME_UNCERTAIN_DETAIL;
+}
+
 function messageForInjectionFailure(reason: InjectionFailureReason): string {
   switch (reason) {
     case "permission_missing": return "Accessibility permission is missing for text insertion.";
     case "no_editable_target": return "No editable text field is focused.";
+    case "target_changed": return "The focused text field changed. Focus the intended field and retry.";
+    case "outcome_uncertain": return "Insertion may already have happened. Use Copy to recover the text.";
     default: return "Could not paste the latest dictation.";
   }
 }

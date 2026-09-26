@@ -97,4 +97,52 @@ describe("TextInjector strategy selection", () => {
     expect(injectorMocks.clipboardInject).toHaveBeenCalledTimes(1);
     expect(injectorMocks.axInject).not.toHaveBeenCalled();
   });
+
+  it("does not start any strategy when the session is already cancelled", async () => {
+    const { TextInjector } = await import("@main/injection");
+    const injector = new TextInjector(() => settings({ injectionMode: "auto" }));
+    const controller = new AbortController();
+    controller.abort("user-cancelled");
+
+    await expect(injector.inject("hello", undefined, { signal: controller.signal }))
+      .resolves.toEqual({ success: false, reason: "cancelled" });
+
+    expect(injectorMocks.axInject).not.toHaveBeenCalled();
+    expect(injectorMocks.clipboardInject).not.toHaveBeenCalled();
+  });
+
+  it("does not start any strategy when the target is no longer valid", async () => {
+    const { TextInjector } = await import("@main/injection");
+    const injector = new TextInjector(() => settings({ injectionMode: "auto" }));
+
+    await expect(injector.inject("hello", undefined, { isTargetValid: () => false }))
+      .resolves.toEqual({ success: false, reason: "target_changed" });
+
+    expect(injectorMocks.axInject).not.toHaveBeenCalled();
+    expect(injectorMocks.clipboardInject).not.toHaveBeenCalled();
+  });
+
+  it("does not fall through to AX after an uncertain clipboard dispatch", async () => {
+    injectorMocks.clipboardInject.mockResolvedValueOnce({ success: false, reason: "outcome_uncertain" });
+    const { TextInjector } = await import("@main/injection");
+    const injector = new TextInjector(() => settings({ injectionMode: "auto" }));
+
+    await expect(injector.inject("héllo", { appBundleId: "com.apple.TextEdit", appName: "TextEdit" }))
+      .resolves.toEqual({ success: false, reason: "outcome_uncertain" });
+
+    expect(injectorMocks.clipboardInject).toHaveBeenCalledTimes(1);
+    expect(injectorMocks.axInject).not.toHaveBeenCalled();
+  });
+
+  it("does not fall through to clipboard after AX stops for a changed target", async () => {
+    injectorMocks.axInject.mockResolvedValueOnce({ success: false, reason: "target_changed" });
+    const { TextInjector } = await import("@main/injection");
+    const injector = new TextInjector(() => settings({ injectionMode: "auto" }));
+
+    await expect(injector.inject("hello", { appBundleId: "com.apple.TextEdit", appName: "TextEdit" }))
+      .resolves.toEqual({ success: false, reason: "target_changed" });
+
+    expect(injectorMocks.axInject).toHaveBeenCalledTimes(1);
+    expect(injectorMocks.clipboardInject).not.toHaveBeenCalled();
+  });
 });

@@ -603,7 +603,7 @@ describe("DictationService", () => {
       clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
     });
 
-    expect(injector.inject).toHaveBeenCalledWith(cleanedText, expect.anything());
+    expect(injector.inject).toHaveBeenCalledWith(cleanedText, expect.anything(), expect.objectContaining({ isTargetValid: expect.any(Function) }));
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
       rawText,
       cleanedText,
@@ -663,7 +663,7 @@ describe("DictationService", () => {
     });
     await Promise.resolve();
 
-    expect(injector.inject).toHaveBeenCalledWith("I like this.", expect.anything());
+    expect(injector.inject).toHaveBeenCalledWith("I like this.", expect.anything(), expect.objectContaining({ isTargetValid: expect.any(Function) }));
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
       rawText: "um I like this",
       formattedText: "um I like this",
@@ -871,7 +871,7 @@ describe("DictationService", () => {
     const result = await service.retryRecoveryInsertion(entry.id);
 
     expect(result).toBe(true);
-    expect(injector.inject).toHaveBeenCalledWith("Hello world.", expect.anything());
+    expect(injector.inject).toHaveBeenCalledWith("Hello world.", expect.anything(), expect.objectContaining({ isTargetValid: expect.any(Function) }));
     expect(recoveryFixture.recovery.recordInsertionOutcome).toHaveBeenCalledWith(
       entry.id,
       entry.sessionId,
@@ -1076,38 +1076,58 @@ describe("DictationService", () => {
     });
   });
 
-  it("captures the fallback target baseline immediately before fallback injection", async () => {
+  it("does not fall back to a newly foregrounded app when primary insertion fails", async () => {
     const traceDeps = createTraceDeps();
     const { service, history, injector, transcription, appDetector } = createDictationService({ traces: traceDeps.traces });
     const primaryTarget = { appBundleId: "com.apple.TextEdit", appName: "TextEdit", context: "default" as const };
-    const fallbackTarget = { appBundleId: "com.apple.Notes", appName: "Notes", context: "default" as const };
+    const otherTarget = { appBundleId: "com.apple.Notes", appName: "Notes", context: "default" as const };
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     appDetector.getContext
       .mockReturnValueOnce(primaryTarget)
       .mockReturnValueOnce(primaryTarget)
       .mockReturnValueOnce(primaryTarget)
       .mockReturnValueOnce(primaryTarget)
-      .mockReturnValue(fallbackTarget);
-    injector.inject
-      .mockResolvedValueOnce({ success: false, reason: "insertion_failed" })
-      .mockResolvedValueOnce({ success: true, method: "clipboard" });
-    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
-      .mockReturnValueOnce("")
-      .mockReturnValueOnce("")
-      .mockReturnValue("Hello world.");
+      .mockReturnValue(otherTarget);
+    injector.inject.mockResolvedValueOnce({ success: false, reason: "insertion_failed" });
 
     await submitHelloWorld(service);
     await Promise.resolve();
 
-    expect(injector.inject).toHaveBeenNthCalledWith(2, "Hello world.", expect.objectContaining({
-      appBundleId: fallbackTarget.appBundleId,
-      appName: fallbackTarget.appName,
-    }));
+    expect(injector.inject).toHaveBeenCalledTimes(1);
+    expect(injector.inject).not.toHaveBeenCalledWith("Hello world.", expect.objectContaining({ appBundleId: otherTarget.appBundleId }), expect.anything());
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
-    expect(traceDeps.getTrace()?.injectionAttempts?.at(-1)).toMatchObject({
-      targetAppBundleId: fallbackTarget.appBundleId,
-      verification: { passed: false, reason: "timeout" },
+    expect(traceDeps.getTrace()?.injectionAttempts).toHaveLength(1);
+  });
+
+  it("passes the session signal and a focused-target guard to the injector", async () => {
+    const { service, injector, transcription, appDetector } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    let options: { signal?: AbortSignal; isTargetValid?: () => boolean } | undefined;
+    injector.inject.mockImplementationOnce(async (...args: unknown[]) => {
+      options = args[2] as typeof options;
+      return { success: false, reason: "cancelled" };
     });
+
+    await submitHelloWorld(service);
+    await Promise.resolve();
+
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
+    appDetector.getContext.mockReturnValue({ appBundleId: "com.apple.Notes", appName: "Notes", context: "default" as const });
+    expect(options?.isTargetValid?.()).toBe(false);
+  });
+
+  it("does not re-insert when the injector reports an uncertain outcome", async () => {
+    const copyText = vi.fn(async () => true);
+    const { service, history, injector, transcription } = createDictationService({ copyText });
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    injector.inject.mockResolvedValueOnce({ success: false, reason: "outcome_uncertain" });
+
+    await submitHelloWorld(service);
+    await Promise.resolve();
+
+    expect(injector.inject).toHaveBeenCalledTimes(1);
+    expect(copyText).toHaveBeenCalledWith("Hello world.");
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
   });
 
   it("fails closed when the focused field changes within the same app", async () => {
@@ -1144,7 +1164,7 @@ describe("DictationService", () => {
       clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
     });
 
-    expect(injector.inject).toHaveBeenNthCalledWith(1, "Hello world.", expect.anything());
+    expect(injector.inject).toHaveBeenNthCalledWith(1, "Hello world.", expect.anything(), expect.objectContaining({ isTargetValid: expect.any(Function) }));
     expect(injector.inject).toHaveBeenCalledTimes(1);
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
       injectionStatus: "saved",

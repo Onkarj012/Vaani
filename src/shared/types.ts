@@ -1,3 +1,4 @@
+import type { RecoveryReadiness } from "./recoveryReadiness";
 import type { DictionarySuggestion } from "./dictionarySuggestions";
 import type { RecoveryEntryView, RecoveryInsertionTerminalOutcome, RecoveryRestoredNotice, RecoveryStorageUsage } from "./recovery";
 export type {
@@ -30,7 +31,14 @@ export type {
 export type DictationStatus = "idle" | "starting" | "recording" | "finalizing" | "transcribing" | "completed" | "error";
 export type DictationCompletionOutcome = "injected" | "saved";
 export type InjectionMethod = "ax" | "clipboard";
-export type InjectionFailureReason = "permission_missing" | "no_editable_target" | "insertion_failed" | "activation_failed";
+export type InjectionFailureReason =
+  | "permission_missing"
+  | "no_editable_target"
+  | "insertion_failed"
+  | "activation_failed"
+  | "cancelled"
+  | "target_changed"
+  | "outcome_uncertain";
 export type DictationMode = "toggle" | "push-to-talk" | "toggle-double";
 
 export interface SelectionRange {
@@ -488,6 +496,7 @@ export interface VaaniAPI {
   deleteEntry: (id: string) => Promise<void>;
   reinjectEntry: (id: string) => Promise<void>;
   retryHistoryEntry: (id: string) => Promise<void>;
+  getRecoveryReadiness: () => Promise<RecoveryReadiness>;
   getRecoveryEntries: () => Promise<RecoveryEntryView[]>;
   retryRecoveryTranscription: (id: string) => Promise<boolean>;
   retryRecoveryFormatting: (id: string) => Promise<boolean>;

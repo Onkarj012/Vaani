@@ -10,6 +10,17 @@ The next release version is not assigned by this plan. Resolve whether the curre
 No publication, provider spending, telemetry, or recovery enablement is authorized
 by a status change here.
 
+## M1: trustworthy daily driver (first milestone)
+
+M1 comes before PR05-PR12. Goal: Vaani replaces Wispr Flow for the owner's
+daily English dictation on one Mac, with owner-labelled acceptance of 100
+dictations. It pulls in PR03, minimal PR04 and a PR06 install subset, plus new
+reliability items (phantom STT-prompt text, trailing-word loss, formatting
+timeout fallback, stale-session trace, stage timing, mic pinning). Freeze
+2026-09-30, acceptance through 2026-10-03.
+
+Working plan: `plans/m1-daily-driver.md`.
+
 ## Branches and dependencies
 
 PRs are review units, not promises to ship every item. PR 01 branches from the

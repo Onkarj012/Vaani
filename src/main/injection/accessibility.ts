@@ -2,16 +2,19 @@ import type { InjectionFailureReason, InjectionResult } from "@shared/types";
 import { nativeBridge } from "../nativeBridge";
 import type { InjectionTarget } from "./index";
 import { activateTargetApp, isExternalTarget } from "./target";
+import type { InjectionGuard } from "./guard";
 
 export class AccessibilityTextInjector {
   isTrusted(): boolean {
     return nativeBridge.isAccessibilityTrusted?.() ?? false;
   }
 
-  async inject(text: string, target?: InjectionTarget): Promise<InjectionResult> {
+  async inject(text: string, target?: InjectionTarget, guard: InjectionGuard = () => null): Promise<InjectionResult> {
     if (!this.isTrusted()) {
       return { success: false, reason: "permission_missing" };
     }
+    const blockedAtStart = guard();
+    if (blockedAtStart) return { success: false, reason: blockedAtStart };
 
     try {
       let activationSucceeded = false;
@@ -63,6 +66,9 @@ export class AccessibilityTextInjector {
           return { success: false, reason: "insertion_failed" };
         }
       }
+
+      const blocked = guard();
+      if (blocked) return { success: false, reason: blocked };
 
       const result = nativeBridge.injectText?.(text);
       if (!result) {

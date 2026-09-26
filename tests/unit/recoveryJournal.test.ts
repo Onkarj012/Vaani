@@ -48,6 +48,16 @@ function transition(entry: RecoveryEntry, to: RecoveryEntry["state"], overrides:
 }
 
 describe("RecoveryJournalStore", () => {
+  it.each(["document", "entry"])("preserves unknown %s schema bytes and refuses to overwrite them", async (scope) => {
+    const { store, filePath } = await createStore();
+    const entry = createRecoveryEntry({ id: "future", sessionId: "future", buildIdentifier: "future" });
+    const original = JSON.stringify({ schemaVersion: scope === "document" ? 99 : RECOVERY_SCHEMA_VERSION, entries: [{ ...entry, schemaVersion: scope === "entry" ? 99 : RECOVERY_SCHEMA_VERSION }] });
+    await writeFile(filePath, original);
+    await expect(store.init()).rejects.toThrow("Unsupported recovery");
+    await expect(store.create({ id: "new", sessionId: "new", buildIdentifier: "current" })).rejects.toThrow("Unsupported recovery");
+    expect(await readFile(filePath, "utf8")).toBe(original);
+  });
+
   it("enforces the transition table, monotonic attempts, idempotence, and stale-session guards", async () => {
     expect(isLegalRecoveryTransition("capturing", "captured")).toBe(true);
     expect(isLegalRecoveryTransition("capturing", "delivered")).toBe(false);

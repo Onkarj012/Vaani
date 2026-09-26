@@ -34,7 +34,8 @@ import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { loadWhisperModel, freeWhisperModel, listDownloadedModels, isModelLoaded } from "./providers/local/whisperCpp";
 import { cachedUpdateStatus, setCachedUpdateStatus } from "./index";
 import { validateSubmittedApiKey } from "./providers/apiKeyValidation";
-import { isRecoveryEnabled } from "./recoveryReadiness";
+import { getRecoveryReadiness, isRecoveryReady } from "./recoveryReadiness";
+import type { RecoveryReadiness } from "@shared/recoveryReadiness";
 
 function isNewerVersion(latest: string, current: string): boolean {
   const parse = (v: string) => {
@@ -132,7 +133,7 @@ function isBoundedStringArray(value: unknown, maxEntries = MAX_LIST_LENGTH, maxT
 function isCustomCorrection(value: unknown): value is CustomCorrection {
   if (!isRecord(value) || !hasOnlyKeys(value, ["spoken", "written", "source", "enabled", "caseSensitive", "wholeWord", "fuzzy", "hitCount", "lastUsedAt"])) return false;
   return isBoundedString(value.spoken, MAX_CUSTOM_CORRECTION_TEXT_LENGTH, false)
-    && isBoundedString(value.written, MAX_CUSTOM_CORRECTION_TEXT_LENGTH, false)
+    && isBoundedString(value.written, MAX_CUSTOM_CORRECTION_TEXT_LENGTH)
     && (value.source === undefined || isOneOf(value.source, ["auto-suggested", "manual"]))
     && (value.enabled === undefined || typeof value.enabled === "boolean")
     && (value.caseSensitive === undefined || typeof value.caseSensitive === "boolean")
@@ -319,7 +320,7 @@ function sanitizeCustomCorrections(entries: Array<Partial<CustomCorrection>>): C
   return entries.flatMap((entry) => {
     if (!isRecord(entry)
       || !isBoundedString(entry.spoken, MAX_CUSTOM_CORRECTION_TEXT_LENGTH, false)
-      || !isBoundedString(entry.written, MAX_CUSTOM_CORRECTION_TEXT_LENGTH, false)) return [];
+      || !isBoundedString(entry.written, MAX_CUSTOM_CORRECTION_TEXT_LENGTH)) return [];
     const spoken = entry.spoken.trim();
     const written = entry.written.trim();
     const correction: CustomCorrection = {
@@ -380,6 +381,7 @@ export interface RegisterIpcHandlersOptions {
   recovery?: Pick<RecoveryJournalStore, "getUnresolved" | "getById"> & Partial<Pick<RecoveryJournalStore, "getAll">>;
   recoveryAudio?: Pick<EncryptedRecoveryAudioStore, "deleteAudio" | "discard" | "cleanupExpired" | "getStorageUsage"> & Partial<Pick<EncryptedRecoveryAudioStore, "playDecryptedAudio">>;
   recoveryReady?: () => boolean;
+  recoveryReadiness?: () => RecoveryReadiness;
   consumeRestoredRecoveryNotice?: () => RecoveryRestoredNotice | null;
   onSettingsUpdated?: (settings: Settings, patch: Partial<Settings>) => void;
   onPermissionStatusChanged?: (status: PermissionStatus) => void;
@@ -387,7 +389,7 @@ export interface RegisterIpcHandlersOptions {
 
 export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   const { mainWindow, dictation, history, settings, hotkeys, recorder, overlay, credentials, recovery, recoveryAudio, consumeRestoredRecoveryNotice, onSettingsUpdated, onPermissionStatusChanged } = opts;
-  const recoveryReady = opts.recoveryReady ?? isRecoveryEnabled;
+  const recoveryReady = opts.recoveryReady ?? isRecoveryReady;
   let lastAccessibilityGranted = getPermissionStatus().accessibility === "granted";
   let lastPermissionHotkeyRefresh = 0;
 
@@ -482,6 +484,17 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     requireAllowedSender(event, [mainWindow]);
     if (!recoveryReady() || !isBoundedString(id, MAX_ID_LENGTH, false)) return false;
     return dictation.copyRecoveryEntry(id);
+  });
+  ipcMain.handle(IpcChannel.GetRecoveryReadiness, async (event): Promise<RecoveryReadiness> => {
+    requireAllowedSender(event, [mainWindow]);
+    const status = opts.recoveryReadiness?.() ?? getRecoveryReadiness();
+    if (status.state !== "ready") return status;
+    if (!recovery) return { state: "degraded", entryCount: null };
+    try {
+      return { state: "ready", entryCount: (await recovery.getUnresolved()).length };
+    } catch {
+      return { state: "degraded", entryCount: null };
+    }
   });
   ipcMain.handle(IpcChannel.GetRecoveryEntries, async (event) => {
     requireAllowedSender(event, [mainWindow]);

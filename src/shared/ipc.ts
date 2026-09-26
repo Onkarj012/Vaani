@@ -31,6 +31,7 @@ export const enum IpcChannel {
   ClearHistory = "history:clear",
   CopyText = "clipboard:copy-text",
   CopyRecoveryEntry = "recovery:copy-entry",
+  GetRecoveryReadiness = "recovery:get-readiness",
   GetRecoveryEntries = "recovery:get-entries",
   RetryRecoveryTranscription = "recovery:retry-transcription",
   RetryRecoveryFormatting = "recovery:retry-formatting",
