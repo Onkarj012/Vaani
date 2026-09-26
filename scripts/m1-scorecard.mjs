@@ -7,7 +7,7 @@ const columns = [
   "id", "time", "app", "duration_bucket", "outcome", "status_text",
   "stop_to_clip_ms", "clip_to_stt_ms", "stt_to_format_ms",
   "format_to_dispatch_ms", "dispatch_to_verify_ms", "verify_to_complete_ms",
-  "release_to_complete_ms", "last_frame_after_stop_ms", "trailing_rms_300ms", "landed_once", "usable", "note",
+  "release_to_complete_ms", "last_frame_after_stop_ms", "trailing_rms_300ms", "build", "landed_once", "usable", "note",
 ];
 const stageColumns = columns.slice(6, 13);
 const safeStatusMessages = new Set([
@@ -136,6 +136,7 @@ function traceRow(trace) {
     release_to_complete_ms: elapsed(trace.hotkeyReleasedAt ?? trace.stopRequestedAt, trace.completedAt),
     last_frame_after_stop_ms: typeof trace.lastFrameAfterStopMs === "number" && Number.isFinite(trace.lastFrameAfterStopMs) ? trace.lastFrameAfterStopMs : "",
     trailing_rms_300ms: typeof trace.trailingRms === "number" && Number.isFinite(trace.trailingRms) ? trace.trailingRms : "",
+    build: typeof trace.buildIdentifier === "string" && /^[\w.+-]{1,64}$/.test(trace.buildIdentifier) ? trace.buildIdentifier : "unknown",
   };
 }
 
@@ -153,6 +154,7 @@ function printSummary(rows) {
     if (row.outcome !== "verified" && row.outcome !== "injected" && row.outcome !== "cancelled") failures.set(row.app, (failures.get(row.app) ?? 0) + 1);
   }
   console.log(`Sessions: ${rows.length}; outcomes: ${[...counts].map(([key, count]) => `${key}=${count}`).join(", ") || "none"}`);
+  console.log(`Builds: ${[...new Set(rows.map((row) => row.build || "unknown"))].join(", ")}`);
   console.log(`Per-app failures: ${[...failures].map(([app, count]) => `${app}=${count}`).join(", ") || "none"}`);
   for (const column of stageColumns) {
     const values = rows.flatMap((row) => row[column] === "" || row[column] === undefined ? [] : [Number(row[column])]).filter(Number.isFinite);

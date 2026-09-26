@@ -40,7 +40,7 @@ describe("M1 scorecard script", () => {
       id: "trace-1", sessionId: "session-1", startedAt: "2026-09-26T00:00:00.000Z",
       targetAppName: "TextEdit", rawAudio: { durationSeconds: 2 }, outcome: "injected",
       stopRequestedAt: "2026-09-26T00:00:01.000Z",
-      lastFrameAfterStopMs: 280, trailingRms: 0.012,
+      lastFrameAfterStopMs: 280, trailingRms: 0.012, buildIdentifier: "1.2.0+4ecf863",
       clipReadyAt: "2026-09-26T00:00:01.300Z",
       sttDoneAt: "2026-09-26T00:00:01.900Z",
       formatDoneAt: "2026-09-26T00:00:02.100Z",
@@ -55,7 +55,7 @@ describe("M1 scorecard script", () => {
     expect(firstSummary).not.toContain(secret);
     const initialCsv = await readFile(output, "utf8");
     expect(initialCsv).not.toContain(secret);
-    expect(initialCsv).toContain("session-1,2026-09-26T00:00:00.000Z,TextEdit,<3s,injected,Inserted,300,600,200,200,200,100,1600,280,0.012,,,");
+    expect(initialCsv).toContain("session-1,2026-09-26T00:00:00.000Z,TextEdit,<3s,injected,Inserted,300,600,200,200,200,100,1600,280,0.012,1.2.0+4ecf863,,,");
 
     await writeFile(output, initialCsv.replace(/,,,\n$/, ',y,n,"note, kept"\n'));
     await writeFile(input, JSON.stringify([{
@@ -64,7 +64,7 @@ describe("M1 scorecard script", () => {
     }]));
     const secondSummary = execFileSync("node", [script, "--input", input, "--output", output], { encoding: "utf8" });
     const finalCsv = await readFile(output, "utf8");
-    expect(finalCsv).toContain('session-1,2026-09-26T00:00:00.000Z,TextEdit,<3s,injected,Inserted,300,600,200,200,200,100,1600,280,0.012,y,n,"note, kept"');
+    expect(finalCsv).toContain('session-1,2026-09-26T00:00:00.000Z,TextEdit,<3s,injected,Inserted,300,600,200,200,200,100,1600,280,0.012,1.2.0+4ecf863,y,n,"note, kept"');
     expect(finalCsv).toContain("session-2,2026-09-26T01:00:00.000Z,Ghostty,unknown,failed,Timed out");
     expect(secondSummary).toContain("Per-app failures: Ghostty=1");
     expect(secondSummary).toContain("Sessions: 2; outcomes: injected=1, failed=1");
