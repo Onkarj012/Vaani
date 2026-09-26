@@ -24,13 +24,51 @@ describe("selectNativeInputDevice", () => {
     expect(selectNativeInputDevice(devices, "preferred")).toEqual({ ok: true, uid: "preferred" });
   });
 
-  it("falls back to the physical default device", () => {
+  it("falls back to the built-in device when the selected UID is missing", () => {
     const devices = [
       device({ uid: "virtual", isPhysical: false, transportType: "virtual" }),
-      device({ uid: "default", isDefault: true }),
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "built-in" }),
     ];
 
-    expect(selectNativeInputDevice(devices, "missing")).toEqual({ ok: true, uid: "default" });
+    expect(selectNativeInputDevice(devices, "missing")).toEqual({ ok: true, uid: "built-in" });
+  });
+
+  it("prefers built-in over a default Bluetooth input", () => {
+    const devices = [
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "built-in" }),
+    ];
+
+    expect(selectNativeInputDevice(devices)).toEqual({ ok: true, uid: "built-in" });
+  });
+
+  it("skips Bluetooth and Bluetooth LE when selecting the built-in input", () => {
+    const devices = [
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "ble", name: "LE Headset", transportType: "bluetooth-le" }),
+      device({ uid: "built-in" }),
+    ];
+
+    expect(selectNativeInputDevice(devices)).toEqual({ ok: true, uid: "built-in" });
+  });
+
+  it("refuses to choose when only Bluetooth inputs are available", () => {
+    const devices = [
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "ble", name: "LE Headset", transportType: "bluetooth-le" }),
+    ];
+
+    expect(selectNativeInputDevice(devices)).toMatchObject({ ok: false });
+  });
+
+  it("honors an explicit Bluetooth UID", () => {
+    const devices = [
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "built-in" }),
+    ];
+
+    expect(selectNativeInputDevice(devices, "bt")).toEqual({ ok: true, uid: "bt" });
   });
 
   it("errors when only virtual or aggregate inputs are present", () => {
@@ -41,7 +79,7 @@ describe("selectNativeInputDevice", () => {
 
     expect(selectNativeInputDevice(devices)).toEqual({
       ok: false,
-      message: expect.stringContaining("No physical microphone found"),
+      message: expect.stringContaining("No built-in microphone found"),
     });
   });
 });

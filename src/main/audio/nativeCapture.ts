@@ -64,14 +64,13 @@ export function listNativeInputDevices(bridge: NativeCaptureBridge = nativeBridg
 
 export function selectNativeInputDevice(devices: AudioInputDevice[], preferredUid?: string): { ok: true; uid: string } | { ok: false; message: string } {
   const physical = devices.filter((device) => device.isPhysical);
-  if (physical.length === 0) {
-    return { ok: false, message: "No physical microphone found." };
-  }
   if (preferredUid && physical.some((device) => device.uid === preferredUid)) {
     return { ok: true, uid: preferredUid };
   }
-  const defaultPhysical = physical.find((device) => device.isDefault);
-  return { ok: true, uid: defaultPhysical?.uid ?? physical[0]?.uid ?? "" };
+  const builtIn = physical.find((device) => device.transportType === "built-in");
+  return builtIn
+    ? { ok: true, uid: builtIn.uid }
+    : { ok: false, message: "No built-in microphone found. Choose a microphone in Settings." };
 }
 
 export function shouldUseNativeBackend(config: Pick<RecorderConfig, "captureBackend">, nativeUnavailable: boolean, bridge: NativeCaptureBridge = nativeBridge): boolean {
