@@ -14,7 +14,16 @@ const safeStatusMessages = new Set([
   "Inserted at cursor", "Retry inserted at cursor", "Saved to history",
   "Saved to history; copy text manually", "Saved for recovery", "Copied to clipboard",
   "Dictation cancelled.", "Dictation superseded by a newer session.",
+  "Inserted.", "Insertion unconfirmed. Check the field before pasting again.",
+  "Not inserted: target changed.", "Copied. Paste when ready.",
+  "Insertion unconfirmed. Check the field before pasting again. Find this session in History.",
+  "Insertion unconfirmed. Check the field before pasting again. History could not save this session.",
 ]);
+for (const stage of ["Recording", "Transcription", "Processing", "Starting", "Finalizing", "Transcribing", "Transcript quality", "Insertion", "Clipboard", "History", "Dictation"]) {
+  for (const location of ["Find this session in History.", "Text is on the clipboard.", "Text was not saved."]) {
+    safeStatusMessages.add(`${stage} failed. ${location}`);
+  }
+}
 
 function paths(args) {
   const options = new Map();
@@ -91,6 +100,10 @@ function durationBucket(seconds) {
 
 function statusText(trace) {
   // Trace messages can contain provider output. Only controlled labels go to the scorecard.
+  if (trace.outcome === "verified") return "Inserted.";
+  if (trace.outcome === "unconfirmed") return safeStatusMessages.has(trace.userMessage) ? trace.userMessage : "Insertion unconfirmed. Check the field before pasting again.";
+  if (trace.outcome === "refused") return "Not inserted: target changed.";
+  if (trace.outcome === "copy-only") return "Copied. Paste when ready.";
   if (safeStatusMessages.has(trace.userMessage)) return trace.userMessage;
   if (trace.outcome === "injected") return "Inserted";
   if (trace.outcome === "cancelled") return "Cancelled";
@@ -112,7 +125,7 @@ function traceRow(trace) {
     time: trace.startedAt ?? "",
     app: trace.targetAppName || trace.targetAppBundleId || "unknown",
     duration_bucket: durationBucket(trace.rawAudio?.durationSeconds),
-    outcome: trace.outcome ?? "started",
+    outcome: ["verified", "unconfirmed", "refused", "copy-only", "failed", "started", "injected", "saved", "rejected", "cancelled"].includes(trace.outcome) ? trace.outcome : "unknown",
     status_text: statusText(trace),
     stop_to_clip_ms: elapsed(trace.stopRequestedAt ?? trace.hotkeyReleasedAt, trace.clipReadyAt),
     clip_to_stt_ms: elapsed(trace.clipReadyAt, trace.sttDoneAt),
@@ -137,7 +150,7 @@ function printSummary(rows) {
   const failures = new Map();
   for (const row of rows) {
     counts.set(row.outcome, (counts.get(row.outcome) ?? 0) + 1);
-    if (row.outcome !== "injected" && row.outcome !== "cancelled") failures.set(row.app, (failures.get(row.app) ?? 0) + 1);
+    if (row.outcome !== "verified" && row.outcome !== "injected" && row.outcome !== "cancelled") failures.set(row.app, (failures.get(row.app) ?? 0) + 1);
   }
   console.log(`Sessions: ${rows.length}; outcomes: ${[...counts].map(([key, count]) => `${key}=${count}`).join(", ") || "none"}`);
   console.log(`Per-app failures: ${[...failures].map(([app, count]) => `${app}=${count}`).join(", ") || "none"}`);

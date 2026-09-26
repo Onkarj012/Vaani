@@ -5,6 +5,7 @@ const OVERLAY_CHANNELS = [
   'capsule:set-lang',
   'capsule:update-bars',
   'capsule:set-accent',
+  'capsule:set-status',
   'capsule:show-snippet',
   'capsule:show-dictionary',
   'capsule:hide-expanded',
@@ -22,6 +23,9 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   },
   onAccent: (cb: (color: string) => void) => {
     ipcRenderer.on('capsule:set-accent', (_e, c: string) => cb(c))
+  },
+  onStatus: (cb: (message: string | null) => void) => {
+    ipcRenderer.on('capsule:set-status', (_e, message: string | null) => cb(message))
   },
   onShowSnippet: (cb: (data: { trigger: string }) => void) => {
     ipcRenderer.on('capsule:show-snippet', (_e, d: { trigger: string }) => cb(d))

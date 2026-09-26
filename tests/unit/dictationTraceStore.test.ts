@@ -37,6 +37,16 @@ afterEach(async () => {
 });
 
 describe("DictationTraceStore", () => {
+  it.each(["verified", "unconfirmed", "refused", "copy-only", "failed"] as const)("reloads the %s insertion outcome", async (outcome) => {
+    const store = await createStore();
+    await store.upsert({ ...trace(outcome), outcome, stages: { outcome } });
+    if (!tempDir) throw new Error("Trace test directory was not initialized.");
+    const { DictationTraceStore } = await import("@main/store/dictationTrace");
+    const reloaded = new DictationTraceStore(join(tempDir, "traces.json"));
+
+    expect(await reloaded.getById(outcome)).toMatchObject({ outcome, stages: { outcome } });
+  });
+
   it("upserts traces and retrieves them by id or session id", async () => {
     const store = await createStore();
     await store.upsert(trace("one"));
@@ -164,10 +174,13 @@ describe("DictationTraceStore", () => {
     expect(loaded?.providerAttempts?.[0]?.quality?.noSpeechProbability).toBe(0.8);
     expect(loaded?.injectionAttempts?.[0]).toMatchObject({ targetAppBundleId: null, targetAppName: "TextEdit", success: true });
     expect(loaded?.injectionAttempts?.[0]?.method).toBeUndefined();
-    expect(loaded?.outcome).toBe("started");
+    expect(loaded?.outcome).toBe("nonsense");
     expect(loaded?.rejectionReason).toBeUndefined();
-    expect(loaded?.stages?.outcome).toBeUndefined();
+    expect(loaded?.stages?.outcome).toBe("nonsense");
     expect(loaded?.buildIdentifier).toBe("1.2.3+abc1234");
+    await store.updateById("malformed", (current) => ({ ...current, userMessage: "Future schema retained" }));
+    const reloaded = new DictationTraceStore(filePath);
+    expect((await reloaded.getById("malformed"))?.outcome).toBe("nonsense");
   });
 
   it("retains baseline-unreadable insertion verification reasons on load", async () => {

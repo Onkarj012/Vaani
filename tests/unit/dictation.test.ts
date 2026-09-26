@@ -65,6 +65,7 @@ function createDictationService(deps: {
     setProcessing: vi.fn(),
     setSuccess: vi.fn(),
     setError: vi.fn(),
+    setStatusMessage: vi.fn(),
     hide: vi.fn(),
     updateBars: vi.fn(),
     showDictionaryPrompt: vi.fn((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => resolve(true)),
@@ -458,6 +459,18 @@ describe("DictationService", () => {
     expect(overlay.setError).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the specific hotkey failure message during an active session", async () => {
+    const traceDeps = createTraceDeps();
+    const { service } = createDictationService({ traces: traceDeps.traces });
+    const message = "Microphone permission denied.";
+
+    service.beginHotkeySession();
+    service.reportHotkeyUnavailable(message);
+
+    expect(service.getState()).toMatchObject({ status: "error", message });
+    await vi.waitFor(() => expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "recorder_unavailable", userMessage: message }));
+  });
+
   it("errors if recording starts but no real audio frames arrive", () => {
     const { service, overlay, recorder } = createDictationService();
 
@@ -566,7 +579,7 @@ describe("DictationService", () => {
 
     expect(injector.inject).toHaveBeenCalledWith("Open GitHub.", expect.anything(), expect.anything());
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open GitHub.", injectionStatus: "injected" }));
-    expect(traceDeps.getTrace()).toMatchObject({ outcome: "injected", stages: { formatterUsed: "none", formatterReason: "timeout" } });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", userMessage: "Inserted.", stages: { formatterUsed: "none", formatterReason: "timeout" } });
   });
 
   it("forces the formatter deadline only with the development switch", async () => {
@@ -579,7 +592,7 @@ describe("DictationService", () => {
 
     expect(transcription.formatTranscript).not.toHaveBeenCalled();
     expect(injector.inject).toHaveBeenCalled();
-    expect(traceDeps.getTrace()).toMatchObject({ outcome: "injected", stages: { formatterUsed: "none", formatterReason: "timeout" } });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", stages: { formatterUsed: "none", formatterReason: "timeout" } });
   });
 
   it("stale guard finishes trace with the stuck stage and a visible message", async () => {
@@ -693,7 +706,7 @@ describe("DictationService", () => {
       formatDoneAt: expect.any(String),
       dispatchAt: expect.any(String),
       verifyDoneAt: expect.any(String),
-      outcome: "injected",
+      outcome: "verified",
     });
     expect(trace?.stopRequestedAt).toBe(trace?.hotkeyReleasedAt);
   });
@@ -811,7 +824,7 @@ describe("DictationService", () => {
       injectionStatus: "saved",
       injectionMethod: null,
     }));
-    expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", message: "Saved to history" });
+    expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", insertionOutcome: "failed", message: "Transcript quality failed. Find this session in History." });
   });
 
   it("prepares insertion before injection and copies a failed active request", async () => {
@@ -837,7 +850,7 @@ describe("DictationService", () => {
       textHash: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
-    expect(service.getState()).toMatchObject({ status: "completed", message: "Copied to clipboard" });
+    expect(service.getState()).toMatchObject({ status: "completed", insertionOutcome: "failed", message: "Insertion failed. Find this session in History." });
   });
 
   it("revalidates focused element identity after awaited preparation", async () => {
@@ -884,7 +897,7 @@ describe("DictationService", () => {
     await submitHelloWorld(service);
 
     expect(recoveryFixture.getEntry().insertion).toMatchObject({ outcome: "recoverable", status: "failed" });
-    expect(service.getState()).toMatchObject({ status: "completed", message: "Saved for recovery" });
+    expect(service.getState()).toMatchObject({ status: "completed", insertionOutcome: "unconfirmed", message: "Insertion unconfirmed. Check the field before pasting again." });
   });
 
   it("fences transcription and insertion while lifecycle audio retention is stalled", async () => {
@@ -1042,7 +1055,8 @@ describe("DictationService", () => {
 
   it("records an uncertain recovery outcome when cancelled after dispatch", async () => {
     const recoveryFixture = createInsertionRecovery("session-1");
-    const { service, injector } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+    const traceDeps = createTraceDeps();
+    const { service, injector } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true, traces: traceDeps.traces });
     let finishInjection: (result: InjectionResult) => void = () => undefined;
     injector.inject.mockImplementationOnce((_text, _target, options) => {
       options?.onDispatch?.();
@@ -1057,6 +1071,7 @@ describe("DictationService", () => {
     await service.flushRecovery();
 
     expect(recoveryFixture.getEntry().insertion).toMatchObject({ status: "failed", outcome: "recoverable", detail: "outcome_uncertain" });
+    await vi.waitFor(() => expect(traceDeps.getTrace()).toMatchObject({ outcome: "unconfirmed", completedAt: expect.any(String) }));
     await expect(service.retryRecoveryInsertion("session-1")).resolves.toBe(false);
     expect(injector.inject).toHaveBeenCalledTimes(1);
   });
@@ -1278,7 +1293,8 @@ describe("DictationService", () => {
 
   it("does not re-insert when the injector reports an uncertain outcome", async () => {
     const copyText = vi.fn(async () => true);
-    const { service, history, injector, transcription } = createDictationService({ copyText });
+    const traceDeps = createTraceDeps();
+    const { service, history, injector, transcription, overlay } = createDictationService({ copyText, traces: traceDeps.traces });
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     injector.inject.mockResolvedValueOnce({ success: false, reason: "outcome_uncertain" });
 
@@ -1288,6 +1304,67 @@ describe("DictationService", () => {
     expect(injector.inject).toHaveBeenCalledTimes(1);
     expect(copyText).toHaveBeenCalledWith("Hello world.");
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "unconfirmed", userMessage: "Insertion unconfirmed. Check the field before pasting again." });
+    expect(service.getState()).toMatchObject({ insertionOutcome: "unconfirmed" });
+    expect(overlay.setStatusMessage).toHaveBeenCalledWith("Insertion unconfirmed. Check the field before pasting again. Find this session in History.");
+  });
+
+  it("refuses a changed target and offers its text without dispatch", async () => {
+    const traceDeps = createTraceDeps();
+    const copyText = vi.fn(async () => true);
+    const { service, injector, appDetector } = createDictationService({ traces: traceDeps.traces, copyText });
+    const originalTarget = { appBundleId: "com.apple.TextEdit", appName: "TextEdit", context: "default" as const };
+    const changedTarget = { appBundleId: "com.apple.Notes", appName: "Notes", context: "default" as const };
+    appDetector.getContext.mockReturnValueOnce(originalTarget).mockReturnValue(changedTarget);
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(copyText).toHaveBeenCalledWith("Open get hub.");
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "refused", userMessage: "Not inserted: target changed." });
+    expect(service.getState()).toMatchObject({ status: "completed", insertionOutcome: "refused", text: "Open get hub.", message: "Not inserted: target changed." });
+  });
+
+  it("copies without dispatch in copy-only mode", async () => {
+    const traceDeps = createTraceDeps();
+    const copyText = vi.fn(async () => true);
+    const { service, settings, injector, history } = createDictationService({ traces: traceDeps.traces, copyText });
+    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, injectionMode: "clipboard" });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(copyText).toHaveBeenCalledWith("Open get hub.");
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "copy-only", userMessage: "Copied. Paste when ready." });
+    expect(service.getState()).toMatchObject({ status: "completed", insertionOutcome: "copy-only", message: "Copied. Paste when ready." });
+  });
+
+  it("never says Saved when History rejects a verified insertion", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, history, injector } = createDictationService({ traces: traceDeps.traces });
+    history.append.mockRejectedValueOnce(new Error("disk full"));
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", userMessage: "Inserted." });
+    expect(service.getState()).toMatchObject({ insertionOutcome: "verified", message: "Inserted." });
+    expect(JSON.stringify(service.getState())).not.toContain("Saved");
+  });
+
+  it("names the History failure and clipboard location after an insertion failure", async () => {
+    const traceDeps = createTraceDeps();
+    const copyText = vi.fn(async () => true);
+    const { service, history, injector } = createDictationService({ traces: traceDeps.traces, copyText });
+    injector.inject.mockResolvedValueOnce({ success: false, reason: "insertion_failed" });
+    history.append.mockRejectedValueOnce(new Error("disk full"));
+
+    await submitHelloWorld(service);
+
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", userMessage: "History failed. Text is on the clipboard." });
+    expect(service.getState()).toMatchObject({ outcome: "failed", insertionOutcome: "failed", message: "History failed. Text is on the clipboard." });
+    expect(JSON.stringify(service.getState())).not.toContain("Saved");
   });
 
   it("fails closed when the focused field changes within the same app", async () => {
@@ -1404,7 +1481,7 @@ describe("DictationService", () => {
       repaired: false,
       reason: "timeout",
     });
-    expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", message: "Saved to history" });
+    expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", insertionOutcome: "unconfirmed", message: "Insertion unconfirmed. Check the field before pasting again." });
   });
 
   it("bug report export excludes content canaries and preserves diagnostic metadata", async () => {

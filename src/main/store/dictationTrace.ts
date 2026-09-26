@@ -299,21 +299,12 @@ function normalizeCorrectionsApplied(value: unknown): NonNullable<DictationTrace
 }
 
 function normalizeOutcome(value: unknown): DictationTrace["outcome"] | undefined {
-  switch (value) {
-    case "injected":
-    case "saved":
-    case "rejected":
-    case "failed":
-    case "cancelled":
-    case "started":
-      return value;
-    default:
-      return undefined;
-  }
+  return typeof value === "string" && value.length > 0 ? truncateTraceText(value) : undefined;
 }
 
 function normalizeRejectionReason(value: unknown): DictationTrace["rejectionReason"] {
   switch (value) {
+    case "microphone_permission_denied":
     case "no_speech":
     case "fragment":
     case "recorder_unavailable":

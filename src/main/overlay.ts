@@ -18,6 +18,8 @@ const CAPSULE_BOTTOM_MARGIN = 16;
 // Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)
 const PILL_W = 120;
 const PILL_H = 52;
+const STATUS_W = 440;
+const STATUS_H = 72;
 // Prompt card: matches CapsuleOverlay.tsx prompt width (340px) + shadow clearance
 const PROMPT_W = 360;
 const PROMPT_H = 210;
@@ -32,6 +34,7 @@ export class OverlayController {
   private pendingMode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error" | null = null;
   private pendingBars: number[] | null = null;
   private pendingDetectedLanguage: string | null = null;
+  private pendingStatusMessage: string | null = null;
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingPromptRemover: (() => void) | null = null;
@@ -171,6 +174,14 @@ export class OverlayController {
   setProcessing(): void {
     this.pendingMode = "transcribing";
     this.show();
+  }
+
+  setStatusMessage(message: string | null): void {
+    this.pendingStatusMessage = message;
+    void this.resizeWindow(false);
+    if (this.loadReady && this.window && !this.window.isDestroyed()) {
+      this.window.webContents.send("capsule:set-status", message);
+    }
   }
 
   setSuccess(detectedLanguage?: string | null): void {
@@ -321,8 +332,8 @@ export class OverlayController {
   private async resizeWindow(expanded: boolean): Promise<void> {
     if (!this.window || this.window.isDestroyed()) return;
     const { x, y, width, height } = this.getTargetWorkArea();
-    const targetW = expanded ? PROMPT_W : PILL_W;
-    const targetH = expanded ? PROMPT_H : PILL_H;
+    const targetW = expanded ? PROMPT_W : this.pendingStatusMessage ? STATUS_W : PILL_W;
+    const targetH = expanded ? PROMPT_H : this.pendingStatusMessage ? STATUS_H : PILL_H;
     const targetX = Math.round(x + width  / 2 - targetW / 2);
     const targetY = Math.round(y + height - targetH - CAPSULE_BOTTOM_MARGIN);
     this.window.setBounds({ x: targetX, y: targetY, width: targetW, height: targetH });
@@ -515,8 +526,8 @@ export class OverlayController {
     }
 
     const { x, y, width, height } = this.getTargetWorkArea();
-    const targetW = this.promptActive ? PROMPT_W : PILL_W;
-    const targetH = this.promptActive ? PROMPT_H : PILL_H;
+    const targetW = this.promptActive ? PROMPT_W : this.pendingStatusMessage ? STATUS_W : PILL_W;
+    const targetH = this.promptActive ? PROMPT_H : this.pendingStatusMessage ? STATUS_H : PILL_H;
     this.window.setBounds({
       x: Math.round(x + width / 2 - targetW / 2),
       y: Math.round(y + height - targetH - CAPSULE_BOTTOM_MARGIN),
@@ -636,6 +647,7 @@ export class OverlayController {
       }
       if (this.pendingBars) this.updateBars(this.pendingBars);
       this.flushPendingDetectedLanguage();
+      if (this.pendingStatusMessage) this.window?.webContents.send("capsule:set-status", this.pendingStatusMessage);
     });
 
     // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load

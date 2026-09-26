@@ -57,7 +57,7 @@ const dictationModes = [
 const injectionModes = [
   { id: 'auto', label: 'Auto (recommended)', description: 'Chooses the best method for the active app' },
   { id: 'ax', label: 'Accessibility API', description: 'Types text using macOS Accessibility APIs' },
-  { id: 'clipboard', label: 'Clipboard', description: 'Pastes text via the clipboard' },
+  { id: 'clipboard', label: 'Copy Only', description: 'Copies text so you can paste it yourself' },
 ]
 
 const stylePresets = [

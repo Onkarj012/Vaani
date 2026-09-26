@@ -14,6 +14,7 @@ import type {
   AudioVisualFrame,
   DictationCompletionOutcome,
   DictationEntry,
+  DictationInsertionOutcome,
   DictationRejectionReason,
   DictationState,
   DictationTrace,
@@ -211,6 +212,10 @@ export class DictationService {
         this.resetToIdle();
       } else if (this.state.status === "transcribing") {
         this.sessionAbortController?.abort("new-dictation");
+        if (this.activeSessionId) {
+          const outcome: DictationInsertionOutcome = this.activeInsertionDispatched ? "unconfirmed" : this.activeInsertionPrepared ? "refused" : "failed";
+          void this.finishTrace(this.activeSessionId, outcome, "cancelled", insertionStatusText(outcome, false, "processing"));
+        }
         this.resetToIdle();
       } else {
         return;
@@ -280,7 +285,8 @@ export class DictationService {
       } else {
         void this.transitionRecovery(sessionId, "recoverable", { error: { class: "interrupted", detail: "Dictation cancelled." } });
       }
-      void this.finishTrace(sessionId, "cancelled", "cancelled", "Dictation cancelled.");
+      const outcome: DictationInsertionOutcome = this.activeInsertionDispatched ? "unconfirmed" : this.activeInsertionPrepared ? "refused" : "failed";
+      void this.finishTrace(sessionId, outcome, "cancelled", insertionStatusText(outcome, false, "recording"));
     }
     this.clearEditWatch();
     this.resetToIdle();
@@ -486,7 +492,7 @@ export class DictationService {
           },
         });
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
-        await this.history.append({
+        await this.finishActiveInsertion(payload.sessionId, "failed", {
           id: crypto.randomUUID(),
           traceId: await this.traceIdForSession(payload.sessionId),
           timestamp: new Date().toISOString(),
@@ -501,9 +507,7 @@ export class DictationService {
           language: transcription.language,
           detectedLanguage: transcription.detectedLanguage ?? null,
           rawAudioPath,
-        });
-        void this.finishTrace(payload.sessionId, "saved", "fragment", "Saved to history", { injectionMethod: null });
-        this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage || transcription.language);
+        }, { injectionMethod: null }, "fragment", transcription.detectedLanguage || transcription.language, undefined, "Transcript quality");
         return;
       }
 
@@ -545,7 +549,7 @@ export class DictationService {
         },
       });
       if (!this.isCurrentSession(payload.sessionId)) {
-        void this.finishTrace(payload.sessionId, "cancelled", "cancelled", "Dictation superseded by a newer session.");
+        void this.finishTrace(payload.sessionId, "failed", "cancelled", insertionStatusText("failed", false, "processing"));
         return;
       }
       if (operationSignal?.aborted) return;
@@ -574,6 +578,14 @@ export class DictationService {
         rawAudioPath,
       };
 
+      if (settings.injectionMode === "clipboard") {
+        const copied = await this.copyText(cleanedText).catch(() => false);
+        await this.finishActiveInsertion(payload.sessionId, copied ? "copy-only" : "failed", {
+          ...entryBase, injectionStatus: "saved", injectionMethod: null,
+        }, { injectionMethod: null, stages: { injectionStrategy: "none" } }, copied ? undefined : "insertion_failed", transcription.detectedLanguage || transcription.language, undefined, "Clipboard");
+        return;
+      }
+
       const injectionTarget = {
         appBundleId: target.appBundleId,
         appName: target.appName,
@@ -582,12 +594,10 @@ export class DictationService {
       const currentTargetIdentity = safeFocusedElementIdentity();
       if (!this.isStableAutomaticTarget(initialTarget, initialSelection, initialTargetValue, initialTargetIdentity, target, currentSelection, currentValue, currentTargetIdentity)) {
         const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, null, "stale_target");
-        await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
-        void this.finishTrace(payload.sessionId, "saved", "insertion_failed", failure.message, {
+        await this.finishActiveInsertion(payload.sessionId, "refused", { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
           injectionMethod: null,
           stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: { readable: false, passed: false, repaired: false, reason: "not-at-target" } },
-        });
-        this.completeSession(payload.sessionId, "saved", cleanedText, failure.message, transcription.detectedLanguage || transcription.language, failure.outcome);
+        }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome);
         return;
       }
       await this.transitionRecovery(payload.sessionId, "text_ready", { text: { formattedText, cleanedText }, signal: operationSignal });
@@ -611,12 +621,10 @@ export class DictationService {
       const finalInjectionTarget = this.revalidateAutomaticTarget(initialTarget, initialSelection, initialTargetValue, initialTargetIdentity);
       if (!finalInjectionTarget) {
         const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, null, "stale_target");
-        await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
-        void this.finishTrace(payload.sessionId, "saved", "insertion_failed", failure.message, {
+        await this.finishActiveInsertion(payload.sessionId, "refused", { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
           injectionMethod: null,
           stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: { readable: false, passed: false, repaired: false, reason: "not-at-target" } },
-        });
-        this.completeSession(payload.sessionId, "saved", cleanedText, failure.message, transcription.detectedLanguage || transcription.language, failure.outcome);
+        }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome);
         return;
       }
       void this.patchTrace(payload.sessionId, { dispatchAt: new Date().toISOString() });
@@ -647,34 +655,30 @@ export class DictationService {
         });
         if (verification.passed) {
           await this.recordRecoveryInsertionOutcome(payload.sessionId, "delivered", injection.method, undefined, undefined);
-          await this.history.append({ ...entryBase, injectionStatus: "injected", injectionMethod: injection.method });
-          void this.finishTrace(payload.sessionId, "injected", undefined, "Inserted at cursor", {
+          await this.finishActiveInsertion(payload.sessionId, "verified", { ...entryBase, injectionStatus: "injected", injectionMethod: injection.method }, {
             injectionMethod: injection.method,
             stages: { injectedText: cleanedText, injectionStrategy: injection.method, insertionVerification: verification },
-          });
-          this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor", transcription.detectedLanguage || transcription.language, "delivered");
+          }, undefined, transcription.detectedLanguage || transcription.language, "delivered");
           debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         } else {
           const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, injection.method, verification.reason ?? "insertion_failed");
-          await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
-          void this.finishTrace(payload.sessionId, "saved", "insertion_failed", failure.message, {
+          await this.finishActiveInsertion(payload.sessionId, "unconfirmed", { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
             injectionMethod: null,
             stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: verification },
-          });
-          this.completeSession(payload.sessionId, "saved", cleanedText, failure.message, transcription.detectedLanguage || transcription.language, failure.outcome);
+          }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome);
           debug("editwatch", "arming-unverified-injection", { reason: verification.reason, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         }
       } else {
         const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, null, activeInsertionFailureDetail(injection.reason));
         debug("editwatch", "not-armed-injection-saved", { appBundleId: target.appBundleId, appName: target.appName, reason: injection.reason });
-        await this.history.append({ ...entryBase, injectionStatus: "saved", injectionMethod: null });
-        void this.finishTrace(payload.sessionId, "saved", "insertion_failed", failure.message, {
+        const outcome: DictationInsertionOutcome = this.activeInsertionDispatched || injection.reason === "outcome_uncertain"
+          ? "unconfirmed" : injection.reason === "target_changed" || injection.reason === "cancelled" ? "refused" : "failed";
+        await this.finishActiveInsertion(payload.sessionId, outcome, { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
           injectionMethod: null,
           stages: { injectedText: cleanedText, injectionStrategy: "none" },
-        });
-        this.completeSession(payload.sessionId, "saved", cleanedText, failure.message, transcription.detectedLanguage || transcription.language, failure.outcome);
+        }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome, "Insertion", failure.copied);
       }
     } catch (error) {
       if (!this.isCurrentSession(payload.sessionId)) return;
@@ -708,13 +712,15 @@ export class DictationService {
 
   reportHotkeyUnavailable(message: string): void {
     this.clearTimers();
+    const statusMessage = message;
+    if (this.activeSessionId) void this.finishTrace(this.activeSessionId, "failed", "recorder_unavailable", statusMessage);
     this.activeSessionId = null;
     this.activeSessionSettings = null;
     this.activeTraceId = null;
     this.activeTarget = null;
     this.activeSelection = null;
     this.activeTargetIdentity = null;
-    this.setState({ status: "error", sessionId: null, message });
+    this.setState({ status: "error", sessionId: null, message: statusMessage });
     this.scheduleReset(ERROR_RESET_MS);
   }
 
@@ -733,7 +739,7 @@ export class DictationService {
     const result = await this.performManualInsertion(entry.cleanedText, this.currentInjectionTarget(entry), "Could not verify insertion into the current text field.");
     if (!result) return;
     const sessionId = this.createSessionId();
-    this.setState({ status: "completed", sessionId, outcome: "injected", text: entry.cleanedText, message: "Inserted at cursor" });
+    this.setState({ status: "completed", sessionId, outcome: "injected", insertionOutcome: "verified", text: entry.cleanedText, message: "Inserted." });
     this.scheduleReset(SUCCESS_RESET_MS);
   }
 
@@ -754,16 +760,17 @@ export class DictationService {
       void this.safeTraceOperation("retryEntry", entry.traceId, () =>
         this.traces?.updateById(entry.traceId ?? "", (trace) => ({
           ...trace,
-          outcome: "injected",
+          outcome: "verified",
+          stages: { ...trace.stages, outcome: "verified" },
           injectionMethod: result.method,
           rejectionReason: undefined,
-          userMessage: "Retry inserted at cursor",
+          userMessage: "Inserted.",
           completedAt: new Date().toISOString(),
         }))
       );
     }
     const sessionId = this.createSessionId();
-    this.setState({ status: "completed", sessionId, outcome: "injected", text: entry.cleanedText, message: "Retry inserted at cursor" });
+    this.setState({ status: "completed", sessionId, outcome: "injected", insertionOutcome: "verified", text: entry.cleanedText, message: "Inserted." });
     this.scheduleReset(SUCCESS_RESET_MS);
     } finally {
       this.manualRetriesInProgress.delete(id);
@@ -970,7 +977,7 @@ export class DictationService {
       const result = await this.performManualInsertion(latest.cleanedText, this.currentInjectionTarget(latest), "Could not verify insertion into the current text field.");
       if (!result) return;
       const sessionId = this.createSessionId();
-      this.setState({ status: "completed", sessionId, outcome: "injected", text: latest.cleanedText, message: "Inserted at cursor" });
+      this.setState({ status: "completed", sessionId, outcome: "injected", insertionOutcome: "verified", text: latest.cleanedText, message: "Inserted." });
       this.scheduleReset(SUCCESS_RESET_MS);
     } finally {
       this.pasteLatestInProgress = false;
@@ -1314,7 +1321,7 @@ export class DictationService {
     debug("dictionary", "prompts invalidated", { reason, generation: this.dictionaryPromptGeneration });
   }
 
-  private completeSession(sessionId: string, outcome: DictationCompletionOutcome, text: string, message: string, detectedLanguage?: string | null, recoveryOutcome?: RecoveryInsertionTerminalOutcome): void {
+  private completeSession(sessionId: string, outcome: DictationCompletionOutcome | "failed", text: string, message: string, detectedLanguage?: string | null, recoveryOutcome?: RecoveryInsertionTerminalOutcome, insertionOutcome?: DictationInsertionOutcome): void {
     if (!this.isCurrentSession(sessionId)) return;
     if (outcome === "injected" && this.recoveryAudio && this.recoveryReady()) {
       void this.queueRecoveryMutation(async () => this.recoveryAudio?.deleteForSession(sessionId)).catch((error) => {
@@ -1330,8 +1337,35 @@ export class DictationService {
       });
     }
     this.clearAudioFrameTimer();
-    this.setState({ status: "completed", sessionId, outcome, text, message, detectedLanguage, ...(recoveryOutcome ? { recoveryOutcome } : {}) });
+    this.setState({ status: "completed", sessionId, outcome, text, message, detectedLanguage, ...(recoveryOutcome ? { recoveryOutcome } : {}), ...(insertionOutcome ? { insertionOutcome } : {}) });
     this.scheduleReset(SUCCESS_RESET_MS);
+  }
+
+  private async finishActiveInsertion(
+    sessionId: string,
+    outcome: DictationInsertionOutcome,
+    entry: DictationEntry,
+    tracePatch: Partial<DictationTrace>,
+    reason?: DictationRejectionReason,
+    detectedLanguage?: string | null,
+    recoveryOutcome?: RecoveryInsertionTerminalOutcome,
+    failedStage = "Insertion",
+    copied = false,
+  ): Promise<void> {
+    let historySaved = false;
+    try {
+      await this.history.append(entry);
+      historySaved = true;
+    } catch (error) {
+      debug("dictation", "history append failed", { sessionId, message: error instanceof Error ? error.message : String(error) });
+    }
+    if (!this.isCurrentSession(sessionId)) return;
+    const message = insertionStatusText(outcome, historySaved, historySaved ? failedStage : "History", copied);
+    void this.finishTrace(sessionId, outcome, reason, message, tracePatch);
+    this.completeSession(sessionId, outcome === "verified" ? "injected" : historySaved ? "saved" : "failed", entry.cleanedText, message, detectedLanguage, recoveryOutcome, outcome);
+    if (outcome === "unconfirmed") {
+      this.overlay.setStatusMessage?.(`${message} ${historySaved ? "Find this session in History." : "History could not save this session."}`);
+    }
   }
 
   private failSession(sessionId: string, message: string, reason: DictationRejectionReason = "transcription_error", providerAttempts: ProviderAttemptTrace[] = [], signal?: AbortSignal, errorClass?: RecoveryErrorClass, tracePatch: Partial<DictationTrace> = {}): void {
@@ -1538,7 +1572,7 @@ export class DictationService {
     text: string,
     method: "ax" | "clipboard" | null,
     reason: string,
-  ): Promise<{ outcome: RecoveryInsertionTerminalOutcome; message: string }> {
+  ): Promise<{ outcome: RecoveryInsertionTerminalOutcome; copied: boolean }> {
     const errorClass: RecoveryErrorClass = reason === "timeout" ? "timeout" : "insertion_failed";
     let copied = false;
     try {
@@ -1552,17 +1586,17 @@ export class DictationService {
       } catch (error) {
         debug("recovery", "copied insertion outcome could not be journaled", { sessionId, message: error instanceof Error ? error.message : String(error) });
       }
-      return { outcome: "copied", message: "Copied to clipboard" };
+      return { outcome: "copied", copied: true };
     }
     if (this.recovery?.recordInsertionOutcome && this.recoveryReady()) {
       try {
         await this.recordRecoveryInsertionOutcome(sessionId, "recoverable", method, errorClass, reason);
-        return { outcome: "recoverable", message: "Saved for recovery" };
+        return { outcome: "recoverable", copied: false };
       } catch (error) {
         debug("recovery", "durable insertion recovery failed", { sessionId, message: error instanceof Error ? error.message : String(error) });
       }
     }
-    return { outcome: "recoverable", message: this.recoveryReady() ? "Saved to history; copy text manually" : "Saved to history" };
+    return { outcome: "recoverable", copied: false };
   }
 
   private async transitionRecovery(
@@ -1707,9 +1741,9 @@ export class DictationService {
   private setState(state: DictationState): void {
     this.state = state;
     if (state.status === "idle") {
-      this.updateTrayStatus("Ready"); this.overlay.hide();
+      this.updateTrayStatus("Ready"); this.overlay.setStatusMessage?.(null); this.overlay.hide();
     } else if (state.status === "starting") {
-      this.updateTrayStatus("Opening microphone…"); this.overlay.setPressed();
+      this.updateTrayStatus("Opening microphone…"); this.overlay.setStatusMessage?.(null); this.overlay.setPressed();
     } else if (state.status === "recording") {
       this.updateTrayStatus("Recording…"); this.overlay.setRecording();
     } else if (state.status === "finalizing") {
@@ -1717,9 +1751,11 @@ export class DictationService {
     } else if (state.status === "transcribing") {
       this.updateTrayStatus("Transcribing…"); this.overlay.setProcessing();
     } else if (state.status === "completed") {
-      this.updateTrayStatus(state.outcome === "saved" ? "Saved" : "Done"); this.overlay.setSuccess(state.detectedLanguage);
+      this.updateTrayStatus(state.message); this.overlay.setStatusMessage?.(state.message);
+      if (state.insertionOutcome === "unconfirmed" || state.insertionOutcome === "refused" || state.insertionOutcome === "failed") this.overlay.setError();
+      else this.overlay.setSuccess(state.detectedLanguage);
     } else if (state.status === "error") {
-      this.updateTrayStatus("Error"); this.overlay.setError();
+      this.updateTrayStatus(state.message); this.overlay.setStatusMessage?.(state.message); this.overlay.setError();
     } else {
       this.updateTrayStatus("Error"); this.overlay.hide();
     }
@@ -1921,6 +1957,16 @@ function sameTarget(left: Pick<AppContextResult, "appBundleId" | "appName"> | nu
 }
 
 const OUTCOME_UNCERTAIN_DETAIL = "outcome_uncertain";
+
+function insertionStatusText(outcome: DictationInsertionOutcome, historySaved: boolean, stage: string, copied = false): string {
+  switch (outcome) {
+    case "verified": return "Inserted.";
+    case "unconfirmed": return "Insertion unconfirmed. Check the field before pasting again.";
+    case "refused": return "Not inserted: target changed.";
+    case "copy-only": return "Copied. Paste when ready.";
+    case "failed": return `${stage} failed. ${historySaved ? "Find this session in History." : copied ? "Text is on the clipboard." : "Text was not saved."}`;
+  }
+}
 
 function activeInsertionFailureDetail(reason: InjectionFailureReason): string {
   if (reason === "target_changed") return "stale_target";

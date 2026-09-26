@@ -55,7 +55,8 @@ export type DictationState =
   | {
       status: "completed";
       sessionId: string;
-      outcome: DictationCompletionOutcome;
+      outcome: DictationCompletionOutcome | "failed";
+      insertionOutcome?: DictationInsertionOutcome;
       recoveryOutcome?: RecoveryInsertionTerminalOutcome;
       text: string;
       message: string;
@@ -127,7 +128,8 @@ export interface TranscriptionQualityMetadata {
 
 // ─── History ─────────────────────────────────────────────────────────────────
 
-export type DictationTraceOutcome = "started" | "injected" | "saved" | "rejected" | "failed" | "cancelled";
+export type DictationInsertionOutcome = "verified" | "unconfirmed" | "refused" | "copy-only" | "failed";
+export type DictationTraceOutcome = DictationInsertionOutcome | "started" | "injected" | "saved" | "rejected" | "cancelled" | (string & {});
 export type DictationRejectionReason = "no_speech" | "microphone_permission_denied" | "fragment" | "recorder_unavailable" | "recorder_failure" | "timeout" | "stale-session" | "transcription_error" | "insertion_failed" | "cancelled";
 
 export interface ProviderAttemptTrace {

@@ -12,6 +12,24 @@ afterEach(async () => {
 });
 
 describe("M1 scorecard script", () => {
+  it("uses controlled outcome and status labels for new and unknown trace schemas", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-scorecard-"));
+    const input = join(tempDir, "traces.json");
+    const output = join(tempDir, "scorecard.csv");
+    const secret = "private transcript sentinel";
+    await writeFile(input, JSON.stringify([
+      { id: "one", sessionId: "one", startedAt: "2026-09-26T00:00:00.000Z", outcome: "unconfirmed", userMessage: "Insertion unconfirmed. Check the field before pasting again.", stages: { cleanedText: secret } },
+      { id: "two", sessionId: "two", startedAt: "2026-09-26T00:00:00.000Z", outcome: secret, userMessage: secret },
+    ]));
+
+    const summary = execFileSync("node", [resolve("scripts/m1-scorecard.mjs"), "--input", input, "--output", output], { encoding: "utf8" });
+    const csv = await readFile(output, "utf8");
+    expect(csv).toContain("unconfirmed,Insertion unconfirmed. Check the field before pasting again.");
+    expect(csv).toContain("unknown,Failed");
+    expect(csv).not.toContain(secret);
+    expect(summary).not.toContain(secret);
+  });
+
   it("preserves owner labels and old sessions without exporting transcript text", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vaani-scorecard-"));
     const input = join(tempDir, "traces.json");

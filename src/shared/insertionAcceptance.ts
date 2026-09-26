@@ -98,7 +98,7 @@ export function evaluateInsertionAcceptance(traces: readonly DictationTrace[]): 
     }
 
     counts.qualifyingClean += 1;
-    if (trace.outcome !== "injected" && trace.outcome !== "saved") continue;
+    if (!["injected", "saved", "verified", "unconfirmed", "refused", "failed"].includes(trace.outcome)) continue;
     if (trace.qualityDecision?.action !== "insert") continue;
     if (!trace.injectionAttempts || trace.injectionAttempts.length === 0) continue;
 

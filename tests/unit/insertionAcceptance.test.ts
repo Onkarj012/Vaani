@@ -120,6 +120,16 @@ describe("evaluateInsertionAcceptance", () => {
     expect(result.counts).toMatchObject({ eligible: 1, successful: 0, failed: 1 });
   });
 
+  it("counts new verified and unconfirmed outcomes in the existing insertion metric", () => {
+    const result = evaluateInsertionAcceptance([
+      trace("verified", { outcome: "verified" }),
+      trace("unconfirmed", { outcome: "unconfirmed", attempts: [{ ...successfulAttempt(), verification: { readable: true, passed: false, repaired: false, reason: "timeout" } }] }),
+      trace("copy-only", { outcome: "copy-only", attempts: [] }),
+    ]);
+
+    expect(result.counts).toMatchObject({ eligible: 2, successful: 1, failed: 1 });
+  });
+
   it("excludes baseline-unreadable attempts from the denominator and app buckets", () => {
     const result = evaluateInsertionAcceptance([
       trace("unassessable", {
