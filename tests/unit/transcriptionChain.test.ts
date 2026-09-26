@@ -669,6 +669,18 @@ describe("TranscriptionService failover chain", () => {
     });
   });
 
+  it("falls back to corrected raw text when the formatter omits the last word", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "We ship it.")));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+
+    expect(await service.formatTranscriptDetailed("we ship it Tuesday")).toEqual({
+      text: "We ship it Tuesday.",
+      formatterUsed: "guard-fallback",
+      contentGuardVerdict: { passed: false, missingWords: ["tuesday"] },
+    });
+  });
+
   it("formats blank-line separated transcript blocks independently", async () => {
     const format = vi.fn(async (text: string) => text === "first block"
       ? "First block."

@@ -8,14 +8,12 @@ import {
   trimLeadingSilence,
 } from "./pcmUtils";
 import pcmWorkletUrl from "./pcmWorklet.ts?url";
+import { STOP_QUIET_RMS, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
 
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const DEFAULT_INPUT_SAMPLE_RATE = 48_000;
 const ECHO_CANCELLATION = true;
-// Audio pipeline latency + early hotkey release both clip trailing speech;
-// keep collecting briefly after the stop command before finalizing.
-const STOP_TAIL_GRACE_MS = 300;
 
 declare global {
   interface Window {
@@ -53,6 +51,8 @@ let currentConfig: RecorderConfig = { preWarmMic: false };
 let captureConfigKey: string | null = null;
 let capturePromise: Promise<void> | null = null;
 let sessionChunks: Float32Array[] = [];
+let lastFrameAt = 0;
+let lastLoudFrameAt = 0;
 let lastReportedAt = 0;
 let smoothedBars = new Array(VISUAL_BAR_COUNT).fill(0.12);
 
@@ -106,6 +106,8 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
   try {
     currentConfig = normalizeConfig(config);
     sessionChunks = [];
+    lastFrameAt = 0;
+    lastLoudFrameAt = 0;
     resetSmoothedBars();
     previousInputDevice = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
@@ -134,13 +136,13 @@ async function stopRecording(sessionId: string): Promise<void> {
     return;
   }
 
-  await new Promise((resolve) => setTimeout(resolve, STOP_TAIL_GRACE_MS));
-  if (activeSessionId !== sessionId) {
-    return;
-  }
+  const stopRequestedAt = Date.now();
+  await waitForRendererDrain(stopRequestedAt, () => lastLoudFrameAt, () => activeSessionId === sessionId);
+  if (activeSessionId !== sessionId) return;
 
   const inputRate = audioContext?.sampleRate ?? DEFAULT_INPUT_SAMPLE_RATE;
   const chunksAtStop = sessionChunks.slice();
+  const lastFrameAfterStopMs = lastFrameAt ? lastFrameAt - stopRequestedAt : 0;
   await cleanupSession();
 
   if (!currentConfig.preWarmMic) {
@@ -153,7 +155,10 @@ async function stopRecording(sessionId: string): Promise<void> {
     return;
   }
 
-  await window.__VAANI_RECORDER__.submitAudioClip({ sessionId, clip });
+  await window.__VAANI_RECORDER__.submitAudioClip({ sessionId, clip, tailMetrics: {
+    lastFrameAfterStopMs,
+    trailingRms: trailingRms(mergePcmChunks(chunksAtStop), inputRate),
+  } });
 }
 
 async function abortRecording(sessionId: string): Promise<void> {
@@ -320,6 +325,10 @@ function handlePcmData(samples: Float32Array): void {
   }
 
   sessionChunks.push(samples.slice());
+  lastFrameAt = Date.now();
+  let sumSquares = 0;
+  for (const sample of samples) sumSquares += sample * sample;
+  if (samples.length > 0 && Math.sqrt(sumSquares / samples.length) >= STOP_QUIET_RMS) lastLoudFrameAt = lastFrameAt;
   publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT));
 }
 

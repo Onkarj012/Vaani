@@ -101,6 +101,13 @@ export function missingContentWords(rawText: string, candidate: string): string[
   return missing;
 }
 
+export function preservesFinalWords(rawText: string, candidate: string): boolean {
+  const finalWords = tokenizeText(rawText).filter(token => !FILLER_WORDS.has(token)).slice(-2);
+  if (finalWords.length === 0) return true;
+  const candidateWords = tokenizeText(candidate);
+  return finalWords.every((word, index) => word === candidateWords[candidateWords.length - finalWords.length + index]);
+}
+
 export function addedContentWords(rawText: string, candidate: string): string[] {
   const expected = extractContentWords(rawText, {
     ignoreLineBreakCues: true,

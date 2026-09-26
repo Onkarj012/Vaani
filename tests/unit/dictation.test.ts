@@ -679,11 +679,14 @@ describe("DictationService", () => {
     await service.submitAudioClip({
       sessionId,
       clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] },
+      tailMetrics: { lastFrameAfterStopMs: 320, trailingRms: 0.02 },
     });
     await vi.waitFor(() => expect(traceDeps.getTrace()?.completedAt).toBeDefined());
     const trace = traceDeps.getTrace();
     expect(trace).toMatchObject({
       stopRequestedAt: expect.any(String),
+      lastFrameAfterStopMs: 320,
+      trailingRms: 0.02,
       clipReadyAt: expect.any(String),
       sttDoneAt: expect.any(String),
       formatDoneAt: expect.any(String),

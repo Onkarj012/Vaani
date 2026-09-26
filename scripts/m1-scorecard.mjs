@@ -7,7 +7,7 @@ const columns = [
   "id", "time", "app", "duration_bucket", "outcome", "status_text",
   "stop_to_clip_ms", "clip_to_stt_ms", "stt_to_format_ms",
   "format_to_dispatch_ms", "dispatch_to_verify_ms", "verify_to_complete_ms",
-  "release_to_complete_ms", "landed_once", "usable", "note",
+  "release_to_complete_ms", "last_frame_after_stop_ms", "trailing_rms_300ms", "landed_once", "usable", "note",
 ];
 const stageColumns = columns.slice(6, 13);
 const safeStatusMessages = new Set([
@@ -121,6 +121,8 @@ function traceRow(trace) {
     dispatch_to_verify_ms: elapsed(trace.dispatchAt, trace.verifyDoneAt),
     verify_to_complete_ms: elapsed(trace.verifyDoneAt, trace.completedAt),
     release_to_complete_ms: elapsed(trace.hotkeyReleasedAt ?? trace.stopRequestedAt, trace.completedAt),
+    last_frame_after_stop_ms: typeof trace.lastFrameAfterStopMs === "number" && Number.isFinite(trace.lastFrameAfterStopMs) ? trace.lastFrameAfterStopMs : "",
+    trailing_rms_300ms: typeof trace.trailingRms === "number" && Number.isFinite(trace.trailingRms) ? trace.trailingRms : "",
   };
 }
 

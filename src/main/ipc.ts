@@ -283,9 +283,13 @@ function isAudioClip(value: unknown): value is RecorderSubmission["clip"] {
 
 function isRecorderSubmission(value: unknown): value is RecorderSubmission {
   return isRecord(value)
-    && hasOnlyKeys(value, ["sessionId", "clip"])
+    && hasOnlyKeys(value, ["sessionId", "clip", "tailMetrics"])
     && isBoundedString(value.sessionId, MAX_ID_LENGTH, false)
-    && isAudioClip(value.clip);
+    && isAudioClip(value.clip)
+    && (value.tailMetrics === undefined || (isRecord(value.tailMetrics)
+      && hasOnlyKeys(value.tailMetrics, ["lastFrameAfterStopMs", "trailingRms"])
+      && isFiniteNumberInRange(value.tailMetrics.lastFrameAfterStopMs, -MAX_AUDIO_DURATION_SECONDS * 1000, 5_000)
+      && isFiniteNumberInRange(value.tailMetrics.trailingRms, 0, 1)));
 }
 
 function isAudioVisualFrame(value: unknown): value is AudioVisualFrame {
