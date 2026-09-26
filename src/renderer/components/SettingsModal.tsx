@@ -353,7 +353,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const activeLlmModels = activeLlm?.models ?? []
   const physicalAudioDevices = audioDevices.filter((device) => device.isPhysical)
   const microphoneOptions = [
-    { value: '', label: 'Automatic physical microphone' },
+    { value: '', label: 'Automatic built-in microphone' },
     ...physicalAudioDevices.map((device) => ({
       value: device.uid,
       label: `${device.name || 'Microphone'}${device.isDefault ? ' (Default)' : ''}`,

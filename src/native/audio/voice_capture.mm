@@ -285,6 +285,7 @@ AudioDeviceID VoiceCapture::resolveDevice(const std::string& uid) {
     for (const auto& device : devices) {
       if (device.uid == uid && device.isPhysical) return device.id;
     }
+    return kAudioObjectUnknown;
   }
   for (const auto& device : devices) {
     if (device.isDefault && device.isPhysical) return device.id;
@@ -340,7 +341,10 @@ bool VoiceCapture::configureAudioUnit(const std::string& deviceUid, std::string&
     errorMessage = "No physical microphone found.";
     return false;
   }
-  AudioUnitSetProperty(unit_, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &deviceId_, sizeof(deviceId_));
+  if (AudioUnitSetProperty(unit_, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &deviceId_, sizeof(deviceId_)) != noErr) {
+    errorMessage = "Could not select microphone device.";
+    return false;
+  }
 
   streamFormat_ = makeFloatFormat(kTargetSampleRate);
   OSStatus formatStatus = AudioUnitSetProperty(unit_, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, kInputBus, &streamFormat_, sizeof(streamFormat_));

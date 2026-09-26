@@ -1,4 +1,4 @@
-import type { AudioClip, AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
+import type { AudioClip, AudioInputDevice, AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
 import { selectRecorderDevice } from "./deviceSelection";
 import {
   PcmRingBuffer,
@@ -12,6 +12,7 @@ import pcmWorkletUrl from "./pcmWorklet.ts?url";
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const DEFAULT_INPUT_SAMPLE_RATE = 48_000;
+const ECHO_CANCELLATION = true;
 // Audio pipeline latency + early hotkey release both clip trailing speech;
 // keep collecting briefly after the stop command before finalizing.
 const STOP_TAIL_GRACE_MS = 300;
@@ -33,6 +34,7 @@ declare global {
       prepareRecordingInput: () => Promise<number | null>;
       restoreRecordingInput: (deviceId: number | null) => Promise<boolean>;
       getRecorderConfig: () => Promise<RecorderConfig>;
+      listAudioInputDevices: () => Promise<AudioInputDevice[]>;
       onRecorderConfigChanged: (cb: (payload: RecorderConfig) => void) => () => void;
     };
   }
@@ -240,7 +242,7 @@ async function openCapture(config: RecorderConfig): Promise<void> {
     audio: {
       deviceId: { exact: micDeviceId },
       channelCount: 1,
-      echoCancellation: true,
+      echoCancellation: ECHO_CANCELLATION,
       noiseSuppression: false,
       autoGainControl: true,
     },
@@ -253,7 +255,8 @@ async function openCapture(config: RecorderConfig): Promise<void> {
 
 async function chooseMicDevice(preferredDeviceId: string | undefined): Promise<string> {
   const devices = await navigator.mediaDevices.enumerateDevices();
-  const selected = selectRecorderDevice(devices, preferredDeviceId);
+  const nativeDevices = preferredDeviceId ? await window.__VAANI_RECORDER__.listAudioInputDevices().catch(() => []) : [];
+  const selected = selectRecorderDevice(devices, preferredDeviceId, nativeDevices);
   if (!selected.ok) {
     throw new Error(selected.message);
   }
