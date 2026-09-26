@@ -132,6 +132,7 @@ export class DictationService {
   private activeTargetValue: string | null = null;
   private activeTargetIdentity: string | null = null;
   private releaseRequestedDuringStart = false;
+  private pendingStopRequestedAt: string | null = null;
   private readonly recorder: RecorderCommands | null;
   private pasteLatestInProgress = false;
   private sessionAbortController: AbortController | null = null;
@@ -239,6 +240,7 @@ export class DictationService {
     });
     void this.startTrace(sessionId);
     this.releaseRequestedDuringStart = false;
+    this.pendingStopRequestedAt = null;
     this.setState({ status: "starting", sessionId });
     this.armStaleSessionGuard(sessionId);
 
@@ -275,6 +277,11 @@ export class DictationService {
   endHotkeySession(): void {
     if (this.state.status === "starting") {
       this.releaseRequestedDuringStart = true;
+      this.pendingStopRequestedAt ??= new Date().toISOString();
+      void this.patchTrace(this.state.sessionId, {
+        stopRequestedAt: this.pendingStopRequestedAt,
+        hotkeyReleasedAt: this.pendingStopRequestedAt,
+      });
       return;
     }
 
@@ -283,6 +290,9 @@ export class DictationService {
     }
 
     const { sessionId } = this.state;
+    const stopRequestedAt = this.pendingStopRequestedAt ?? new Date().toISOString();
+    this.pendingStopRequestedAt = null;
+    void this.patchTrace(sessionId, { stopRequestedAt, hotkeyReleasedAt: stopRequestedAt });
     void this.transitionRecovery(sessionId, "interrupted_recording", { error: { class: "interrupted", detail: "Recording finalized." } });
     this.setState({ status: "finalizing", sessionId });
     this.clearFinalizationTimer();
@@ -294,7 +304,6 @@ export class DictationService {
     this.timers.setTimeout("finalization", () => {
       this.failSession(sessionId, "Recording did not finalize. Please try again.", "timeout");
     }, FINALIZATION_TIMEOUT_MS);
-    void this.patchTrace(sessionId, { hotkeyReleasedAt: new Date().toISOString() });
   }
 
   reportRecorderStarted(sessionId: string): void {
@@ -332,6 +341,7 @@ export class DictationService {
     }
 
     this.clearFinalizationTimer();
+    void this.patchTrace(payload.sessionId, { clipReadyAt: new Date().toISOString() });
     const snapshot = this.activeSessionSettings;
     if (!snapshot) {
       this.failSession(payload.sessionId, "The session configuration is missing. Start a new dictation.", "transcription_error");
@@ -405,6 +415,7 @@ export class DictationService {
         rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, payload.clip, result.quality).action === "retry",
       });
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
+      void this.patchTrace(payload.sessionId, { sttDoneAt: new Date().toISOString() });
       const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, payload.clip, transcription.quality));
       await this.transitionRecovery(payload.sessionId, "transcript_ready", {
         text: { rawTranscript: transcription.rawText },
@@ -451,6 +462,7 @@ export class DictationService {
         const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
         const cleanedText = cleanupText({ rawText: correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
+        void this.patchTrace(payload.sessionId, { formatDoneAt: new Date().toISOString() });
         void this.patchTrace(payload.sessionId, {
           stages: {
             cleanedText,
@@ -507,6 +519,7 @@ export class DictationService {
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
       const cleanedText = cleanupText({ rawText: formattedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
       void this.patchTrace(payload.sessionId, {
+        formatDoneAt: new Date().toISOString(),
         stages: {
           cleanedText,
           formatterUsed: formatTrace.formatterUsed,
@@ -586,6 +599,7 @@ export class DictationService {
         this.completeSession(payload.sessionId, "saved", cleanedText, failure.message, transcription.detectedLanguage || transcription.language, failure.outcome);
         return;
       }
+      void this.patchTrace(payload.sessionId, { dispatchAt: new Date().toISOString() });
       const injection = await this.injector.inject(cleanedText, finalInjectionTarget, {
         signal: operationSignal,
         isTargetValid: () => this.isCurrentSession(payload.sessionId)
@@ -602,6 +616,7 @@ export class DictationService {
 
       if (injection.success) {
         const verification = await this.verifyInsertion(cleanedText, verificationBaseline, verificationTarget);
+        void this.patchTrace(payload.sessionId, { verifyDoneAt: new Date().toISOString() });
         const finalAttempt = injectionAttempts[injectionAttempts.length - 1];
         if (finalAttempt) finalAttempt.verification = verification;
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;

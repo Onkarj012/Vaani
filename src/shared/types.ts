@@ -201,6 +201,12 @@ export interface DictationTrace {
   buildIdentifier?: string;
   completedAt?: string;
   hotkeyReleasedAt?: string;
+  stopRequestedAt?: string;
+  clipReadyAt?: string;
+  sttDoneAt?: string;
+  formatDoneAt?: string;
+  dispatchAt?: string;
+  verifyDoneAt?: string;
   targetAppBundleId: string | null;
   targetAppName: string | null;
   rawAudio?: AudioQualityMetrics;
