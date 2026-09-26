@@ -145,4 +145,14 @@ describe("TextInjector strategy selection", () => {
     expect(injectorMocks.axInject).toHaveBeenCalledTimes(1);
     expect(injectorMocks.clipboardInject).not.toHaveBeenCalled();
   });
+
+  it("does not fall through to clipboard after an uncertain AX dispatch", async () => {
+    injectorMocks.axInject.mockResolvedValueOnce({ success: false, reason: "outcome_uncertain" });
+    const { TextInjector } = await import("@main/injection");
+    const injector = new TextInjector(() => settings({ injectionMode: "auto" }));
+
+    await expect(injector.inject("hello", { appBundleId: "com.apple.TextEdit", appName: "TextEdit" }))
+      .resolves.toEqual({ success: false, reason: "outcome_uncertain" });
+    expect(injectorMocks.clipboardInject).not.toHaveBeenCalled();
+  });
 });

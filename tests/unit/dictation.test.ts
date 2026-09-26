@@ -13,6 +13,7 @@ import { createRecoveryEntry, type RecoveryEntry, type RecoveryEntrySeed, type R
 import { DictationService } from "./dictation.fixture";
 import { selectRecoveryText } from "@main/dictation";
 import { nativeBridge } from "@main/nativeBridge";
+import type { InjectionOptions, InjectionTarget } from "@main/injection";
 import { TranscriptionDeadlineExceededError, type TranscribeOptions } from "@main/transcription";
 
 vi.mock("electron", () => ({
@@ -101,7 +102,7 @@ function createDictationService(deps: {
   };
 
   const injector = {
-    inject: vi.fn(async (text: string): Promise<InjectionResult> => {
+    inject: vi.fn(async (text: string, _target?: InjectionTarget, _options?: InjectionOptions): Promise<InjectionResult> => {
       focusedValue += text;
       return { success: true, method: "clipboard" };
     })
@@ -900,6 +901,64 @@ describe("DictationService", () => {
 
     await expect(service.retryRecoveryInsertion("session-1")).resolves.toBe(false);
     expect(injector.inject).not.toHaveBeenCalled();
+  });
+
+  it("refuses recovery retry after an uncertain prior insertion", async () => {
+    const recoveryFixture = createInsertionRecovery("uncertain-retry");
+    const current = recoveryFixture.getEntry();
+    current.state = "recoverable";
+    current.text.cleanedText = "Hello world.";
+    current.insertion = { status: "failed", outcome: "recoverable", detail: "outcome_uncertain" };
+    const { service, injector } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+
+    await expect(service.retryRecoveryInsertion(current.id)).resolves.toBe(false);
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(recoveryFixture.recovery.prepareInsertion).not.toHaveBeenCalled();
+  });
+
+  it("closes a cancelled recovery retry after dispatch and refuses another attempt", async () => {
+    const recoveryFixture = createInsertionRecovery("cancelled-retry");
+    const current = recoveryFixture.getEntry();
+    current.state = "text_ready";
+    current.text.cleanedText = "Hello world.";
+    const { service, injector } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+    let finishInjection: (result: InjectionResult) => void = () => undefined;
+    injector.inject.mockImplementationOnce((_text, _target, options) => {
+      options?.onDispatch?.();
+      return new Promise<InjectionResult>((resolve) => { finishInjection = resolve; });
+    });
+
+    const retry = service.retryRecoveryInsertion(current.id);
+    await vi.waitFor(() => expect(injector.inject).toHaveBeenCalledTimes(1));
+    service.cancelSession();
+    finishInjection({ success: false, reason: "outcome_uncertain" });
+    await expect(retry).resolves.toBe(false);
+
+    expect(recoveryFixture.getEntry().insertion).toMatchObject({ status: "failed", outcome: "recoverable", detail: "outcome_uncertain" });
+    await expect(service.retryRecoveryInsertion(current.id)).resolves.toBe(false);
+    await expect(service.retryRecoveryInsertion(current.id)).resolves.toBe(false);
+    expect(injector.inject).toHaveBeenCalledTimes(1);
+  });
+
+  it("records an uncertain recovery outcome when cancelled after dispatch", async () => {
+    const recoveryFixture = createInsertionRecovery("session-1");
+    const { service, injector } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });
+    let finishInjection: (result: InjectionResult) => void = () => undefined;
+    injector.inject.mockImplementationOnce((_text, _target, options) => {
+      options?.onDispatch?.();
+      return new Promise<InjectionResult>((resolve) => { finishInjection = resolve; });
+    });
+
+    const submission = submitHelloWorld(service);
+    await vi.waitFor(() => expect(injector.inject).toHaveBeenCalledTimes(1));
+    service.cancelSession();
+    finishInjection({ success: false, reason: "outcome_uncertain" });
+    await submission;
+    await service.flushRecovery();
+
+    expect(recoveryFixture.getEntry().insertion).toMatchObject({ status: "failed", outcome: "recoverable", detail: "outcome_uncertain" });
+    await expect(service.retryRecoveryInsertion("session-1")).resolves.toBe(false);
+    expect(injector.inject).toHaveBeenCalledTimes(1);
   });
 
   it("sends short non-silent clips to transcription untrimmed", async () => {

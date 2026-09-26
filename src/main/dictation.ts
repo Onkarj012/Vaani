@@ -140,6 +140,8 @@ export class DictationService {
   private readonly recordedInsertionOutcomes = new Set<string>();
   private readonly manualRetriesInProgress = new Set<string>();
   private readonly cancelledRecoveryRetryIds = new Set<string>();
+  private activeInsertionPrepared = false;
+  private activeInsertionDispatched = false;
 
   constructor(
     private readonly mainWindow: BrowserWindow | null,
@@ -265,8 +267,15 @@ export class DictationService {
     if (this.activeSessionId) this.recorder?.abortRecording?.(this.activeSessionId);
     this.sessionAbortController?.abort("user-cancelled");
     if (this.activeSessionId) {
-      void this.transitionRecovery(this.activeSessionId, "recoverable", { error: { class: "interrupted", detail: "Dictation cancelled." } });
-      void this.finishTrace(this.activeSessionId, "cancelled", "cancelled", "Dictation cancelled.");
+      const sessionId = this.activeSessionId;
+      if (this.activeInsertionPrepared && this.state.status === "transcribing") {
+        void this.recordRecoveryInsertionOutcome(sessionId, "recoverable", null, "interrupted", this.activeInsertionDispatched ? OUTCOME_UNCERTAIN_DETAIL : "cancelled").catch((error) => {
+          debug("recovery", "cancelled insertion outcome could not be journaled", { sessionId, message: error instanceof Error ? error.message : String(error) });
+        });
+      } else {
+        void this.transitionRecovery(sessionId, "recoverable", { error: { class: "interrupted", detail: "Dictation cancelled." } });
+      }
+      void this.finishTrace(sessionId, "cancelled", "cancelled", "Dictation cancelled.");
     }
     this.clearEditWatch();
     this.resetToIdle();
@@ -567,12 +576,15 @@ export class DictationService {
       const verificationFocus = this.appDetector.getContext();
       const verificationBaseline = sameTarget(injectionTarget, verificationFocus) ? currentValue : null;
       const verificationTarget: Pick<AppContextResult, "appBundleId" | "appName"> | null = this.activeTarget;
+      this.activeInsertionPrepared = true;
       await this.prepareRecoveryInsertion(
         payload.sessionId,
         cleanedText,
         injectionTarget,
         verificationBaseline,
         settings.injectionMode,
+        payload.sessionId,
+        operationSignal,
       );
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
       const finalInjectionTarget = this.revalidateAutomaticTarget(initialTarget, initialSelection, initialTargetValue, initialTargetIdentity);
@@ -588,6 +600,7 @@ export class DictationService {
       }
       const injection = await this.injector.inject(cleanedText, finalInjectionTarget, {
         signal: operationSignal,
+        onDispatch: () => { this.activeInsertionDispatched = true; },
         isTargetValid: () => this.isCurrentSession(payload.sessionId)
           && this.isSameFocusedTarget(finalInjectionTarget, initialTargetIdentity),
       });
@@ -855,10 +868,16 @@ export class DictationService {
     this.manualRetriesInProgress.add(id);
     const action = this.beginRecoveryAction();
     const actionGeneration = this.sessionGeneration;
+    let prepared = false;
+    let dispatched = false;
+    let uncertain = false;
+    let settled = false;
+    let recoverySessionId: string | null = null;
     try {
       if (!this.recovery) return false;
       const entry = await this.recovery.getById(id);
       if (!entry || entry.terminal) return false;
+      recoverySessionId = entry.sessionId;
       if (entry.state !== "text_ready" && entry.state !== "recoverable") return false;
       if (entry.insertion?.outcome === "delivered" || entry.insertion?.outcome === "copied") return false;
       if (isUnresolvedInsertion(entry.insertion)) return false;
@@ -867,7 +886,7 @@ export class DictationService {
       if (!text || !target) return false;
       const baseline = sameTarget(target, this.appDetector.getContext()) ? safeFocusedValue() : null;
       if (baseline === null) return false;
-      const prepared = await this.prepareRecoveryInsertion(entry.sessionId, text, target, baseline, this.settings.get().injectionMode, entry.id, action.signal);
+      prepared = await this.prepareRecoveryInsertion(entry.sessionId, text, target, baseline, this.settings.get().injectionMode, entry.id, action.signal);
       if (!prepared) return false;
       const preparedEntry = await this.recovery.getById(id);
       if (!preparedEntry) return false;
@@ -878,19 +897,25 @@ export class DictationService {
       const latestTarget = this.currentInjectionTarget({ appBundleId: entry.target.appBundleId, appName: entry.target.appName });
       const latestBaseline = latestTarget && sameTarget(latestTarget, this.appDetector.getContext()) ? safeFocusedValue() : null;
       if (actionGeneration !== this.sessionGeneration || !latestTarget || latestBaseline === null || !sameTarget(latestTarget, target)) return false;
-      let uncertain = false;
-      const result = await this.performManualInsertion(text, latestTarget, "Could not verify insertion into the current text field.", action.signal, actionGeneration, () => { uncertain = true; });
+      const result = await this.performManualInsertion(text, latestTarget, "Could not verify insertion into the current text field.", action.signal, actionGeneration, () => { uncertain = true; }, () => { dispatched = true; });
       if (!result) {
-        const detail = uncertain ? OUTCOME_UNCERTAIN_DETAIL : "Manual recovery retry was not verified.";
-        if (!action.signal.aborted) await this.recordRecoveryInsertionOutcome(entry.sessionId, "recoverable", null, "insertion_failed", detail, entry.id, action.signal);
+        const detail = dispatched || uncertain ? OUTCOME_UNCERTAIN_DETAIL : "Manual recovery retry was not verified.";
+        await this.recordRecoveryInsertionOutcome(entry.sessionId, "recoverable", null, "insertion_failed", detail, entry.id);
+        settled = true;
         return false;
       }
       await this.recordRecoveryInsertionOutcome(entry.sessionId, "delivered", result.method, undefined, undefined, entry.id);
+      settled = true;
       return true;
     } catch (error) {
       debug("recovery", "manual recovery insertion failed", { id, message: error instanceof Error ? error.message : String(error) });
       return false;
     } finally {
+      if (prepared && !settled && recoverySessionId) {
+        await this.recordRecoveryInsertionOutcome(recoverySessionId, "recoverable", null, "insertion_failed", dispatched || uncertain ? OUTCOME_UNCERTAIN_DETAIL : "Manual recovery retry was interrupted.", id).catch((error) => {
+          debug("recovery", "manual recovery insertion outcome could not be journaled", { id, message: error instanceof Error ? error.message : String(error) });
+        });
+      }
       this.finishRecoveryAction(action);
       if (action.signal.aborted) this.cancelledRecoveryRetryIds.add(id);
       this.manualRetriesInProgress.delete(id);
@@ -1099,6 +1124,7 @@ export class DictationService {
     signal?: AbortSignal,
     expectedGeneration = this.sessionGeneration,
     onUncertain?: () => void,
+    onDispatch?: () => void,
   ): Promise<{ method: "ax" | "clipboard" } | null> {
     if (signal?.aborted || expectedGeneration !== this.sessionGeneration) return null;
     if (!target || !isExternalTarget(target)) {
@@ -1122,6 +1148,7 @@ export class DictationService {
     const identity = safeFocusedElementIdentity();
     const result = await this.injector.inject(text, target, {
       signal,
+      onDispatch,
       isTargetValid: () => this.sessionGeneration === expectedGeneration && this.isSameFocusedTarget(target, identity),
     });
     if (!result.success && result.reason === "outcome_uncertain") onUncertain?.();
@@ -1304,6 +1331,8 @@ export class DictationService {
     this.activeSelection = null;
     this.activeTargetValue = null;
     this.activeTargetIdentity = null;
+    this.activeInsertionPrepared = false;
+    this.activeInsertionDispatched = false;
     this.releaseRequestedDuringStart = false;
     this.setState({ status: "idle" });
   }

@@ -415,15 +415,16 @@ Napi::Boolean SetFocusedSelection(const Napi::CallbackInfo& info) {
 
 Napi::Boolean PasteText(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (info.Length() < 1 || !info[0].IsString()) {
-    Napi::TypeError::New(env, "Expected text input").ThrowAsJavaScriptException();
+  if (info.Length() < 2 || !info[0].IsString() || !info[1].IsNumber()) {
+    Napi::TypeError::New(env, "Expected text and clipboard change count").ThrowAsJavaScriptException();
     return Napi::Boolean::New(env, false);
   }
 
   NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
-  [pasteboard clearContents];
   NSString* text = [NSString stringWithUTF8String:info[0].As<Napi::String>().Utf8Value().c_str()];
-  [pasteboard setString:text forType:NSPasteboardTypeString];
+  if (text == nil || [pasteboard changeCount] != info[1].As<Napi::Number>().Int64Value() || ![[pasteboard stringForType:NSPasteboardTypeString] isEqualToString:text]) {
+    return Napi::Boolean::New(env, false);
+  }
 
   CGEventRef optionUp = CGEventCreateKeyboardEvent(nullptr, kVK_Option, false);
   CGEventRef controlUp = CGEventCreateKeyboardEvent(nullptr, kVK_Control, false);
@@ -470,6 +471,10 @@ Napi::Boolean PasteText(const Napi::CallbackInfo& info) {
   CFRelease(commandUp);
 
   return Napi::Boolean::New(env, true);
+}
+
+Napi::Number GetClipboardChangeCount(const Napi::CallbackInfo& info) {
+  return Napi::Number::New(info.Env(), [[NSPasteboard generalPasteboard] changeCount]);
 }
 
 Napi::Boolean TypeText(const Napi::CallbackInfo& info) {
@@ -587,6 +592,7 @@ Napi::Object InitAccessibility(Napi::Env env, Napi::Object exports) {
   exports.Set("isAccessibilityTrusted", Napi::Function::New(env, IsAccessibilityTrusted));
   exports.Set("injectText", Napi::Function::New(env, InjectText));
   exports.Set("pasteText", Napi::Function::New(env, PasteText));
+  exports.Set("getClipboardChangeCount", Napi::Function::New(env, GetClipboardChangeCount));
   exports.Set("typeText", Napi::Function::New(env, TypeText));
   exports.Set("getFocusedSelection", Napi::Function::New(env, GetFocusedSelection));
   exports.Set("getFocusedValue", Napi::Function::New(env, GetFocusedValue));

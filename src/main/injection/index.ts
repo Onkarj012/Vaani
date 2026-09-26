@@ -29,29 +29,29 @@ export class TextInjector {
     const { injectionMode } = this.settingsProvider();
 
     if (injectionMode === "ax") {
-      return this.ax.inject(text, target, guard);
+      return this.ax.inject(text, target, guard, options?.onDispatch);
     }
 
     if (injectionMode === "clipboard") {
-      return this.clip.inject(text, target, guard);
+      return this.clip.inject(text, target, guard, options?.onDispatch);
     }
 
     if (shouldPreferClipboardInjection(text, target)) {
-      const clipboardResult = await this.clip.inject(text, target, guard);
+      const clipboardResult = await this.clip.inject(text, target, guard, options?.onDispatch);
       if (clipboardResult.success || isFinalFailure(clipboardResult) || isClipboardOnlyTarget(target)) {
         return clipboardResult;
       }
 
-      const axResult = await this.ax.inject(text, target, guard);
+      const axResult = await this.ax.inject(text, target, guard, options?.onDispatch);
       return axResult.success || isFinalFailure(axResult) ? axResult : clipboardResult;
     }
 
-    const axResult = await this.ax.inject(text, target, guard);
+    const axResult = await this.ax.inject(text, target, guard, options?.onDispatch);
     if (axResult.success || isFinalFailure(axResult)) {
       return axResult;
     }
 
-    const clipboardResult = await this.clip.inject(text, target, guard);
+    const clipboardResult = await this.clip.inject(text, target, guard, options?.onDispatch);
     if (clipboardResult.success || isFinalFailure(clipboardResult)) {
       return clipboardResult;
     }
