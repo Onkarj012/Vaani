@@ -3,6 +3,7 @@ export type InjectionBlockReason = "cancelled" | "target_changed";
 export interface InjectionOptions {
   signal?: AbortSignal;
   isTargetValid?: () => boolean;
+  onDispatch?: () => void;
 }
 
 export type InjectionGuard = () => InjectionBlockReason | null;

@@ -12,7 +12,7 @@ const exec = promisify(execFile);
 let consecutiveFailures = 0;
 const CLIPBOARD_RESTORE_DELAY_MS = 1_200;
 let restoreGeneration = 0;
-let pendingRestore: { original: string; injected: string } | null = null;
+let pendingRestore: { original: string; changeCount: number } | null = null;
 const UTF8_CLIPBOARD_ENV = {
   ...process.env,
   LANG: "en_US.UTF-8",
@@ -28,13 +28,17 @@ export function cancelPendingClipboardRestore(): void {
 }
 
 export class ClipboardTextInjector {
-  async inject(text: string, target?: InjectionTarget, guard: InjectionGuard = () => null): Promise<InjectionResult> {
+  async inject(text: string, target?: InjectionTarget, guard: InjectionGuard = () => null, onDispatch?: () => void): Promise<InjectionResult> {
     const blockedAtStart = guard();
     if (blockedAtStart) return { success: false, reason: blockedAtStart };
+    if (clipboardChangeCount() === null) return { success: false, reason: "insertion_failed" };
     const original = await readOriginalClipboardText();
     const generation = ++restoreGeneration;
+    let ownedChangeCount: number | null = null;
+    const dispatchGuard: InjectionGuard = () => guard() ?? (ownedChangeCount !== null && clipboardChangeCount() !== ownedChangeCount ? "cancelled" : null);
     try {
-      await writeClipboardText(text);
+      ownedChangeCount = await writeClipboardText(text);
+      if (ownedChangeCount === null) return { success: false, reason: "insertion_failed" };
       await delay(180);
 
       // Clipboard-only apps (terminals, browsers, Electron apps, etc.) have no AX
@@ -42,16 +46,16 @@ export class ClipboardTextInjector {
       // paste methods causing text to appear multiple times. For these apps:
       // one shot, then return immediately.
       // IMPORTANT: Use AppleScript Cmd+V paste instead of nativeBridge.pasteText()
-      // because pbcopy (used in writeClipboardText above) properly preserves
-      // newlines and formatting. nativeBridge.pasteText() may re-write the
-      // clipboard in a way that strips structural formatting (newlines, lists).
+      // for clipboard-only apps; their insertion cannot be confirmed through
+      // AX, so keep this to one dispatch.
       if (isClipboardOnlyTarget(target)) {
-        const blockedBeforeActivation = guard();
+        const blockedBeforeActivation = dispatchGuard();
         if (blockedBeforeActivation) return { success: false, reason: blockedBeforeActivation };
         await ensureTargetReady(target);
         await moveCaretToEndForBrowserTarget(target);
-        const outcome = await this.pasteWithAppleScript(target, guard);
+        const outcome = await this.pasteWithAppleScript(target, dispatchGuard, onDispatch);
         if (outcome === "dispatched") {
+          if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
           consecutiveFailures = 0;
           return { success: true, method: "clipboard" };
         }
@@ -64,28 +68,28 @@ export class ClipboardTextInjector {
 
       const methods = hasNonAscii
         ? [
-            { name: "paste-applescript", run: () => this.pasteWithAppleScript(target, guard), kind: "paste" as const },
-            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, guard), kind: "paste" as const }
+            { name: "paste-applescript", run: () => this.pasteWithAppleScript(target, dispatchGuard, onDispatch), kind: "paste" as const },
+            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, onDispatch), kind: "paste" as const }
           ]
         : shouldPreferTypingInjection(target)
         ? [
-            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, guard), kind: "typing" as const },
-            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, guard), kind: "typing" as const },
-            { name: "paste-applescript", run: () => this.pasteWithAppleScript(target, guard), kind: "paste" as const },
-            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, guard), kind: "paste" as const }
+            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
+            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
+            { name: "paste-applescript", run: () => this.pasteWithAppleScript(target, dispatchGuard, onDispatch), kind: "paste" as const },
+            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, onDispatch), kind: "paste" as const }
           ]
         : prefersSystemEventsPaste(target)
         ? [
-            { name: "paste-applescript", run: () => this.pasteWithAppleScript(target, guard), kind: "paste" as const },
-            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, guard), kind: "typing" as const },
-            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, guard), kind: "typing" as const },
-            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, guard), kind: "paste" as const }
+            { name: "paste-applescript", run: () => this.pasteWithAppleScript(target, dispatchGuard, onDispatch), kind: "paste" as const },
+            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
+            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
+            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, onDispatch), kind: "paste" as const }
           ]
         : [
-            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, guard), kind: "paste" as const },
-            { name: "paste-applescript", run: () => this.pasteWithAppleScript(target, guard), kind: "paste" as const },
-            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, guard), kind: "typing" as const },
-            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, guard), kind: "typing" as const }
+            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, onDispatch), kind: "paste" as const },
+            { name: "paste-applescript", run: () => this.pasteWithAppleScript(target, dispatchGuard, onDispatch), kind: "paste" as const },
+            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
+            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, dispatchGuard, onDispatch), kind: "typing" as const }
           ];
 
       // Only methods that never dispatched may fall through to the next one.
@@ -96,7 +100,8 @@ export class ClipboardTextInjector {
         const outcome = await method.run();
         if (outcome === "failed") continue;
         if (outcome !== "dispatched") return { success: false, reason: outcome };
-        if (!await confirmInsertion(text, target, method.kind, guard)) {
+        if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
+        if (!await confirmInsertion(text, target, method.kind, dispatchGuard)) {
           consecutiveFailures += 1;
           return { success: false, reason: "outcome_uncertain" };
         }
@@ -107,47 +112,58 @@ export class ClipboardTextInjector {
 
       await delay(600);
       if (pasted) {
+        if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
         consecutiveFailures = 0;
         return { success: true, method: "clipboard" };
       }
       consecutiveFailures += 1;
       return { success: false, reason: "insertion_failed" };
     } finally {
-      if (original !== text) {
-        pendingRestore = { original, injected: text };
-        void restoreClipboardAfterDelay(original, text, CLIPBOARD_RESTORE_DELAY_MS, generation);
+      if (original !== text && ownedChangeCount !== null) {
+        pendingRestore = { original, changeCount: ownedChangeCount };
+        void restoreClipboardAfterDelay(original, ownedChangeCount, CLIPBOARD_RESTORE_DELAY_MS, generation);
       } else if (generation === restoreGeneration) {
         pendingRestore = null;
       }
     }
   }
 
-  private async pasteWithNativeBridge(text: string, target: InjectionTarget | undefined, guard: InjectionGuard): Promise<DispatchOutcome> {
+  private async pasteWithNativeBridge(text: string, target: InjectionTarget | undefined, guard: InjectionGuard, expectedChangeCount: () => number | null, onDispatch?: () => void): Promise<DispatchOutcome> {
     if (!nativeBridge.pasteText) return "failed";
+    let dispatched = false;
     try {
       const blocked = await prepareDispatch(target, guard, true);
       if (blocked) return blocked;
-      return nativeBridge.pasteText(text) ? "dispatched" : "failed";
-    } catch { return "failed"; }
-  }
-
-  private async pasteWithAppleScript(target: InjectionTarget | undefined, guard: InjectionGuard): Promise<DispatchOutcome> {
-    return runAppleScriptDispatch(['tell application "System Events" to key code 9 using {command down}'], target, guard);
-  }
-
-  private async typeWithNativeBridge(text: string, target: InjectionTarget | undefined, guard: InjectionGuard): Promise<DispatchOutcome> {
-    if (!nativeBridge.typeText) return "failed";
-    try {
-      const blocked = await prepareDispatch(target, guard, true);
-      if (blocked) return blocked;
-      return nativeBridge.typeText(text) ? "dispatched" : "failed";
+      const changeCount = expectedChangeCount();
+      if (changeCount === null) return "failed";
+      onDispatch?.();
+      dispatched = true;
+      return nativeBridge.pasteText(text, changeCount) ? "dispatched" : "outcome_uncertain";
     } catch {
-      return "failed";
+      return dispatched ? "outcome_uncertain" : "failed";
     }
   }
 
-  private async typeWithAppleScript(text: string, target: InjectionTarget | undefined, guard: InjectionGuard): Promise<DispatchOutcome> {
-    return runAppleScriptDispatch([`tell application "System Events" to keystroke ${toAppleScriptString(text)}`], target, guard);
+  private async pasteWithAppleScript(target: InjectionTarget | undefined, guard: InjectionGuard, onDispatch?: () => void): Promise<DispatchOutcome> {
+    return runAppleScriptDispatch(['tell application "System Events" to key code 9 using {command down}'], target, guard, onDispatch);
+  }
+
+  private async typeWithNativeBridge(text: string, target: InjectionTarget | undefined, guard: InjectionGuard, onDispatch?: () => void): Promise<DispatchOutcome> {
+    if (!nativeBridge.typeText) return "failed";
+    let dispatched = false;
+    try {
+      const blocked = await prepareDispatch(target, guard, true);
+      if (blocked) return blocked;
+      onDispatch?.();
+      dispatched = true;
+      return nativeBridge.typeText(text) ? "dispatched" : "outcome_uncertain";
+    } catch {
+      return dispatched ? "outcome_uncertain" : "failed";
+    }
+  }
+
+  private async typeWithAppleScript(text: string, target: InjectionTarget | undefined, guard: InjectionGuard, onDispatch?: () => void): Promise<DispatchOutcome> {
+    return runAppleScriptDispatch([`tell application "System Events" to keystroke ${toAppleScriptString(text)}`], target, guard, onDispatch);
   }
 }
 
@@ -162,7 +178,7 @@ async function prepareDispatch(target: InjectionTarget | undefined, guard: Injec
   return guard();
 }
 
-async function runAppleScriptDispatch(action: string[], target: InjectionTarget | undefined, guard: InjectionGuard): Promise<DispatchOutcome> {
+async function runAppleScriptDispatch(action: string[], target: InjectionTarget | undefined, guard: InjectionGuard, onDispatch?: () => void): Promise<DispatchOutcome> {
   try {
     const blockedBeforeActivation = guard();
     if (blockedBeforeActivation) return blockedBeforeActivation;
@@ -176,6 +192,7 @@ async function runAppleScriptDispatch(action: string[], target: InjectionTarget 
     // Treat its result as uncertain once the command starts, so no fallback
     // strategy can insert the same text a second time.
     try {
+      onDispatch?.();
       await exec("osascript", lines.flatMap(l => ["-e", l]));
       return "dispatched";
     } catch {
@@ -227,14 +244,22 @@ async function readClipboardText(): Promise<string> {
 // eventual restore returns what the user actually had.
 async function readOriginalClipboardText(): Promise<string> {
   const current = await readClipboardText();
-  if (pendingRestore && current === pendingRestore.injected) return pendingRestore.original;
+  if (pendingRestore && clipboardChangeCount() === pendingRestore.changeCount) return pendingRestore.original;
   return current;
 }
 
-async function writeClipboardText(text: string): Promise<void> {
+function clipboardChangeCount(): number | null {
+  try {
+    return nativeBridge.getClipboardChangeCount?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeClipboardText(text: string): Promise<number | null> {
   if (/[^\x00-\x7F]/.test(text)) {
     clipboard.writeText(text);
-    if (clipboard.readText() === text) return;
+    if (clipboard.readText() === text) return clipboardChangeCount();
   }
 
   try {
@@ -242,18 +267,17 @@ async function writeClipboardText(text: string): Promise<void> {
   } catch {
     clipboard.writeText(text);
   }
+  return clipboardChangeCount();
 }
 
-async function restoreClipboardAfterDelay(original: string, injected: string, delayMs: number, generation: number): Promise<void> {
+async function restoreClipboardAfterDelay(original: string, ownedChangeCount: number, delayMs: number, generation: number): Promise<void> {
   await delay(delayMs);
   // A newer injection started after this one; let it own the clipboard.
   if (generation !== restoreGeneration) return;
   pendingRestore = null;
-  const current = await readClipboardText();
-  if (generation !== restoreGeneration) return;
-  // Only restore if clipboard still contains our injected text.
-  // If it's different, something else changed it (user copied something else).
-  if (current === injected) {
+  // Text equality cannot distinguish a user copy of the same dictated text.
+  // Restore only while the pasteboard still has our last observed change count.
+  if (clipboardChangeCount() === ownedChangeCount) {
     await writeClipboardText(original);
   }
 }

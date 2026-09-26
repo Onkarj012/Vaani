@@ -23,8 +23,9 @@ export interface NativeLoadFailure {
 interface NativeBridge {
   isAccessibilityTrusted?: () => boolean;
   injectText?: (text: string) => NativeInjectionResult;
-  pasteText?: (text: string) => boolean;
+  pasteText?: (text: string, expectedChangeCount: number) => boolean;
   typeText?: (text: string) => boolean;
+  getClipboardChangeCount?: () => number;
   getFocusedSelection?: () => SelectionRange | null;
   getFocusedValue?: () => string | null;
   getFocusedElementIdentity?: () => string | null;

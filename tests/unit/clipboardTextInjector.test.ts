@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // In-memory clipboard model shared by the child_process + electron mocks.
 let fakeClipboard = "";
+let pasteboardChangeCount = 0;
 let failAppleScriptAction = false;
+let holdAppleScriptPaste = false;
+let releaseAppleScriptPaste: (() => void) | null = null;
 const writes: { value: string; t: number }[] = [];
 
 vi.mock("node:child_process", () => ({
@@ -11,6 +14,8 @@ vi.mock("node:child_process", () => ({
     const cmd = args[0] as string;
     if (cmd === "pbpaste") {
       cb(null, { stdout: fakeClipboard, stderr: "" });
+    } else if (cmd === "osascript" && holdAppleScriptPaste && args.some((arg) => Array.isArray(arg) && arg.some((part) => typeof part === "string" && part.includes("key code 9")))) {
+      releaseAppleScriptPaste = () => cb(null, { stdout: "", stderr: "" });
     } else if (cmd === "osascript" && failAppleScriptAction) {
       cb(new Error("osascript failed after dispatch"), { stdout: "", stderr: "" });
     } else {
@@ -21,6 +26,7 @@ vi.mock("node:child_process", () => ({
     if (cmd === "pbcopy") {
       const input = opts?.input ?? "";
       fakeClipboard = input;
+      pasteboardChangeCount += 1;
       writes.push({ value: input, t: Date.now() });
     }
     return "";
@@ -32,15 +38,17 @@ vi.mock("electron", () => ({
     readText: () => fakeClipboard,
     writeText: (value: string) => {
       fakeClipboard = value;
+      pasteboardChangeCount += 1;
       writes.push({ value, t: Date.now() });
     },
   },
 }));
 
 const bridge = vi.hoisted(() => ({
-  pasteText: vi.fn((_text: string) => true),
+  pasteText: vi.fn((_text: string, _expectedChangeCount: number) => true),
   typeText: vi.fn((_text: string) => true),
   getFocusedSelection: undefined as undefined | (() => { location: number; length: number }),
+  getClipboardChangeCount: () => pasteboardChangeCount,
 }));
 const focus = vi.hoisted(() => ({ frontmost: true }));
 
@@ -64,12 +72,15 @@ describe("ClipboardTextInjector restore timing", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     fakeClipboard = "";
+    pasteboardChangeCount = 0;
     writes.length = 0;
     focus.frontmost = true;
     bridge.pasteText.mockReset().mockReturnValue(true);
     bridge.typeText.mockReset().mockReturnValue(true);
     bridge.getFocusedSelection = undefined;
     failAppleScriptAction = false;
+    holdAppleScriptPaste = false;
+    releaseAppleScriptPaste = null;
   });
 
   afterEach(() => {
@@ -110,6 +121,7 @@ describe("ClipboardTextInjector restore timing", () => {
 
     // User copies something else during the restore window.
     fakeClipboard = "userCopied";
+    pasteboardChangeCount += 1;
     await vi.runAllTimersAsync();
 
     expect(fakeClipboard).toBe("userCopied");
@@ -161,18 +173,36 @@ describe("ClipboardTextInjector restore timing", () => {
 
     expect(fakeClipboard).toBe("dictated");
   });
+
+  it("keeps a user copy of identical dictated text after insertion", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    fakeClipboard = "original";
+    const done = new ClipboardTextInjector().inject("dictated", chromeTarget);
+    await vi.advanceTimersByTimeAsync(1_500);
+    await done;
+
+    fakeClipboard = "dictated";
+    pasteboardChangeCount += 1;
+    await vi.runAllTimersAsync();
+
+    expect(fakeClipboard).toBe("dictated");
+    expect(writes.filter((write) => write.value === "original")).toHaveLength(0);
+  });
 });
 
 describe("ClipboardTextInjector dispatch safety", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     fakeClipboard = "original";
+    pasteboardChangeCount = 0;
     writes.length = 0;
     focus.frontmost = true;
     bridge.pasteText.mockReset().mockReturnValue(true);
     bridge.typeText.mockReset().mockReturnValue(true);
     bridge.getFocusedSelection = undefined;
     failAppleScriptAction = false;
+    holdAppleScriptPaste = false;
+    releaseAppleScriptPaste = null;
   });
 
   afterEach(() => {
@@ -192,6 +222,20 @@ describe("ClipboardTextInjector dispatch safety", () => {
     expect(bridge.pasteText).not.toHaveBeenCalled();
   });
 
+  it("does not touch the clipboard when pasteboard ownership cannot be checked", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const originalCounter = bridge.getClipboardChangeCount;
+    bridge.getClipboardChangeCount = () => { throw new Error("unavailable"); };
+    try {
+      await expect(new ClipboardTextInjector().inject("dictated", chromeTarget))
+        .resolves.toEqual({ success: false, reason: "insertion_failed" });
+      expect(writes).toHaveLength(0);
+      expect(bridge.pasteText).not.toHaveBeenCalled();
+    } finally {
+      bridge.getClipboardChangeCount = originalCounter;
+    }
+  });
+
   it("stops before dispatch when cancelled during the settle wait and restores the clipboard", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const { createInjectionGuard } = await import("@main/injection/guard");
@@ -208,6 +252,33 @@ describe("ClipboardTextInjector dispatch safety", () => {
     expect(fakeClipboard).toBe("original");
   });
 
+  it("stops before dispatch when cancelled during target activation", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    const controller = new AbortController();
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ signal: controller.signal }));
+    await vi.advanceTimersByTimeAsync(400);
+    controller.abort("user-cancelled");
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "cancelled" });
+    expect(bridge.pasteText).not.toHaveBeenCalled();
+  });
+
+  it("reports uncertainty when cancelled during the post-dispatch wait", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    const controller = new AbortController();
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ signal: controller.signal }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(bridge.pasteText).toHaveBeenCalledTimes(1);
+    controller.abort("user-cancelled");
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
+    expect(bridge.pasteText).toHaveBeenCalledTimes(1);
+  });
+
   it("stops before dispatch when the focused target changes during the wait", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const { createInjectionGuard } = await import("@main/injection/guard");
@@ -220,6 +291,19 @@ describe("ClipboardTextInjector dispatch safety", () => {
 
     await expect(promise).resolves.toEqual({ success: false, reason: "target_changed" });
     expect(bridge.pasteText).not.toHaveBeenCalled();
+  });
+
+  it("does not paste or restore after the user copies the same text during the settle wait", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget);
+    await vi.advanceTimersByTimeAsync(300);
+    fakeClipboard = "dictated";
+    pasteboardChangeCount += 1;
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "cancelled" });
+    expect(bridge.pasteText).not.toHaveBeenCalled();
+    expect(fakeClipboard).toBe("dictated");
   });
 
   it("reports an uncertain outcome instead of trying another method after a dispatched paste loses focus", async () => {
@@ -266,5 +350,82 @@ describe("ClipboardTextInjector dispatch safety", () => {
     await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
     expect(bridge.pasteText).not.toHaveBeenCalled();
     expect(bridge.typeText).not.toHaveBeenCalled();
+  });
+
+  it("keeps a user clipboard change while an AppleScript paste is delayed", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    holdAppleScriptPaste = true;
+    const promise = new ClipboardTextInjector().inject("dictated", chromeTarget);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(releaseAppleScriptPaste).not.toBeNull();
+
+    fakeClipboard = "user copied during paste";
+    pasteboardChangeCount += 1;
+    releaseAppleScriptPaste?.();
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
+    expect(fakeClipboard).toBe("user copied during paste");
+    expect(bridge.pasteText).not.toHaveBeenCalled();
+  });
+
+  it("native paste uses the owned clipboard without writing it again", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget);
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+    expect(bridge.pasteText).toHaveBeenCalledWith("dictated", expect.any(Number));
+    expect(writes.filter((write) => write.value === "dictated")).toHaveLength(1);
+    expect(fakeClipboard).toBe("original");
+  });
+
+  it("does not try AppleScript after native paste reports failure following dispatch", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    bridge.pasteText.mockReturnValue(false);
+
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget);
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
+    expect(bridge.pasteText).toHaveBeenCalledTimes(1);
+    expect(bridge.typeText).not.toHaveBeenCalled();
+  });
+
+  it("reports an uncertain clipboard-only paste when cancelled immediately after dispatch", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    const controller = new AbortController();
+    const promise = new ClipboardTextInjector().inject("dictated", chromeTarget, createInjectionGuard({ signal: controller.signal }), () => controller.abort());
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
+    expect(bridge.pasteText).not.toHaveBeenCalled();
+  });
+
+  it("stops before dispatch when focus changes to another app during activation", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    let currentApp = "com.apple.TextEdit";
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ isTargetValid: () => currentApp === textEditTarget.appBundleId }));
+    await vi.advanceTimersByTimeAsync(300);
+    currentApp = "com.openai.chatgpt";
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "target_changed" });
+    expect(bridge.pasteText).not.toHaveBeenCalled();
+  });
+
+  it("stops before dispatch when focus moves to another field in the same app", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    let focusedField = "first";
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ isTargetValid: () => focusedField === "first" }));
+    await vi.advanceTimersByTimeAsync(300);
+    focusedField = "second";
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "target_changed" });
+    expect(bridge.pasteText).not.toHaveBeenCalled();
   });
 });
