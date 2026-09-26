@@ -344,6 +344,7 @@ describe("DictationService", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it("shows the pressed capsule and asks the recorder to start on hotkey down", () => {
@@ -548,6 +549,63 @@ describe("DictationService", () => {
 
     expect(service.getState()).toMatchObject({ status: "error", message: "Transcription timed out. Please try again." });
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "timeout", userMessage: "Transcription timed out. Please try again." });
+  });
+
+  it("formatter deadline still inserts corrected text", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, settings, history, injector, transcription } = createDictationService({ traces: traceDeps.traces });
+    makeSettingsMutable(settings, {
+      ...DEFAULT_SETTINGS,
+      customCorrections: [{ spoken: "get hub", written: "GitHub", source: "auto-suggested" }],
+    });
+    transcription.formatTranscript.mockRejectedValue(new TranscriptionDeadlineExceededError());
+
+    await submitHelloWorld(service);
+    await Promise.resolve();
+
+    expect(injector.inject).toHaveBeenCalledWith("Open GitHub.", expect.anything(), expect.anything());
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open GitHub.", injectionStatus: "injected" }));
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "injected", stages: { formatterUsed: "none", formatterReason: "timeout" } });
+  });
+
+  it("forces the formatter deadline only with the development switch", async () => {
+    vi.stubEnv("VAANI_DEV_FORCE_FORMAT_TIMEOUT", "1");
+    const traceDeps = createTraceDeps();
+    const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
+
+    await submitHelloWorld(service);
+    await Promise.resolve();
+
+    expect(transcription.formatTranscript).not.toHaveBeenCalled();
+    expect(injector.inject).toHaveBeenCalled();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "injected", stages: { formatterUsed: "none", formatterReason: "timeout" } });
+  });
+
+  it("stale guard finishes trace with the stuck stage and a visible message", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription, injector, overlay } = createDictationService({ traces: traceDeps.traces });
+    let resolveTranscription: ((result: TranscriptionResult) => void) | undefined;
+    transcription.transcribe.mockImplementation(() => new Promise((resolve) => { resolveTranscription = resolve; }));
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    const submission = service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(service.getState().status).toBe("transcribing");
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(service.getState()).toMatchObject({ status: "error", message: "Dictation stopped while transcribing. Please try again." });
+    expect(overlay.setError).toHaveBeenCalled();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "stale-session", stages: { staleStage: "transcribing", outcome: "failed" }, completedAt: expect.any(String) });
+
+    resolveTranscription?.({ rawText: "late text", formattedText: "late text", language: "en" });
+    await submission;
+    expect(injector.inject).not.toHaveBeenCalled();
   });
 
   it("keeps unrelated transcription failures classified as transcription errors", async () => {

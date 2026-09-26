@@ -128,7 +128,7 @@ export interface TranscriptionQualityMetadata {
 // ─── History ─────────────────────────────────────────────────────────────────
 
 export type DictationTraceOutcome = "started" | "injected" | "saved" | "rejected" | "failed" | "cancelled";
-export type DictationRejectionReason = "no_speech" | "microphone_permission_denied" | "fragment" | "recorder_unavailable" | "recorder_failure" | "timeout" | "transcription_error" | "insertion_failed" | "cancelled";
+export type DictationRejectionReason = "no_speech" | "microphone_permission_denied" | "fragment" | "recorder_unavailable" | "recorder_failure" | "timeout" | "stale-session" | "transcription_error" | "insertion_failed" | "cancelled";
 
 export interface ProviderAttemptTrace {
   provider: string;
@@ -186,6 +186,8 @@ export interface DictationStageSnapshot {
   qualityDecision?: DictationStageQualityDecision;
   cleanedText?: string;
   formatterUsed?: DictationFormatterUsed;
+  formatterReason?: "timeout";
+  staleStage?: "starting" | "recording" | "finalizing" | "transcribing";
   contentGuardVerdict?: DictationContentGuardVerdict;
   correctionsApplied?: DictationCorrectionTrace[];
   injectedText?: string;
