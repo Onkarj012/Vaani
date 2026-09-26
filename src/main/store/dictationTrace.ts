@@ -87,6 +87,12 @@ function normalizeTraces(raw: unknown): DictationTrace[] {
       ...(typeof item.buildIdentifier === "string" ? { buildIdentifier: truncateTraceText(item.buildIdentifier) } : {}),
       completedAt: typeof item.completedAt === "string" ? item.completedAt : undefined,
       hotkeyReleasedAt: typeof item.hotkeyReleasedAt === "string" ? item.hotkeyReleasedAt : undefined,
+      stopRequestedAt: typeof item.stopRequestedAt === "string" ? item.stopRequestedAt : undefined,
+      clipReadyAt: typeof item.clipReadyAt === "string" ? item.clipReadyAt : undefined,
+      sttDoneAt: typeof item.sttDoneAt === "string" ? item.sttDoneAt : undefined,
+      formatDoneAt: typeof item.formatDoneAt === "string" ? item.formatDoneAt : undefined,
+      dispatchAt: typeof item.dispatchAt === "string" ? item.dispatchAt : undefined,
+      verifyDoneAt: typeof item.verifyDoneAt === "string" ? item.verifyDoneAt : undefined,
       targetAppBundleId: typeof item.targetAppBundleId === "string" ? truncateTraceText(item.targetAppBundleId) : null,
       targetAppName: typeof item.targetAppName === "string" ? truncateTraceText(item.targetAppName) : null,
       rawAudio: normalizeAudioQuality(item.rawAudio),
@@ -333,6 +339,12 @@ function sanitizeTraceForStorage(trace: DictationTrace): DictationTrace {
   if (next.buildIdentifier) next.buildIdentifier = truncateTraceText(next.buildIdentifier);
   if (next.completedAt) next.completedAt = truncateTraceText(next.completedAt);
   if (next.hotkeyReleasedAt) next.hotkeyReleasedAt = truncateTraceText(next.hotkeyReleasedAt);
+  if (next.stopRequestedAt) next.stopRequestedAt = truncateTraceText(next.stopRequestedAt);
+  if (next.clipReadyAt) next.clipReadyAt = truncateTraceText(next.clipReadyAt);
+  if (next.sttDoneAt) next.sttDoneAt = truncateTraceText(next.sttDoneAt);
+  if (next.formatDoneAt) next.formatDoneAt = truncateTraceText(next.formatDoneAt);
+  if (next.dispatchAt) next.dispatchAt = truncateTraceText(next.dispatchAt);
+  if (next.verifyDoneAt) next.verifyDoneAt = truncateTraceText(next.verifyDoneAt);
   next.targetAppBundleId = next.targetAppBundleId ? truncateTraceText(next.targetAppBundleId) : null;
   next.targetAppName = next.targetAppName ? truncateTraceText(next.targetAppName) : null;
   if (next.rawAudioPath) next.rawAudioPath = truncateTraceText(next.rawAudioPath);

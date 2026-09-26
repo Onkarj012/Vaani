@@ -669,6 +669,45 @@ describe("DictationService", () => {
     }));
   });
 
+  it("records stage timestamps from hotkey release through insertion verification", async () => {
+    const traceDeps = createTraceDeps();
+    const { service } = createDictationService({ traces: traceDeps.traces });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] },
+    });
+    await vi.waitFor(() => expect(traceDeps.getTrace()?.completedAt).toBeDefined());
+    const trace = traceDeps.getTrace();
+    expect(trace).toMatchObject({
+      stopRequestedAt: expect.any(String),
+      clipReadyAt: expect.any(String),
+      sttDoneAt: expect.any(String),
+      formatDoneAt: expect.any(String),
+      dispatchAt: expect.any(String),
+      verifyDoneAt: expect.any(String),
+      outcome: "injected",
+    });
+    expect(trace?.stopRequestedAt).toBe(trace?.hotkeyReleasedAt);
+  });
+
+  it("keeps the original release time when stop waits for recorder startup", async () => {
+    const traceDeps = createTraceDeps();
+    const { service } = createDictationService({ traces: traceDeps.traces });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.endHotkeySession();
+    await vi.waitFor(() => expect(traceDeps.getTrace()?.stopRequestedAt).toBeDefined());
+    const release = traceDeps.getTrace()?.stopRequestedAt;
+    vi.setSystemTime(new Date("2026-09-26T12:00:02.000Z"));
+    service.reportRecorderStarted(sessionId);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(traceDeps.getTrace()?.stopRequestedAt).toBe(release);
+  });
+
   it("uses the effective app language and surfaces provider detection", async () => {
     const { service, history, overlay, settings, transcription } = createDictationService();
     makeSettingsMutable(settings, {
