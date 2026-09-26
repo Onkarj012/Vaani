@@ -40,6 +40,7 @@ function formattingProvider(id: string, format: FormattingProvider["format"], re
 }
 
 const clip: AudioClip = { pcmData: [0.1, 0.2], sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] };
+const contextClip: AudioClip = { pcmData: new Array(32_000).fill(0.1), sampleRate: 16_000, durationSeconds: 2, rmsFrames: new Array(100).fill(0.1) };
 
 describe("TranscriptionService failover chain", () => {
   beforeEach(() => {
@@ -146,12 +147,12 @@ describe("TranscriptionService failover chain", () => {
       groqApiKey: "groq-key",
     }));
 
-    await service.transcribe(clip);
+    await service.transcribe(contextClip, { speechContext: { trimmedDurationSeconds: 2, speechGatePassed: true } });
 
-    expect(primaryTranscribe).toHaveBeenCalledWith(clip, expect.objectContaining({
-      prompt: "GitHub, onkar@example.com",
+    expect(primaryTranscribe).toHaveBeenCalledWith(contextClip, expect.objectContaining({
+      prompt: "GitHub",
     }));
-    expect(primaryTranscribe).not.toHaveBeenCalledWith(clip, expect.objectContaining({
+    expect(primaryTranscribe).not.toHaveBeenCalledWith(contextClip, expect.objectContaining({
       prompt: expect.stringContaining("bullet points"),
     }));
   });
@@ -177,11 +178,36 @@ describe("TranscriptionService failover chain", () => {
       groqApiKey: "groq-key",
     }));
 
-    await service.transcribe(clip);
+    await service.transcribe(contextClip, { speechContext: { trimmedDurationSeconds: 2, speechGatePassed: true } });
 
-    expect(primaryTranscribe).toHaveBeenCalledWith(clip, expect.objectContaining({
-      prompt: "GitHub, release notes",
+    expect(primaryTranscribe).toHaveBeenCalledWith(contextClip, expect.objectContaining({
+      prompt: "GitHub",
     }));
+  });
+
+  it("omits vocabulary context for a short trimmed clip or a failed speech gate", async () => {
+    const primaryTranscribe = vi.fn<TranscriptionProvider["transcribe"]>(async (): Promise<TranscriptionResult> => ({
+      rawText: "hello", formattedText: "hello", language: "en",
+    }));
+    registryState.providers.set("groq", provider("groq", primaryTranscribe));
+    const { TranscriptionService, buildSpeechContextPrompt } = await import("@main/transcription");
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      groqApiKey: "groq-key",
+      customCorrections: [{ spoken: "get hub", written: "GitHub" }],
+      snippets: [{ trigger: "email", content: "private snippet content" }],
+    };
+    const service = new TranscriptionService(() => settings);
+
+    expect(buildSpeechContextPrompt(settings, { trimmedDurationSeconds: 1.99, speechGatePassed: true })).toBeUndefined();
+    expect(buildSpeechContextPrompt(settings, { trimmedDurationSeconds: 2, speechGatePassed: false })).toBeUndefined();
+    expect(buildSpeechContextPrompt(settings, { trimmedDurationSeconds: 2, speechGatePassed: true })).toBe("GitHub");
+
+    await service.transcribe(contextClip, { speechContext: { trimmedDurationSeconds: 1.99, speechGatePassed: true } });
+    await service.transcribe(contextClip, { speechContext: { trimmedDurationSeconds: 2, speechGatePassed: false } });
+    await service.transcribe(clip, { speechContext: { trimmedDurationSeconds: 2, speechGatePassed: true } });
+    await service.transcribe(contextClip);
+    for (const call of primaryTranscribe.mock.calls) expect(call[1].prompt).toBeUndefined();
   });
 
   it("falls through from a failing primary provider to the next configured fallback", async () => {

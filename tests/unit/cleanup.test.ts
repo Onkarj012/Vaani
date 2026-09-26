@@ -116,6 +116,28 @@ describe("cleanupText", () => {
     expect(result).toBe("The final word after the pause is Vaani.\n\nThe final sentence should end with the word Google.");
   });
 
+  it("leaves unrelated words unchanged with plain and fuzzy dictionary rules", () => {
+    const settings = createSettings({ customCorrections: [
+      { spoken: "Bani", written: "Vaani" },
+      { spoken: "get hub", written: "GitHub", fuzzy: true },
+    ] });
+
+    expect(cleanupText({ rawText: "send the report tomorrow", settings })).toBe("Send the report tomorrow.");
+  });
+
+  it("does not expand bare snippets for unrelated words or when bare matching is off", () => {
+    const snippet = { trigger: "long phrase", content: "Kubernetes Vaani" };
+
+    expect(cleanupText({
+      rawText: "please send the report",
+      settings: createSettings({ snippets: [{ ...snippet, matchBareTrigger: true }] }),
+    })).toBe("Please send the report.");
+    expect(cleanupText({
+      rawText: "please use long phrase today",
+      settings: createSettings({ snippets: [snippet] }),
+    })).toBe("Please use long phrase today.");
+  });
+
   it("preserves trailing Vaani as spoken content", () => {
     expect(cleanupText({
       rawText: "hello world Vaani",

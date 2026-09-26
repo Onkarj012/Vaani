@@ -396,6 +396,7 @@ export class DictationService {
       const transcriptionDeadlineAt = sttStartedAt + transcriptionTimeoutMs;
       const transcription = await this.transcription.transcribe(payload.clip, {
         sessionSettings: snapshot,
+        speechContext: { trimmedDurationSeconds: validationClip.durationSeconds, speechGatePassed: speechGate.pass },
         languageOverride: language,
         ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
           retryClip: validationClip,

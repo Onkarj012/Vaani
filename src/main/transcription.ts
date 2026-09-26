@@ -33,6 +33,7 @@ export interface FormattingOptions {
 
 export interface TranscribeOptions {
   sessionSettings?: SessionSettingsSnapshot;
+  speechContext?: { trimmedDurationSeconds: number; speechGatePassed: boolean };
   languageOverride?: string;
   providerOverride?: string;
   rejectResult?: (result: TranscriptionResult) => boolean;
@@ -119,7 +120,7 @@ export class TranscriptionService {
           settings.localWhisperModel !== this.settingsProvider().localWhisperModel) {
         throw new Error(`Restore local model "${settings.localWhisperModel}" to retry this session, or start a new dictation.`);
       }
-      const speechContextPrompt = buildSpeechContextPrompt(settings);
+      const speechContextPrompt = buildSpeechContextPrompt(settings, options?.speechContext);
       const chain = await this.buildSttChain(settings, primaryId, registry);
       if (chain.length === 0) throw new Error(messageForEmptyChain(settings, primaryId));
 
@@ -149,7 +150,7 @@ export class TranscriptionService {
               apiKey,
               language,
               model: attempt.model || undefined,
-              prompt: speechContextPrompt,
+              prompt: attempt.clip.durationSeconds >= 2 ? speechContextPrompt : undefined,
               temperature: 0,
               signal: scope.signal,
               recovery: options?.recovery,
@@ -438,7 +439,10 @@ async function transcribePossiblyChunked(
     throwIfTranscriptionDeadlineExceeded(deadlineAt, signal);
     debug("transcription", `Transcribing chunk ${index + 1}/${chunks.length}: ${chunk.durationSeconds.toFixed(2)}s`);
     beforeProviderCall?.();
-    results.push(await provider.transcribe(chunk, options));
+    results.push(await provider.transcribe(chunk, {
+      ...options,
+      prompt: chunk.durationSeconds >= 2 ? options.prompt : undefined,
+    }));
   }
 
   return mergeChunkedTranscriptionResults(results, chunks);
@@ -659,8 +663,10 @@ const MAX_SPEECH_CONTEXT_CHARS = 600;
 const MAX_SPEECH_CONTEXT_ITEMS = 24;
 
 export function buildSpeechContextPrompt(
-  settings: Pick<Settings, "customCorrections" | "snippets">,
+  settings: Pick<Settings, "customCorrections">,
+  speechContext?: { trimmedDurationSeconds: number; speechGatePassed: boolean },
 ): string | undefined {
+  if (!speechContext?.speechGatePassed || !(speechContext.trimmedDurationSeconds >= 2)) return undefined;
   const terms: string[] = [];
   const seen = new Set<string>();
   const add = (value: string | undefined) => {
@@ -674,10 +680,6 @@ export function buildSpeechContextPrompt(
 
   for (const correction of settings.customCorrections ?? []) {
     add(correction.written);
-  }
-
-  for (const snippet of settings.snippets ?? []) {
-    add(snippet.content);
   }
 
   let prompt = "";

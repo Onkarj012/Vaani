@@ -923,7 +923,7 @@ describe("DictationService", () => {
 
     expect(transcription.transcribe).toHaveBeenCalledWith(
       expect.objectContaining({ durationSeconds: clip.durationSeconds, pcmData: clip.pcmData }),
-      expect.anything(),
+      expect.objectContaining({ speechContext: { trimmedDurationSeconds: clip.durationSeconds, speechGatePassed: true } }),
     );
   });
 
@@ -959,11 +959,12 @@ describe("DictationService", () => {
 
     expect(transcription.transcribe).toHaveBeenCalledWith(
       expect.objectContaining({ durationSeconds: clip.durationSeconds, pcmData: clip.pcmData }),
-      expect.anything(),
+      expect.objectContaining({ speechContext: { trimmedDurationSeconds: expect.any(Number), speechGatePassed: true } }),
     );
     const updatedTrace = trace as DictationTrace | null;
     expect(updatedTrace?.rawAudio?.durationSeconds).toBe(31);
     expect(updatedTrace?.trimmedAudio?.durationSeconds).toBeLessThan(31);
+    expect(transcription.transcribe.mock.calls[0]?.[1]?.speechContext?.trimmedDurationSeconds).toBe(updatedTrace?.trimmedAudio?.durationSeconds);
   });
 
   it("saves when an existing identical occurrence is unchanged after injection", async () => {
