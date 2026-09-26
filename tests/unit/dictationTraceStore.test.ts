@@ -75,6 +75,8 @@ describe("DictationTraceStore", () => {
     const store = await createStore();
     const timestamps = {
       stopRequestedAt: "2026-09-26T00:00:01.000Z",
+      lastFrameAfterStopMs: 340,
+      trailingRms: 0.02,
       clipReadyAt: "2026-09-26T00:00:01.300Z",
       sttDoneAt: "2026-09-26T00:00:02.000Z",
       formatDoneAt: "2026-09-26T00:00:02.200Z",

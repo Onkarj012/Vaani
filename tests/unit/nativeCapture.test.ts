@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AudioInputDevice, RecorderConfig } from "@shared/types";
+import type { AudioInputDevice, RecorderConfig, RecorderSubmission } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { CaptureBackendController, NativeCaptureService, selectNativeInputDevice, shouldUseNativeBackend, type NativeCaptureSink } from "@main/audio/nativeCapture";
 
@@ -111,6 +111,37 @@ describe("CaptureBackendController", () => {
 });
 
 describe("NativeCaptureService", () => {
+  it("submits last-frame timing and final 300 ms loudness with the clip", async () => {
+    vi.useFakeTimers();
+    try {
+      let onData: ((samples: Float32Array) => void) | undefined;
+      const submitAudioClip = vi.fn<(payload: RecorderSubmission) => void>();
+      const bridge = {
+        audioCaptureStart: vi.fn((options: { onData: (samples: Float32Array) => void }) => {
+          onData = options.onData;
+          return true;
+        }),
+        audioCaptureStop: vi.fn(),
+        audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+      };
+      const service = new NativeCaptureService(
+        () => ({ preWarmMic: false, captureBackend: "native" }),
+        { reportRecorderStarted: vi.fn(), submitAudioClip, updateAudioLevel: vi.fn(), handleRecorderFailure: vi.fn() },
+        bridge,
+      );
+
+      expect(service.startRecording("s1")).toBe(true);
+      expect(service.stopRecording("s1")).toBe(true);
+      await vi.advanceTimersByTimeAsync(50);
+      onData?.(new Float32Array(16_000).fill(0.02));
+      await vi.advanceTimersByTimeAsync(370);
+      expect(submitAudioClip.mock.calls[0]?.[0].tailMetrics?.lastFrameAfterStopMs).toBe(50);
+      expect(submitAudioClip.mock.calls[0]?.[0].tailMetrics?.trailingRms).toBeCloseTo(0.02);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps suspension retryable after a failed resume and makes a later success idempotent", () => {
     const config: RecorderConfig = { preWarmMic: true, captureBackend: "native", micDeviceId: "built-in" };
     let startSucceeds = true;

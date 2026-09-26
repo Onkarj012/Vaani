@@ -88,6 +88,8 @@ function normalizeTraces(raw: unknown): DictationTrace[] {
       completedAt: typeof item.completedAt === "string" ? item.completedAt : undefined,
       hotkeyReleasedAt: typeof item.hotkeyReleasedAt === "string" ? item.hotkeyReleasedAt : undefined,
       stopRequestedAt: typeof item.stopRequestedAt === "string" ? item.stopRequestedAt : undefined,
+      lastFrameAfterStopMs: finiteNumber(item.lastFrameAfterStopMs),
+      trailingRms: finiteNumber(item.trailingRms),
       clipReadyAt: typeof item.clipReadyAt === "string" ? item.clipReadyAt : undefined,
       sttDoneAt: typeof item.sttDoneAt === "string" ? item.sttDoneAt : undefined,
       formatDoneAt: typeof item.formatDoneAt === "string" ? item.formatDoneAt : undefined,

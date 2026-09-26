@@ -356,6 +356,7 @@ export class DictationService {
     const tracePatch: Partial<DictationTrace> = {
       rawAudio,
       trimmedAudio: analyzeAudioQuality(validationClip, settings.silenceThreshold),
+      ...(payload.tailMetrics ? payload.tailMetrics : {}),
     };
 
     debug("dictation", `submitAudioClip: raw=${payload.clip.durationSeconds.toFixed(2)}s, validation=${validationClip.durationSeconds.toFixed(2)}s, minClip=${settings.minClipDuration}s`);

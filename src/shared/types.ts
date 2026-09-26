@@ -204,6 +204,8 @@ export interface DictationTrace {
   completedAt?: string;
   hotkeyReleasedAt?: string;
   stopRequestedAt?: string;
+  lastFrameAfterStopMs?: number;
+  trailingRms?: number;
   clipReadyAt?: string;
   sttDoneAt?: string;
   formatDoneAt?: string;
@@ -457,6 +459,7 @@ export type InjectionResult =
 export interface RecorderSubmission {
   sessionId: string;
   clip: AudioClip;
+  tailMetrics?: { lastFrameAfterStopMs: number; trailingRms: number };
 }
 
 export interface RecorderFailure {

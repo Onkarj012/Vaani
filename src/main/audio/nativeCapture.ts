@@ -2,13 +2,10 @@ import type { AudioClip, AudioInputDevice, AudioVisualFrame, RecorderConfig, Rec
 import { PcmRingBuffer, PRE_ROLL_MS, TARGET_SAMPLE_RATE, mergePcmChunks, pcmToAudioClip, trimLeadingSilence } from "@shared/pcmUtils";
 import { debug, error } from "@main/log";
 import { nativeBridge } from "@main/nativeBridge";
+import { STOP_MAX_WAIT_MS, STOP_POLL_MS, STOP_QUIET_MS, STOP_TAIL_GRACE_MS, trailingRms } from "@shared/recorderTail";
 
-const STOP_TAIL_GRACE_MS = 300;
 // After the grace window, wait for the native drain queue to go quiet so audio
 // still in the C++ ring / TSFN queue is not discarded with the session.
-const STOP_QUIET_MS = 120;
-const STOP_MAX_WAIT_MS = 1200;
-const STOP_POLL_MS = 40;
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const BAR_BASELINE = 0.04;
@@ -83,6 +80,7 @@ export class NativeCaptureService implements RecorderCommands {
   private activeSessionId: string | null = null;
   private chunks: Float32Array[] = [];
   private lastChunkAt = 0;
+  private lastFrameAt = 0;
   private noiseFloor = 0;
   private lastReportedAt = 0;
   private smoothedBars = new Array(VISUAL_BAR_COUNT).fill(BAR_BASELINE);
@@ -122,6 +120,7 @@ export class NativeCaptureService implements RecorderCommands {
   startRecording(sessionId: string): boolean {
     this.currentConfig = this.normalizeConfig(this.getConfig());
     this.chunks = [];
+    this.lastFrameAt = 0;
     this.resetBars();
 
     if (!this.ensureCapture(this.currentConfig)) {
@@ -150,7 +149,10 @@ export class NativeCaptureService implements RecorderCommands {
         this.sink.handleRecorderFailure({ sessionId, message: "Recording could not be finalized." });
         return;
       }
-      void this.sink.submitAudioClip({ sessionId, clip: pcmToAudioClip(merged, TARGET_SAMPLE_RATE) });
+      void this.sink.submitAudioClip({ sessionId, clip: pcmToAudioClip(merged, TARGET_SAMPLE_RATE), tailMetrics: {
+        lastFrameAfterStopMs: this.lastFrameAt ? this.lastFrameAt - stopRequestedAt : 0,
+        trailingRms: trailingRms(merged, TARGET_SAMPLE_RATE),
+      } });
       this.restartCaptureIfPrewarmed();
     };
 
@@ -258,6 +260,7 @@ export class NativeCaptureService implements RecorderCommands {
     if (generation !== this.transportGeneration) return;
     this.ring.append(samples);
     this.lastChunkAt = Date.now();
+    this.lastFrameAt = this.lastChunkAt;
     this.updateNoiseFloor(samples);
     if (!this.activeSessionId) return;
     this.chunks.push(samples.slice());

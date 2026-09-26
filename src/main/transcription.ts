@@ -5,7 +5,7 @@ import { getProviderRegistry } from "./providers";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
-import { missingContentWords } from "@shared/contentGuard";
+import { missingContentWords, preservesFinalWords } from "@shared/contentGuard";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
 import { deterministicFormat } from "@main/text/cleanup";
 
@@ -372,7 +372,7 @@ export class TranscriptionService {
       signal,
     });
     const missingWords = missingContentWords(rawText, formatted);
-    if (missingWords.length > 0) {
+    if (missingWords.length > 0 || !preservesFinalWords(rawText, formatted)) {
       debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
       return {
         text: deterministicFormat(rawText),
