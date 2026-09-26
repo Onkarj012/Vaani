@@ -184,9 +184,12 @@ export class DictationService {
   private armStaleSessionGuard(sessionId: string): void {
     this.clearStaleSessionTimer();
     this.timers.setTimeout("staleSession", () => {
-      if (this.isCurrentSession(sessionId) && this.state.status !== "idle") {
-        debug("dictation", `stale session guard fired: status=${this.state.status}, forcing reset`);
-        this.resetToIdle();
+      const stage = this.state.status;
+      if (this.isCurrentSession(sessionId) && (stage === "starting" || stage === "recording" || stage === "finalizing" || stage === "transcribing")) {
+        debug("dictation", `stale session guard fired: status=${stage}, ending session`);
+        this.sessionAbortController?.abort("stale-session");
+        this.recorder?.abortRecording?.(sessionId);
+        this.failSession(sessionId, `Dictation stopped while ${stage}. Please try again.`, "stale-session", [], undefined, undefined, { stages: { staleStage: stage } });
       }
     }, STALE_SESSION_TIMEOUT_MS);
   }
@@ -489,19 +492,22 @@ export class DictationService {
       try {
         await this.transitionRecovery(payload.sessionId, "formatting", { text: { cleanedText: correctedText }, signal: operationSignal });
         const formattingStartedAt = Date.now();
+        if (!electron.app.isPackaged && process.env.VAANI_DEV_FORCE_FORMAT_TIMEOUT === "1") throw new TranscriptionDeadlineExceededError();
         formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + FORMATTING_TIMEOUT_MS, snapshot);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
         formattedText = formatTrace.text;
         void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
       } catch (error) {
+        if (operationSignal?.aborted) return;
         if (error instanceof TranscriptionDeadlineExceededError) {
-          this.sessionAbortController?.abort("formatting-deadline");
-          this.failSession(payload.sessionId, "Formatting timed out. Please try again.", "timeout");
-          return;
+          formattedText = correctedText;
+          formatTrace = { text: correctedText, formatterUsed: "none" };
+          void this.patchTrace(payload.sessionId, { stages: { formatterReason: "timeout" } });
+        } else {
+          if (error instanceof TranscriptionCancelledError) return;
+          formattedText = correctedText;
+          formatTrace = { text: correctedText, formatterUsed: "none" };
         }
-        if (operationSignal?.aborted || error instanceof TranscriptionCancelledError) return;
-        formattedText = correctedText;
-        formatTrace = { text: correctedText, formatterUsed: "none" };
       }
 
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
@@ -1284,14 +1290,14 @@ export class DictationService {
     this.scheduleReset(SUCCESS_RESET_MS);
   }
 
-  private failSession(sessionId: string, message: string, reason: DictationRejectionReason = "transcription_error", providerAttempts: ProviderAttemptTrace[] = [], signal?: AbortSignal, errorClass?: RecoveryErrorClass): void {
+  private failSession(sessionId: string, message: string, reason: DictationRejectionReason = "transcription_error", providerAttempts: ProviderAttemptTrace[] = [], signal?: AbortSignal, errorClass?: RecoveryErrorClass, tracePatch: Partial<DictationTrace> = {}): void {
     if (!this.isCurrentSession(sessionId)) return;
     void this.transitionRecovery(sessionId, "recoverable", { error: { class: errorClass ?? recoveryErrorClass(reason), detail: message }, providerAttempts: providerAttempts.map(mapProviderAttempt), signal });
     this.clearRecorderStartTimer();
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
     this.setState({ status: "error", sessionId, message });
-    void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message);
+    void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message, tracePatch);
     this.scheduleReset(ERROR_RESET_MS);
   }
 
@@ -1916,6 +1922,7 @@ function recoveryErrorClass(reason: DictationRejectionReason): RecoveryErrorClas
     case "microphone_permission_denied": return "microphone_permission_denied";
     case "no_speech": return "no_speech";
     case "timeout": return "timeout";
+    case "stale-session": return "timeout";
     case "recorder_failure": return "recorder_failure";
     case "insertion_failed": return "insertion_failed";
     case "cancelled": return "interrupted";

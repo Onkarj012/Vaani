@@ -216,6 +216,10 @@ function normalizeStages(value: unknown): DictationTrace["stages"] {
   if (value.formatterUsed === "llm" || value.formatterUsed === "guard-fallback" || value.formatterUsed === "deterministic" || value.formatterUsed === "none") {
     stages.formatterUsed = value.formatterUsed;
   }
+  if (value.formatterReason === "timeout") stages.formatterReason = value.formatterReason;
+  if (value.staleStage === "starting" || value.staleStage === "recording" || value.staleStage === "finalizing" || value.staleStage === "transcribing") {
+    stages.staleStage = value.staleStage;
+  }
   if (value.injectionStrategy === "ax" || value.injectionStrategy === "clipboard" || value.injectionStrategy === "none") {
     stages.injectionStrategy = value.injectionStrategy;
   }
@@ -307,6 +311,7 @@ function normalizeRejectionReason(value: unknown): DictationTrace["rejectionReas
     case "recorder_unavailable":
     case "recorder_failure":
     case "timeout":
+    case "stale-session":
     case "transcription_error":
     case "insertion_failed":
     case "cancelled":

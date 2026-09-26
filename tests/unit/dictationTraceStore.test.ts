@@ -59,6 +59,18 @@ describe("DictationTraceStore", () => {
     expect(updated?.sttLatencyMs).toBe(125);
   });
 
+  it("reloads formatter timeout and stale-session trace details", async () => {
+    const store = await createStore();
+    await store.upsert({ ...trace("format"), outcome: "injected", stages: { formatterUsed: "none", formatterReason: "timeout" } });
+    await store.upsert({ ...trace("stale"), outcome: "failed", rejectionReason: "stale-session", stages: { staleStage: "transcribing", outcome: "failed" } });
+    if (!tempDir) throw new Error("Trace test directory was not initialized.");
+    const { DictationTraceStore } = await import("@main/store/dictationTrace");
+    const reloaded = new DictationTraceStore(join(tempDir, "traces.json"));
+
+    expect((await reloaded.getById("format"))?.stages).toMatchObject({ formatterUsed: "none", formatterReason: "timeout" });
+    expect(await reloaded.getById("stale")).toMatchObject({ rejectionReason: "stale-session", stages: { staleStage: "transcribing" } });
+  });
+
   it("caps stored traces at the most recent 200 sessions", async () => {
     const store = await createStore();
 
