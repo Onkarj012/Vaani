@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFile, mkdir, writeFile, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -10,6 +10,7 @@ const columns = [
   "release_to_complete_ms", "last_frame_after_stop_ms", "trailing_rms_300ms", "build", "landed_once", "usable", "note",
 ];
 const stageColumns = columns.slice(6, 13);
+const textColumns = new Set(["id", "time", "app", "duration_bucket", "outcome", "status_text", "build", "landed_once", "usable", "note"]);
 const safeStatusMessages = new Set([
   "Inserted at cursor", "Retry inserted at cursor", "Saved to history",
   "Saved to history; copy text manually", "Saved for recovery", "Copied to clipboard",
@@ -79,8 +80,9 @@ function existingRows(source) {
   return result;
 }
 
-function csvField(value) {
-  const text = String(value ?? "");
+function csvField(value, textCell = false) {
+  let text = String(value ?? "");
+  if (textCell && /^[\s]*[=+\-@]|^[\t\r\n]/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
@@ -183,9 +185,15 @@ async function main() {
       note: old?.note ?? "",
     });
   }
-  const lines = [columns.join(","), ...[...previous.values()].map((row) => columns.map((name) => csvField(row[name])).join(","))];
+  const lines = [columns.join(","), ...[...previous.values()].map((row) => columns.map((name) => csvField(row[name], textColumns.has(name))).join(","))];
   await mkdir(dirname(output), { recursive: true });
-  await writeFile(output, `${lines.join("\n")}\n`, "utf8");
+  const temporary = join(dirname(output), `.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.scorecard.tmp`);
+  try {
+    await writeFile(temporary, `${lines.join("\n")}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    await rename(temporary, output);
+  } finally {
+    await rm(temporary, { force: true });
+  }
   printSummary([...previous.values()]);
 }
 

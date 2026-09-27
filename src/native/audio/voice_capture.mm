@@ -338,7 +338,7 @@ bool VoiceCapture::configureAudioUnit(const std::string& deviceUid, std::string&
 
   deviceId_ = resolveDevice(deviceUid);
   if (deviceId_ == kAudioObjectUnknown) {
-    errorMessage = "No physical microphone found.";
+    errorMessage = deviceUid.empty() ? "No physical microphone found." : "Selected microphone is unavailable.";
     return false;
   }
   if (AudioUnitSetProperty(unit_, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &deviceId_, sizeof(deviceId_)) != noErr) {

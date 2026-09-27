@@ -5,7 +5,7 @@ import { useVaaniUi } from '../context/vaani-ui'
 import { Card } from '@renderer/components/ui/card'
 import { Input, Textarea } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
-import { editSnippet, normalizeAppProfileIds } from '@shared/textRuleEdits'
+import { editSnippet, normalizeAppProfileIds, normalizeSnippetTrigger } from '@shared/textRuleEdits'
 
 const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } }
 const item = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }
@@ -43,7 +43,7 @@ export default function Snippets() {
   }
 
   const handleSave = () => {
-    const trigger = newTrigger.trim().replace(/^\/+/, '').replace(/\s+/g, ' ')
+    const trigger = normalizeSnippetTrigger(newTrigger)
     const content = newContent.trim()
     if (!trigger || !content) return
     const conflict = settings.snippets.some((snippet) => snippet.trigger.toLocaleLowerCase() === trigger.toLocaleLowerCase()

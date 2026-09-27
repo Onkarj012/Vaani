@@ -24,14 +24,14 @@ describe("selectNativeInputDevice", () => {
     expect(selectNativeInputDevice(devices, "preferred")).toEqual({ ok: true, uid: "preferred" });
   });
 
-  it("falls back to the built-in device when the selected UID is missing", () => {
+  it("reports a missing selected UID instead of falling back to built-in", () => {
     const devices = [
       device({ uid: "virtual", isPhysical: false, transportType: "virtual" }),
       device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
       device({ uid: "built-in" }),
     ];
 
-    expect(selectNativeInputDevice(devices, "missing")).toEqual({ ok: true, uid: "built-in" });
+    expect(selectNativeInputDevice(devices, "missing")).toEqual({ ok: false, message: "Selected microphone is unavailable." });
   });
 
   it("prefers built-in over a default Bluetooth input", () => {

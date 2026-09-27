@@ -7,7 +7,7 @@ Vaani is a macOS voice dictation app with multi-provider transcription and LLM f
 ## Features
 
 - **Global Hotkey** — Start dictating from anywhere with a customizable keyboard shortcut. Toggle or push-to-talk mode.
-- **Multi-Provider STT** — Transcribe with Groq Whisper, OpenAI Whisper, Deepgram Nova-2, or local whisper.cpp (offline)
+- **Multi-Provider STT** — Transcribe with Groq Whisper, OpenAI Whisper, or Deepgram Nova-2. Local whisper.cpp is optional and not verified in packaged builds.
 - **Multi-Provider LLM Formatting** — Clean up text with Groq Llama, OpenAI GPT, Anthropic Claude, or OpenRouter
 - **Offline Mode** — Always Offline restricts transcription to local Whisper and skips cloud formatting. A working native Whisper backend and model are required; see Known Limitations.
 - **Smart Text Cleanup** — Removes filler words ("um", "uh", "like"), fixes punctuation, and applies AI formatting

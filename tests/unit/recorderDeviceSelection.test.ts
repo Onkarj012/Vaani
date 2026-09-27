@@ -1,120 +1,60 @@
 import { describe, expect, it } from "vitest";
+import type { AudioInputDevice } from "@shared/types";
 import { selectRecorderDevice, selectRecorderDeviceId, type AudioInputLike } from "@renderer/recorder/deviceSelection";
 
 function input(deviceId: string, label: string): AudioInputLike {
   return { kind: "audioinput", deviceId, label };
 }
 
-describe("selectRecorderDeviceId", () => {
-  it("prefers the built-in mic over virtual and external inputs", () => {
-    const devices = [
-      input("vd", "BlackHole 2ch"),
-      input("ext", "Scarlett 2i2"),
-      input("bi", "MacBook Pro Microphone"),
-    ];
-    expect(selectRecorderDeviceId(devices)).toBe("bi");
+function native(uid: string, name: string, transportType: string): AudioInputDevice {
+  return { uid, name, transportType, isDefault: false, isPhysical: true };
+}
+
+describe("selectRecorderDevice", () => {
+  const builtIn = native("coreaudio-built-in", "Internal Microphone", "built-in");
+
+  it("matches the unique CoreAudio built-in device to the browser input", () => {
+    const devices = [input("usb", "USB Microphone"), input("browser-built-in", "Internal Microphone")];
+    expect(selectRecorderDeviceId(devices, [builtIn])).toBe("browser-built-in");
   });
 
-  it("does not select an external mic by default", () => {
-    const devices = [input("vd", "BlackHole 2ch"), input("ext", "USB Microphone")];
-    expect(selectRecorderDeviceId(devices)).toBeUndefined();
+  it("ignores a Bluetooth input named Internal Microphone when CoreAudio names a different built-in", () => {
+    const devices = [input("bluetooth", "Internal Microphone"), input("browser-built-in", "MacBook Pro Microphone")];
+    const macBookMic = native("coreaudio-built-in", "MacBook Pro Microphone", "built-in");
+    expect(selectRecorderDeviceId(devices, [macBookMic])).toBe("browser-built-in");
   });
 
-  it("skips Bluetooth and Bluetooth LE inputs before the built-in mic", () => {
-    const devices = [
-      input("bt", "Bluetooth Headset"),
-      input("ble", "Bluetooth LE Microphone"),
-      input("bi", "Built-in Microphone"),
-    ];
-    expect(selectRecorderDeviceId(devices)).toBe("bi");
+  it("refuses a renamed Bluetooth input that shares the built-in label", () => {
+    const devices = [input("bluetooth", "Internal Microphone"), input("browser-built-in", "Internal Microphone")];
+    const renamedBluetooth = native("bt", "Internal Microphone", "bluetooth");
+    expect(selectRecorderDevice(devices, undefined, [builtIn, renamedBluetooth])).toMatchObject({ ok: false });
+    expect(selectRecorderDevice([input("bluetooth", "Internal Microphone")], undefined, [builtIn, renamedBluetooth]))
+      .toMatchObject({ ok: false });
   });
 
-  it("does not mistake a Bluetooth device with a built-in label for the Mac mic", () => {
-    const devices = [input("bt", "Built-in Bluetooth Headset"), input("bi", "MacBook Pro Microphone")];
-    expect(selectRecorderDeviceId(devices)).toBe("bi");
+  it("fails closed without one unique native built-in and browser match", () => {
+    const devices = [input("browser-built-in", "Internal Microphone")];
+    expect(selectRecorderDeviceId(devices, [])).toBeUndefined();
+    expect(selectRecorderDeviceId(devices, [builtIn, native("second", "Internal Microphone", "built-in")])).toBeUndefined();
+    expect(selectRecorderDeviceId([input("other", "External")], [builtIn])).toBeUndefined();
+    expect(selectRecorderDeviceId([{ kind: "audiooutput", deviceId: "speaker", label: "Internal Microphone" }], [builtIn])).toBeUndefined();
   });
 
-  it("fails closed when no built-in mic exists", () => {
-    const devices = [
-      input("agg", "Aggregate Device"),
-      input("ext1", "USB Microphone"),
-      input("ext2", "Scarlett 2i2"),
-    ];
-    expect(selectRecorderDeviceId(devices)).toBeUndefined();
+  it("honors an explicitly selected browser input", () => {
+    expect(selectRecorderDevice([input("usb", "USB Microphone")], "usb")).toEqual({ ok: true, deviceId: "usb" });
   });
 
-  it("returns undefined when only virtual inputs exist", () => {
-    const devices = [input("vd", "BlackHole 16ch"), input("lb", "Loopback Audio")];
-    expect(selectRecorderDeviceId(devices)).toBeUndefined();
+  it("maps an explicitly selected native UID only with a unique browser label", () => {
+    const headset = native("coreaudio-headset", "Headset Microphone", "bluetooth");
+    expect(selectRecorderDevice([input("headset", "Headset Microphone")], headset.uid, [headset]))
+      .toEqual({ ok: true, deviceId: "headset" });
+    expect(selectRecorderDevice([input("one", "Headset Microphone"), input("two", "Headset Microphone")], headset.uid, [headset]))
+      .toMatchObject({ ok: false, message: expect.stringContaining("Selected microphone") });
   });
 
-  it("returns an error instead of falling back to default when only virtual inputs exist", () => {
-    const devices = [input("vd", "BlackHole 16ch"), input("lb", "Loopback Audio")];
-
-    expect(selectRecorderDevice(devices)).toEqual({
-      ok: false,
-      message: expect.stringContaining("No built-in microphone found"),
-    });
-  });
-
-  it("honors an explicitly selected Bluetooth mic when it is present", () => {
-    const devices = [
-      input("bi", "MacBook Pro Microphone"),
-      input("preferred", "Bluetooth Headset"),
-    ];
-
-    expect(selectRecorderDevice(devices, "preferred")).toEqual({ ok: true, deviceId: "preferred" });
-  });
-
-  it("maps an explicitly selected native UID to the browser device ID", () => {
-    const devices = [input("browser-built-in", "MacBook Pro Microphone"), input("browser-headset", "Headset Microphone")];
-    const nativeDevices = [{ uid: "coreaudio-headset", name: "Headset Microphone" }];
-
-    expect(selectRecorderDevice(devices, "coreaudio-headset", nativeDevices)).toEqual({ ok: true, deviceId: "browser-headset" });
-  });
-
-  it("does not guess when a native UID matches multiple browser labels", () => {
-    const devices = [
-      input("browser-built-in", "MacBook Pro Microphone"),
-      input("headset-1", "Headset Microphone"),
-      input("headset-2", "Headset Microphone"),
-    ];
-    const nativeDevices = [{ uid: "coreaudio-headset", name: "Headset Microphone" }];
-
-    expect(selectRecorderDevice(devices, "coreaudio-headset", nativeDevices)).toEqual({
-      ok: false,
-      message: expect.stringContaining("could not be matched"),
-    });
-  });
-
-  it("falls back to built-in device selection when configured micDeviceId is missing", () => {
-    const devices = [
-      input("vd", "BlackHole 16ch"),
-      input("bi", "Built-in Microphone"),
-    ];
-
-    expect(selectRecorderDevice(devices, "missing")).toEqual({ ok: true, deviceId: "bi" });
-  });
-
-  it("ignores default and communications pseudo-devices", () => {
-    const devices = [
-      input("default", "Default"),
-      input("communications", "Communications"),
-      input("bi", "Built-in Microphone"),
-    ];
-    expect(selectRecorderDeviceId(devices)).toBe("bi");
-  });
-
-  it("does not select a device with an unknown label by default", () => {
-    const devices = [input("x", "")];
-    expect(selectRecorderDeviceId(devices)).toBeUndefined();
-  });
-
-  it("excludes non-audioinput devices", () => {
-    const devices: AudioInputLike[] = [
-      { kind: "audiooutput", deviceId: "spk", label: "Speakers" },
-      input("bi", "Built-in Microphone"),
-    ];
-    expect(selectRecorderDeviceId(devices)).toBe("bi");
+  it("reports a missing explicit device instead of selecting built-in", () => {
+    const devices = [input("browser-built-in", "Internal Microphone")];
+    expect(selectRecorderDevice(devices, "missing", [builtIn]))
+      .toEqual({ ok: false, message: "Selected microphone is unavailable." });
   });
 });

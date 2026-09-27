@@ -120,6 +120,7 @@ export class OverlayController {
   hide(): void {
     log("overlay:hide-requested", { promptActive: this.promptActive, hasWindow: !!this.window, loadReady: this.loadReady });
     if (this.promptActive) return;
+    this.setStatusMessage(null);
     if (this.window && !this.window.isDestroyed()) {
       this.tryUpdateMode("idle");
       // Delay window.hide() to let the React exit animation complete
@@ -141,6 +142,7 @@ export class OverlayController {
 
   setRecording(): void {
     this.finishActivePrompt();
+    this.setStatusMessage(null);
     this.pendingMode = "recording";
     this.pendingBars = null;
     this.show();
@@ -149,6 +151,7 @@ export class OverlayController {
 
   setPressed(): void {
     this.finishActivePrompt();
+    this.setStatusMessage(null);
     this.pendingMode = "pressed";
     this.pendingDetectedLanguage = null;
     this.pendingBars = null;
