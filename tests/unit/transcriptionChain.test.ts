@@ -569,7 +569,7 @@ describe("TranscriptionService failover chain", () => {
         transcriptionProvider: "groq",
         groqApiKey: "groq-key",
       }));
-      const deadlineAt = Date.now() + getTranscriptionTimeoutMs(longClip.durationSeconds);
+      const deadlineAt = Date.now() + getTranscriptionTimeoutMs(longClip);
       const result = service.transcribe(longClip, { deadlineAt });
       const timedOut = expect(result).rejects.toThrow("Transcription deadline exceeded.");
 
@@ -582,6 +582,14 @@ describe("TranscriptionService failover chain", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("budgets all three overlapping chunks in a 58.1-second clip", async () => {
+    const { getTranscriptionTimeoutMs, splitAudioClip } = await import("@main/transcription");
+    const clip: AudioClip = { pcmData: new Array(581).fill(0.1), sampleRate: 10, durationSeconds: 58.1, rmsFrames: [] };
+
+    expect(splitAudioClip(clip, 30, 2)).toHaveLength(3);
+    expect(getTranscriptionTimeoutMs(clip)).toBe(50_000);
   });
 
   it("deduplicates overlapped words when merging long-recording chunks", async () => {

@@ -44,8 +44,16 @@ export interface TranscribeOptions {
   shouldYieldToActiveDictation?: () => boolean;
 }
 
-export function getTranscriptionTimeoutMs(durationSeconds: number): number {
-  const expectedChunkCount = Math.max(1, Math.ceil(Math.max(0, durationSeconds) / MAX_SINGLE_STT_CLIP_SECONDS));
+export function getTranscriptionTimeoutMs(clip: AudioClip): number {
+  const chunkSize = Math.max(1, Math.floor(clip.sampleRate * MAX_SINGLE_STT_CLIP_SECONDS));
+  const overlap = Math.max(0, Math.min(chunkSize - 1, Math.floor(clip.sampleRate * STT_CHUNK_OVERLAP_SECONDS)));
+  const step = Math.max(1, chunkSize - overlap);
+  let expectedChunkCount = 0;
+  for (let start = 0; start < clip.pcmData.length; start += step) {
+    expectedChunkCount += 1;
+    if (snapChunkEndToSilence(clip, start, Math.min(clip.pcmData.length, start + chunkSize)) >= clip.pcmData.length) break;
+  }
+  expectedChunkCount = Math.max(1, expectedChunkCount);
   return Math.min(
     MAX_TRANSCRIPTION_TIMEOUT_MS,
     TRANSCRIPTION_BASE_TIMEOUT_MS + (expectedChunkCount - 1) * TRANSCRIPTION_PER_ADDITIONAL_CHUNK_TIMEOUT_MS,

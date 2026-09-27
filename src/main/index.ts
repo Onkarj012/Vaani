@@ -28,7 +28,7 @@ import { error } from "@main/log";
 import { shouldGrantMediaPermission } from "./mediaPermissions";
 import { APP_DATA_DIR } from "@shared/defaults";
 import { RecoveryLifecycleCoordinator } from "./recoveryLifecycle";
-import { subscribeNativeLoadFailure, nativeBridge } from "./nativeBridge";
+import { subscribeNativeLoadFailure } from "./nativeBridge";
 import { consumeRestoredRecoveryNotice } from "./recoveryStartup";
 import { createQuitHandler } from "./quitCleanup";
 
@@ -514,12 +514,7 @@ async function bootstrap(): Promise<void> {
   unsubscribeNativeFailure = subscribeNativeLoadFailure((failure) => {
     void lifecycleCoordinator?.handleNativeLoadFailure(failure);
   });
-  lifecycleCoordinator.attach(powerMonitor, {
-    subscribe: (listener) => {
-      const subscribe = nativeBridge.audioCaptureSetRouteChangeHandler;
-      return subscribe?.(listener);
-    },
-  });
+  lifecycleCoordinator.attach(powerMonitor);
 
   const beginDictationIfPermitted = (source: "tray" | "hotkey"): boolean => {
     const status = getFreshPermissionStatus();

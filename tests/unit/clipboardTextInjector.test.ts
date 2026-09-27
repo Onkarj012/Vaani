@@ -257,7 +257,9 @@ describe("ClipboardTextInjector dispatch safety", () => {
   it("refuses to paste when pbcopy reports success without storing the text", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     refuseClipboardWrite = true;
-    await expect(new ClipboardTextInjector().inject("dictated", chromeTarget))
+    const attempt = new ClipboardTextInjector().inject("dictated", chromeTarget);
+    await vi.runAllTimersAsync();
+    await expect(attempt)
       .resolves.toEqual({ success: false, reason: "insertion_failed" });
     expect(fakeClipboard).toBe("original");
     expect(bridge.pasteText).not.toHaveBeenCalled();
@@ -435,6 +437,39 @@ describe("ClipboardTextInjector dispatch safety", () => {
     await vi.runAllTimersAsync();
 
     await expect(promise).resolves.toEqual({ success: false, reason: "target_changed" });
+    expect(bridge.pasteText).not.toHaveBeenCalled();
+  });
+
+  it("checks target again before writing dictated text to the clipboard", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    let valid = true;
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ isTargetValid: () => valid }));
+    await vi.advanceTimersByTimeAsync(100);
+    valid = false;
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "target_changed" });
+    expect(writes).toHaveLength(0);
+    expect(bridge.pasteText).not.toHaveBeenCalled();
+  });
+
+  it("restores the owned clipboard immediately when target changes before dispatch", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    let valid = true;
+    fakeClipboard = "original";
+    let settledAt = 0;
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ isTargetValid: () => valid }))
+      .then((result) => { settledAt = Date.now(); return result; });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(fakeClipboard).toBe("dictated");
+    valid = false;
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual({ success: false, reason: "target_changed" });
+    expect(fakeClipboard).toBe("original");
+    expect(writes.find((write) => write.value === "original")?.t).toBeLessThanOrEqual(settledAt);
     expect(bridge.pasteText).not.toHaveBeenCalled();
   });
 

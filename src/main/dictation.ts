@@ -438,7 +438,7 @@ export class DictationService {
       const appProfile = resolveAppProfile(settings.appProfiles ?? [], this.activeTarget?.appBundleId ?? null);
       const language = resolveProfileLanguage(appProfile?.language, settings.language);
       const sttStartedAt = Date.now();
-      const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip.durationSeconds);
+      const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip);
       const transcriptionDeadlineAt = sttStartedAt + transcriptionTimeoutMs;
       const transcription = await this.transcription.transcribe(payload.clip, {
         sessionSettings: snapshot,
@@ -633,7 +633,7 @@ export class DictationService {
         operationSignal,
       );
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
-      const finalInjectionTarget = this.revalidateAutomaticTarget(initialTarget, initialSelection, initialTargetIdentity);
+      const finalInjectionTarget = this.revalidateAutomaticTarget(initialTarget, initialSelection, initialTargetValue, initialTargetIdentity);
       if (!finalInjectionTarget) {
         const failure = await this.recordFailedActiveInsertion(payload.sessionId, null, "stale_target");
         await this.finishActiveInsertion(payload.sessionId, "refused", { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
@@ -647,7 +647,8 @@ export class DictationService {
         signal: operationSignal,
         onDispatch: () => { if (this.isCurrentSession(payload.sessionId)) this.activeInsertionDispatched = true; },
         isTargetValid: () => this.isCurrentSession(payload.sessionId)
-          && this.isSameFocusedTarget(finalInjectionTarget, initialTargetIdentity),
+          && this.isSameFocusedTarget(finalInjectionTarget, initialTargetIdentity)
+          && (this.activeInsertionDispatched || this.matchesFocusedAX(finalInjectionTarget, initialTargetValue, initialSelection)),
       });
       const injectionAttempts: DictationTrace["injectionAttempts"] = [{
         targetAppBundleId: finalInjectionTarget.appBundleId,
@@ -754,7 +755,7 @@ export class DictationService {
     if (this.rejectManualInsertionWhileActive()) return;
     const entry = await this.history.getById(id);
     if (!entry) return;
-    const result = await this.performManualInsertion(entry.cleanedText, this.currentInjectionTarget(entry), "Could not verify insertion into the current text field.");
+    const result = await this.performManualInsertion(entry.cleanedText, this.currentInjectionTarget(entry));
     if (!result) return;
     const sessionId = this.createSessionId();
     this.setState({ status: "completed", sessionId, outcome: "injected", insertionOutcome: "verified", text: entry.cleanedText, message: "Inserted." });
@@ -767,7 +768,7 @@ export class DictationService {
     try {
     const entry = await this.history.getById(id);
     if (!entry) return;
-    const result = await this.performManualInsertion(entry.cleanedText, this.currentInjectionTarget(entry), "Could not verify insertion into the current text field.");
+    const result = await this.performManualInsertion(entry.cleanedText, this.currentInjectionTarget(entry));
     if (!result) return;
     await this.history.updateById(id, (current) => ({
       ...current,
@@ -842,7 +843,7 @@ export class DictationService {
       }
       const transcription = await this.recoveryAudio.withDecryptedAudio(entry.sessionId, async (temporaryPath) => {
         const clip = parseRecoveryWav(await readFile(temporaryPath));
-        return this.transcription.transcribe(clip, { sessionSettings, recovery: true, signal: action.signal, deadlineAt: Date.now() + getTranscriptionTimeoutMs(clip.durationSeconds) });
+        return this.transcription.transcribe(clip, { sessionSettings, recovery: true, signal: action.signal, deadlineAt: Date.now() + getTranscriptionTimeoutMs(clip) });
       });
       if (action.signal.aborted) return false;
       const current = await this.recovery.getById(id);
@@ -875,11 +876,16 @@ export class DictationService {
       if (!entry || entry.terminal || !rawText || (entry.state !== "recoverable" && entry.state !== "transcript_ready")) return false;
       if (!entry.settingsSnapshot) return this.rejectLegacyRecoveryRoute();
       if (!await this.transitionRecoveryEntry(entry, "formatting", {}, action.signal)) return false;
-      const formatted = await this.formatTranscriptWithTrace(rawText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS, entry.settingsSnapshot);
+      const settings = restoreSessionSettings(entry.settingsSnapshot);
+      const appProfile = resolveAppProfile(settings.appProfiles ?? [], entry.target.appBundleId);
+      const cleanupTrace = { correctionsApplied: [] };
+      const correctedText = applyDictionary(rawText, settings, cleanupTrace);
+      const formatted = await this.formatTranscriptWithTrace(correctedText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS, entry.settingsSnapshot);
       if (action.signal.aborted) return false;
+      const cleanedText = cleanupText({ rawText: formatted.text, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
       const current = await this.recovery.getById(id);
       if (!current) return false;
-      if (!await this.transitionRecoveryEntry(current, "text_ready", { text: { formattedText: formatted.text, cleanedText: formatted.text }, error: { class: "none" } }, action.signal)) return false;
+      if (!await this.transitionRecoveryEntry(current, "text_ready", { text: { formattedText: formatted.text, cleanedText }, error: { class: "none" } }, action.signal)) return false;
       return true;
     } catch (error) {
       const current = await this.recovery.getById(id);
@@ -933,7 +939,12 @@ export class DictationService {
       const target = this.currentInjectionTarget({ appBundleId: entry.target.appBundleId, appName: entry.target.appName });
       if (!text || !target) return false;
       const baseline = sameTarget(target, this.appDetector.getContext()) ? safeFocusedValue() : null;
-      if (baseline === null) return false;
+      const identity = safeFocusedElementIdentity();
+      if (identity === null) {
+        this.setState({ status: "error", sessionId: null, message: "Not inserted: target changed." });
+        this.scheduleReset(ERROR_RESET_MS);
+        return false;
+      }
       prepared = await this.prepareRecoveryInsertion(entry.sessionId, text, target, baseline, this.settings.get().injectionMode, entry.id, action.signal);
       if (!prepared) return false;
       const preparedEntry = await this.recovery.getById(id);
@@ -944,8 +955,15 @@ export class DictationService {
       if (!insertionEntry || insertionEntry.terminal || insertionEntry.state !== "inserting") return false;
       const latestTarget = this.currentInjectionTarget({ appBundleId: entry.target.appBundleId, appName: entry.target.appName });
       const latestBaseline = latestTarget && sameTarget(latestTarget, this.appDetector.getContext()) ? safeFocusedValue() : null;
-      if (actionGeneration !== this.sessionGeneration || !latestTarget || latestBaseline === null || !sameTarget(latestTarget, target)) return false;
-      const result = await this.performManualInsertion(text, latestTarget, "Could not verify insertion into the current text field.", action.signal, actionGeneration, () => { uncertain = true; }, () => { dispatched = true; });
+      if (actionGeneration !== this.sessionGeneration || !latestTarget || !sameTarget(latestTarget, target)) return false;
+      if (!this.isSameFocusedTarget(target, identity)) {
+        this.setState({ status: "error", sessionId: null, message: "Not inserted: target changed." });
+        this.scheduleReset(ERROR_RESET_MS);
+        return false;
+      }
+      if ((baseline !== null && latestBaseline !== null && baseline !== latestBaseline)
+        || (target.selection && latestTarget.selection && (target.selection.location !== latestTarget.selection.location || target.selection.length !== latestTarget.selection.length))) return false;
+      const result = await this.performManualInsertion(text, latestTarget, action.signal, actionGeneration, () => { uncertain = true; }, () => { dispatched = true; }, identity);
       if (!result) {
         const detail = dispatched || uncertain ? OUTCOME_UNCERTAIN_DETAIL : "Manual recovery retry was not verified.";
         await this.recordRecoveryInsertionOutcome(entry.sessionId, "recoverable", null, "insertion_failed", detail, entry.id);
@@ -992,7 +1010,7 @@ export class DictationService {
         this.scheduleReset(ERROR_RESET_MS);
         return;
       }
-      const result = await this.performManualInsertion(latest.cleanedText, this.currentInjectionTarget(latest), "Could not verify insertion into the current text field.");
+      const result = await this.performManualInsertion(latest.cleanedText, this.currentInjectionTarget(latest));
       if (!result) return;
       const sessionId = this.createSessionId();
       this.setState({ status: "completed", sessionId, outcome: "injected", insertionOutcome: "verified", text: latest.cleanedText, message: "Inserted." });
@@ -1046,7 +1064,7 @@ export class DictationService {
 
   async demoTranscribe(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): Promise<string> {
     const action = this.beginRecoveryAction();
-    const transcriptionTimeoutMs = getTranscriptionTimeoutMs(clip.durationSeconds);
+    const transcriptionTimeoutMs = getTranscriptionTimeoutMs(clip);
     const transcriptionDeadlineAt = Date.now() + transcriptionTimeoutMs;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -1168,11 +1186,11 @@ export class DictationService {
   private async performManualInsertion(
     text: string,
     target: { appBundleId: string | null; appName: string | null; pid?: number | null; selection: SelectionRange | null } | undefined,
-    unreadableMessage: string,
     signal?: AbortSignal,
     expectedGeneration = this.sessionGeneration,
     onUncertain?: () => void,
     onDispatch?: () => void,
+    expectedIdentity?: string | null,
   ): Promise<{ method: "ax" | "clipboard" } | null> {
     if (signal?.aborted || expectedGeneration !== this.sessionGeneration) return null;
     if (!target || !isExternalTarget(target)) {
@@ -1182,8 +1200,9 @@ export class DictationService {
     }
     const baselineFocus = this.appDetector.getContext();
     const baseline = sameTarget(target, baselineFocus) ? safeFocusedValue() : null;
-    if (baseline === null) {
-      this.setState({ status: "error", sessionId: null, message: unreadableMessage });
+    const identity = expectedIdentity === undefined ? safeFocusedElementIdentity() : expectedIdentity;
+    if (identity === null) {
+      this.setState({ status: "error", sessionId: null, message: "Not inserted: target changed." });
       this.scheduleReset(ERROR_RESET_MS);
       return null;
     }
@@ -1193,11 +1212,17 @@ export class DictationService {
       return null;
     }
     if (this.sessionGeneration !== expectedGeneration || signal?.aborted) return null;
-    const identity = safeFocusedElementIdentity();
+    if (!this.isSameFocusedTarget(target, identity)) {
+      this.setState({ status: "error", sessionId: null, message: "Not inserted: target changed." });
+      this.scheduleReset(ERROR_RESET_MS);
+      return null;
+    }
+    let dispatched = false;
     const result = await this.injector.inject(text, target, {
       signal,
-      onDispatch,
-      isTargetValid: () => this.sessionGeneration === expectedGeneration && this.isSameFocusedTarget(target, identity),
+      onDispatch: () => { dispatched = true; onDispatch?.(); },
+      isTargetValid: () => this.sessionGeneration === expectedGeneration && this.isSameFocusedTarget(target, identity)
+        && (dispatched || this.matchesFocusedAX(target, baseline, target.selection ?? null)),
     });
     if (!result.success && result.reason === "outcome_uncertain") onUncertain?.();
     if (this.sessionGeneration !== expectedGeneration || signal?.aborted) return null;
@@ -1727,9 +1752,9 @@ export class DictationService {
     identity: string | null,
   ): boolean {
     if (!isExternalTarget(target) || !sameTarget(initialTarget, target)) return false;
-    return !(initialSelection && selection && (initialSelection.location !== selection.location || initialSelection.length !== selection.length))
-      && !(initialValue !== null && value !== null && initialValue !== value)
-      && !(initialIdentity !== null && identity !== null && initialIdentity !== identity);
+    return initialIdentity !== null && identity !== null && initialIdentity === identity
+      && !(initialSelection && selection && (initialSelection.location !== selection.location || initialSelection.length !== selection.length))
+      && !(initialValue !== null && value !== null && initialValue !== value);
   }
 
   private isSameFocusedTarget(
@@ -1738,20 +1763,34 @@ export class DictationService {
   ): boolean {
     if (!sameTarget(target, this.appDetector.getContext())) return false;
     const currentIdentity = safeFocusedElementIdentity();
-    return identity === null || currentIdentity === null || currentIdentity === identity;
+    return identity !== null && currentIdentity !== null && currentIdentity === identity;
+  }
+
+  private matchesFocusedAX(
+    target: Pick<AppContextResult, "appBundleId" | "appName">,
+    baselineValue: string | null,
+    baselineSelection: SelectionRange | null,
+  ): boolean {
+    const value = safeFocusedValue();
+    const selection = this.captureSelection(target);
+    return (baselineValue === null || value === null || baselineValue === value)
+      && (!baselineSelection || !selection || (baselineSelection.location === selection.location && baselineSelection.length === selection.length));
   }
 
   private revalidateAutomaticTarget(
     initialTarget: AppContextResult | null,
     initialSelection: SelectionRange | null,
+    initialValue: string | null,
     initialIdentity: string | null,
   ): { appBundleId: string | null; appName: string | null; pid?: number | null; selection: SelectionRange | null } | null {
     const target = this.appDetector.getContext();
     const selection = this.captureSelection(target);
+    const value = safeFocusedValue();
     const identity = safeFocusedElementIdentity();
     if (!isExternalTarget(target) || !sameTarget(initialTarget, target)
       || (initialSelection !== null && selection !== null && (initialSelection.location !== selection.location || initialSelection.length !== selection.length))
-      || (initialIdentity !== null && identity !== null && initialIdentity !== identity)) return null;
+      || (initialValue !== null && value !== null && initialValue !== value)
+      || initialIdentity === null || identity === null || initialIdentity !== identity) return null;
     return { appBundleId: target.appBundleId, appName: target.appName, pid: target.pid, selection };
   }
 
@@ -2017,7 +2056,7 @@ function messageForInjectionFailure(reason: InjectionFailureReason): string {
   switch (reason) {
     case "permission_missing": return "Accessibility permission is missing for text insertion.";
     case "no_editable_target": return "No editable text field is focused.";
-    case "target_changed": return "The focused text field changed. Focus the intended field and retry.";
+    case "target_changed": return "Not inserted: target changed.";
     case "outcome_uncertain": return "Insertion may already have happened. Use Copy to recover the text.";
     default: return "Could not paste the latest dictation.";
   }

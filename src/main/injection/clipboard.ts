@@ -48,13 +48,19 @@ export class ClipboardTextInjector {
     if (blockedAtStart) return { success: false, reason: blockedAtStart };
     if (clipboardChangeCount() === null) return { success: false, reason: "insertion_failed" };
     const original = await readOriginalClipboardText();
-    const generation = ++restoreGeneration;
+    let generation = restoreGeneration;
     let ownedChangeCount: number | null = null;
+    let dispatchStarted = false;
+    const markDispatch = (): void => { dispatchStarted = true; onDispatch?.(); };
     const dispatchGuard: InjectionGuard = () => guard() ?? (ownedChangeCount !== null && clipboardChangeCount() !== ownedChangeCount ? "cancelled" : null);
     try {
+      await activateTargetApp(target);
+      await delay(180);
+      const blockedBeforeWrite = dispatchGuard();
+      if (blockedBeforeWrite) return { success: false, reason: blockedBeforeWrite };
+      generation = ++restoreGeneration;
       ownedChangeCount = await writeClipboardText(text);
       if (ownedChangeCount === null) return { success: false, reason: "insertion_failed" };
-      await delay(180);
 
       // Clipboard-only apps (terminals, browsers, Electron apps, etc.) have no AX
       // selection tracking. Running the full fallback chain would fire multiple
@@ -64,7 +70,7 @@ export class ClipboardTextInjector {
       if (isClipboardOnlyTarget(target)) {
         const blockedBeforeActivation = dispatchGuard();
         if (blockedBeforeActivation) return { success: false, reason: blockedBeforeActivation };
-        const outcome = await this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, onDispatch);
+        const outcome = await this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, markDispatch);
         if (outcome === "dispatched") {
           if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
           consecutiveFailures = 0;
@@ -79,24 +85,24 @@ export class ClipboardTextInjector {
 
       const methods = hasNonAscii
         ? [
-            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, onDispatch), kind: "paste" as const }
+            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, markDispatch), kind: "paste" as const }
           ]
         : shouldPreferTypingInjection(target)
         ? [
-            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
-            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
-            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, onDispatch), kind: "paste" as const }
+            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, dispatchGuard, markDispatch), kind: "typing" as const },
+            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, dispatchGuard, markDispatch), kind: "typing" as const },
+            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, markDispatch), kind: "paste" as const }
           ]
         : prefersSystemEventsPaste(target)
         ? [
-            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, onDispatch), kind: "paste" as const },
-            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
-            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
+            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, markDispatch), kind: "paste" as const },
+            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, dispatchGuard, markDispatch), kind: "typing" as const },
+            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, dispatchGuard, markDispatch), kind: "typing" as const },
           ]
         : [
-            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, onDispatch), kind: "paste" as const },
-            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, dispatchGuard, onDispatch), kind: "typing" as const },
-            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, dispatchGuard, onDispatch), kind: "typing" as const }
+            { name: "paste-native", run: () => this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, markDispatch), kind: "paste" as const },
+            { name: "type-native", run: () => this.typeWithNativeBridge(text, target, dispatchGuard, markDispatch), kind: "typing" as const },
+            { name: "type-applescript", run: () => this.typeWithAppleScript(text, target, dispatchGuard, markDispatch), kind: "typing" as const }
           ];
 
       // Only methods that never dispatched may fall through to the next one.
@@ -127,9 +133,14 @@ export class ClipboardTextInjector {
       return { success: false, reason: "insertion_failed" };
     } finally {
       if (original !== text && ownedChangeCount !== null) {
-        pendingRestore = { original, changeCount: ownedChangeCount };
-        void restoreClipboardAfterDelay(original, ownedChangeCount, CLIPBOARD_RESTORE_DELAY_MS, generation);
-      } else if (generation === restoreGeneration) {
+        if (dispatchStarted) {
+          pendingRestore = { original, changeCount: ownedChangeCount };
+          void restoreClipboardAfterDelay(original, ownedChangeCount, CLIPBOARD_RESTORE_DELAY_MS, generation);
+        } else {
+          pendingRestore = null;
+          if (clipboardChangeCount() === ownedChangeCount) await writeClipboardText(original);
+        }
+      } else if (generation === restoreGeneration && ownedChangeCount !== null) {
         pendingRestore = null;
       }
     }

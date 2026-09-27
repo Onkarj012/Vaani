@@ -379,6 +379,23 @@ describe("DictationService", () => {
     expect(recoveryFixture.getEntry().text.formattedText).toBeNull();
   });
 
+  it("applies the saved dictionary and cleanup settings on recovery formatting retry", async () => {
+    const fixture = createInsertionRecovery("format-cleanup");
+    const entry = fixture.getEntry();
+    entry.state = "recoverable";
+    entry.text.rawTranscript = "open get hub um";
+    entry.settingsSnapshot = captureSessionSettings({
+      ...DEFAULT_SETTINGS,
+      customCorrections: [{ spoken: "get hub", written: "GitHub", source: "auto-suggested" }],
+    });
+    const { service, transcription } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true });
+
+    await expect(service.retryRecoveryFormatting(entry.id)).resolves.toBe(true);
+
+    expect(transcription.formatTranscript).toHaveBeenCalledWith("open GitHub um", expect.anything());
+    expect(fixture.getEntry().text).toMatchObject({ formattedText: "open GitHub um", cleanedText: "Open GitHub." });
+  });
+
   it("revalidates recovery insertion before the injector and leaves one retryable outcome", async () => {
     const recoveryFixture = createInsertionRecovery("recovery-insertion");
     const current = recoveryFixture.getEntry();
@@ -393,6 +410,68 @@ describe("DictationService", () => {
     expect(recoveryFixture.getEntry().insertion?.outcome).not.toBe("delivered");
     await expect(service.retryRecoveryInsertion("recovery-insertion")).resolves.toBe(false);
     expect(injector.inject).not.toHaveBeenCalled();
+  });
+
+  it("refuses manual recovery retry when its focused identity disappears", async () => {
+    const fixture = createInsertionRecovery("manual-identity-lost");
+    const entry = fixture.getEntry();
+    entry.state = "text_ready";
+    entry.text.cleanedText = "Hello world.";
+    const identity = vi.fn().mockReturnValueOnce("field-a").mockReturnValue(null);
+    const { service, injector } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true, focusedIdentity: identity });
+
+    await expect(service.retryRecoveryInsertion(entry.id)).resolves.toBe(false);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(fixture.getEntry().insertion?.outcome).toBe("recoverable");
+    expect(service.getState()).toMatchObject({ status: "error", message: "Not inserted: target changed." });
+  });
+
+  it("refuses manual recovery retry when the initial focused identity is unknown", async () => {
+    const fixture = createInsertionRecovery("manual-identity-unknown");
+    const entry = fixture.getEntry();
+    entry.state = "text_ready";
+    entry.text.cleanedText = "Hello world.";
+    const { service, injector } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true, focusedIdentity: () => null });
+
+    await expect(service.retryRecoveryInsertion(entry.id)).resolves.toBe(false);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "error", message: "Not inserted: target changed." });
+  });
+
+  it("attempts manual recovery insertion with stable identity and null AX value", async () => {
+    const fixture = createInsertionRecovery("manual-weak-ax");
+    const entry = fixture.getEntry();
+    entry.state = "text_ready";
+    entry.text.cleanedText = "Hello world.";
+    const { service, injector } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = () => null;
+
+    await expect(service.retryRecoveryInsertion(entry.id)).resolves.toBe(false);
+
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(fixture.getEntry().insertion?.outcome).toBe("recoverable");
+  });
+
+  it("refuses manual recovery dispatch when readable AX value changes during injection preparation", async () => {
+    const fixture = createInsertionRecovery("manual-value-changed");
+    const entry = fixture.getEntry();
+    entry.state = "text_ready";
+    entry.text.cleanedText = "Hello world.";
+    const { service, injector } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true });
+    let value = "";
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = () => value;
+    injector.inject.mockImplementationOnce(async (_text, _target, options) => {
+      value = "different content";
+      return options?.isTargetValid?.() ? { success: true, method: "clipboard" } : { success: false, reason: "target_changed" };
+    });
+
+    await expect(service.retryRecoveryInsertion(entry.id)).resolves.toBe(false);
+
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(fixture.getEntry().insertion?.outcome).toBe("recoverable");
+    expect(service.getState()).toMatchObject({ status: "error", message: "Not inserted: target changed." });
   });
 
   beforeEach(() => {
@@ -436,8 +515,8 @@ describe("DictationService", () => {
     }));
 
     const result = service.demoTranscribe({
-      pcmData: [0.1],
-      sampleRate: 16_000,
+      pcmData: new Array(181).fill(0.1),
+      sampleRate: 1,
       durationSeconds: 181,
       rmsFrames: [0.1],
     });
@@ -945,16 +1024,70 @@ describe("DictationService", () => {
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
   });
 
-  it("inserts into the same app when focused identity is unavailable", async () => {
-    const { service, history, injector, transcription } = createDictationService();
-    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+  it("refuses automatic insertion when focused identity is unavailable", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, history, injector } = createDictationService({ traces: traceDeps.traces });
     (nativeBridge as { getFocusedElementIdentity?: () => string | null }).getFocusedElementIdentity = vi.fn(() => null);
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+    expect(service.getState()).toMatchObject({ insertionOutcome: "refused", message: "Not inserted: target changed." });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "refused" });
+  });
+
+  it("refuses automatic insertion when a known identity disappears before dispatch", async () => {
+    const { service, history, injector } = createDictationService({ focusedIdentity: vi.fn()
+      .mockReturnValueOnce("field-a")
+      .mockReturnValueOnce("field-a")
+      .mockReturnValue(null) });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+    expect(service.getState()).toMatchObject({ insertionOutcome: "refused", message: "Not inserted: target changed." });
+  });
+
+  it("dispatches with stable identity and null AX value, then records unconfirmed", async () => {
+    const { service, injector, history } = createDictationService();
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = () => null;
 
     await submitHelloWorld(service);
 
     expect(injector.inject).toHaveBeenCalledOnce();
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
     expect(service.getState()).toMatchObject({ insertionOutcome: "unconfirmed" });
+  });
+
+  it("refuses when AX value changes before the final automatic read", async () => {
+    const fixture = createInsertionRecovery("value-change");
+    const { service, injector } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
+      .mockReturnValue("changed field");
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ insertionOutcome: "refused" });
+  });
+
+  it("refuses automatic dispatch when readable AX value changes during injection preparation", async () => {
+    const { service, injector } = createDictationService();
+    let value = "";
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = () => value;
+    injector.inject.mockImplementationOnce(async (_text, _target, options) => {
+      value = "different content";
+      return options?.isTargetValid?.() ? { success: true, method: "clipboard" } : { success: false, reason: "target_changed" };
+    });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(service.getState()).toMatchObject({ insertionOutcome: "refused", message: "Not inserted: target changed." });
   });
 
   it.skipIf(!existsSync(join(process.cwd(), "build/Release/vaani_native.node")))("inserts with the built bridge identity export and settles null AX value as unconfirmed", async () => {
@@ -1260,6 +1393,7 @@ describe("DictationService", () => {
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("Hello world.")
       .mockReturnValueOnce("Hello world.")
+      .mockReturnValueOnce("Hello world.")
       .mockReturnValue("Hello world. Hello world.");
 
     await submitHelloWorld(service);
@@ -1272,6 +1406,7 @@ describe("DictationService", () => {
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     injector.inject.mockResolvedValue({ success: true, method: "clipboard" });
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValue("Hello world.");
@@ -1508,7 +1643,7 @@ describe("DictationService", () => {
     let readCount = 0;
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => {
       readCount += 1;
-      if (readCount <= 2) return "";
+      if (readCount <= 3) return "";
       return "Hello";
     });
 
@@ -1535,8 +1670,8 @@ describe("DictationService", () => {
     let readCount = 0;
     (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => {
       readCount += 1;
-      if (readCount <= 2) return "";
-      if (readCount <= 6) return "Hello";
+      if (readCount <= 3) return "";
+      if (readCount <= 7) return "Hello";
       return "Hello world.";
     });
 
@@ -1791,6 +1926,7 @@ describe("DictationService", () => {
     const getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("Open get hub.")
       .mockReturnValueOnce("Open get hub.")
       .mockReturnValue("Open GitHub.");
@@ -1834,6 +1970,7 @@ describe("DictationService", () => {
     const getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValueOnce(inserted)
       .mockReturnValue(inserted);
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
@@ -1873,6 +2010,7 @@ describe("DictationService", () => {
     const inserted = "I'm making a LaTeX editor called WriteX.";
     const corrected = "I'm making a LaTeX editor called WriteTex.";
     const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValueOnce(inserted)
@@ -1954,7 +2092,7 @@ describe("DictationService", () => {
     let readCount = 0;
     const getFocusedValue = vi.fn(() => {
       readCount += 1;
-      if (readCount <= 43) return readCount <= 2 ? "" : null;
+      if (readCount <= 44) return readCount <= 3 ? "" : null;
       return corrected;
     });
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
@@ -2092,6 +2230,7 @@ describe("DictationService", () => {
     (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn()
       .mockReturnValueOnce("")
       .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("My email.")
       .mockReturnValueOnce("My email.")
       .mockReturnValue("onkarj012@gmail.com");
@@ -2120,6 +2259,7 @@ describe("DictationService", () => {
     transcription.transcribe.mockResolvedValue({ rawText: "use versel", formattedText: "use versel", language: "en" });
     const nativeBridge = await import("@main/nativeBridge");
     const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValueOnce("")
       .mockReturnValueOnce("Use versel.")
