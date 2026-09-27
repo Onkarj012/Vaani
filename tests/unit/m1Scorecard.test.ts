@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -71,5 +71,43 @@ describe("M1 scorecard script", () => {
     expect(secondSummary).toContain("stop_to_clip_ms: p50=300ms p90=300ms (n=1)");
     expect(finalCsv).not.toContain(secret);
     expect(secondSummary).not.toContain(secret);
+  });
+
+  it("neutralizes formula prefixes in app names", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-scorecard-"));
+    const input = join(tempDir, "traces.json");
+    const output = join(tempDir, "scorecard.csv");
+    const script = resolve("scripts/m1-scorecard.mjs");
+    await writeFile(input, JSON.stringify(["=1+1", "+SUM(1)", "-2+3", "@SUM(1)", "\t=1+1", "\r=1+1"].map((name, index) => ({
+      sessionId: `session-${index}`, targetAppName: name, outcome: "failed",
+    }))));
+    execFileSync("node", [script, "--input", input, "--output", output]);
+    const csv = await readFile(output, "utf8");
+    for (const prefix of ["=1+1", "+SUM(1)", "-2+3", "@SUM(1)", "\t=1+1", "\r=1+1"]) {
+      expect(csv).toContain(`'${prefix}`);
+    }
+  });
+
+  it("replaces the output by rename and preserves owner labels if temp writing fails", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-scorecard-"));
+    const input = join(tempDir, "traces.json");
+    const output = join(tempDir, "scorecard.csv");
+    const script = resolve("scripts/m1-scorecard.mjs");
+    await writeFile(input, JSON.stringify([{ sessionId: "session-1", outcome: "failed" }]));
+    execFileSync("node", [script, "--input", input, "--output", output]);
+    const original = await readFile(output, "utf8");
+    const originalInode = (await stat(output)).ino;
+    await writeFile(output, original.replace(/,,,\n$/, ",y,n,owner note\n"));
+    const ownerCsv = await readFile(output, "utf8");
+    execFileSync("node", [script, "--input", input, "--output", output]);
+    expect((await stat(output)).ino).not.toBe(originalInode);
+
+    await chmod(tempDir, 0o500);
+    try {
+      expect(() => execFileSync("node", [script, "--input", input, "--output", output], { stdio: "ignore" })).toThrow();
+      expect(await readFile(output, "utf8")).toBe(ownerCsv);
+    } finally {
+      await chmod(tempDir, 0o700);
+    }
   });
 });

@@ -316,8 +316,10 @@ after each change. Cut this item first if time runs short.
    the owner. Failed starts and false rejects count as failures.
 3. Zero wrong-field writes, app-caused duplicates, phantom dictionary or
    snippet text, and dropped final words, across acceptance and probes.
-4. Every session ends in one of the five outcomes, and its transcript is
-   retrievable in History.
+4. Every session ends in a terminal outcome. Sessions with a transcript must
+   have that text retrievable in History. Sessions that fail before transcription,
+   including recorder-unavailable starts, retain their specific failure message
+   and end rejected or failed without a History transcript.
 5. The built-in mic is used, with no output ducking. Cold launch, sleep/wake
    and the 8-hour run pass with no "recorder not ready" after readiness shows.
 6. For successful dictations up to 30 s, release to visible text is at most

@@ -3,6 +3,16 @@ import { useCallback, useEffect, useState } from "react";
 import type { DictationEntry } from "@shared/types";
 import type { RecoveryEntryView, RecoveryStorageUsage } from "@shared/recovery";
 
+export function pollRecoveryReadiness(reload: () => Promise<void>): () => void {
+  let pending = false;
+  const timer = setInterval(() => {
+    if (pending) return;
+    pending = true;
+    void reload().finally(() => { pending = false; });
+  }, 500);
+  return () => clearInterval(timer);
+}
+
 export function useHistory() {
   const [recoveryReadiness, setRecoveryReadiness] = useState<RecoveryReadiness>({ state: "initializing", entryCount: null });
   const [entries, setEntries] = useState<DictationEntry[]>([]);
@@ -31,6 +41,11 @@ export function useHistory() {
   }, []);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  useEffect(() => {
+    if (recoveryReadiness.state !== "initializing") return;
+    return pollRecoveryReadiness(reload);
+  }, [recoveryReadiness.state, reload]);
 
   return {
     entries,

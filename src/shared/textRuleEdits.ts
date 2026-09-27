@@ -6,6 +6,10 @@ export type CorrectionEdit = Pick<CustomCorrection, "spoken" | "written">
 export type SnippetEdit = Pick<Snippet, "trigger" | "content">
   & Partial<Pick<Snippet, "matchBareTrigger" | "appProfileIds">>;
 
+export function normalizeSnippetTrigger(trigger: string): string {
+  return trigger.trim().replace(/^\/+/, "").trim().replace(/\s+/g, " ");
+}
+
 function normalizedKey(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
@@ -37,8 +41,10 @@ export function editSnippet(
   return snippets.map((snippet) => {
     if (snippet.trigger.toLocaleLowerCase() !== originalKey) return { ...snippet };
     const updated: Snippet = { ...snippet, ...edit, trigger: edit.trigger.trim(), content: edit.content.trim() };
-    if (appProfileIds === undefined) delete updated.appProfileIds;
-    else updated.appProfileIds = appProfileIds;
+    if ("appProfileIds" in edit) {
+      if (appProfileIds === undefined) delete updated.appProfileIds;
+      else updated.appProfileIds = appProfileIds;
+    }
     return updated;
   });
 }

@@ -8,7 +8,7 @@ import {
   trimLeadingSilence,
 } from "./pcmUtils";
 import pcmWorkletUrl from "./pcmWorklet.ts?url";
-import { STOP_QUIET_RMS, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
+import { rendererQuietThreshold, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
 
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
@@ -53,6 +53,8 @@ let capturePromise: Promise<void> | null = null;
 let sessionChunks: Float32Array[] = [];
 let lastFrameAt = 0;
 let lastLoudFrameAt = 0;
+let quietThreshold = 0;
+let frameRms: number[] = [];
 let lastReportedAt = 0;
 let smoothedBars = new Array(VISUAL_BAR_COUNT).fill(0.12);
 
@@ -108,6 +110,8 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
     sessionChunks = [];
     lastFrameAt = 0;
     lastLoudFrameAt = 0;
+    quietThreshold = 0;
+    frameRms = [];
     resetSmoothedBars();
     previousInputDevice = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
@@ -137,6 +141,7 @@ async function stopRecording(sessionId: string): Promise<void> {
   }
 
   const stopRequestedAt = Date.now();
+  quietThreshold = rendererQuietThreshold(frameRms);
   await waitForRendererDrain(stopRequestedAt, () => lastLoudFrameAt, () => activeSessionId === sessionId);
   if (activeSessionId !== sessionId) return;
 
@@ -260,7 +265,7 @@ async function openCapture(config: RecorderConfig): Promise<void> {
 
 async function chooseMicDevice(preferredDeviceId: string | undefined): Promise<string> {
   const devices = await navigator.mediaDevices.enumerateDevices();
-  const nativeDevices = preferredDeviceId ? await window.__VAANI_RECORDER__.listAudioInputDevices().catch(() => []) : [];
+  const nativeDevices = await window.__VAANI_RECORDER__.listAudioInputDevices().catch(() => []);
   const selected = selectRecorderDevice(devices, preferredDeviceId, nativeDevices);
   if (!selected.ok) {
     throw new Error(selected.message);
@@ -328,7 +333,11 @@ function handlePcmData(samples: Float32Array): void {
   lastFrameAt = Date.now();
   let sumSquares = 0;
   for (const sample of samples) sumSquares += sample * sample;
-  if (samples.length > 0 && Math.sqrt(sumSquares / samples.length) >= STOP_QUIET_RMS) lastLoudFrameAt = lastFrameAt;
+  if (samples.length > 0) {
+    const rms = Math.sqrt(sumSquares / samples.length);
+    if (quietThreshold === 0) frameRms.push(rms);
+    if (rms >= quietThreshold) lastLoudFrameAt = lastFrameAt;
+  }
   publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT));
 }
 
@@ -364,6 +373,8 @@ function publishBars(nextBars: number[]): void {
 async function cleanupSession(): Promise<void> {
   activeSessionId = null;
   sessionChunks = [];
+  frameRms = [];
+  quietThreshold = 0;
 
   if (previousInputDevice !== null) {
     const deviceId = previousInputDevice;

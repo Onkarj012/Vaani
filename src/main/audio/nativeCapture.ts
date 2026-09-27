@@ -61,8 +61,10 @@ export function listNativeInputDevices(bridge: NativeCaptureBridge = nativeBridg
 
 export function selectNativeInputDevice(devices: AudioInputDevice[], preferredUid?: string): { ok: true; uid: string } | { ok: false; message: string } {
   const physical = devices.filter((device) => device.isPhysical);
-  if (preferredUid && physical.some((device) => device.uid === preferredUid)) {
-    return { ok: true, uid: preferredUid };
+  if (preferredUid) {
+    return physical.some((device) => device.uid === preferredUid)
+      ? { ok: true, uid: preferredUid }
+      : { ok: false, message: "Selected microphone is unavailable." };
   }
   const builtIn = physical.find((device) => device.transportType === "built-in");
   return builtIn
