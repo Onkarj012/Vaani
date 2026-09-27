@@ -40,6 +40,13 @@ describe("selectRecorderDevice", () => {
     expect(selectRecorderDeviceId([{ kind: "audiooutput", deviceId: "speaker", label: "Internal Microphone" }], [builtIn])).toBeUndefined();
   });
 
+  it("explains how to recover when first-use enumeration has empty labels", () => {
+    expect(selectRecorderDevice([input("built-in", "")], undefined, [builtIn])).toEqual({
+      ok: false,
+      message: expect.stringContaining("Allow microphone access for Vaani"),
+    });
+  });
+
   it("honors an explicitly selected browser input", () => {
     expect(selectRecorderDevice([input("usb", "USB Microphone")], "usb")).toEqual({ ok: true, deviceId: "usb" });
   });

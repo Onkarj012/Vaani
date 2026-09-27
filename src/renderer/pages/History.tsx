@@ -8,7 +8,7 @@ import { Input, Textarea } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
 import type { DictationTrace } from '@shared/types'
 import { getLanguageLabel } from '@shared/defaults'
-import { dedupeRecoveryEntries, deriveRecoveryItem, filterRecoveryItems, type RecoveryAction, type RecoveryFilter } from '@renderer/lib/recoveryDerivations'
+import { createRecoveryActionRunner, dedupeRecoveryEntries, deriveRecoveryItem, filterRecoveryItems, matchesRecoverySearch, type RecoveryAction, type RecoveryFilter } from '@renderer/lib/recoveryDerivations'
 
 type TraceLoadState = DictationTrace | null | 'loading'
 
@@ -23,6 +23,17 @@ export default function History() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [traces, setTraces] = useState<Record<string, TraceLoadState>>({})
   const [recoveryFilter, setRecoveryFilter] = useState<RecoveryFilter>('all')
+  const [busyRecoveryIds, setBusyRecoveryIds] = useState<string[]>([])
+  const [recoveryActionErrors, setRecoveryActionErrors] = useState<Record<string, string>>({})
+  const [recoveryActionRunner] = useState(() => createRecoveryActionRunner(
+    (id, busy) => setBusyRecoveryIds((current) => busy ? [...current, id] : current.filter((value) => value !== id)),
+    (id, message) => setRecoveryActionErrors((current) => {
+      const next = { ...current }
+      if (message) next[id] = message
+      else delete next[id]
+      return next
+    }),
+  ))
 
   const groups = ['Today', 'Yesterday', 'This Week', 'Earlier']
   const grouped = groups
@@ -37,21 +48,28 @@ export default function History() {
     () => filterRecoveryItems(
       dedupeRecoveryEntries(recoveryEntries).map((entry) => deriveRecoveryItem(entry)),
       recoveryFilter,
-    ).filter((item) => item.preview.toLowerCase().includes(searchQuery.toLowerCase())),
+    ).filter((item) => matchesRecoverySearch(item, searchQuery)),
     [recoveryEntries, recoveryFilter, searchQuery],
   )
 
   const runRecoveryAction = async (id: string, action: RecoveryAction) => {
+    if (recoveryActionRunner.isBusy(id)) return
     if (action === 'delete-audio' && !window.confirm('Delete the encrypted recovery audio? The transcript will stay in History.')) return
     if (action === 'discard' && !window.confirm('Discard this recovery item and its encrypted audio?')) return
-    if (action === 'retry-transcription') await retryRecoveryTranscription(id)
-    if (action === 'retry-formatting') await retryRecoveryFormatting(id)
-    if (action === 'use-raw-transcript') await useRawRecoveryTranscript(id)
-    if (action === 'retry-insertion') await retryRecoveryInsertion(id)
-    if (action === 'copy') { await copyRecoveryEntry(id); await reloadHistory() }
-    if (action === 'play-audio') await playRecoveryAudio(id)
-    if (action === 'delete-audio') await deleteRecoveryAudio(id)
-    if (action === 'discard') await discardRecoveryEntry(id)
+    await recoveryActionRunner.run(id, async () => {
+      if (action === 'retry-transcription') return retryRecoveryTranscription(id)
+      if (action === 'retry-formatting') return retryRecoveryFormatting(id)
+      if (action === 'use-raw-transcript') return useRawRecoveryTranscript(id)
+      if (action === 'retry-insertion') return retryRecoveryInsertion(id)
+      if (action === 'copy') {
+        const copied = await copyRecoveryEntry(id)
+        if (copied) await reloadHistory()
+        return copied
+      }
+      if (action === 'play-audio') return playRecoveryAudio(id)
+      if (action === 'delete-audio') return deleteRecoveryAudio(id)
+      return discardRecoveryEntry(id)
+    })
   }
 
   const handleSave = () => {
@@ -106,7 +124,7 @@ export default function History() {
 
       <p role="status" className="rounded-2xl border border-line p-4 text-sm text-muted">{recoveryReadinessMessage(recoveryReadiness)}</p>
       {recoveryEntries.length > 0 && (
-        <RecoverySection total={recoveryEntries.length} items={recoveryItems} filter={recoveryFilter} onFilterChange={setRecoveryFilter} onAction={(id, action) => { void runRecoveryAction(id, action) }} />
+        <RecoverySection total={recoveryEntries.length} items={recoveryItems} filter={recoveryFilter} onFilterChange={setRecoveryFilter} busyIds={busyRecoveryIds} errors={recoveryActionErrors} onAction={(id, action) => { void runRecoveryAction(id, action) }} />
       )}
 
       <div className="space-y-8">
@@ -197,12 +215,16 @@ function RecoverySection({
   filter,
   onFilterChange,
   onAction,
+  busyIds,
+  errors,
 }: {
   total: number;
   items: ReturnType<typeof deriveRecoveryItem>[];
   filter: RecoveryFilter;
   onFilterChange: (filter: RecoveryFilter) => void;
   onAction: (id: string, action: RecoveryAction) => void;
+  busyIds: string[];
+  errors: Record<string, string>;
 }) {
   const filters: Array<{ value: RecoveryFilter; label: string }> = [
     { value: 'all', label: 'All' },
@@ -251,8 +273,9 @@ function RecoverySection({
               {item.entry.lastError.class !== 'none' && (
                 <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-500/5 p-3 text-xs text-red-600"><ShieldAlert size={14} className="mt-0.5 shrink-0" /><span>Last error: {item.entry.lastError.class.replaceAll('_', ' ')}{item.entry.lastError.detail ? ` · ${item.entry.lastError.detail}` : ''}</span></div>
               )}
+              {errors[item.entry.id] && <p role="alert" className="mt-3 text-xs text-red-600">{errors[item.entry.id]}</p>}
               <div className="mt-4 flex flex-wrap gap-2">
-                {item.actions.map((action) => <RecoveryActionButton key={action} action={action} onClick={() => onAction(item.entry.id, action)} />)}
+                {item.actions.map((action) => <RecoveryActionButton key={action} action={action} disabled={busyIds.includes(item.entry.id)} onClick={() => onAction(item.entry.id, action)} />)}
               </div>
             </Card>
           ))}
@@ -262,7 +285,7 @@ function RecoverySection({
   )
 }
 
-function RecoveryActionButton({ action, onClick }: { action: RecoveryAction; onClick: () => void }) {
+function RecoveryActionButton({ action, onClick, disabled }: { action: RecoveryAction; onClick: () => void; disabled: boolean }) {
   const labels: Record<RecoveryAction, string> = {
     'retry-transcription': 'Retry transcription',
     'retry-formatting': 'Retry formatting',
@@ -274,7 +297,7 @@ function RecoveryActionButton({ action, onClick }: { action: RecoveryAction; onC
     discard: 'Discard',
   }
   const Icon = action === 'copy' ? Copy : action === 'play-audio' ? Play : action === 'discard' || action === 'delete-audio' ? Trash2 : action.startsWith('retry') ? RefreshCw : RotateCcw
-  return <Button variant={action === 'discard' || action === 'delete-audio' ? 'destructive' : 'soft'} size="sm" onClick={onClick}><Icon size={13} />{labels[action]}</Button>
+  return <Button variant={action === 'discard' || action === 'delete-audio' ? 'destructive' : 'soft'} size="sm" onClick={onClick} disabled={disabled}><Icon size={13} />{labels[action]}</Button>
 }
 
 function Diagnostics({ trace }: { trace: DictationTrace | null | undefined }) {

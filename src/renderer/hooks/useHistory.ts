@@ -1,5 +1,5 @@
 import type { RecoveryReadiness } from "@shared/recoveryReadiness";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DictationEntry } from "@shared/types";
 import type { RecoveryEntryView, RecoveryStorageUsage } from "@shared/recovery";
 
@@ -13,32 +13,65 @@ export function pollRecoveryReadiness(reload: () => Promise<void>): () => void {
   return () => clearInterval(timer);
 }
 
+export interface HistoryReloadState { generation: number }
+
+export async function loadHistoryData(
+  state: HistoryReloadState,
+  api: Pick<Window["vaani"], "getHistory" | "getRecoveryReadiness" | "getRecoveryEntries">,
+  update: {
+    loading: (value: boolean) => void;
+    entries: (value: DictationEntry[]) => void;
+    readiness: (value: RecoveryReadiness) => void;
+    recoveryEntries: (value: RecoveryEntryView[]) => void;
+  },
+): Promise<void> {
+  const generation = ++state.generation;
+  update.loading(true);
+  try {
+    try {
+      const entries = await api.getHistory();
+      if (generation !== state.generation) return;
+      if (Array.isArray(entries)) update.entries(entries);
+    } catch {
+      // Keep the previous list when history IPC fails.
+    }
+    try {
+      const readiness = await api.getRecoveryReadiness();
+      if (generation !== state.generation) return;
+      if (readiness.state === "ready") {
+        const entries = await api.getRecoveryEntries();
+        if (generation !== state.generation) return;
+        if (Array.isArray(entries)) update.recoveryEntries(entries);
+      } else {
+        update.recoveryEntries([]);
+      }
+      update.readiness(readiness);
+    } catch {
+      if (generation === state.generation) update.readiness({ state: "degraded", entryCount: null });
+    }
+  } finally {
+    if (generation === state.generation) update.loading(false);
+  }
+}
+
+export async function runRecoveryMutation(action: () => Promise<boolean>, reload: () => Promise<void>): Promise<void> {
+  if (!await action()) throw new Error("Recovery action could not be completed. Try again.");
+  await reload();
+}
+
 export function useHistory() {
   const [recoveryReadiness, setRecoveryReadiness] = useState<RecoveryReadiness>({ state: "initializing", entryCount: null });
   const [entries, setEntries] = useState<DictationEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [recoveryEntries, setRecoveryEntries] = useState<RecoveryEntryView[]>([]);
+  const reloadState = useRef<HistoryReloadState>({ generation: 0 });
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await window.vaani.getHistory();
-      setEntries(Array.isArray(data) ? data : []);
-    } catch {
-      setEntries([]);
-    }
-    try {
-      const status = await window.vaani.getRecoveryReadiness();
-      setRecoveryReadiness(status);
-      const recovery = status.state === "ready" ? await window.vaani.getRecoveryEntries() : [];
-      setRecoveryEntries(Array.isArray(recovery) ? recovery : []);
-    } catch {
-      setRecoveryReadiness({ state: "degraded", entryCount: null });
-      setRecoveryEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const reload = useCallback(() => loadHistoryData(reloadState.current, window.vaani, {
+    loading: setLoading,
+    entries: setEntries,
+    readiness: setRecoveryReadiness,
+    recoveryEntries: setRecoveryEntries,
+  }), []);
 
   useEffect(() => { void reload(); }, [reload]);
 
@@ -68,10 +101,10 @@ export function useHistory() {
     },
     recoveryEntries,
     recoveryReadiness,
-    retryRecoveryTranscription: async (id: string) => { await window.vaani.retryRecoveryTranscription(id); await reload(); },
-    retryRecoveryFormatting: async (id: string) => { await window.vaani.retryRecoveryFormatting(id); await reload(); },
-    useRawRecoveryTranscript: async (id: string) => { await window.vaani.useRawRecoveryTranscript(id); await reload(); },
-    retryRecoveryInsertion: async (id: string) => { await window.vaani.retryRecoveryInsertion(id); await reload(); },
+    retryRecoveryTranscription: (id: string) => runRecoveryMutation(() => window.vaani.retryRecoveryTranscription(id), reload),
+    retryRecoveryFormatting: (id: string) => runRecoveryMutation(() => window.vaani.retryRecoveryFormatting(id), reload),
+    useRawRecoveryTranscript: (id: string) => runRecoveryMutation(() => window.vaani.useRawRecoveryTranscript(id), reload),
+    retryRecoveryInsertion: (id: string) => runRecoveryMutation(() => window.vaani.retryRecoveryInsertion(id), reload),
     copyRecoveryEntry: (id: string) => window.vaani.copyRecoveryEntry(id),
     playRecoveryAudio: (id: string) => window.vaani.playRecoveryAudio(id),
     deleteRecoveryAudio: async (id: string) => { const result = await window.vaani.deleteRecoveryAudio(id); await reload(); return result; },

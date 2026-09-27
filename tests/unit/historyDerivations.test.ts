@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DictationEntry } from "@shared/types";
 import { mapHistoryItems } from "@renderer/context/vaani-ui";
-import { deriveRecoveryActions, deriveRecoveryItem, dedupeRecoveryEntries } from "@renderer/lib/recoveryDerivations";
+import { createRecoveryActionRunner, deriveRecoveryActions, deriveRecoveryItem, dedupeRecoveryEntries, matchesRecoverySearch } from "@renderer/lib/recoveryDerivations";
 import { createRecoveryEntry, toRecoveryEntryView } from "@shared/recovery";
 import {
   computeEntryFacts,
@@ -142,6 +142,7 @@ describe("history derivations", () => {
     });
     const item = deriveRecoveryItem(entry, new Date("2026-06-16T12:00:00.000Z"));
     expect(item.preview.length).toBeLessThanOrEqual(180);
+    expect(matchesRecoverySearch(item, "word")).toBe(true);
     expect(item.age).toBe("2h old");
     expect(item.actions).toEqual(expect.arrayContaining(["retry-transcription", "retry-formatting", "retry-insertion", "copy", "play-audio", "delete-audio", "discard"]));
     expect(entry.text.rawTranscript).toBe("word ".repeat(200));
@@ -173,5 +174,35 @@ describe("history derivations", () => {
     expect(expiredItem.status).toBe("Audio expired; text available");
     expect(expiredItem.actions).toEqual(expect.arrayContaining(["copy", "retry-insertion"]));
     expect(expiredItem.actions).not.toEqual(expect.arrayContaining(["retry-transcription", "play-audio", "delete-audio"]));
+  });
+
+  it("searches full recovery text and hides Use raw when formatted text exists", () => {
+    const entry = toRecoveryEntryView({
+      ...createRecoveryEntry({ id: "search", sessionId: "search", buildIdentifier: "test" }),
+      state: "text_ready",
+      text: { rawTranscript: `${"a".repeat(200)} hidden-term`, cleanedText: null, formattedText: "formatted text" },
+    });
+    const item = deriveRecoveryItem(entry);
+    expect(item.preview).not.toContain("hidden-term");
+    expect(matchesRecoverySearch(item, "hidden-term")).toBe(true);
+    expect(matchesRecoverySearch(deriveRecoveryItem({ ...entry, text: { rawTranscript: null, cleanedText: null, formattedText: null } }), "")).toBe(true);
+    expect(deriveRecoveryActions(entry)).not.toContain("use-raw-transcript");
+    expect(deriveRecoveryActions({ ...entry, text: { ...entry.text, formattedText: null } })).toContain("use-raw-transcript");
+  });
+
+  it("locks concurrent actions on one recovery entry and reports false results", async () => {
+    const busy = vi.fn();
+    const error = vi.fn();
+    const runner = createRecoveryActionRunner(busy, error);
+    let finish: (value: boolean) => void = () => undefined;
+    const action = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    const first = runner.run("entry", action);
+    await runner.run("entry", action);
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(runner.isBusy("entry")).toBe(true);
+    finish(false);
+    await first;
+    expect(error).toHaveBeenLastCalledWith("entry", expect.stringContaining("could not be completed"));
+    expect(busy).toHaveBeenLastCalledWith("entry", false);
   });
 });
