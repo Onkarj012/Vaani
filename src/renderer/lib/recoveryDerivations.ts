@@ -29,7 +29,7 @@ export function deriveRecoveryActions(entry: RecoveryEntryView): RecoveryAction[
   const hasText = Boolean(entry.text.formattedText || entry.text.cleanedText || entry.text.rawTranscript);
   if (entry.audioAvailable && ["captured", "interrupted_recording", "recoverable"].includes(entry.state)) actions.push("retry-transcription");
   if (entry.text.rawTranscript && ["transcript_ready", "recoverable"].includes(entry.state)) actions.push("retry-formatting");
-  if (entry.text.rawTranscript && ["transcript_ready", "recoverable", "text_ready"].includes(entry.state)) actions.push("use-raw-transcript");
+  if (entry.text.rawTranscript && entry.text.formattedText === null && ["transcript_ready", "recoverable", "text_ready"].includes(entry.state)) actions.push("use-raw-transcript");
   if (hasText && ["text_ready", "recoverable"].includes(entry.state)) actions.push("retry-insertion");
   if (hasText && ["transcript_ready", "text_ready", "recoverable"].includes(entry.state)) actions.push("copy");
   if (entry.audioAvailable) {
@@ -58,6 +58,34 @@ export function filterRecoveryItems(items: RecoveryItemView[], filter: RecoveryF
     if (filter === "needs-formatting") return item.actions.includes("retry-formatting");
     return item.actions.includes("retry-insertion");
   });
+}
+
+export function matchesRecoverySearch(item: RecoveryItemView, query: string): boolean {
+  if (!query) return true;
+  const text = item.entry.text;
+  return [text.formattedText, text.cleanedText, text.rawTranscript]
+    .some((value) => value?.toLowerCase().includes(query.toLowerCase()));
+}
+
+export function createRecoveryActionRunner(onBusy: (id: string, busy: boolean) => void, onError: (id: string, message: string | null) => void) {
+  const busy = new Set<string>();
+  return {
+    isBusy: (id: string) => busy.has(id),
+    run: async (id: string, action: () => Promise<void | boolean>): Promise<void> => {
+      if (busy.has(id)) return;
+      busy.add(id);
+      onBusy(id, true);
+      onError(id, null);
+      try {
+        if (await action() === false) throw new Error("Recovery action could not be completed. Try again.");
+      } catch (error) {
+        onError(id, error instanceof Error ? error.message : "Recovery action failed. Try again.");
+      } finally {
+        busy.delete(id);
+        onBusy(id, false);
+      }
+    },
+  };
 }
 
 export function dedupeRecoveryEntries(entries: RecoveryEntryView[]): RecoveryEntryView[] {

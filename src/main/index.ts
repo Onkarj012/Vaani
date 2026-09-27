@@ -25,7 +25,7 @@ import { isRecoveryEnabled, isRecoveryReady, setRecoveryRuntimeState } from "./r
 import { getProviderRegistry } from "./providers";
 import { loadWhisperModel } from "./providers/local/whisperCpp";
 import { error } from "@main/log";
-import { shouldGrantMediaPermission } from "./mediaPermissions";
+import { shouldGrantMediaPermission, shouldGrantMediaPermissionCheck } from "./mediaPermissions";
 import { APP_DATA_DIR } from "@shared/defaults";
 import { RecoveryLifecycleCoordinator } from "./recoveryLifecycle";
 import { subscribeNativeLoadFailure } from "./nativeBridge";
@@ -346,6 +346,8 @@ function configureRendererLifecycle(win: BrowserWindow): void {
 }
 
 function configureMediaPermissions(getAllowedWebContents: () => readonly (object | null)[], onPermissionStatusChanged?: () => void): void {
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) =>
+    shouldGrantMediaPermissionCheck(webContents, permission, details, getAllowedWebContents()));
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     if (permission === "media") {
       const mediaTypes = (details as { mediaTypes?: readonly string[] } | undefined)?.mediaTypes;

@@ -242,6 +242,25 @@ describe("EncryptedRecoveryAudioStore", () => {
     expect((await journal.getBySessionId(entry.sessionId))?.audio?.path).toBe(saved.audio.path);
   });
 
+  it("deletes valid unlinked ciphertext after discard, expiry, or journal removal", async () => {
+    const { journal, keychain, store } = await setup();
+    const paths: string[] = [];
+    for (const state of ["discarded", "expired", "absent"] as const) {
+      const entry = addEntry(journal, `orphan-${state}`, {
+        retention: { expiresAt: "2026-09-02T00:00:00.000Z", audioExpiresAt: "2026-09-02T00:00:00.000Z", expiredAt: null },
+      });
+      const saved = await store.spool(entry, clip(), 0.005);
+      if (saved.mode !== "full") throw new Error("expected encrypted audio");
+      paths.push(saved.audio.path);
+      entry.audio = null;
+      if (state === "absent") journal.entries = journal.entries.filter((candidate) => candidate.id !== entry.id);
+      else { entry.state = state; entry.terminal = state; }
+    }
+    const restarted = new EncryptedRecoveryAudioStore(journal, new RecoveryKeyStore(keychain), join(root ?? "", "audio"));
+    await restarted.reconcileOrphans(new Date("2026-09-01T00:00:00.000Z"));
+    for (const path of paths) await expect(access(path)).rejects.toThrow();
+  });
+
   it("finishes an in-flight spool before discarding its session", async () => {
     const { journal, store } = await setup();
     const entry = addEntry(journal, "racing-discard");

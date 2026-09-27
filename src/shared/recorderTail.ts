@@ -8,7 +8,7 @@ export const STOP_POLL_MS = 40;
 export const STOP_QUIET_RMS = 0.002;
 
 export function rendererQuietThreshold(frameRms: readonly number[]): number {
-  const sorted = frameRms.filter((rms) => Number.isFinite(rms) && rms > 0.00001).sort((a, b) => a - b);
+  const sorted = frameRms.filter((rms) => Number.isFinite(rms) && rms > 0.00001 && rms < 0.01).sort((a, b) => a - b);
   if (sorted.length === 0) return STOP_QUIET_RMS;
   const floor = sorted[Math.floor((sorted.length - 1) * 0.2)] ?? 0;
   return Math.max(STOP_QUIET_RMS, floor * 1.8);

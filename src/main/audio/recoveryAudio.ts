@@ -214,7 +214,7 @@ export class EncryptedRecoveryAudioStore {
       const pending = entries.find((entry) => !entry.terminal && isBeforeExpiry(entry, now) && isManagedRecoveryAudioPath(this.directory, path, entry.sessionId));
       const session = linked ?? pending;
       if (!session) {
-        if (isManagedRecoveryAudioCandidatePath(this.directory, path) && await hasInvalidRecoveryAudioHeader(path)) {
+        if (isManagedRecoveryAudioCandidatePath(this.directory, path)) {
           await unlink(path).catch(() => undefined);
         }
         continue;
@@ -463,23 +463,6 @@ function decryptAudio(fileBytes: Buffer, key: Buffer, sessionId: string): Buffer
   decipher.setAuthTag(fileBytes.subarray(tagStart, ciphertextStart));
   decipher.setAAD(buildAssociatedData(sessionId));
   return Buffer.concat([decipher.update(fileBytes.subarray(ciphertextStart)), decipher.final()]);
-}
-
-async function hasInvalidRecoveryAudioHeader(path: string): Promise<boolean> {
-  const noFollow = constants.O_NOFOLLOW;
-  if (typeof noFollow !== "number") return false;
-  let handle;
-  try {
-    handle = await open(path, constants.O_RDONLY | noFollow);
-    const header = Buffer.alloc(RECOVERY_AUDIO_MAGIC.length + 1);
-    const { bytesRead } = await handle.read(header, 0, header.length, 0);
-    return bytesRead !== header.length || !header.subarray(0, RECOVERY_AUDIO_MAGIC.length).equals(RECOVERY_AUDIO_MAGIC)
-      || header[RECOVERY_AUDIO_MAGIC.length] !== RECOVERY_ENCRYPTION_VERSION;
-  } catch {
-    return false;
-  } finally {
-    await handle?.close().catch(() => undefined);
-  }
 }
 
 function describeWav(bytes: Buffer): { sampleRate: number; durationSeconds: number } {

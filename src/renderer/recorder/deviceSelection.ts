@@ -48,6 +48,9 @@ export function selectRecorderDevice(
   if (builtIns.length !== 1) return { ok: false, message: NO_BUILT_IN_MICROPHONE_MESSAGE };
   const builtIn = builtIns[0];
   if (!builtIn) return { ok: false, message: NO_BUILT_IN_MICROPHONE_MESSAGE };
+  if (inputs.some((device) => !device.label.trim())) {
+    return { ok: false, message: "Microphone names are unavailable. Allow microphone access for Vaani in System Settings, then try again." };
+  }
   const name = builtIn.name.trim().toLowerCase();
   const matchingNativeDevices = nativeDevices.filter((device) => device.name.trim().toLowerCase() === name);
   const matches = inputs.filter((device) => name !== "" && device.label.trim().toLowerCase() === name);

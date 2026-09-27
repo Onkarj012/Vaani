@@ -245,7 +245,7 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { settings, updateSettings, resetSettings, clearHistory, historyEntries, updateStatus, checkForUpdates, restartAndInstall } = useVaaniUi()
+  const { settings, updateSettings, resetSettings, clearHistory, historyEntries, updateStatus, checkForUpdates, restartAndInstall, cleanupRecoveryAudio, clearRecoveryAudio: clearAllRecoveryAudio } = useVaaniUi()
   const { mode, setMode } = useColorMode()
   const [activeSection, setActiveSection] = useState('api')
   const [customHex, setCustomHex] = useState(settings.accentColor)
@@ -324,13 +324,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const cleanupRecovery = async () => {
     setRecoveryBusy(true)
-    try { setRecoveryUsage(await window.vaani.cleanupRecoveryAudio()) } finally { setRecoveryBusy(false) }
+    try { setRecoveryUsage(await cleanupRecoveryAudio()) } finally { setRecoveryBusy(false) }
   }
 
   const clearRecoveryAudio = async () => {
     if (!window.confirm('Delete all retained recovery audio? Text recovery will stay in History.')) return
     setRecoveryBusy(true)
-    try { setRecoveryUsage(await window.vaani.clearRecoveryAudio()) } finally { setRecoveryBusy(false) }
+    try { setRecoveryUsage(await clearAllRecoveryAudio()) } finally { setRecoveryBusy(false) }
   }
 
   const handleExportData = () => {
@@ -745,7 +745,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               onChange={(value) => updateSettings({ recoveryRetentionDays: parseRecoveryRetentionDays(value) })}
               options={[1, 3, 7, 14].map((days) => ({ value: String(days), label: `${days} day${days === 1 ? '' : 's'}` }))}
             />
-            <p className="mt-1.5 text-xs text-faint">Encrypted audio is removed when this window ends. Bounded text stays until you discard its recovery item.</p>
+            <p className="mt-1.5 text-xs text-faint">This period applies to new failures. Previously retained audio keeps its original expiry. Bounded text stays until you discard its recovery item.</p>
           </div>
           <Row title="Retain failed audio" desc="Opt in to encrypted audio for retries when recovery is available">
             <Toggle checked={settings.retainFailedAudio} onChange={(value) => updateSettings({ retainFailedAudio: value })} />
