@@ -197,7 +197,7 @@ describe("evaluateInsertionAcceptance", () => {
       }],
     })));
 
-    expect(result.status).toBe("fail");
+    expect(result.status).toBe("warming");
     expect(result.counts).toMatchObject({
       inspected: INSERTION_ACCEPTANCE_MIN_TRIALS,
       qualifyingClean: INSERTION_ACCEPTANCE_MIN_TRIALS,
@@ -209,6 +209,19 @@ describe("evaluateInsertionAcceptance", () => {
     });
     expect(result.apps).toHaveLength(0);
     expect(result.rates.aggregate.rate).toBe(0);
+  });
+
+  it("requires 100 eligible trials even after clean warmup and class coverage", () => {
+    const result = evaluateInsertionAcceptance(tracesFor(200, (index) => trace(`eligible-${index}`, {
+      attempts: [{
+        ...successfulAttempt(`com.example.App${index % 20}`),
+        targetFieldClass: `field-${index % 20}`,
+        ...(index < 101 ? { verification: { readable: false, passed: false, repaired: false, reason: "baseline-unreadable" as const } } : {}),
+      }],
+    })));
+    expect(result.counts).toMatchObject({ qualifyingClean: 200, eligible: 99 });
+    expect(result.representedClasses).toHaveLength(20);
+    expect(result.status).toBe("warming");
   });
 
   it("uses only the final injection attempt", () => {

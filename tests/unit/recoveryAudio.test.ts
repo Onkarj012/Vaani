@@ -52,6 +52,7 @@ function silentClip(durationSeconds = 1) {
 class FakeJournal {
   entries: RecoveryEntry[] = [];
   modes: RecoveryEntry["recoveryMode"][] = [];
+  beforeUpdateAudio?: (audio: RecoveryEntry["audio"]) => Promise<void>;
 
   async getAll(): Promise<RecoveryEntry[]> {
     return structuredClone(this.entries);
@@ -63,6 +64,7 @@ class FakeJournal {
   }
 
   async updateAudio(entryId: string, sessionId: string, audio: RecoveryEntry["audio"]): Promise<RecoveryEntry> {
+    await this.beforeUpdateAudio?.(audio);
     const entry = this.entries.find((candidate) => candidate.id === entryId && candidate.sessionId === sessionId);
     if (!entry) throw new Error("entry not found");
     entry.audio = audio;
@@ -178,6 +180,86 @@ describe("EncryptedRecoveryAudioStore", () => {
     await expect(access(temporaryPath)).rejects.toThrow();
     await expect(restarted.withDecryptedAudio(entry.sessionId, () => { throw new Error("playback failed"); })).rejects.toThrow("playback failed");
     await expect(access(temporaryPath)).rejects.toThrow();
+    expect(temporaryPath).toContain(join(root ?? "", "audio", "playback"));
+    await writeFile(temporaryPath, "crash plaintext");
+    await restarted.reconcileOrphans(new Date("2026-09-01T00:00:00.000Z"));
+    await expect(access(temporaryPath)).rejects.toThrow();
+  });
+
+  it("keeps the old linked ciphertext until a distinct second save commits", async () => {
+    const { journal, store } = await setup();
+    const entry = addEntry(journal, "second-save");
+    const first = await store.spool(entry, clip(), 0.005);
+    if (first.mode !== "full") throw new Error("expected first audio");
+    journal.beforeUpdateAudio = async (audio) => {
+      if (audio && audio.path !== first.audio.path) throw new Error("journal write failed");
+    };
+    await expect(store.spool(entry, clip(1), 0.005)).rejects.toThrow("journal write failed");
+    expect((await journal.getBySessionId(entry.sessionId))?.audio?.path).toBe(first.audio.path);
+    await expect(access(first.audio.path)).resolves.toBeUndefined();
+    expect((await readdir(join(root ?? "", "audio"))).filter((name) => name.endsWith(".enc"))).toHaveLength(2);
+    journal.beforeUpdateAudio = undefined;
+    const second = await store.spool(entry, clip(1), 0.005);
+    if (second.mode !== "full") throw new Error("expected second audio");
+    expect(second.audio.path).not.toBe(first.audio.path);
+    await expect(access(first.audio.path)).rejects.toThrow();
+  });
+
+  it("relinks a newer authenticated save after a crash before journal commit", async () => {
+    const { journal, keychain, store } = await setup();
+    const entry = addEntry(journal, "crash-second", {
+      retention: { expiresAt: "2026-09-02T00:00:00.000Z", audioExpiresAt: "2026-09-02T00:00:00.000Z", expiredAt: null },
+    });
+    const first = await store.spool(entry, clip(), 0.005);
+    if (first.mode !== "full") throw new Error("expected first audio");
+    journal.beforeUpdateAudio = async (audio) => { if (audio && audio.path !== first.audio.path) throw new Error("crash before link"); };
+    await expect(store.spool(entry, clip(1), 0.005)).rejects.toThrow("crash before link");
+    journal.beforeUpdateAudio = undefined;
+    const restarted = new EncryptedRecoveryAudioStore(journal, new RecoveryKeyStore(keychain), join(root ?? "", "audio"));
+    await restarted.reconcileOrphans(new Date("2026-09-01T00:00:00.000Z"));
+    const linked = await journal.getBySessionId(entry.sessionId);
+    expect(linked?.audio?.path).not.toBe(first.audio.path);
+    expect(linked?.audio?.durationSeconds).toBe(1);
+    await expect(access(first.audio.path)).rejects.toThrow();
+    if (!linked?.audio?.path) throw new Error("expected relinked audio");
+    await expect(access(linked.audio.path)).resolves.toBeUndefined();
+  });
+
+  it("keeps authenticated orphans when relinking fails and retries later", async () => {
+    const { journal, keychain, store } = await setup();
+    const entry = addEntry(journal, "transient-relink", {
+      retention: { expiresAt: "2026-09-02T00:00:00.000Z", audioExpiresAt: "2026-09-02T00:00:00.000Z", expiredAt: null },
+    });
+    const saved = await store.spool(entry, clip(), 0.005);
+    if (saved.mode !== "full") throw new Error("expected audio");
+    entry.audio = null;
+    journal.beforeUpdateAudio = async (audio) => { if (audio) throw new Error("transient journal failure"); };
+    const restarted = new EncryptedRecoveryAudioStore(journal, new RecoveryKeyStore(keychain), join(root ?? "", "audio"));
+    await expect(restarted.reconcileOrphans(new Date("2026-09-01T00:00:00.000Z"))).rejects.toThrow("transient journal failure");
+    await expect(access(saved.audio.path)).resolves.toBeUndefined();
+    journal.beforeUpdateAudio = undefined;
+    await restarted.reconcileOrphans(new Date("2026-09-01T00:00:00.000Z"));
+    expect((await journal.getBySessionId(entry.sessionId))?.audio?.path).toBe(saved.audio.path);
+  });
+
+  it("finishes an in-flight spool before discarding its session", async () => {
+    const { journal, store } = await setup();
+    const entry = addEntry(journal, "racing-discard");
+    let releaseUpdate: () => void = () => undefined;
+    let enteredUpdate: () => void = () => undefined;
+    const entered = new Promise<void>((resolve) => { enteredUpdate = resolve; });
+    const release = new Promise<void>((resolve) => { releaseUpdate = resolve; });
+    journal.beforeUpdateAudio = async (audio) => {
+      if (audio) { enteredUpdate(); await release; }
+    };
+    const spooling = store.spool(entry, clip(), 0.005);
+    await entered;
+    const discarding = store.discardSession(entry.id, entry.sessionId);
+    releaseUpdate();
+    await Promise.all([spooling, discarding]);
+    expect((await journal.getBySessionId(entry.sessionId))?.terminal).toBe("discarded");
+    expect((await journal.getBySessionId(entry.sessionId))?.audio).toBeNull();
+    expect((await readdir(join(root ?? "", "audio"))).filter((name) => name.endsWith(".enc"))).toEqual([]);
   });
 
   it("rejects a managed filename that is replaced with a symlink", async () => {
@@ -334,16 +416,44 @@ describe("EncryptedRecoveryAudioStore", () => {
 
   it("enforces the 50-session and 1 GB caps without deleting unresolved nonexpired work", async () => {
     const { journal, store } = await setup();
-    for (let index = 0; index < RECOVERY_AUDIO_MAX_SESSIONS; index += 1) addEntry(journal, `full-${index}`);
+    for (let index = 0; index < RECOVERY_AUDIO_MAX_SESSIONS; index += 1) addEntry(journal, `text-${index}`);
     const capped = addEntry(journal, "cap-session");
     const result = await store.spool(capped, clip(), 0.005);
-    expect(result).toMatchObject({ mode: "text-only", reason: "cap-reached" });
+    expect(result.mode).toBe("full");
     expect(journal.entries.filter((entry) => !entry.terminal)).toHaveLength(RECOVERY_AUDIO_MAX_SESSIONS + 1);
+
+    const { journal: sessionJournal, store: sessionStore } = await setup();
+    for (let index = 0; index < RECOVERY_AUDIO_MAX_SESSIONS; index += 1) {
+      addEntry(sessionJournal, `full-${index}`, { audio: { kind: "encrypted-session-file", path: `full-${index}.v1.enc`, sizeBytes: 1 } });
+    }
+    const sessionCapped = addEntry(sessionJournal, "session-cap");
+    expect(await sessionStore.spool(sessionCapped, clip(), 0.005)).toMatchObject({ mode: "text-only", reason: "cap-reached" });
 
     const { journal: byteJournal, store: byteStore } = await setup();
     addEntry(byteJournal, "byte-full", { audio: { kind: "encrypted-session-file", path: "missing.enc", sizeBytes: RECOVERY_AUDIO_MAX_BYTES } });
     const byteCapped = addEntry(byteJournal, "byte-cap-session");
     expect(await byteStore.spool(byteCapped, clip(), 0.005)).toMatchObject({ mode: "text-only", reason: "cap-reached" });
     expect((await byteJournal.getBySessionId("byte-full"))?.audio?.path).toBe("missing.enc");
+  });
+
+  it("counts an in-flight save against the audio session cap", async () => {
+    const { journal, store } = await setup();
+    for (let index = 0; index < RECOVERY_AUDIO_MAX_SESSIONS - 1; index += 1) {
+      addEntry(journal, `retained-${index}`, { audio: { kind: "encrypted-session-file", path: `retained-${index}.v1.enc`, sizeBytes: 1 } });
+    }
+    const first = addEntry(journal, "pending-save");
+    const second = addEntry(journal, "next-save");
+    let enteredUpdate: () => void = () => undefined;
+    let releaseUpdate: () => void = () => undefined;
+    const entered = new Promise<void>((resolve) => { enteredUpdate = resolve; });
+    const release = new Promise<void>((resolve) => { releaseUpdate = resolve; });
+    journal.beforeUpdateAudio = async (audio) => {
+      if (audio) { enteredUpdate(); await release; }
+    };
+    const pending = store.spool(first, clip(), 0.005);
+    await entered;
+    expect(await store.spool(second, clip(), 0.005)).toMatchObject({ mode: "text-only", reason: "cap-reached" });
+    releaseUpdate();
+    expect((await pending).mode).toBe("full");
   });
 });

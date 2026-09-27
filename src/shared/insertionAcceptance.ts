@@ -161,7 +161,7 @@ export function evaluateInsertionAcceptance(traces: readonly DictationTrace[]): 
     bound: false,
     passed: true,
   };
-  const warm = counts.qualifyingClean < INSERTION_ACCEPTANCE_MIN_TRIALS;
+  const warm = counts.qualifyingClean < INSERTION_ACCEPTANCE_MIN_TRIALS || counts.eligible < INSERTION_ACCEPTANCE_MIN_TRIALS;
   const status: InsertionAcceptanceStatus = warm
     ? "warming"
     : aggregateRate.rate >= INSERTION_ACCEPTANCE_AGGREGATE_THRESHOLD &&

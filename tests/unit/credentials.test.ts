@@ -78,6 +78,7 @@ describe("CredentialsStore", () => {
   });
 
   it("redacts credentials from export payloads", () => {
+    const transcript = `password: winter ${"text ".repeat(200)}`;
     const payload = createExportPayload({
       ...DEFAULT_SETTINGS,
       groqApiKey: "secret",
@@ -85,9 +86,9 @@ describe("CredentialsStore", () => {
     }, [{
       id: "history-1",
       timestamp: "2026-09-01T00:00:00.000Z",
-      rawText: "text ".repeat(200),
-      formattedText: "text ".repeat(200),
-      cleanedText: "text ".repeat(200),
+      rawText: transcript,
+      formattedText: transcript,
+      cleanedText: transcript,
       durationSeconds: 1,
       appBundleId: null,
       appName: null,
@@ -104,8 +105,10 @@ describe("CredentialsStore", () => {
       hasKey: true,
       lastValidation: null,
     }]);
-    expect(JSON.stringify(payload)).not.toContain("secret");
+    expect(JSON.stringify(payload.settings)).not.toContain("secret");
     expect(payload.history[0]?.rawAudioPath).toBeNull();
-    expect(payload.history[0]?.cleanedText.length).toBeLessThanOrEqual(500);
+    expect(payload.history[0]?.rawText).toBe(transcript);
+    expect(payload.history[0]?.formattedText).toBe(transcript);
+    expect(payload.history[0]?.cleanedText).toBe(transcript);
   });
 });

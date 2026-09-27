@@ -1,9 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { chmod, copyFile, mkdir, open, readdir, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, open, readdir, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { tmpdir } from "node:os";
 import { app } from "electron";
 import type { AudioClip } from "@shared/types";
 import { APP_DATA_DIR } from "@shared/defaults";
@@ -23,6 +22,7 @@ const RECOVERY_AUDIO_MAGIC = Buffer.from("VAANI-R02", "ascii");
 const RECOVERY_AUDIO_IV_BYTES = 12;
 const RECOVERY_AUDIO_TAG_BYTES = 16;
 const RECOVERY_AUDIO_OVERHEAD_BYTES = RECOVERY_AUDIO_MAGIC.length + 1 + RECOVERY_AUDIO_IV_BYTES + RECOVERY_AUDIO_TAG_BYTES;
+let lastAudioFileTime = 0;
 
 export interface RecoveryAudioJournal {
   getAll(): Promise<RecoveryEntry[]>;
@@ -55,6 +55,9 @@ export type PlaybackSpawner = (
 
 export class EncryptedRecoveryAudioStore {
   private readonly directory: string;
+  private readonly sessionMutations = new Map<string, Promise<void>>();
+  private readonly inFlight = new Map<string, number>();
+  private pendingCapacity: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly journal: RecoveryAudioJournal,
@@ -70,20 +73,43 @@ export class EncryptedRecoveryAudioStore {
     silenceThreshold: number,
     now = new Date(),
   ): Promise<RecoveryAudioSpoolResult> {
+    return this.withSessionMutation(entry.sessionId, async () => {
+      try {
+        return await this.spoolLocked(entry, clip, silenceThreshold, now);
+      } finally {
+        this.inFlight.delete(entry.sessionId);
+      }
+    });
+  }
+
+  private async spoolLocked(entry: RecoveryEntry, clip: AudioClip, silenceThreshold: number, now: Date): Promise<RecoveryAudioSpoolResult> {
+    const current = await this.journal.getBySessionId(entry.sessionId);
+    if (!current || current.id !== entry.id || current.terminal) {
+      throw new Error("Recovery session is unavailable for audio retention.");
+    }
     if (!shouldRetainVoicedAudio(clip, silenceThreshold)) {
       return { mode: "text-only", reason: "storage-failure", detail: "Voiced audio was shorter than 500 ms or contained only silence." };
     }
 
-    await this.cleanupExpired(now);
-    const unresolved = (await this.journal.getAll()).filter((candidate) => {
-      const expiry = Date.parse(candidate.retention.audioExpiresAt ?? candidate.retention.expiresAt);
-      return !candidate.terminal && candidate.id !== entry.id && Number.isFinite(expiry) && expiry > now.getTime();
+    const hasCapacity = await this.withCapacityMutation(async () => {
+      await this.cleanupExpired(now);
+      const unresolved = (await this.journal.getAll()).filter((candidate) => {
+        const expiry = Date.parse(candidate.retention.audioExpiresAt ?? candidate.retention.expiresAt);
+        return !candidate.terminal && candidate.id !== entry.id && candidate.audio !== null && Number.isFinite(expiry) && expiry > now.getTime();
+      });
+      const totalBytes = unresolved.reduce((sum, candidate) => sum + (candidate.audio?.sizeBytes ?? 0), 0);
+      const inFlight = [...this.inFlight].filter(([sessionId]) => sessionId !== entry.sessionId && !unresolved.some((candidate) => candidate.sessionId === sessionId));
+      const inFlightBytes = inFlight.reduce((sum, [, bytes]) => sum + bytes, 0);
+      const estimatedBytes = estimateEncryptedWavSize(clip);
+      if (unresolved.length + inFlight.length >= RECOVERY_AUDIO_MAX_SESSIONS || totalBytes + inFlightBytes + estimatedBytes > RECOVERY_AUDIO_MAX_BYTES) return false;
+      this.inFlight.set(entry.sessionId, estimatedBytes);
+      return true;
     });
-    const totalBytes = unresolved.reduce((sum, candidate) => sum + (candidate.audio?.sizeBytes ?? 0), 0);
-    if (unresolved.length >= RECOVERY_AUDIO_MAX_SESSIONS || totalBytes + estimateEncryptedWavSize(clip) > RECOVERY_AUDIO_MAX_BYTES) {
+    if (!hasCapacity) {
       return this.markTextOnly(entry, { mode: "text-only", reason: "cap-reached", detail: "Recovery audio storage is full; text recovery is retained." });
     }
 
+    let journalUpdateFailed = false;
     try {
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       await chmod(this.directory, 0o700).catch(() => undefined);
@@ -102,7 +128,8 @@ export class EncryptedRecoveryAudioStore {
         authTag,
         ciphertext,
       ]);
-      const path = join(this.directory, `${safeSessionId(entry.sessionId)}.v${RECOVERY_ENCRYPTION_VERSION}.enc`);
+      lastAudioFileTime = Math.max(Date.now(), lastAudioFileTime + 1);
+      const path = join(this.directory, fileNameForSession(entry.sessionId, `${lastAudioFileTime}-${randomBytes(8).toString("hex")}`));
       const temporaryPath = join(this.directory, `.tmp-${randomBytes(8).toString("hex")}.enc`);
       await writeFile(temporaryPath, fileBytes, { mode: 0o600 });
       try {
@@ -125,11 +152,15 @@ export class EncryptedRecoveryAudioStore {
         const linked = await this.journal.updateAudio(entry.id, entry.sessionId, audio);
         if (linked.audio?.path !== path) throw new Error("Recovery audio journal link was not committed.");
       } catch (error) {
-        await unlink(path).catch(() => undefined);
+        journalUpdateFailed = true;
         throw error;
+      }
+      if (current.audio?.path && current.audio.path !== path && isManagedRecoveryAudioPath(this.directory, current.audio.path, entry.sessionId)) {
+        await unlink(current.audio.path).catch(() => undefined);
       }
       return { mode: "full", audio };
     } catch (error) {
+      if (journalUpdateFailed) throw error;
       const detail = error instanceof Error ? error.message : "Recovery audio could not be encrypted.";
       if (error instanceof RecoveryKeyMissingError || detail.includes("missing")) {
         return this.markTextOnly(entry, { mode: "text-only", reason: "key-unavailable", detail: "Recovery encryption key is unavailable; text recovery is retained." });
@@ -144,28 +175,59 @@ export class EncryptedRecoveryAudioStore {
     }
   }
 
+  private async withSessionMutation<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.sessionMutations.get(sessionId) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    this.sessionMutations.set(sessionId, pending);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.sessionMutations.get(sessionId) === pending) this.sessionMutations.delete(sessionId);
+    }
+  }
+
+  private async withCapacityMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.pendingCapacity;
+    let release: () => void = () => undefined;
+    this.pendingCapacity = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
   async reconcileOrphans(now = new Date()): Promise<void> {
+    await rm(join(this.directory, "playback"), { recursive: true, force: true });
     const entries = await this.journal.getAll();
     const byPath = new Map(entries.flatMap((entry) => entry.audio?.path && isManagedRecoveryAudioPath(this.directory, entry.audio.path, entry.sessionId)
       ? [[resolve(entry.audio.path), entry] as const]
       : []));
-    const linkPending = new Map(entries
-      .filter((entry) => !entry.terminal && !entry.audio && isBeforeExpiry(entry, now))
-      .map((entry) => [fileNameForSession(entry.sessionId), entry] as const));
-    const candidates: Array<{ path: string; session: RecoveryEntry; linked: RecoveryEntry | undefined }> = [];
+    const candidates: Array<{ path: string; session: RecoveryEntry; linked: RecoveryEntry | undefined; modifiedAt: number }> = [];
     for (const name of await this.encryptedFileNames()) {
       const path = join(this.directory, name);
       const linked = byPath.get(resolve(path));
-      const pending = linkPending.get(name);
+      const pending = entries.find((entry) => !entry.terminal && isBeforeExpiry(entry, now) && isManagedRecoveryAudioPath(this.directory, path, entry.sessionId));
       const session = linked ?? pending;
-      if (!session || !isBeforeExpiry(session, now)) {
+      if (!session) {
+        if (isManagedRecoveryAudioCandidatePath(this.directory, path) && await hasInvalidRecoveryAudioHeader(path)) {
+          await unlink(path).catch(() => undefined);
+        }
+        continue;
+      }
+      if (!isBeforeExpiry(session, now) || session.terminal) {
         if (isManagedRecoveryAudioCandidatePath(this.directory, path)) {
           await unlink(path).catch(() => undefined);
         }
         if (linked) await this.journal.updateAudio(linked.id, linked.sessionId, null).catch(() => undefined);
         continue;
       }
-      candidates.push({ path, session, linked });
+      const modifiedAt = await stat(path).then((value) => value.mtimeMs).catch(() => -1);
+      candidates.push({ path, session, linked, modifiedAt });
     }
     if (candidates.length === 0) return;
     let key: Buffer;
@@ -177,12 +239,32 @@ export class EncryptedRecoveryAudioStore {
       if (error instanceof RecoveryKeyMissingError || error instanceof RecoveryKeyCorruptError || error instanceof RecoveryKeyAccessError) return;
       throw error;
     }
+    candidates.sort((a, b) => {
+      const newer = fileTime(b.path) - fileTime(a.path);
+      return newer || b.modifiedAt - a.modifiedAt;
+    });
+    const selected = new Set<string>();
     for (const { path, session, linked } of candidates) {
+      if (selected.has(session.sessionId)) {
+        await unlink(path).catch(() => undefined);
+        continue;
+      }
+      let fileBytes: Buffer;
+      let metadata: { sampleRate: number; durationSeconds: number };
       try {
-        const { managedPath, fileBytes } = await readManagedRecoveryAudio(this.directory, path, session.sessionId);
+        ({ fileBytes } = await readManagedRecoveryAudio(this.directory, path, session.sessionId));
+      } catch {
+        continue;
+      }
+      try {
         const plaintext = decryptAudio(fileBytes, key, session.sessionId);
-        const metadata = describeWav(plaintext);
-        const audio: RecoveryAudioReference = {
+        metadata = describeWav(plaintext);
+      } catch {
+        if (linked) await this.journal.updateAudio(linked.id, linked.sessionId, null).catch(() => undefined);
+        if (isManagedRecoveryAudioPath(this.directory, path, session.sessionId)) await unlink(path).catch(() => undefined);
+        continue;
+      }
+      const audio: RecoveryAudioReference = {
           kind: "encrypted-session-file",
           path,
           encryptionVersion: RECOVERY_ENCRYPTION_VERSION,
@@ -190,20 +272,20 @@ export class EncryptedRecoveryAudioStore {
           sampleRate: metadata.sampleRate,
           durationSeconds: metadata.durationSeconds,
           checksum: createHash("sha256").update(fileBytes).digest("hex"),
-        };
-        if (!linked) {
-          const relinked = await this.journal.updateAudio(session.id, session.sessionId, audio);
-          if (relinked.audio?.path !== path) throw new Error("Recovery audio relink was not committed.");
-        } else if (linked.audio?.checksum && linked.audio.checksum !== audio.checksum) {
-          await this.journal.updateAudio(linked.id, linked.sessionId, null);
-          await unlink(managedPath).catch(() => undefined);
-        }
-      } catch {
-        if (linked) await this.journal.updateAudio(linked.id, linked.sessionId, null).catch(() => undefined);
-        if (isManagedRecoveryAudioPath(this.directory, path, session.sessionId)) {
-          await unlink(path).catch(() => undefined);
+      };
+      if (linked?.audio?.checksum && linked.audio.checksum !== audio.checksum) {
+        await this.journal.updateAudio(linked.id, linked.sessionId, null);
+        await unlink(path).catch(() => undefined);
+        continue;
+      }
+      if (!linked) {
+        const relinked = await this.journal.updateAudio(session.id, session.sessionId, audio);
+        if (relinked.audio?.path !== path) throw new Error("Recovery audio relink was not committed.");
+        if (session.audio?.path && session.audio.path !== path && isManagedRecoveryAudioPath(this.directory, session.audio.path, session.sessionId)) {
+          await unlink(session.audio.path).catch(() => undefined);
         }
       }
+      selected.add(session.sessionId);
     }
   }
 
@@ -222,10 +304,12 @@ export class EncryptedRecoveryAudioStore {
   }
 
   async discardSession(entryId: string, sessionId: string): Promise<void> {
-    const entry = await this.journal.getBySessionId(sessionId);
-    if (!entry || entry.id !== entryId) return;
-    await this.deleteForSession(sessionId);
-    await this.journal.discard?.(entryId, sessionId);
+    return this.withSessionMutation(sessionId, async () => {
+      const entry = await this.journal.getBySessionId(sessionId);
+      if (!entry || entry.id !== entryId) return;
+      await this.deleteForSession(sessionId);
+      await this.journal.discard?.(entryId, sessionId);
+    });
   }
 
   async discard(entryId: string, sessionId: string): Promise<void> {
@@ -261,7 +345,13 @@ export class EncryptedRecoveryAudioStore {
       throw new Error("Recovery audio checksum failed.");
     }
     const plaintext = decryptAudio(fileBytes, key, sessionId);
-    const temporaryPath = join(tmpdir(), `vaani-recovery-playback-${randomBytes(8).toString("hex")}.wav`);
+    const playbackDirectory = join(this.directory, "playback");
+    await mkdir(playbackDirectory, { recursive: true, mode: 0o700 });
+    if (await realpath(playbackDirectory) !== join(await realpath(this.directory), "playback")) {
+      throw new Error("Recovery playback directory is not private.");
+    }
+    await chmod(playbackDirectory, 0o700);
+    const temporaryPath = join(playbackDirectory, `vaani-recovery-playback-${randomBytes(8).toString("hex")}.wav`);
     try {
       await writeFile(temporaryPath, plaintext, { mode: 0o600 });
       return await operation(temporaryPath);
@@ -375,6 +465,23 @@ function decryptAudio(fileBytes: Buffer, key: Buffer, sessionId: string): Buffer
   return Buffer.concat([decipher.update(fileBytes.subarray(ciphertextStart)), decipher.final()]);
 }
 
+async function hasInvalidRecoveryAudioHeader(path: string): Promise<boolean> {
+  const noFollow = constants.O_NOFOLLOW;
+  if (typeof noFollow !== "number") return false;
+  let handle;
+  try {
+    handle = await open(path, constants.O_RDONLY | noFollow);
+    const header = Buffer.alloc(RECOVERY_AUDIO_MAGIC.length + 1);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    return bytesRead !== header.length || !header.subarray(0, RECOVERY_AUDIO_MAGIC.length).equals(RECOVERY_AUDIO_MAGIC)
+      || header[RECOVERY_AUDIO_MAGIC.length] !== RECOVERY_ENCRYPTION_VERSION;
+  } catch {
+    return false;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
 function describeWav(bytes: Buffer): { sampleRate: number; durationSeconds: number } {
   if (bytes.length < 44 || bytes.toString("ascii", 0, 4) !== "RIFF" || bytes.toString("ascii", 8, 12) !== "WAVE") {
     throw new Error("Recovery audio WAV header is invalid.");
@@ -402,15 +509,22 @@ function safeSessionId(sessionId: string): string {
   return sessionId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120);
 }
 
-function fileNameForSession(sessionId: string): string {
-  return `${safeSessionId(sessionId)}.v${RECOVERY_ENCRYPTION_VERSION}.enc`;
+function fileNameForSession(sessionId: string, nonce?: string): string {
+  return `${safeSessionId(sessionId)}${nonce ? `.${nonce}` : ""}.v${RECOVERY_ENCRYPTION_VERSION}.enc`;
+}
+
+function fileTime(path: string): number {
+  const match = /\.([0-9]{13})-[a-f0-9]{16}\.v1\.enc$/.exec(path);
+  return match ? Number(match[1]) : 0;
 }
 
 export function isManagedRecoveryAudioPath(directory: string, path: string, sessionId: string): boolean {
-  if (!path || !sessionId || path !== resolve(path) || basename(path) !== fileNameForSession(sessionId)) return false;
+  if (!path || !sessionId || path !== resolve(path)) return false;
+  const name = basename(path);
+  if (name !== fileNameForSession(sessionId) && !new RegExp(`^${safeSessionId(sessionId)}\\.(?:[0-9]{13}-)?[a-f0-9]{16}\\.v${RECOVERY_ENCRYPTION_VERSION}\\.enc$`).test(name)) return false;
   const managedPath = resolve(path);
   const relativePath = relative(resolve(directory), managedPath);
-  return relativePath === fileNameForSession(sessionId)
+  return relativePath === name
     && !isAbsolute(relativePath)
     && !relativePath.startsWith(`..${sep}`);
 }
@@ -418,7 +532,7 @@ export function isManagedRecoveryAudioPath(directory: string, path: string, sess
 function isManagedRecoveryAudioCandidatePath(directory: string, path: string): boolean {
   if (!path || path !== resolve(path)) return false;
   const relativePath = relative(resolve(directory), resolve(path));
-  return /^(?:[a-zA-Z0-9_-]{1,120}\.v1\.enc|\.tmp-[a-f0-9]{16}\.enc)$/.test(basename(path))
+  return /^(?:[a-zA-Z0-9_-]{1,120}(?:\.(?:[0-9]{13}-)?[a-f0-9]{16})?\.v1\.enc|\.tmp-[a-f0-9]{16}\.enc)$/.test(basename(path))
     && relativePath === basename(path)
     && !isAbsolute(relativePath)
     && !relativePath.startsWith(`..${sep}`);

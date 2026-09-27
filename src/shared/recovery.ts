@@ -360,6 +360,9 @@ export function applyRecoveryTransition(entry: RecoveryEntry, input: RecoveryTra
     next.lastError = { class: "expired" };
     next.retention = { ...next.retention, expiredAt: bounded(input.occurredAt) };
   }
+  if (input.to === "discarded" || input.to === "expired") {
+    next.text = { rawTranscript: null, cleanedText: null, formattedText: null };
+  }
   return next;
 }
 
@@ -380,7 +383,9 @@ export function sanitizeRecoveryEntry(entry: RecoveryEntry): RecoveryEntry {
     updatedAt: validDate(entry.updatedAt) ? bounded(entry.updatedAt) : normalized.updatedAt,
     deadlineAt: boundedOptional(entry.deadlineAt),
     audio: sanitizeAudio(entry.audio),
-    text: mergeText(normalized.text, entry.text),
+    text: entry.state === "discarded" || entry.state === "expired"
+      ? { rawTranscript: null, cleanedText: null, formattedText: null }
+      : mergeText(normalized.text, entry.text),
     insertion: sanitizeInsertion(entry.insertion),
     providerAttempts: Array.isArray(entry.providerAttempts)
       ? entry.providerAttempts.slice(-RECOVERY_MAX_ATTEMPTS).map(sanitizeProviderAttempt)
@@ -426,6 +431,7 @@ export function repairRecoveryEntry(entry: RecoveryEntry, now = new Date()): Rec
   return {
     ...interrupted,
     state: "expired",
+    text: { rawTranscript: null, cleanedText: null, formattedText: null },
     attempt: Math.min(normalized.attempt + 1, Number.MAX_SAFE_INTEGER),
     updatedAt: now.toISOString(),
     lastError: { class: "expired" },
@@ -588,10 +594,14 @@ function sanitizeLifecycleFacts(facts: RecoveryLifecycleFacts | null | undefined
 
 function mergeText(current: RecoveryTextReferences, patch: Partial<RecoveryTextReferences> | null | undefined): RecoveryTextReferences {
   return {
-    rawTranscript: patch?.rawTranscript === undefined ? boundedOptional(current.rawTranscript) : boundedOptional(patch.rawTranscript),
-    cleanedText: patch?.cleanedText === undefined ? boundedOptional(current.cleanedText) : boundedOptional(patch.cleanedText),
-    formattedText: patch?.formattedText === undefined ? boundedOptional(current.formattedText) : boundedOptional(patch.formattedText),
+    rawTranscript: patch?.rawTranscript === undefined ? current.rawTranscript : textOptional(patch.rawTranscript),
+    cleanedText: patch?.cleanedText === undefined ? current.cleanedText : textOptional(patch.cleanedText),
+    formattedText: patch?.formattedText === undefined ? current.formattedText : textOptional(patch.formattedText),
   };
+}
+
+function textOptional(value: string | null | undefined): string | null {
+  return typeof value === "string" ? value : null;
 }
 
 function migrateRecoveryEntry(value: Record<string, unknown>, index: number, now: Date): RecoveryEntry {
