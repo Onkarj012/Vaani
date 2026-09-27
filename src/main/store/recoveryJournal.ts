@@ -123,6 +123,7 @@ export class RecoveryJournalStore {
       const index = document.entries.findIndex((entry) => entry.id === entryId);
       const current = document.entries[index];
       if (!current || current.sessionId !== sessionId) throw new Error("Stale recovery session.");
+      if (audio && current.terminal) throw new Error("Terminal recovery entries cannot retain audio.");
       const nextEntry = sanitizeRecoveryEntry({ ...current, audio, recoveryMode: audio ? "full" : current.recoveryMode, updatedAt: new Date().toISOString() });
       const entries = document.entries.slice();
       entries[index] = nextEntry;
@@ -314,6 +315,7 @@ export class RecoveryJournalStore {
         state: "discarded",
         terminal: "discarded",
         audio: null,
+        text: { rawTranscript: null, cleanedText: null, formattedText: null },
         attempt: current.attempt + 1,
         updatedAt: new Date().toISOString(),
         lastError: { class: "none" },
@@ -346,6 +348,7 @@ export class RecoveryJournalStore {
         state: "expired",
         terminal: "expired",
         audio: null,
+        text: { rawTranscript: null, cleanedText: null, formattedText: null },
         attempt: current.attempt + 1,
         updatedAt: occurredAt,
         lastError: { class: "expired" },

@@ -89,7 +89,26 @@ describe("RecoveryJournalStore", () => {
     expect(unresolved[0]?.state).toBe("recoverable");
   });
 
-  it("bounds serialized fields and redacts credential-shaped error details", async () => {
+  it("rejects audio links after discard and purges terminal transcripts", async () => {
+    const { store, filePath } = await createStore();
+    const entry = await store.create({ id: "discard-text", sessionId: "discard-text", buildIdentifier: "build" });
+    await store.updateText(entry.id, entry.sessionId, { rawTranscript: "password: winter", cleanedText: "cleaned", formattedText: "formatted" });
+    const discarded = await store.discard(entry.id, entry.sessionId);
+    expect(discarded?.text).toEqual({ rawTranscript: null, cleanedText: null, formattedText: null });
+    await expect(store.updateAudio(entry.id, entry.sessionId, {
+      kind: "encrypted-session-file", path: "/tmp/discard-text.v1.enc", encryptionVersion: 1, sizeBytes: 100,
+      sampleRate: 16_000, durationSeconds: 1,
+    })).rejects.toThrow("Terminal recovery entries");
+    expect(await readFile(filePath, "utf8")).not.toContain("winter");
+
+    const expiring = await store.create({ id: "expire-text", sessionId: "expire-text", buildIdentifier: "build" });
+    await store.updateText(expiring.id, expiring.sessionId, { rawTranscript: "expire me" });
+    const expired = await store.expire(expiring.id, expiring.sessionId);
+    expect(expired?.text.rawTranscript).toBeNull();
+    expect(await readFile(filePath, "utf8")).not.toContain("expire me");
+  });
+
+  it("preserves complete transcripts while bounding metadata and redacting errors", async () => {
     const { store, filePath } = await createStore();
     const huge = "x".repeat(2_000);
     const created = await store.create(createRecoveryEntry({
@@ -99,7 +118,7 @@ describe("RecoveryJournalStore", () => {
       target: { appBundleId: huge, appName: huge, windowTitle: huge },
     }));
     await store.transition(transition(created, "captured", {
-      text: { rawTranscript: huge, cleanedText: huge, formattedText: huge },
+      text: { rawTranscript: `password: winter ${huge}`, cleanedText: huge, formattedText: huge },
       error: { class: "transcription_error", detail: `gsk_secret ${huge}` },
       providerAttempt: {
         attempt: 1,
@@ -118,11 +137,13 @@ describe("RecoveryJournalStore", () => {
     if (!entry) throw new Error("Expected a persisted recovery entry.");
     expect(entry.buildIdentifier.length).toBeLessThanOrEqual(RECOVERY_FIELD_MAX_LENGTH);
     expect(entry.target.appName?.length).toBeLessThanOrEqual(RECOVERY_FIELD_MAX_LENGTH);
-    expect(entry.text.rawTranscript?.length).toBeLessThanOrEqual(RECOVERY_FIELD_MAX_LENGTH);
+    expect(entry.text.rawTranscript).toBe(`password: winter ${huge}`);
+    expect(entry.text.cleanedText).toBe(huge);
+    expect(entry.text.formattedText).toBe(huge);
     expect(entry.lastError.detail?.length).toBeLessThanOrEqual(RECOVERY_FIELD_MAX_LENGTH);
     expect(entry.providerAttempts[0]?.provider.length).toBeLessThanOrEqual(RECOVERY_FIELD_MAX_LENGTH);
     expect(raw).not.toContain("gsk_secret");
-    expect(raw).not.toContain(huge);
+    expect(entry.lastError.detail).not.toContain(huge);
   });
 
   it("migrates legacy entries and records expiry metadata during startup repair", async () => {
@@ -142,7 +163,7 @@ describe("RecoveryJournalStore", () => {
     expect(entry?.state).toBe("expired");
     expect(entry?.terminal).toBe("expired");
     expect(entry?.retention.expiredAt).toBe("2026-09-01T00:00:00.000Z");
-    expect(entry?.text.rawTranscript).toBe("legacy text");
+    expect(entry?.text.rawTranscript).toBeNull();
 
     const repaired: unknown = JSON.parse(await readFile(filePath, "utf8"));
     expect(repaired).toMatchObject({ schemaVersion: RECOVERY_SCHEMA_VERSION, entries: [{ schemaVersion: RECOVERY_SCHEMA_VERSION }] });

@@ -144,7 +144,7 @@ describe("history derivations", () => {
     expect(item.preview.length).toBeLessThanOrEqual(180);
     expect(item.age).toBe("2h old");
     expect(item.actions).toEqual(expect.arrayContaining(["retry-transcription", "retry-formatting", "retry-insertion", "copy", "play-audio", "delete-audio", "discard"]));
-    expect(entry.text.rawTranscript?.length).toBeLessThanOrEqual(500);
+    expect(entry.text.rawTranscript).toBe("word ".repeat(200));
     expect(deriveRecoveryActions({ ...entry, state: "delivered", terminal: "delivered" })).toEqual([]);
     expect(dedupeRecoveryEntries([entry, entry])).toHaveLength(1);
     expect(JSON.stringify(entry)).not.toContain("recovery.enc");
