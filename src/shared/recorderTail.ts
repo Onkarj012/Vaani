@@ -6,12 +6,14 @@ export const STOP_POLL_MS = 40;
 // A continuous renderer stream cannot become callback-quiet like the native queue.
 // Treat frames below this acoustic level as quiet instead.
 export const STOP_QUIET_RMS = 0.002;
+const QUIET_FLOOR_CAP_RMS = 0.01;
 
 export function rendererQuietThreshold(frameRms: readonly number[]): number {
   const sorted = frameRms.filter((rms) => Number.isFinite(rms) && rms > 0.00001 && rms < 0.01).sort((a, b) => a - b);
   if (sorted.length === 0) return STOP_QUIET_RMS;
   const floor = sorted[Math.floor((sorted.length - 1) * 0.2)] ?? 0;
-  return Math.max(STOP_QUIET_RMS, floor * 1.8);
+  // Capped so a quiet (whispered) clip's own speech never counts as silence.
+  return Math.min(QUIET_FLOOR_CAP_RMS, Math.max(STOP_QUIET_RMS, floor * 1.8));
 }
 
 export function shouldFinishRendererDrain(elapsedMs: number, quietForMs: number): boolean {

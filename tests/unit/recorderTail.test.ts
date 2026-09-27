@@ -80,4 +80,8 @@ describe("renderer stop drain", () => {
   it("uses the fixed threshold for silence", () => {
     expect(rendererQuietThreshold([0, 0, 0])).toBe(0.002);
   });
+
+  it("caps the derived threshold below whispered speech", () => {
+    expect(rendererQuietThreshold([0.009, 0.0095, 0.0099, 0.0098])).toBe(0.01);
+  });
 });
