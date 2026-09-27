@@ -582,7 +582,7 @@ async function bootstrap(): Promise<void> {
     },
     onPermissionStatusChanged: (status) => { void lifecycleCoordinator?.handlePermissionChanged(status); },
     onSettingsUpdated: (_updated, patch) => {
-      if (patch.offlineMode === "always-offline" || "localWhisperModel" in patch) dictation.cancelSession();
+      if (patch.offlineMode === "always-offline") dictation.cancelSession();
       if ("theme" in patch) overlayController?.setTheme("aurora");
       if ("colorMode" in patch && patch.colorMode) overlayController?.setColorMode(patch.colorMode);
       if ("accentColor" in patch && patch.accentColor) overlayController?.setAccentColor(patch.accentColor);

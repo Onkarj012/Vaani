@@ -6,6 +6,7 @@ let pasteboardChangeCount = 0;
 let failAppleScriptAction = false;
 let holdAppleScriptPaste = false;
 let releaseAppleScriptPaste: (() => void) | null = null;
+let refuseClipboardWrite = false;
 const writes: { value: string; t: number }[] = [];
 
 vi.mock("node:child_process", () => ({
@@ -24,6 +25,7 @@ vi.mock("node:child_process", () => ({
   },
   execFileSync: (cmd: string, _args: unknown, opts?: { input?: string }) => {
     if (cmd === "pbcopy") {
+      if (refuseClipboardWrite) return "";
       const input = opts?.input ?? "";
       fakeClipboard = input;
       pasteboardChangeCount += 1;
@@ -37,6 +39,7 @@ vi.mock("electron", () => ({
   clipboard: {
     readText: () => fakeClipboard,
     writeText: (value: string) => {
+      if (refuseClipboardWrite) return;
       fakeClipboard = value;
       pasteboardChangeCount += 1;
       writes.push({ value, t: Date.now() });
@@ -81,6 +84,7 @@ describe("ClipboardTextInjector restore timing", () => {
     failAppleScriptAction = false;
     holdAppleScriptPaste = false;
     releaseAppleScriptPaste = null;
+    refuseClipboardWrite = false;
   });
 
   afterEach(() => {
@@ -159,6 +163,19 @@ describe("ClipboardTextInjector restore timing", () => {
     await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
   });
 
+  it("serializes two simultaneous injections and restores the original clipboard", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    fakeClipboard = "my original copy";
+    const injector = new ClipboardTextInjector();
+    const first = injector.inject("first dictation", chromeTarget);
+    const second = injector.inject("second dictation", chromeTarget);
+    await vi.runAllTimersAsync();
+    await expect(first).resolves.toMatchObject({ success: true });
+    await expect(second).resolves.toMatchObject({ success: true });
+    expect(fakeClipboard).toBe("my original copy");
+    expect(writes.filter((write) => write.value === "my original copy")).toHaveLength(1);
+  });
+
   it("keeps an explicit copy made after insertion when the delayed restore fires", async () => {
     const { ClipboardTextInjector, cancelPendingClipboardRestore } = await import("@main/injection/clipboard");
     const injector = new ClipboardTextInjector();
@@ -203,6 +220,7 @@ describe("ClipboardTextInjector dispatch safety", () => {
     failAppleScriptAction = false;
     holdAppleScriptPaste = false;
     releaseAppleScriptPaste = null;
+    refuseClipboardWrite = false;
   });
 
   afterEach(() => {
@@ -234,6 +252,15 @@ describe("ClipboardTextInjector dispatch safety", () => {
     } finally {
       bridge.getClipboardChangeCount = originalCounter;
     }
+  });
+
+  it("refuses to paste when pbcopy reports success without storing the text", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    refuseClipboardWrite = true;
+    await expect(new ClipboardTextInjector().inject("dictated", chromeTarget))
+      .resolves.toEqual({ success: false, reason: "insertion_failed" });
+    expect(fakeClipboard).toBe("original");
+    expect(bridge.pasteText).not.toHaveBeenCalled();
   });
 
   it("stops before dispatch when cancelled during the settle wait and restores the clipboard", async () => {
@@ -340,33 +367,28 @@ describe("ClipboardTextInjector dispatch safety", () => {
     expect(bridge.typeText).not.toHaveBeenCalled();
   });
 
-  it("does not try native paste after AppleScript reports an error following dispatch", async () => {
+  it("uses native paste for Unicode text even when AppleScript is unavailable", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     failAppleScriptAction = true;
 
     const promise = new ClipboardTextInjector().inject("héllo", textEditTarget);
     await vi.runAllTimersAsync();
 
-    await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
-    expect(bridge.pasteText).not.toHaveBeenCalled();
+    await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+    expect(bridge.pasteText).toHaveBeenCalledOnce();
     expect(bridge.typeText).not.toHaveBeenCalled();
   });
 
-  it("keeps a user clipboard change while an AppleScript paste is delayed", async () => {
+  it("never launches a delayed AppleScript paste for clipboard-only apps", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     holdAppleScriptPaste = true;
     const promise = new ClipboardTextInjector().inject("dictated", chromeTarget);
     await vi.advanceTimersByTimeAsync(3_000);
-    expect(releaseAppleScriptPaste).not.toBeNull();
-
-    fakeClipboard = "user copied during paste";
-    pasteboardChangeCount += 1;
-    releaseAppleScriptPaste?.();
+    expect(releaseAppleScriptPaste).toBeNull();
     await vi.runAllTimersAsync();
 
-    await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
-    expect(fakeClipboard).toBe("user copied during paste");
-    expect(bridge.pasteText).not.toHaveBeenCalled();
+    await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+    expect(bridge.pasteText).toHaveBeenCalledOnce();
   });
 
   it("native paste uses the owned clipboard without writing it again", async () => {
@@ -375,7 +397,7 @@ describe("ClipboardTextInjector dispatch safety", () => {
     await vi.runAllTimersAsync();
 
     await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
-    expect(bridge.pasteText).toHaveBeenCalledWith("dictated", expect.any(Number));
+    expect(bridge.pasteText).toHaveBeenCalledWith("dictated", expect.any(Number), "com.apple.TextEdit", undefined);
     expect(writes.filter((write) => write.value === "dictated")).toHaveLength(1);
     expect(fakeClipboard).toBe("original");
   });
@@ -400,7 +422,7 @@ describe("ClipboardTextInjector dispatch safety", () => {
     await vi.runAllTimersAsync();
 
     await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
-    expect(bridge.pasteText).not.toHaveBeenCalled();
+    expect(bridge.pasteText).toHaveBeenCalledOnce();
   });
 
   it("stops before dispatch when focus changes to another app during activation", async () => {

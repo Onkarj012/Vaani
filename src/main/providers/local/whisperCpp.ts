@@ -2,6 +2,9 @@ import type { TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { resolveReportedLanguage } from "@main/providers/language";
 import { throwIfAborted } from "@main/cancellation";
+import { assertValidWhisperModelName } from "@shared/whisperModels";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 
 /**
  * Local Whisper provider using the native whisper.cpp addon.
@@ -9,13 +12,23 @@ import { throwIfAborted } from "@main/cancellation";
  * Audio is processed entirely on-device — no internet required.
  */
 
-let whisperModule: {
+interface WhisperModule {
   whisperLoadModel?: (path: string) => boolean;
   whisperTranscribe?: (pcmData: Float32Array, sampleRate: number) => string;
   whisperIsModelLoaded?: () => boolean;
   whisperFreeModel?: () => void;
   whisperListModels?: (dir: string) => string[];
-} | null = null;
+}
+let whisperModule: WhisperModule | null = null;
+let loadedModelName: string | null = null;
+
+export function ensureWhisperModel(mod: WhisperModule, modelName: string): void {
+  assertValidWhisperModelName(modelName);
+  if (loadedModelName === modelName && mod.whisperIsModelLoaded?.()) return;
+  const modelPath = join(homedir(), ".vaani", "models", `ggml-${modelName}.bin`);
+  if (!mod.whisperLoadModel?.(modelPath)) throw new Error(`Local Whisper model "${modelName}" could not be loaded.`);
+  loadedModelName = modelName;
+}
 
 function getWhisperModule() {
   if (whisperModule) return whisperModule;
@@ -50,6 +63,10 @@ export const LocalWhisperProvider: TranscriptionProvider = {
       throw new Error("Local Whisper is not available. Go to Settings → Offline Mode to configure.");
     }
 
+    if (options.model) {
+      ensureWhisperModel(mod, options.model);
+    }
+
     if (!mod.whisperIsModelLoaded?.()) {
       throw new Error("No Whisper model loaded. Go to Settings → Offline Mode to download a model.");
     }
@@ -81,7 +98,12 @@ export const LocalWhisperProvider: TranscriptionProvider = {
 export function loadWhisperModel(modelPath: string): boolean {
   const mod = getWhisperModule();
   if (!mod?.whisperLoadModel) return false;
-  return mod.whisperLoadModel(modelPath);
+  const loaded = mod.whisperLoadModel(modelPath);
+  if (loaded) {
+    const match = /^ggml-(.+)\.bin$/.exec(basename(modelPath));
+    loadedModelName = match?.[1] ?? null;
+  }
+  return loaded;
 }
 
 export function isModelLoaded(): boolean {
@@ -92,6 +114,7 @@ export function isModelLoaded(): boolean {
 export function freeWhisperModel(): void {
   const mod = getWhisperModule();
   mod?.whisperFreeModel?.();
+  loadedModelName = null;
 }
 
 export function listDownloadedModels(modelsDir: string): string[] {

@@ -77,17 +77,17 @@ describe("TranscriptionService failover chain", () => {
     expect(format).toHaveBeenCalledWith("hello", expect.objectContaining({ model: "original-model", systemPrompt: "original-prompt" }));
   });
 
-  it("stops cloud failover after offline mode is enabled during a request", async () => {
+  it("keeps the live session route after offline mode is enabled during a request", async () => {
     const settings = { ...DEFAULT_SETTINGS, groqApiKey: "key", failoverEnabled: true, providerApiKeys: [{ providerId: "openai", key: "other-key" }] };
-    const other = vi.fn();
+    const other = vi.fn(async () => ({ rawText: "fallback", formattedText: "fallback", language: "en" }));
     registryState.providers.set("groq", provider("groq", vi.fn(async () => {
       settings.offlineMode = "always-offline";
       throw new Error("failed");
     })));
     registryState.providers.set("openai", provider("openai", other));
-    const { TranscriptionService, TranscriptionCancelledError } = await import("@main/transcription");
-    await expect(new TranscriptionService(() => settings).transcribe(clip)).rejects.toBeInstanceOf(TranscriptionCancelledError);
-    expect(other).not.toHaveBeenCalled();
+    const { TranscriptionService } = await import("@main/transcription");
+    await expect(new TranscriptionService(() => settings).transcribe(clip)).resolves.toMatchObject({ rawText: "fallback" });
+    expect(other).toHaveBeenCalledOnce();
   });
 
   it("does not start a provider for a pre-cancelled request", async () => {
@@ -388,6 +388,20 @@ describe("TranscriptionService failover chain", () => {
     expect(groqTranscribe).not.toHaveBeenCalled();
     expect(localTranscribe).toHaveBeenCalledTimes(1);
     expect(cloudFormat).not.toHaveBeenCalled();
+  });
+
+  it("uses the captured local model on live transcription and reserves the restore error for recovery", async () => {
+    const settings = { ...DEFAULT_SETTINGS, offlineMode: "always-offline" as const, localWhisperModel: "small.en" };
+    const snapshot = captureSessionSettings(settings);
+    settings.localWhisperModel = "base.en";
+    const local = vi.fn(async () => ({ rawText: "captured", formattedText: "captured", language: "en" }));
+    registryState.providers.set("local-whisper", provider("local-whisper", local, false));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => settings);
+    await expect(service.transcribe(clip, { sessionSettings: snapshot })).resolves.toMatchObject({ rawText: "captured" });
+    expect(local).toHaveBeenCalledOnce();
+    expect(local).toHaveBeenCalledWith(clip, expect.objectContaining({ model: "small.en" }));
+    await expect(service.transcribe(clip, { sessionSettings: snapshot, recovery: true })).rejects.toThrow("Restore local model");
   });
 
   it("does not fall back to cloud when offline transcription fails", async () => {

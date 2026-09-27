@@ -116,7 +116,7 @@ export class TranscriptionService {
       const settings = restoreSessionSettings(options?.sessionSettings ?? captureSessionSettings(this.settingsProvider()));
       const registry = getProviderRegistry();
       const primaryId = options?.providerOverride || settings.transcriptionProvider || "groq";
-      if ((primaryId === "local-whisper" || settings.offlineMode === "always-offline") &&
+      if (options?.recovery && (primaryId === "local-whisper" || settings.offlineMode === "always-offline") &&
           settings.localWhisperModel !== this.settingsProvider().localWhisperModel) {
         throw new Error(`Restore local model "${settings.localWhisperModel}" to retry this session, or start a new dictation.`);
       }
@@ -149,15 +149,15 @@ export class TranscriptionService {
             const result = await transcribePossiblyChunked(provider, attempt.clip, {
               apiKey,
               language,
-              model: attempt.model || undefined,
+              model: id === "local-whisper" ? settings.localWhisperModel : attempt.model || undefined,
               prompt: attempt.clip.durationSeconds >= 2 ? speechContextPrompt : undefined,
               temperature: 0,
               signal: scope.signal,
               recovery: options?.recovery,
             }, options?.deadlineAt, scope.signal, options?.shouldYieldToActiveDictation, () => {
               const current = this.settingsProvider();
-              if ((id !== "local-whisper" && current.offlineMode === "always-offline") ||
-                  (id === "local-whisper" && current.localWhisperModel !== settings.localWhisperModel)) {
+              if (options?.recovery && ((id !== "local-whisper" && current.offlineMode === "always-offline") ||
+                  (id === "local-whisper" && current.localWhisperModel !== settings.localWhisperModel))) {
                 throw new TranscriptionCancelledError();
               }
             });

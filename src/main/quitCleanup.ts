@@ -6,6 +6,7 @@ export interface QuitCleanupDependencies {
   flush: () => Promise<void>;
   cleanup: () => void | Promise<void>;
   quit: () => void;
+  flushTimeoutMs?: number;
 }
 
 export function createQuitHandler(deps: QuitCleanupDependencies): (event: QuitCleanupEvent) => void {
@@ -16,7 +17,15 @@ export function createQuitHandler(deps: QuitCleanupDependencies): (event: QuitCl
     event.preventDefault();
     void (async () => {
       try {
-        await deps.flush();
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            deps.flush(),
+            new Promise<void>((resolve) => { timeout = setTimeout(resolve, deps.flushTimeoutMs ?? 3_000); }),
+          ]);
+        } finally {
+          if (timeout) clearTimeout(timeout);
+        }
       } finally {
         try {
           await deps.cleanup();

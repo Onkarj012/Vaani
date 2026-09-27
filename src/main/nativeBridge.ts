@@ -23,14 +23,14 @@ export interface NativeLoadFailure {
 interface NativeBridge {
   isAccessibilityTrusted?: () => boolean;
   injectText?: (text: string) => NativeInjectionResult;
-  pasteText?: (text: string, expectedChangeCount: number) => boolean;
+  pasteText?: (text: string, expectedChangeCount: number, bundleId?: string, pid?: number) => boolean;
   typeText?: (text: string) => boolean;
   getClipboardChangeCount?: () => number;
   getFocusedSelection?: () => SelectionRange | null;
   getFocusedValue?: () => string | null;
   getFocusedElementIdentity?: () => string | null;
   setFocusedSelection?: (location: number, length: number) => boolean;
-  getFrontmostApplication?: () => { bundleId?: string; name?: string };
+  getFrontmostApplication?: () => { bundleId?: string; name?: string; pid?: number };
   startHotkeyMonitor?: (accelerator: string, callback: (isPressed: boolean) => void) => boolean;
   stopHotkeyMonitor?: () => void;
   startPasteLatestMonitor?: (accelerator: string, callback: () => void) => boolean;

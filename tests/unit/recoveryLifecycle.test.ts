@@ -53,6 +53,15 @@ function createHarness() {
 }
 
 describe("RecoveryLifecycleCoordinator", () => {
+  it("interrupts active transcription when capture has already stopped", async () => {
+    const harness = createHarness();
+    harness.capture.suspendForLifecycle.mockResolvedValueOnce({ wasRunning: false, sessionId: null, recordingResumed: true });
+    await harness.coordinator.handleSuspend();
+    expect(harness.dictation.handleLifecycleInterruption).toHaveBeenCalledWith(
+      "session-1", 1, expect.stringContaining("sleep"), "interrupted", undefined, undefined,
+    );
+  });
+
   it("does not complete suspension until capture acknowledges finalized cleanup", async () => {
     const harness = createHarness();
     let acknowledge: ((result: { wasRunning: boolean; sessionId: string; recordingResumed: true }) => void) | null = null;

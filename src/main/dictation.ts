@@ -144,6 +144,9 @@ export class DictationService {
   private readonly cancelledRecoveryRetryIds = new Set<string>();
   private activeInsertionPrepared = false;
   private activeInsertionDispatched = false;
+  private activePreparedEntry: DictationEntry | null = null;
+  private readonly historyWrites = new Map<string, Promise<boolean>>();
+  private readonly terminalTraceSessions = new Set<string>();
 
   constructor(
     private readonly mainWindow: BrowserWindow | null,
@@ -193,7 +196,12 @@ export class DictationService {
         debug("dictation", `stale session guard fired: status=${stage}, ending session`);
         this.sessionAbortController?.abort("stale-session");
         this.recorder?.abortRecording?.(sessionId);
-        this.failSession(sessionId, `Dictation stopped while ${stage}. Please try again.`, "stale-session", [], undefined, undefined, { stages: { staleStage: stage } });
+        if (this.activeInsertionDispatched && this.activePreparedEntry) {
+          void this.settleInterruptedInsertion(sessionId);
+          this.resetToIdle();
+        } else {
+          this.failSession(sessionId, `Dictation stopped while ${stage}. Please try again.`, "stale-session", [], undefined, undefined, { stages: { staleStage: stage } });
+        }
       }
     }, STALE_SESSION_TIMEOUT_MS);
   }
@@ -213,8 +221,11 @@ export class DictationService {
       } else if (this.state.status === "transcribing") {
         this.sessionAbortController?.abort("new-dictation");
         if (this.activeSessionId) {
-          const outcome: DictationInsertionOutcome = this.activeInsertionDispatched ? "unconfirmed" : this.activeInsertionPrepared ? "refused" : "failed";
-          void this.finishTrace(this.activeSessionId, outcome, "cancelled", insertionStatusText(outcome, false, "processing"));
+          if (this.activeInsertionDispatched && this.activePreparedEntry) void this.settleInterruptedInsertion(this.activeSessionId);
+          else {
+            const outcome: DictationInsertionOutcome = this.activeInsertionPrepared ? "refused" : "failed";
+            void this.finishTrace(this.activeSessionId, outcome, "cancelled", insertionStatusText(outcome, false, "processing"));
+          }
         }
         this.resetToIdle();
       } else {
@@ -274,19 +285,25 @@ export class DictationService {
 
   cancelSession(): void {
     this.cancelRecoveryActions("user-cancelled");
+    const inFlight = this.state.status === "starting" || this.state.status === "recording"
+      || this.state.status === "finalizing" || this.state.status === "transcribing";
+    if (!inFlight) { this.resetToIdle(); return; }
     if (this.activeSessionId) this.recorder?.abortRecording?.(this.activeSessionId);
     this.sessionAbortController?.abort("user-cancelled");
     if (this.activeSessionId) {
       const sessionId = this.activeSessionId;
-      if (this.activeInsertionPrepared && this.state.status === "transcribing") {
+      if (this.activeInsertionDispatched && this.activePreparedEntry) void this.settleInterruptedInsertion(sessionId);
+      else if (this.activeInsertionPrepared && this.state.status === "transcribing") {
         void this.recordRecoveryInsertionOutcome(sessionId, "recoverable", null, "interrupted", this.activeInsertionDispatched ? OUTCOME_UNCERTAIN_DETAIL : "cancelled").catch((error) => {
           debug("recovery", "cancelled insertion outcome could not be journaled", { sessionId, message: error instanceof Error ? error.message : String(error) });
         });
       } else {
         void this.transitionRecovery(sessionId, "recoverable", { error: { class: "interrupted", detail: "Dictation cancelled." } });
       }
-      const outcome: DictationInsertionOutcome = this.activeInsertionDispatched ? "unconfirmed" : this.activeInsertionPrepared ? "refused" : "failed";
-      void this.finishTrace(sessionId, outcome, "cancelled", insertionStatusText(outcome, false, "recording"));
+      if (!this.activeInsertionDispatched || !this.activePreparedEntry) {
+        const outcome: DictationInsertionOutcome = this.activeInsertionPrepared ? "refused" : "failed";
+        void this.finishTrace(sessionId, outcome, "cancelled", insertionStatusText(outcome, false, "recording"));
+      }
     }
     this.clearEditWatch();
     this.resetToIdle();
@@ -431,7 +448,6 @@ export class DictationService {
           retryClip: validationClip,
           deadlineAt: transcriptionDeadlineAt,
           signal: operationSignal,
-          recovery: this.recoveryReady(),
         rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, payload.clip, result.quality).action === "retry",
       });
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
@@ -548,10 +564,7 @@ export class DictationService {
           correctionsApplied: cleanupTrace.correctionsApplied,
         },
       });
-      if (!this.isCurrentSession(payload.sessionId)) {
-        void this.finishTrace(payload.sessionId, "failed", "cancelled", insertionStatusText("failed", false, "processing"));
-        return;
-      }
+      if (!this.isCurrentSession(payload.sessionId)) return;
       if (operationSignal?.aborted) return;
       const initialTarget = this.activeTarget;
       const initialSelection = this.activeSelection;
@@ -577,6 +590,7 @@ export class DictationService {
         detectedLanguage: transcription.detectedLanguage ?? null,
         rawAudioPath,
       };
+      this.activePreparedEntry = { ...entryBase, injectionStatus: "saved", injectionMethod: null };
 
       if (settings.injectionMode === "clipboard") {
         const copied = await this.copyText(cleanedText).catch(() => false);
@@ -589,11 +603,12 @@ export class DictationService {
       const injectionTarget = {
         appBundleId: target.appBundleId,
         appName: target.appName,
+        pid: target.pid,
         selection: currentSelection,
       };
       const currentTargetIdentity = safeFocusedElementIdentity();
       if (!this.isStableAutomaticTarget(initialTarget, initialSelection, initialTargetValue, initialTargetIdentity, target, currentSelection, currentValue, currentTargetIdentity)) {
-        const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, null, "stale_target");
+        const failure = await this.recordFailedActiveInsertion(payload.sessionId, null, "stale_target");
         await this.finishActiveInsertion(payload.sessionId, "refused", { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
           injectionMethod: null,
           stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: { readable: false, passed: false, repaired: false, reason: "not-at-target" } },
@@ -618,9 +633,9 @@ export class DictationService {
         operationSignal,
       );
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
-      const finalInjectionTarget = this.revalidateAutomaticTarget(initialTarget, initialSelection, initialTargetValue, initialTargetIdentity);
+      const finalInjectionTarget = this.revalidateAutomaticTarget(initialTarget, initialSelection, initialTargetIdentity);
       if (!finalInjectionTarget) {
-        const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, null, "stale_target");
+        const failure = await this.recordFailedActiveInsertion(payload.sessionId, null, "stale_target");
         await this.finishActiveInsertion(payload.sessionId, "refused", { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
           injectionMethod: null,
           stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: { readable: false, passed: false, repaired: false, reason: "not-at-target" } },
@@ -630,7 +645,7 @@ export class DictationService {
       void this.patchTrace(payload.sessionId, { dispatchAt: new Date().toISOString() });
       const injection = await this.injector.inject(cleanedText, finalInjectionTarget, {
         signal: operationSignal,
-        onDispatch: () => { this.activeInsertionDispatched = true; },
+        onDispatch: () => { if (this.isCurrentSession(payload.sessionId)) this.activeInsertionDispatched = true; },
         isTargetValid: () => this.isCurrentSession(payload.sessionId)
           && this.isSameFocusedTarget(finalInjectionTarget, initialTargetIdentity),
       });
@@ -644,7 +659,8 @@ export class DictationService {
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
 
       if (injection.success) {
-        const verification = await this.verifyInsertion(cleanedText, verificationBaseline, verificationTarget);
+        const verification = await this.verifyInsertion(cleanedText, verificationBaseline, verificationTarget,
+          () => this.isCurrentSession(payload.sessionId) && !operationSignal?.aborted);
         void this.patchTrace(payload.sessionId, { verifyDoneAt: new Date().toISOString() });
         const finalAttempt = injectionAttempts[injectionAttempts.length - 1];
         if (finalAttempt) finalAttempt.verification = verification;
@@ -653,7 +669,9 @@ export class DictationService {
           injectionAttempts,
           stages: { insertionVerification: verification },
         });
-        if (verification.passed) {
+        const weakEvidence = initialTargetIdentity === null || currentTargetIdentity === null
+          || initialTargetValue === null || currentValue === null || initialSelection === null || currentSelection === null;
+        if (verification.passed && !weakEvidence) {
           await this.recordRecoveryInsertionOutcome(payload.sessionId, "delivered", injection.method, undefined, undefined);
           await this.finishActiveInsertion(payload.sessionId, "verified", { ...entryBase, injectionStatus: "injected", injectionMethod: injection.method }, {
             injectionMethod: injection.method,
@@ -662,7 +680,7 @@ export class DictationService {
           debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         } else {
-          const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, injection.method, verification.reason ?? "insertion_failed");
+          const failure = await this.recordFailedActiveInsertion(payload.sessionId, injection.method, OUTCOME_UNCERTAIN_DETAIL);
           await this.finishActiveInsertion(payload.sessionId, "unconfirmed", { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
             injectionMethod: null,
             stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: verification },
@@ -671,7 +689,7 @@ export class DictationService {
           this.watchForManualEdits(cleanedText, target);
         }
       } else {
-        const failure = await this.recordFailedActiveInsertion(payload.sessionId, cleanedText, null, activeInsertionFailureDetail(injection.reason));
+        const failure = await this.recordFailedActiveInsertion(payload.sessionId, null, activeInsertionFailureDetail(injection.reason));
         debug("editwatch", "not-armed-injection-saved", { appBundleId: target.appBundleId, appName: target.appName, reason: injection.reason });
         const outcome: DictationInsertionOutcome = this.activeInsertionDispatched || injection.reason === "outcome_uncertain"
           ? "unconfirmed" : injection.reason === "target_changed" || injection.reason === "cancelled" ? "refused" : "failed";
@@ -1136,7 +1154,7 @@ export class DictationService {
   private currentInjectionTarget(_entry: Pick<DictationEntry, "appBundleId" | "appName">) {
     const current = this.appDetector.getContext();
     if (isExternalTarget(current)) {
-      return { appBundleId: current.appBundleId, appName: current.appName, selection: this.captureSelection(current) };
+      return { appBundleId: current.appBundleId, appName: current.appName, pid: current.pid, selection: this.captureSelection(current) };
     }
     return undefined;
   }
@@ -1149,7 +1167,7 @@ export class DictationService {
 
   private async performManualInsertion(
     text: string,
-    target: { appBundleId: string | null; appName: string | null; selection: SelectionRange | null } | undefined,
+    target: { appBundleId: string | null; appName: string | null; pid?: number | null; selection: SelectionRange | null } | undefined,
     unreadableMessage: string,
     signal?: AbortSignal,
     expectedGeneration = this.sessionGeneration,
@@ -1188,7 +1206,8 @@ export class DictationService {
       this.scheduleReset(ERROR_RESET_MS);
       return null;
     }
-    const verification = await this.verifyInsertion(text, baseline, target);
+    const verification = await this.verifyInsertion(text, baseline, target,
+      () => this.sessionGeneration === expectedGeneration && !signal?.aborted);
     if (this.sessionGeneration !== expectedGeneration || signal?.aborted) return null;
     if (!verification.passed) {
       onUncertain?.();
@@ -1352,13 +1371,7 @@ export class DictationService {
     failedStage = "Insertion",
     copied = false,
   ): Promise<void> {
-    let historySaved = false;
-    try {
-      await this.history.append(entry);
-      historySaved = true;
-    } catch (error) {
-      debug("dictation", "history append failed", { sessionId, message: error instanceof Error ? error.message : String(error) });
-    }
+    const historySaved = await this.persistHistoryOnce(sessionId, entry);
     if (!this.isCurrentSession(sessionId)) return;
     const message = insertionStatusText(outcome, historySaved, historySaved ? failedStage : "History", copied);
     void this.finishTrace(sessionId, outcome, reason, message, tracePatch);
@@ -1366,6 +1379,26 @@ export class DictationService {
     if (outcome === "unconfirmed") {
       this.overlay.setStatusMessage?.(`${message} ${historySaved ? "Find this session in History." : "History could not save this session."}`);
     }
+  }
+
+  private persistHistoryOnce(sessionId: string, entry: DictationEntry): Promise<boolean> {
+    const existing = this.historyWrites.get(sessionId);
+    if (existing) return existing;
+    const write = Promise.resolve().then(() => this.history.append(entry)).then(() => true, (error: unknown) => {
+      debug("dictation", "history append failed", { sessionId, message: error instanceof Error ? error.message : String(error) });
+      return false;
+    });
+    this.historyWrites.set(sessionId, write);
+    return write;
+  }
+
+  private async settleInterruptedInsertion(sessionId: string): Promise<void> {
+    const entry = this.activePreparedEntry;
+    if (!entry) return;
+    const saved = await this.persistHistoryOnce(sessionId, entry);
+    await this.recordRecoveryInsertionOutcome(sessionId, "recoverable", null, "interrupted", OUTCOME_UNCERTAIN_DETAIL).catch(() => undefined);
+    await this.finishTrace(sessionId, "unconfirmed", "cancelled", insertionStatusText("unconfirmed", saved, "processing"));
+    this.historyWrites.delete(sessionId);
   }
 
   private failSession(sessionId: string, message: string, reason: DictationRejectionReason = "transcription_error", providerAttempts: ProviderAttemptTrace[] = [], signal?: AbortSignal, errorClass?: RecoveryErrorClass, tracePatch: Partial<DictationTrace> = {}): void {
@@ -1380,6 +1413,9 @@ export class DictationService {
   }
 
   private resetToIdle(): void {
+    if (this.activeSessionId) {
+      this.historyWrites.delete(this.activeSessionId);
+    }
     this.sessionAbortController?.abort("session-reset");
     this.clearTimers();
     this.activeSessionId = null;
@@ -1390,6 +1426,7 @@ export class DictationService {
     this.activeTargetIdentity = null;
     this.activeInsertionPrepared = false;
     this.activeInsertionDispatched = false;
+    this.activePreparedEntry = null;
     this.releaseRequestedDuringStart = false;
     this.setState({ status: "idle" });
   }
@@ -1569,25 +1606,10 @@ export class DictationService {
 
   private async recordFailedActiveInsertion(
     sessionId: string,
-    text: string,
     method: "ax" | "clipboard" | null,
     reason: string,
   ): Promise<{ outcome: RecoveryInsertionTerminalOutcome; copied: boolean }> {
     const errorClass: RecoveryErrorClass = reason === "timeout" ? "timeout" : "insertion_failed";
-    let copied = false;
-    try {
-      copied = await this.copyText(text);
-    } catch (error) {
-      debug("recovery", "clipboard fallback failed", { sessionId, message: error instanceof Error ? error.message : String(error) });
-    }
-    if (copied) {
-      try {
-        await this.recordRecoveryInsertionOutcome(sessionId, "copied", method, errorClass, reason);
-      } catch (error) {
-        debug("recovery", "copied insertion outcome could not be journaled", { sessionId, message: error instanceof Error ? error.message : String(error) });
-      }
-      return { outcome: "copied", copied: true };
-    }
     if (this.recovery?.recordInsertionOutcome && this.recoveryReady()) {
       try {
         await this.recordRecoveryInsertionOutcome(sessionId, "recoverable", method, errorClass, reason);
@@ -1705,11 +1727,9 @@ export class DictationService {
     identity: string | null,
   ): boolean {
     if (!isExternalTarget(target) || !sameTarget(initialTarget, target)) return false;
-    if (!initialSelection || !selection || initialValue === null || value === null || initialIdentity === null || identity === null) return false;
-    return initialSelection.location === selection.location
-      && initialSelection.length === selection.length
-      && initialValue === value
-      && initialIdentity === identity;
+    return !(initialSelection && selection && (initialSelection.location !== selection.location || initialSelection.length !== selection.length))
+      && !(initialValue !== null && value !== null && initialValue !== value)
+      && !(initialIdentity !== null && identity !== null && initialIdentity !== identity);
   }
 
   private isSameFocusedTarget(
@@ -1717,25 +1737,22 @@ export class DictationService {
     identity: string | null,
   ): boolean {
     if (!sameTarget(target, this.appDetector.getContext())) return false;
-    return identity === null || safeFocusedElementIdentity() === identity;
+    const currentIdentity = safeFocusedElementIdentity();
+    return identity === null || currentIdentity === null || currentIdentity === identity;
   }
 
   private revalidateAutomaticTarget(
     initialTarget: AppContextResult | null,
     initialSelection: SelectionRange | null,
-    initialValue: string | null,
     initialIdentity: string | null,
-  ): { appBundleId: string | null; appName: string | null; selection: SelectionRange | null } | null {
+  ): { appBundleId: string | null; appName: string | null; pid?: number | null; selection: SelectionRange | null } | null {
     const target = this.appDetector.getContext();
     const selection = this.captureSelection(target);
     const identity = safeFocusedElementIdentity();
     if (!isExternalTarget(target) || !sameTarget(initialTarget, target)
-      || !initialSelection || !selection
-      || initialSelection.location !== selection.location
-      || initialSelection.length !== selection.length
-      || initialValue === null || initialIdentity === null || identity === null
-      || initialIdentity !== identity) return null;
-    return { appBundleId: target.appBundleId, appName: target.appName, selection };
+      || (initialSelection !== null && selection !== null && (initialSelection.location !== selection.location || initialSelection.length !== selection.length))
+      || (initialIdentity !== null && identity !== null && initialIdentity !== identity)) return null;
+    return { appBundleId: target.appBundleId, appName: target.appName, pid: target.pid, selection };
   }
 
   private setState(state: DictationState): void {
@@ -1802,6 +1819,12 @@ export class DictationService {
     userMessage?: string,
     patch: Partial<DictationTrace> = {}
   ): Promise<void> {
+    if (this.terminalTraceSessions.has(sessionId)) return;
+    this.terminalTraceSessions.add(sessionId);
+    if (this.terminalTraceSessions.size > 512) {
+      const oldest = this.terminalTraceSessions.values().next().value;
+      if (oldest) this.terminalTraceSessions.delete(oldest);
+    }
     await this.patchTrace(sessionId, {
       ...patch,
       outcome,
@@ -1836,13 +1859,16 @@ export class DictationService {
   private async verifyInsertion(
     expectedText: string,
     baseline: string | null,
-    target: Pick<AppContextResult, "appBundleId" | "appName"> | null
+    target: Pick<AppContextResult, "appBundleId" | "appName"> | null,
+    isValid: () => boolean = () => true,
   ): Promise<InsertionVerificationTrace> {
+    if (!isValid()) return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
     if (baseline === null) {
       return { readable: false, passed: false, repaired: false, reason: "baseline-unreadable" };
     }
     const baselineOccurrenceCount = countLiteralOccurrences(baseline, expectedText);
-    const initialPoll = await this.pollInsertionValue(expectedText, baselineOccurrenceCount, target);
+    const initialPoll = await this.pollInsertionValue(expectedText, baselineOccurrenceCount, target, isValid);
+    if (!isValid()) return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
     if (initialPoll.reason === "not-at-target") {
       return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
     }
@@ -1866,11 +1892,13 @@ export class DictationService {
   private async pollInsertionValue(
     expectedText: string,
     baselineOccurrenceCount: number,
-    target: Pick<AppContextResult, "appBundleId" | "appName"> | null
+    target: Pick<AppContextResult, "appBundleId" | "appName"> | null,
+    isValid: () => boolean,
   ): Promise<{ value: string | null; reason?: "not-at-target" | "timeout" }> {
     let lastReadableValue: string | null = null;
     const deadline = this.verifierNow() + INSERTION_VERIFY_TIMEOUT_MS;
     while (true) {
+      if (!isValid()) return { value: null, reason: "not-at-target" };
       if (this.verifierNow() >= deadline) break;
       if (!sameTarget(target, this.appDetector.getContext())) {
         return { value: null, reason: "not-at-target" };
@@ -1886,6 +1914,7 @@ export class DictationService {
       if (remainingMs <= 0) break;
       await this.verifierSleep(Math.min(INSERTION_VERIFY_POLL_INTERVAL_MS, remainingMs));
     }
+    if (!isValid()) return { value: null, reason: "not-at-target" };
     return { value: lastReadableValue, reason: "timeout" };
   }
 
@@ -1947,7 +1976,10 @@ function isExternalTarget(context: Pick<AppContextResult, "appBundleId" | "appNa
   return !internalBundleIds.has(bundleId) && !new Set(["claude vaani", "vaani", "electron"]).has(appName);
 }
 
-function sameTarget(left: Pick<AppContextResult, "appBundleId" | "appName"> | null | undefined, right: Pick<AppContextResult, "appBundleId" | "appName"> | null | undefined): boolean {
+function sameTarget(left: Pick<AppContextResult, "appBundleId" | "appName" | "pid"> | null | undefined, right: Pick<AppContextResult, "appBundleId" | "appName" | "pid"> | null | undefined): boolean {
+  const leftPid = left?.pid;
+  const rightPid = right?.pid;
+  if (typeof leftPid === "number" && leftPid !== rightPid) return false;
   const leftBundleId = left?.appBundleId?.trim().toLowerCase() ?? "";
   const rightBundleId = right?.appBundleId?.trim().toLowerCase() ?? "";
   if (leftBundleId && rightBundleId) return leftBundleId === rightBundleId;

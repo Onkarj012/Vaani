@@ -1,5 +1,7 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { captureSessionSettings } from "@shared/sessionSettings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -48,6 +50,8 @@ function createDictationService(deps: {
   recoveryAudio?: Pick<EncryptedRecoveryAudioStore, "spool" | "deleteForSession" | "withDecryptedAudio">;
   recoveryReady?: () => boolean;
   copyText?: (text: string) => Promise<boolean> | boolean;
+  focusedIdentity?: () => string | null;
+  onVerifySleep?: () => void;
 } = {}) {
   let verifierTimeMs = 0;
   let focusedValue = "";
@@ -57,7 +61,7 @@ function createDictationService(deps: {
     location: focusedValue.length,
     length: 0,
   }));
-  (nativeBridge as { getFocusedElementIdentity?: () => string | null }).getFocusedElementIdentity = vi.fn(() => focusedElementIdentity);
+  (nativeBridge as { getFocusedElementIdentity?: () => string | null }).getFocusedElementIdentity = deps.focusedIdentity ?? vi.fn(() => focusedElementIdentity);
 
   const overlay = {
     setPressed: vi.fn(),
@@ -131,7 +135,7 @@ function createDictationService(deps: {
       copyText: deps.copyText,
       getMicrophonePermission: deps.getMicrophonePermission,
       verifierNow: () => verifierTimeMs,
-      verifierSleep: async (ms: number) => { verifierTimeMs += ms; },
+      verifierSleep: async (ms: number) => { verifierTimeMs += ms; deps.onVerifySleep?.(); },
     }
   );
 
@@ -209,6 +213,57 @@ async function submitHelloWorld(service: ReturnType<typeof createDictationServic
 }
 
 describe("DictationService", () => {
+  it("keeps live transcription on its normal path when recovery is ready", async () => {
+    const { service, transcription } = createDictationService({ recoveryReady: () => true });
+    await submitHelloWorld(service);
+    expect(transcription.transcribe.mock.calls[0]?.[1]?.recovery).toBeUndefined();
+  });
+
+  it("does not replace a verified trace when cancellation follows completion", async () => {
+    const traceDeps = createTraceDeps();
+    const { service } = createDictationService({ traces: traceDeps.traces });
+    await submitHelloWorld(service);
+    expect(traceDeps.getTrace()?.outcome).toBe("verified");
+    service.cancelSession();
+    await Promise.resolve();
+    expect(traceDeps.getTrace()?.outcome).toBe("verified");
+  });
+
+  it("keeps a dispatched transcript in History when a new hotkey supersedes it", async () => {
+    const { service, injector, history } = createDictationService();
+    let finishInjection: (result: InjectionResult) => void = () => undefined;
+    injector.inject.mockImplementationOnce((_text, _target, options) => {
+      options?.onDispatch?.();
+      return new Promise<InjectionResult>((resolve) => { finishInjection = resolve; });
+    });
+    const submission = submitHelloWorld(service);
+    await vi.waitFor(() => expect(injector.inject).toHaveBeenCalledOnce());
+    service.beginHotkeySession();
+    finishInjection({ success: true, method: "clipboard" });
+    await submission;
+    await vi.waitFor(() => expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open get hub.", injectionStatus: "saved" })));
+    expect(history.append).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops verification when the session is cancelled during a poll wait", async () => {
+    let service: ReturnType<typeof createDictationService>["service"];
+    let cancelled = false;
+    const harness = createDictationService({ onVerifySleep: () => {
+      if (!cancelled) { cancelled = true; service.cancelSession(); }
+    } });
+    service = harness.service;
+    harness.injector.inject.mockImplementationOnce(async (_text, _target, options) => {
+      options?.onDispatch?.();
+      return { success: true, method: "clipboard" };
+    });
+    await submitHelloWorld(service);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cancelled).toBe(true);
+    expect(harness.injector.inject).toHaveBeenCalledOnce();
+    expect(harness.history.append).toHaveBeenCalledTimes(1);
+    expect(harness.history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+  });
+
   it.each([
     { start: false, finish: false, count: 0 },
     { start: false, finish: true, count: 0 },
@@ -622,6 +677,24 @@ describe("DictationService", () => {
     expect(injector.inject).not.toHaveBeenCalled();
   });
 
+  it("settles a stale session as unconfirmed after paste dispatch and preserves History", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, injector, history } = createDictationService({ traces: traceDeps.traces });
+    let finishInjection: (result: InjectionResult) => void = () => undefined;
+    injector.inject.mockImplementationOnce((_text, _target, options) => {
+      options?.onDispatch?.();
+      return new Promise<InjectionResult>((resolve) => { finishInjection = resolve; });
+    });
+    const submission = submitHelloWorld(service);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injector.inject).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(60_000);
+    finishInjection({ success: true, method: "clipboard" });
+    await submission;
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open get hub.", injectionStatus: "saved" }));
+    expect(traceDeps.getTrace()?.outcome).toBe("unconfirmed");
+  });
+
   it("keeps unrelated transcription failures classified as transcription errors", async () => {
     const traceDeps = createTraceDeps();
     const { service, transcription } = createDictationService({ traces: traceDeps.traces });
@@ -827,7 +900,7 @@ describe("DictationService", () => {
     expect(service.getState()).toMatchObject({ status: "completed", outcome: "saved", insertionOutcome: "failed", message: "Transcript quality failed. Find this session in History." });
   });
 
-  it("prepares insertion before injection and copies a failed active request", async () => {
+  it("prepares insertion before injection and saves a failed active request without copying", async () => {
     const recoveryFixture = createInsertionRecovery("session-1");
     const { service, transcription, injector, history } = createDictationService({
       recovery: recoveryFixture.recovery,
@@ -844,7 +917,7 @@ describe("DictationService", () => {
     if (prepareOrder === undefined || outcomeOrder === undefined) throw new Error("Insertion recovery calls were not recorded.");
     expect(prepareOrder).toBeLessThan(outcomeOrder);
     expect(recoveryFixture.getEntry().insertion).toMatchObject({
-      outcome: "copied",
+      outcome: "recoverable",
       baselineReadable: true,
       intendedStrategy: "ax",
       textHash: expect.stringMatching(/^[0-9a-f]{64}$/),
@@ -872,15 +945,40 @@ describe("DictationService", () => {
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
   });
 
-  it("fails closed for same-app identical-value fields without stable identity", async () => {
+  it("inserts into the same app when focused identity is unavailable", async () => {
     const { service, history, injector, transcription } = createDictationService();
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
     (nativeBridge as { getFocusedElementIdentity?: () => string | null }).getFocusedElementIdentity = vi.fn(() => null);
 
     await submitHelloWorld(service);
 
-    expect(injector.inject).not.toHaveBeenCalled();
+    expect(injector.inject).toHaveBeenCalledOnce();
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+    expect(service.getState()).toMatchObject({ insertionOutcome: "unconfirmed" });
+  });
+
+  it.skipIf(!existsSync(join(process.cwd(), "build/Release/vaani_native.node")))("inserts with the built bridge identity export and settles null AX value as unconfirmed", async () => {
+    const addon: unknown = createRequire(import.meta.url)(join(process.cwd(), "build/Release/vaani_native.node"));
+    if (!addon || typeof addon !== "object" || !("getFocusedElementIdentity" in addon)
+      || typeof addon.getFocusedElementIdentity !== "function") throw new Error("Native focused identity export is missing.");
+    const getIdentity = addon.getFocusedElementIdentity;
+    const focusedIdentity = () => {
+      const value: unknown = getIdentity();
+      return typeof value === "string" ? value : null;
+    };
+    const { service, history, injector, appDetector } = createDictationService({ focusedIdentity });
+    appDetector.getContext.mockReturnValue({ appBundleId: "com.apple.Notes", appName: "Notes", context: "default" });
+    await submitHelloWorld(service);
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open get hub." }));
+
+    const weak = createDictationService({ focusedIdentity });
+    weak.appDetector.getContext.mockReturnValue({ appBundleId: "com.apple.Notes", appName: "Notes", context: "default" });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = () => null;
+    await submitHelloWorld(weak.service);
+    expect(weak.injector.inject).toHaveBeenCalledOnce();
+    expect(weak.history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+    expect(weak.service.getState()).toMatchObject({ insertionOutcome: "unconfirmed" });
   });
 
   it("creates recoverable insertion when clipboard fallback fails", async () => {
@@ -1215,7 +1313,7 @@ describe("DictationService", () => {
       readable: false,
       passed: false,
       repaired: false,
-      reason: "not-at-target",
+      reason: "baseline-unreadable",
     });
   });
 
@@ -1302,14 +1400,14 @@ describe("DictationService", () => {
     await Promise.resolve();
 
     expect(injector.inject).toHaveBeenCalledTimes(1);
-    expect(copyText).toHaveBeenCalledWith("Hello world.");
+    expect(copyText).not.toHaveBeenCalled();
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "unconfirmed", userMessage: "Insertion unconfirmed. Check the field before pasting again." });
     expect(service.getState()).toMatchObject({ insertionOutcome: "unconfirmed" });
     expect(overlay.setStatusMessage).toHaveBeenCalledWith("Insertion unconfirmed. Check the field before pasting again. Find this session in History.");
   });
 
-  it("refuses a changed target and offers its text without dispatch", async () => {
+  it("refuses a changed target without copying its text", async () => {
     const traceDeps = createTraceDeps();
     const copyText = vi.fn(async () => true);
     const { service, injector, appDetector } = createDictationService({ traces: traceDeps.traces, copyText });
@@ -1320,9 +1418,31 @@ describe("DictationService", () => {
     await submitHelloWorld(service);
 
     expect(injector.inject).not.toHaveBeenCalled();
-    expect(copyText).toHaveBeenCalledWith("Open get hub.");
+    expect(copyText).not.toHaveBeenCalled();
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "refused", userMessage: "Not inserted: target changed." });
     expect(service.getState()).toMatchObject({ status: "completed", insertionOutcome: "refused", text: "Open get hub.", message: "Not inserted: target changed." });
+  });
+
+  it("does not retry a failed insertion into a newly focused app", async () => {
+    const { service, injector, appDetector, history } = createDictationService();
+    injector.inject.mockImplementationOnce(async () => {
+      appDetector.getContext.mockReturnValue({ appBundleId: "com.apple.Notes", appName: "Notes", context: "default" });
+      return { success: false, reason: "insertion_failed" };
+    });
+    await submitHelloWorld(service);
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
+  });
+
+  it("refuses automatic insertion when the same app bundle has a different process ID", async () => {
+    const { service, injector, appDetector, history } = createDictationService();
+    let reads = 0;
+    appDetector.getContext.mockImplementation(() => ({
+      appBundleId: "com.apple.Notes", appName: "Notes", context: "default", pid: ++reads === 1 ? 101 : 202,
+    }));
+    await submitHelloWorld(service);
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
   });
 
   it("copies without dispatch in copy-only mode", async () => {
@@ -1353,7 +1473,7 @@ describe("DictationService", () => {
     expect(JSON.stringify(service.getState())).not.toContain("Saved");
   });
 
-  it("names the History failure and clipboard location after an insertion failure", async () => {
+  it("names the History failure without claiming a clipboard copy", async () => {
     const traceDeps = createTraceDeps();
     const copyText = vi.fn(async () => true);
     const { service, history, injector } = createDictationService({ traces: traceDeps.traces, copyText });
@@ -1362,8 +1482,8 @@ describe("DictationService", () => {
 
     await submitHelloWorld(service);
 
-    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", userMessage: "History failed. Text is on the clipboard." });
-    expect(service.getState()).toMatchObject({ outcome: "failed", insertionOutcome: "failed", message: "History failed. Text is on the clipboard." });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", userMessage: "History failed. Text was not saved." });
+    expect(service.getState()).toMatchObject({ outcome: "failed", insertionOutcome: "failed", message: "History failed. Text was not saved." });
     expect(JSON.stringify(service.getState())).not.toContain("Saved");
   });
 

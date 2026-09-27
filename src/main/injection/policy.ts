@@ -1,6 +1,7 @@
 export interface InjectionTargetLike {
   appBundleId: string | null;
   appName: string | null;
+  pid?: number | null;
 }
 
 export type ExistingInjectionStrategy = "ax" | "clipboard";

@@ -96,9 +96,9 @@ export class RecoveryLifecycleCoordinator {
       await this.deps.journal.flush();
       const active = this.deps.dictation.getActiveSession();
       const handoff = await this.suspendCapture();
-      if (active && handoff.sessionId === active.sessionId) {
+      if (active && (handoff.sessionId === active.sessionId || handoff.sessionId === null)) {
         await this.recordLifecycle(active.sessionId, "sleep");
-        if (handoff.recordingResumed === true) {
+        if (handoff.recordingResumed === true && handoff.sessionId === active.sessionId) {
           await this.deps.dictation.handleLifecycleSuspended(active.sessionId, active.generation, handoff.partialClip);
         } else {
           await this.interruptActive(active, handoff, "Dictation was interrupted by sleep. The recording is recoverable.", "interrupted");
