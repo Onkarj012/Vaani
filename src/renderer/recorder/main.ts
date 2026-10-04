@@ -1,4 +1,4 @@
-import type { AudioClip, AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
+import type { AudioInputDevice, AudioClip, AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
 import { selectRecorderDevice } from "./deviceSelection";
 import {
   PcmRingBuffer,
@@ -29,6 +29,7 @@ declare global {
       prepareRecordingInput: () => Promise<number | null>;
       restoreRecordingInput: (deviceId: number | null) => Promise<boolean>;
       getRecorderConfig: () => Promise<RecorderConfig>;
+      listAudioInputDevices: () => Promise<AudioInputDevice[]>;
       onRecorderConfigChanged: (cb: (payload: RecorderConfig) => void) => () => void;
     };
   }
@@ -197,7 +198,8 @@ async function openCapture(config: RecorderConfig): Promise<void> {
 
 async function chooseMicDevice(preferredDeviceId: string | undefined): Promise<string> {
   const devices = await navigator.mediaDevices.enumerateDevices();
-  const selected = selectRecorderDevice(devices, preferredDeviceId);
+  const nativeDevices = await window.__VAANI_RECORDER__.listAudioInputDevices();
+  const selected = selectRecorderDevice(devices, preferredDeviceId, nativeDevices);
   if (!selected.ok) {
     throw new Error(selected.message);
   }
