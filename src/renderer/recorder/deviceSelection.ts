@@ -1,9 +1,10 @@
-import type { AudioInputDevice } from "@shared/types";
+import type { AudioInputDevice, MacOSPermissionState } from "@shared/types";
 
 export type AudioInputLike = Pick<MediaDeviceInfo, "kind" | "deviceId" | "label">;
-type NativeInputLike = Pick<AudioInputDevice, "uid" | "name" | "transportType" | "isPhysical">;
+type NativeInputLike = Pick<AudioInputDevice, "uid" | "name" | "transportType" | "isPhysical"> & Partial<Pick<AudioInputDevice, "isDefault">>;
 
-const NO_BUILT_IN_MICROPHONE_MESSAGE = "No built-in microphone found. Choose a microphone in Settings.";
+const NO_PHYSICAL_MICROPHONE_MESSAGE = "No physical microphone found. Choose a microphone in Settings.";
+const MICROPHONE_PERMISSION_MESSAGE = "Microphone names are unavailable. Allow microphone access for Vaani in System Settings, then try again.";
 const CHROMIUM_TRANSPORT_LABELS: Readonly<Record<string, string>> = {
   "built-in": "built-in",
   bluetooth: "bluetooth",
@@ -18,10 +19,12 @@ const CHROMIUM_TRANSPORT_LABELS: Readonly<Record<string, string>> = {
   virtual: "virtual",
 };
 
+/** Exclude browser aliases whose physical source can change with system defaults. */
 function isPseudoDevice(deviceId: string): boolean {
   return !deviceId || deviceId === "default" || deviceId === "communications";
 }
 
+/** Match CoreAudio names with only the Chromium suffix expected for that transport. */
 function matchesNativeInput(label: string, device: NativeInputLike): boolean {
   const browserName = label.trim().toLowerCase();
   const nativeName = device.name.trim().toLowerCase();
@@ -38,6 +41,7 @@ function matchesNativeInput(label: string, device: NativeInputLike): boolean {
   return false;
 }
 
+/** Return the selected browser ID, or undefined when physical identity is ambiguous. */
 export function selectRecorderDeviceId(devices: AudioInputLike[], nativeDevices: NativeInputLike[]): string | undefined {
   const selected = selectRecorderDevice(devices, undefined, nativeDevices);
   return selected.ok ? selected.deviceId : undefined;
@@ -47,26 +51,72 @@ export type RecorderDeviceSelection =
   | { ok: true; deviceId: string }
   | { ok: false; message: string };
 
+/** Explain a rejected identity match without silently choosing another microphone. */
+function selectionFailure(preferredDeviceId?: string): RecorderDeviceSelection {
+  return {
+    ok: false,
+    message: preferredDeviceId
+      ? "Selected microphone could not be matched to a unique physical browser device."
+      : "Microphone could not be matched to a unique physical browser device.",
+  };
+}
+
+/** Classify recognized physical browser labels when native metadata is unavailable; reject virtual device names. */
+function browserInputKind(label: string): "built-in" | "external" | undefined {
+  const name = label.trim().toLowerCase();
+  if (/blackhole|loopback|multi-output|virtual|soundflower|aggregate|obs|zoom audio|teams audio|background music/.test(name)) return undefined;
+  if (/\(built-in\)$/.test(name) || /^(macbook (pro|air)|imac|internal|built-in) microphone$/.test(name)) return "built-in";
+  if (/\((bluetooth( le)?|[0-9a-f]{4}:[0-9a-f]{4})\)$/.test(name)) return "external";
+  return undefined;
+}
+
+/** Select a unique transport-marked browser input without depending on the native addon. */
+function selectWithoutNativeMetadata(inputs: AudioInputLike[], preferredDeviceId?: string): RecorderDeviceSelection {
+  const physical = inputs.filter((device) => browserInputKind(device.label));
+  const chosen = preferredDeviceId
+    ? physical.find((device) => device.deviceId === preferredDeviceId)
+    : physical.find((device) => browserInputKind(device.label) === "built-in") ?? physical[0];
+  if (!chosen) return preferredDeviceId ? selectionFailure(preferredDeviceId) : { ok: false, message: NO_PHYSICAL_MICROPHONE_MESSAGE };
+  const name = chosen.label.trim().toLowerCase();
+  return inputs.filter((device) => device.label.trim().toLowerCase() === name).length === 1
+    ? { ok: true, deviceId: chosen.deviceId }
+    : selectionFailure(preferredDeviceId);
+}
+
+/** Resolve a browser input using native identity, or conservative browser labels when the addon is unavailable. */
 export function selectRecorderDevice(
   devices: AudioInputLike[],
   preferredDeviceId?: string,
   nativeDevices: NativeInputLike[] = [],
 ): RecorderDeviceSelection {
   const inputs = devices.filter((device) => device.kind === "audioinput" && !isPseudoDevice(device.deviceId));
+  if (inputs.some((device) => !device.label.trim())) return { ok: false, message: MICROPHONE_PERMISSION_MESSAGE };
+  if (nativeDevices.length === 0) return selectWithoutNativeMetadata(inputs, preferredDeviceId);
+
   if (preferredDeviceId) {
     const preferred = inputs.find((device) => device.deviceId === preferredDeviceId);
-    if (preferred) return { ok: true, deviceId: preferred.deviceId };
+    if (preferred) {
+      const nativeMatches = nativeDevices.filter((device) => matchesNativeInput(preferred.label, device));
+      const nativeMatch = nativeMatches.length === 1 ? nativeMatches[0] : undefined;
+      const browserMatches = inputs.filter((device) => device.label.trim().toLowerCase() === preferred.label.trim().toLowerCase());
+      return nativeMatch?.isPhysical && browserMatches.length === 1
+        ? { ok: true, deviceId: preferred.deviceId }
+        : selectionFailure(preferredDeviceId);
+    }
   }
 
-  const candidates = preferredDeviceId
-    ? nativeDevices.filter((device) => device.uid === preferredDeviceId && device.isPhysical)
-    : nativeDevices.filter((device) => device.isPhysical && device.transportType === "built-in");
+  const physical = nativeDevices.filter((device) => device.isPhysical);
+  let candidates: NativeInputLike[];
+  if (preferredDeviceId) {
+    candidates = physical.filter((device) => device.uid === preferredDeviceId);
+  } else {
+    const builtIns = physical.filter((device) => device.transportType === "built-in");
+    const external = physical.find((device) => device.isDefault) ?? physical[0];
+    candidates = builtIns.length > 0 ? builtIns : external ? [external] : [];
+  }
   const nativeInput = candidates.length === 1 ? candidates[0] : undefined;
   if (!nativeInput) {
-    return { ok: false, message: preferredDeviceId ? "Selected microphone is unavailable." : NO_BUILT_IN_MICROPHONE_MESSAGE };
-  }
-  if (inputs.some((device) => !device.label.trim())) {
-    return { ok: false, message: "Microphone names are unavailable. Allow microphone access for Vaani in System Settings, then try again." };
+    return { ok: false, message: preferredDeviceId ? "Selected microphone is unavailable." : NO_PHYSICAL_MICROPHONE_MESSAGE };
   }
 
   const matches = inputs.filter((device) => matchesNativeInput(device.label, nativeInput));
@@ -74,10 +124,28 @@ export function selectRecorderDevice(
   if (match && nativeDevices.filter((device) => matchesNativeInput(match.label, device)).length === 1) {
     return { ok: true, deviceId: match.deviceId };
   }
-  return {
-    ok: false,
-    message: preferredDeviceId
-      ? "Selected microphone could not be matched to a unique browser device."
-      : "Built-in microphone could not be matched to a unique browser device.",
-  };
+  return selectionFailure(preferredDeviceId);
+}
+
+export interface RecorderDeviceAccess {
+  enumerateDevices: () => Promise<AudioInputLike[]>;
+  listAudioInputDevices: () => Promise<NativeInputLike[]>;
+  requestMicrophonePermission: () => Promise<MacOSPermissionState>;
+}
+
+/** Request first-use OS access without opening the system-default microphone, then select an exact input ID. */
+export async function chooseRecorderDeviceId(access: RecorderDeviceAccess, preferredDeviceId?: string): Promise<string> {
+  let devices = await access.enumerateDevices();
+  const inputs = devices.filter((device) => device.kind === "audioinput" && !isPseudoDevice(device.deviceId));
+  if (inputs.length === 0 || inputs.some((device) => !device.label.trim())) {
+    const permission = await access.requestMicrophonePermission();
+    if (permission === "denied" || permission === "restricted") throw new Error(MICROPHONE_PERMISSION_MESSAGE);
+    // Development Electron can report not-determined for its main process
+    // while the Chromium capture process can expose and request the exact mic.
+    devices = await access.enumerateDevices();
+  }
+  const nativeDevices = await access.listAudioInputDevices().catch(() => []);
+  const selected = selectRecorderDevice(devices, preferredDeviceId, nativeDevices);
+  if (!selected.ok) throw new Error(selected.message);
+  return selected.deviceId;
 }
