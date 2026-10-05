@@ -19,5 +19,7 @@ contextBridge.exposeInMainWorld("__VAANI_RECORDER__", {
   prepareRecordingInput: () => ipcRenderer.invoke(IpcChannel.PrepareRecordingInput),
   restoreRecordingInput: (deviceId: number | null) => ipcRenderer.invoke(IpcChannel.RestoreRecordingInput, deviceId),
   getRecorderConfig: () => ipcRenderer.invoke(IpcChannel.GetRecorderConfig),
+  listAudioInputDevices: () => ipcRenderer.invoke(IpcChannel.ListAudioInputDevices),
+  requestMicrophonePermission: () => ipcRenderer.invoke(IpcChannel.RequestMicrophonePermission),
   onRecorderConfigChanged: (cb: (payload: RecorderConfig) => void) => subscribe<RecorderConfig>(IpcChannel.RecorderConfigChanged, cb)
 });
