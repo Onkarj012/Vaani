@@ -123,6 +123,17 @@ describe("review regressions", () => {
       .toEqual({ ok: true, deviceId: "headset" });
   });
 
+  it("skips physical inputs Chromium does not expose during automatic selection", () => {
+    const usb = native("usb", "USB Mic", "usb");
+    const devices = [input("usb", "USB Mic (1234:abcd)")];
+    expect(selectRecorderDevice(devices, undefined, [{ ...headset, isDefault: true }, usb]))
+      .toEqual({ ok: true, deviceId: "usb" });
+    expect(selectRecorderDevice(devices, undefined, [builtIn, usb])).toEqual({ ok: true, deviceId: "usb" });
+    expect(selectRecorderDevice([input("virtual", "Background Music (Virtual)")], undefined,
+      [headset, native("virtual-uid", "Background Music", "virtual", false)]))
+      .toMatchObject({ ok: false });
+  });
+
   it("rejects preferred browser IDs for virtual, unknown or ambiguous native devices", () => {
     expect(selectRecorderDevice([input("virtual", "Background Music (Virtual)")], "virtual",
       [native("virtual-native", "Background Music", "virtual", false)]))

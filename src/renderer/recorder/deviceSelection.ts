@@ -106,19 +106,30 @@ export function selectRecorderDevice(
   }
 
   const physical = nativeDevices.filter((device) => device.isPhysical);
-  let candidates: NativeInputLike[];
   if (preferredDeviceId) {
-    candidates = physical.filter((device) => device.uid === preferredDeviceId);
-  } else {
-    const builtIns = physical.filter((device) => device.transportType === "built-in");
-    const external = physical.find((device) => device.isDefault) ?? physical[0];
-    candidates = builtIns.length > 0 ? builtIns : external ? [external] : [];
-  }
-  const nativeInput = candidates.length === 1 ? candidates[0] : undefined;
-  if (!nativeInput) {
-    return { ok: false, message: preferredDeviceId ? "Selected microphone is unavailable." : NO_PHYSICAL_MICROPHONE_MESSAGE };
+    const candidates = physical.filter((device) => device.uid === preferredDeviceId);
+    const nativeInput = candidates.length === 1 ? candidates[0] : undefined;
+    if (!nativeInput) return { ok: false, message: "Selected microphone is unavailable." };
+    return uniqueBrowserMatch(inputs, nativeDevices, nativeInput, preferredDeviceId);
   }
 
+  if (physical.length === 0) return { ok: false, message: NO_PHYSICAL_MICROPHONE_MESSAGE };
+  const rank = (device: NativeInputLike): number => (device.transportType === "built-in" ? 0 : device.isDefault ? 1 : 2);
+  for (const nativeInput of [...physical].sort((a, b) => rank(a) - rank(b))) {
+    // Chromium can omit a CoreAudio input; try the next physical one instead of failing.
+    if (!inputs.some((device) => matchesNativeInput(device.label, nativeInput))) continue;
+    return uniqueBrowserMatch(inputs, nativeDevices, nativeInput);
+  }
+  return selectionFailure();
+}
+
+/** Return the browser input for a native device only when both identities match uniquely. */
+function uniqueBrowserMatch(
+  inputs: AudioInputLike[],
+  nativeDevices: NativeInputLike[],
+  nativeInput: NativeInputLike,
+  preferredDeviceId?: string,
+): RecorderDeviceSelection {
   const matches = inputs.filter((device) => matchesNativeInput(device.label, nativeInput));
   const match = matches.length === 1 ? matches[0] : undefined;
   if (match && nativeDevices.filter((device) => matchesNativeInput(match.label, device)).length === 1) {
