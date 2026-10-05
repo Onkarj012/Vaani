@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vaani reliability state and path beyond Wispr Flow</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f6f6f2;
+      --surface: #fcfcfb;
+      --surface-strong: #ffffff;
+      --ink: #0b0b0b;
+      --ink-2: #52514e;
+      --muted: #77756f;
+      --line: #deddd6;
+      --line-strong: #c3c2b7;
+      --blue: #2a78d6;
+      --blue-soft: #e7f0fb;
+      --orange: #eb6834;
+      --orange-soft: #fff0e9;
+      --green: #0ca30c;
+      --green-soft: #eaf7ea;
+      --red: #d03b3b;
+      --red-soft: #fbecec;
+      --yellow: #a86d00;
+      --yellow-soft: #fff4d6;
+      --shadow: 0 16px 48px rgba(11, 11, 11, 0.08);
+      --radius: 18px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --page: #0d0d0d;
+        --surface: #1a1a19;
+        --surface-strong: #20201f;
+        --ink: #ffffff;
+        --ink-2: #c3c2b7;
+        --muted: #97958e;
+        --line: #31312f;
+        --line-strong: #454541;
+        --blue: #3987e5;
+        --blue-soft: #14283f;
+        --orange: #d95926;
+        --orange-soft: #3a2118;
+        --green: #30b530;
+        --green-soft: #153015;
+        --red: #e66767;
+        --red-soft: #3a1c1c;
+        --yellow: #e3a735;
+        --yellow-soft: #392d15;
+        --shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--blue) 9%, transparent) 0, transparent 32rem),
+        radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--orange) 8%, transparent) 0, transparent 28rem),
+        var(--page);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.58;
+    }
+
+    a { color: var(--blue); text-underline-offset: 3px; }
+    a:hover { text-decoration-thickness: 2px; }
+    code {
+      font-family: var(--mono);
+      font-size: 0.88em;
+      background: color-mix(in srgb, var(--ink) 6%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.12rem 0.32rem;
+    }
+
+    .shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+    .jumpbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+      background: color-mix(in srgb, var(--page) 88%, transparent);
+      backdrop-filter: blur(18px);
+    }
+    .jumpbar-inner {
+      min-width: 0;
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--ink);
+      font-weight: 760;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .brand-mark {
+      width: 23px;
+      height: 23px;
+      border-radius: 8px;
+      background: linear-gradient(145deg, var(--blue), color-mix(in srgb, var(--blue) 58%, var(--orange)));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.32);
+    }
+    nav { min-width: 0; display: flex; gap: 17px; overflow-x: auto; padding: 10px 0; }
+    nav a { color: var(--ink-2); font-size: 0.82rem; font-weight: 680; text-decoration: none; white-space: nowrap; }
+    nav a:hover { color: var(--ink); }
+
+    main { padding: 68px 0 96px; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(290px, 0.75fr); gap: 44px; align-items: end; }
+    .hero > *, .section-head > *, .score-layout > *, .release-strip > *, .two-col > *, .metric-grid > * { min-width: 0; }
+    .eyebrow { margin: 0 0 18px; color: var(--blue); font-size: 0.76rem; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
+    h1 { max-width: 880px; margin: 0; font-size: clamp(2.55rem, 6.2vw, 5.4rem); line-height: 0.98; letter-spacing: -0.055em; }
+    .lede { max-width: 760px; margin: 26px 0 0; color: var(--ink-2); font-size: clamp(1.06rem, 2vw, 1.27rem); }
+    .decision-card {
+      border: 1px solid color-mix(in srgb, var(--red) 34%, var(--line));
+      border-radius: 22px;
+      background: linear-gradient(150deg, var(--red-soft), var(--surface));
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+    .decision-label { display: flex; align-items: center; gap: 8px; color: var(--red); font-size: 0.75rem; font-weight: 820; letter-spacing: 0.1em; text-transform: uppercase; }
+    .decision-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 5px color-mix(in srgb, var(--red) 15%, transparent); }
+    .decision-card h2 { margin: 17px 0 10px; font-size: 1.55rem; line-height: 1.16; letter-spacing: -0.025em; }
+    .decision-card p { margin: 0; color: var(--ink-2); }
+
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 42px; }
+    .stat { min-height: 142px; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 94%, transparent); padding: 20px; }
+    .stat-value { margin: 8px 0 4px; font-size: clamp(2rem, 4vw, 3.1rem); line-height: 1; font-weight: 770; letter-spacing: -0.045em; }
+    .stat-label { color: var(--muted); font-size: 0.75rem; font-weight: 790; letter-spacing: 0.08em; text-transform: uppercase; }
+    .stat-note { color: var(--ink-2); font-size: 0.86rem; }
+
+    section { padding-top: 92px; scroll-margin-top: 48px; }
+    .section-head { display: grid; grid-template-columns: minmax(0, 0.65fr) minmax(300px, 1fr); gap: 34px; align-items: end; margin-bottom: 28px; }
+    .section-kicker { color: var(--blue); font-size: 0.74rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+    h2 { margin: 8px 0 0; font-size: clamp(1.9rem, 4vw, 3.25rem); line-height: 1.04; letter-spacing: -0.042em; }
+    .section-intro { margin: 0; color: var(--ink-2); font-size: 1.03rem; }
+
+    .verdict {
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--surface);
+      padding: clamp(24px, 4vw, 42px);
+      box-shadow: var(--shadow);
+      font-size: clamp(1.12rem, 2vw, 1.38rem);
+      line-height: 1.55;
+    }
+    .verdict strong { color: var(--ink); }
+
+    .two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .compare-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 26px; }
+    .compare-card h3 { margin: 0 0 14px; font-size: 1.22rem; letter-spacing: -0.02em; }
+    .compare-card ul { margin: 0; padding-left: 1.15rem; }
+    .compare-card li + li { margin-top: 9px; }
+    .compare-card.flow { border-top: 4px solid var(--orange); }
+    .compare-card.vaani { border-top: 4px solid var(--blue); }
+
+    .release-strip { display: grid; grid-template-columns: 0.78fr 1.22fr; gap: 18px; }
+    .release-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 26px; }
+    .release-card h3 { margin: 0 0 6px; font-size: 1.32rem; }
+    .meta { color: var(--muted); font-family: var(--mono); font-size: 0.78rem; }
+    .release-card p { color: var(--ink-2); }
+    .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--surface-strong) 90%, transparent); padding: 6px 10px; color: var(--ink-2); font-size: 0.76rem; font-weight: 720; }
+    .badge.good { color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, var(--line)); background: var(--green-soft); }
+    .badge.warn { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 34%, var(--line)); background: var(--yellow-soft); }
+    .badge.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 34%, var(--line)); background: var(--red-soft); }
+
+    .score-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr); gap: 18px; }
+    .score-panel, .rubric-panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 26px; }
+    .score-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 48px; gap: 12px; align-items: center; min-height: 46px; }
+    .score-row + .score-row { border-top: 1px solid var(--line); }
+    .score-name { color: var(--ink-2); font-size: 0.88rem; font-weight: 700; }
+    .track { height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--blue) 13%, var(--surface)); position: relative; }
+    .fill { height: 100%; width: var(--score); border-radius: 999px; background: var(--blue); }
+    .score-value { text-align: right; font-family: var(--mono); font-size: 0.85rem; font-weight: 760; }
+    .rubric-panel h3 { margin: 0 0 12px; font-size: 1.18rem; }
+    .rubric-panel p { margin: 0 0 15px; color: var(--ink-2); }
+    .rubric-panel ol { margin: 0; padding-left: 1.15rem; color: var(--ink-2); }
+    .rubric-panel li + li { margin-top: 7px; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+    table { width: 100%; border-collapse: collapse; min-width: 820px; font-variant-numeric: tabular-nums; }
+    th, td { padding: 15px 16px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-size: 0.71rem; letter-spacing: 0.09em; text-transform: uppercase; background: color-mix(in srgb, var(--ink) 3%, var(--surface)); }
+    tr:last-child td { border-bottom: 0; }
+    td { color: var(--ink-2); font-size: 0.88rem; }
+    td strong { color: var(--ink); }
+    .sev { display: inline-flex; min-width: 42px; justify-content: center; border-radius: 999px; padding: 4px 8px; font-size: 0.7rem; font-weight: 820; }
+    .sev.p0 { color: var(--red); background: var(--red-soft); }
+    .sev.p1 { color: var(--yellow); background: var(--yellow-soft); }
+    .source-link { white-space: nowrap; font-family: var(--mono); font-size: 0.75rem; }
+
+    .gate-list { counter-reset: gate; display: grid; gap: 12px; }
+    .gate {
+      counter-increment: gate;
+      display: grid;
+      grid-template-columns: 45px minmax(0, 1fr);
+      gap: 16px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+      padding: 18px;
+    }
+    .gate::before {
+      content: counter(gate, decimal-leading-zero);
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: var(--red-soft);
+      color: var(--red);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 820;
+    }
+    .gate h3 { margin: 1px 0 4px; font-size: 1rem; }
+    .gate p { margin: 0; color: var(--ink-2); font-size: 0.9rem; }
+
+    .roadmap { display: grid; gap: 16px; }
+    .phase { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 26px; }
+    .phase-time { color: var(--blue); font-weight: 820; letter-spacing: -0.02em; }
+    .phase h3 { margin: 0 0 10px; font-size: 1.25rem; }
+    .phase ul { margin: 0; padding-left: 1.1rem; color: var(--ink-2); }
+    .phase li + li { margin-top: 7px; }
+
+    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .metric { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 14px; align-items: start; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); padding: 17px; }
+    .metric-num { font-family: var(--mono); color: var(--blue); font-size: 0.79rem; font-weight: 820; }
+    .metric strong { display: block; margin-bottom: 3px; }
+    .metric span { color: var(--ink-2); font-size: 0.87rem; }
+
+    .sources { columns: 2; column-gap: 34px; margin: 0; padding-left: 1.2rem; }
+    .sources li { break-inside: avoid; margin-bottom: 10px; color: var(--ink-2); font-size: 0.86rem; }
+    .method-note { margin-top: 24px; border-left: 4px solid var(--blue); background: var(--blue-soft); padding: 16px 18px; color: var(--ink-2); font-size: 0.88rem; }
+    footer { margin-top: 84px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem; }
+
+    @media (max-width: 900px) {
+      .hero, .section-head, .score-layout, .release-strip { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .hero { gap: 28px; }
+      .section-head { gap: 12px; }
+      nav { max-width: 72vw; }
+    }
+    @media (max-width: 640px) {
+      .shell { width: min(100% - 22px, 1180px); }
+      .jumpbar-inner { align-items: center; padding-top: 0; overflow: hidden; }
+      .brand { flex: 0 0 auto; }
+      nav { min-width: 0; max-width: none; flex: 1 1 auto; }
+      main { padding-top: 48px; }
+      .stats, .two-col, .metric-grid { grid-template-columns: 1fr; }
+      .phase { grid-template-columns: 1fr; gap: 8px; }
+      .score-row { grid-template-columns: 108px minmax(0, 1fr) 44px; }
+      .sources { columns: 1; }
+      section { padding-top: 72px; }
+    }
+
+    @media print {
+      :root { color-scheme: light; --page: #fff; --surface: #fff; --surface-strong: #fff; --ink: #000; --ink-2: #262626; --muted: #555; --line: #cfcfcf; }
+      body { background: #fff; font-size: 10pt; }
+      .jumpbar { position: static; background: #fff; backdrop-filter: none; }
+      nav { display: none; }
+      main { padding: 30px 0; }
+      section { padding-top: 44px; }
+      .decision-card, .verdict, .release-card, .score-panel, .rubric-panel, .compare-card, .gate, .phase, .metric, .stat, .method-note { box-shadow: none; break-inside: avoid; }
+      a { color: #000; text-decoration: none; }
+      a[href^="http"]::after { content: " [" attr(href) "]"; font-size: 7pt; overflow-wrap: anywhere; }
+      .source-link::after { content: none !important; }
+      table { min-width: 0; table-layout: fixed; }
+      th, td { padding: 8px; font-size: 8pt; overflow-wrap: anywhere; }
+      th:nth-child(1), td:nth-child(1) { width: 12%; }
+      th:nth-child(2), td:nth-child(2) { width: 29%; }
+      th:nth-child(3), td:nth-child(3) { width: 22%; }
+      th:nth-child(4), td:nth-child(4) { width: 24%; }
+      th:nth-child(5), td:nth-child(5) { width: 13%; }
+      .source-link { white-space: normal; overflow-wrap: anywhere; }
+      .track { border: 1px solid #aaa; }
+      .fill { background: repeating-linear-gradient(45deg, #333 0, #333 2px, #fff 2px, #fff 5px); }
+    }
+  </style>
+</head>
+<body>
+  <header class="jumpbar">
+    <div class="shell jumpbar-inner">
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>Vaani reliability report</a>
+      <nav aria-label="Report sections">
+        <a href="#verdict">Verdict</a>
+        <a href="#state">State</a>
+        <a href="#benchmark">Benchmark</a>
+        <a href="#score">Score</a>
+        <a href="#gaps">Gaps</a>
+        <a href="#path">Path</a>
+        <a href="#gates">Gates</a>
+        <a href="#sources">Sources</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top" class="shell">
+    <div class="hero">
+      <div>
+        <p class="eyebrow">Current release, latest branch, reliability path</p>
+        <h1>Vaani can beat Wispr Flow. Recovery must become core product behavior.</h1>
+        <p class="lede">Latest code fixes real pipeline defects and adds strong local advantages. It still cannot make a Flow-class reliability claim. Green CI proves code health. It does not prove microphone, long-session, insertion, wake, or recovery success on real Macs.</p>
+      </div>
+      <aside class="decision-card" aria-label="Release decision">
+        <div class="decision-label"><span class="decision-dot" aria-hidden="true"></span>Recommendation</div>
+        <h2>Hold reliability claims and close release-gate defects before 1.2.</h2>
+        <p>Merge readiness is close. Product reliability is not. Fix verified data, startup, permission, and recovery faults first. Then run hardware and app-field acceptance.</p>
+      </aside>
+    </div>
+
+    <div class="stats" aria-label="Current state summary">
+      <article class="stat">
+        <div class="stat-label">Public release</div>
+        <div class="stat-value">1.1.3</div>
+        <div class="stat-note">Published July 7, 2026. Release assets are arm64 only.</div>
+      </article>
+      <article class="stat">
+        <div class="stat-label">Latest branch</div>
+        <div class="stat-value">1.2.0</div>
+        <div class="stat-note">20 commits ahead of <code>main</code>. PR #19 remains open.</div>
+      </article>
+      <article class="stat">
+        <div class="stat-label">Latest CI</div>
+        <div class="stat-value">392</div>
+        <div class="stat-note">392 tests passed. Typecheck and macOS package build passed.</div>
+      </article>
+      <article class="stat">
+        <div class="stat-label">Release-gate defects</div>
+        <div class="stat-value">7</div>
+        <div class="stat-note">Verified code defects or release-integrity gaps. Field proof comes after.</div>
+      </article>
+    </div>
+
+    <section id="verdict">
+      <div class="section-head">
+        <div><div class="section-kicker">Verdict</div><h2>Good engineering base. Incomplete reliability system.</h2></div>
+        <p class="section-intro">Luna explored current code read-only. I checked release metadata, CI, PR review findings, critical code paths, and Wispr Flow's official recovery and incident material.</p>
+      </div>
+      <div class="verdict">
+        <strong>HEAD <code>e302cfe</code> is much stronger than shipped v1.1.3.</strong> It adds native capture with two-second pre-roll, physical microphone selection, multi-provider and local Whisper failover, silence-aware long-form chunking, content guards, baseline-aware insertion verification, structured traces, Keychain storage, and real CI. That is serious progress. Still, Vaani's weakest layer begins after something goes wrong. Audio retention is off by default, History retry only reinserts existing text, provider work is not cancellable, sleep and audio-route recovery lack proof, and several current UI or persistence paths can delete credentials or report failure after data was written. Wispr Flow is not flawless, especially during its June 2026 reliability incidents. It does set a stronger recovery expectation through retained audio, retryable failed transcriptions, clipboard fallback, wake recovery, microphone handoff, and visible troubleshooting. Vaani's route beyond Flow is clear: make local recovery authoritative, prove delivery in real apps, and treat every failed dictation as recoverable work rather than a dead end.
+      </div>
+    </section>
+
+    <section id="state">
+      <div class="section-head">
+        <div><div class="section-kicker">Repository state</div><h2>Release is old. Branch is green. Evidence is still lab-shaped.</h2></div>
+        <p class="section-intro">Current public release and latest code tell different stories. Keep them separate in product claims and release notes.</p>
+      </div>
+      <div class="release-strip">
+        <article class="release-card">
+          <h3>Public v1.1.3</h3>
+          <div class="meta">tag v1.1.3 · commit 1acddb9 · published 2026-07-07</div>
+          <p>Shipped release still documents short-phrase insertion failures, stale state after about 16 hours, intermittent capsule visibility, plain-JSON API keys, and notarization limits. Only arm64 DMG and ZIP assets are published despite README claiming Apple Silicon and Intel support.</p>
+          <div class="badge-row">
+            <span class="badge warn">Known uptime defect</span>
+            <span class="badge warn">Overlay defect</span>
+            <span class="badge bad">Credential doc gap</span>
+            <span class="badge bad">Intel artifact missing</span>
+          </div>
+        </article>
+        <article class="release-card">
+          <h3>Branch target v1.2.0</h3>
+          <div class="meta">feat/text-pipeline-phase3 · commit e302cfe · PR #19</div>
+          <p>Branch adds 3,842 lines and removes 356 across 66 files. Latest CI passed frozen install, typecheck, 392 tests, Electron package build, whitespace, and clean-tree checks. It is mergeable. Automated review still identified defects at current HEAD, several independently verified below.</p>
+          <div class="badge-row">
+            <span class="badge good">CI green</span>
+            <span class="badge good">Package build green</span>
+            <span class="badge good">Mergeable</span>
+            <span class="badge warn">PR open</span>
+            <span class="badge bad">Field acceptance missing</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="benchmark">
+      <div class="section-head">
+        <div><div class="section-kicker">Benchmark</div><h2>Do not copy Flow. Beat its recovery contract.</h2></div>
+        <p class="section-intro">Flow's 2026 record includes outages and accuracy regressions. Its useful benchmark is how it handles failure, not a myth that it never fails.</p>
+      </div>
+      <div class="two-col">
+        <article class="compare-card flow">
+          <h3>What Wispr Flow currently does better</h3>
+          <ul>
+            <li>Automatically retries failed transcription, then exposes manual retry from History.</li>
+            <li>Retains desktop audio locally for up to 14 days, subject to retention policy.</li>
+            <li>Copies completed text to clipboard when desktop insertion fails.</li>
+            <li>Uses nearby app and window context to improve names, formatting, and tone.</li>
+            <li>Documents wake recovery, microphone ranking, clamshell switching, and routed or virtual inputs.</li>
+            <li>Publishes incident history and claimed 99.9% dictation uptime after June 2026 failures.</li>
+          </ul>
+        </article>
+        <article class="compare-card vaani">
+          <h3>Where Vaani has a better long-term position</h3>
+          <ul>
+            <li>Local whisper.cpp can keep transcription working without internet or vendor uptime.</li>
+            <li>Groq, OpenAI, Deepgram, and local providers reduce single-vendor dependence.</li>
+            <li>Two-second pre-roll, physical-device filtering, and native capture address clipped starts directly.</li>
+            <li>Deterministic cleanup and content guards can reject destructive formatter output.</li>
+            <li>Local traces and build IDs support reproducible diagnosis without mandatory telemetry.</li>
+            <li>Keychain storage and user-controlled local operation offer a stronger privacy story.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="score">
+      <div class="section-head">
+        <div><div class="section-kicker">Code-evidence score</div><h2>Strongest in capture design. Weakest in recovery.</h2></div>
+        <p class="section-intro">Scores measure mechanisms plus proof visible in current code. They are not user success rates. Five means measured across hardware and real apps, with automatic recovery.</p>
+      </div>
+      <div class="score-layout">
+        <div class="score-panel" role="img" aria-label="Reliability scores out of five. Capture 3, transcription 3, text quality 3, insertion 2, recovery 1, observability 4, release engineering 3, privacy and offline 3.">
+          <div class="score-row"><div class="score-name">Capture</div><div class="track"><div class="fill" style="--score:60%"></div></div><div class="score-value">3.0</div></div>
+          <div class="score-row"><div class="score-name">Transcription</div><div class="track"><div class="fill" style="--score:60%"></div></div><div class="score-value">3.0</div></div>
+          <div class="score-row"><div class="score-name">Text quality</div><div class="track"><div class="fill" style="--score:60%"></div></div><div class="score-value">3.0</div></div>
+          <div class="score-row"><div class="score-name">Insertion</div><div class="track"><div class="fill" style="--score:40%"></div></div><div class="score-value">2.0</div></div>
+          <div class="score-row"><div class="score-name">Recovery</div><div class="track"><div class="fill" style="--score:20%"></div></div><div class="score-value">1.0</div></div>
+          <div class="score-row"><div class="score-name">Observability</div><div class="track"><div class="fill" style="--score:80%"></div></div><div class="score-value">4.0</div></div>
+          <div class="score-row"><div class="score-name">Release engineering</div><div class="track"><div class="fill" style="--score:60%"></div></div><div class="score-value">3.0</div></div>
+          <div class="score-row"><div class="score-name">Privacy and offline</div><div class="track"><div class="fill" style="--score:60%"></div></div><div class="score-value">3.0</div></div>
+        </div>
+        <aside class="rubric-panel">
+          <h3>Scoring rubric</h3>
+          <p>One point for each layer that exists and has evidence.</p>
+          <ol>
+            <li>Mechanism exists.</li>
+            <li>Unit or integration test exists.</li>
+            <li>Failure injection exists.</li>
+            <li>Hardware and app acceptance exists.</li>
+            <li>Field metric and automatic recovery exist.</li>
+          </ol>
+        </aside>
+      </div>
+    </section>
+
+    <section id="gaps">
+      <div class="section-head">
+        <div><div class="section-kicker">Verified gaps</div><h2>Seven defects block a clean 1.2 reliability release.</h2></div>
+        <p class="section-intro">These are current-code faults, not broad feature wishes. Close them before hardware acceptance so test results describe the intended build.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Priority</th><th>Finding</th><th>User failure</th><th>Proof needed</th><th>Evidence</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sev p0">P0</span></td><td><strong>Untouched onboarding key can be cleared on blur.</strong> Empty input calls the Keychain clear path.</td><td>Existing provider credential disappears after ordinary focus and blur.</td><td>UI event test with configured key. Blur without edit must preserve it.</td><td><a class="source-link" href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/renderer/components/OnboardingModal.tsx#L62-L73">Onboarding 62-73</a></td></tr>
+            <tr><td><span class="sev p0">P0</span></td><td><strong>Cancel can save a replacement API key.</strong> Button click follows input blur, which commits first.</td><td>User clicks Cancel but new secret replaces old secret.</td><td>Browser event-order test for Replace, type, Cancel, restart.</td><td><a class="source-link" href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/renderer/components/SettingsModal.tsx#L159-L187">Settings 159-187</a></td></tr>
+            <tr><td><span class="sev p0">P0</span></td><td><strong>Packaged native-addon load failure is not cached.</strong> Later property access retries and throws.</td><td>Broken package can fail repeatedly during startup, hotkey, capture, and context calls.</td><td>One classified failure, no retry storm, deterministic startup remediation.</td><td><a class="source-link" href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/main/nativeBridge.ts#L70-L117">nativeBridge 70-117</a></td></tr>
+            <tr><td><span class="sev p0">P0</span></td><td><strong>Injected text is not truncated in trace snapshots.</strong> Raw and cleaned text are bounded, injected text is not.</td><td>Long or sensitive dictation persists in local traces and bug-report exports.</td><td>10,000-character trace persistence and export test. Bound and redact every text field.</td><td><a class="source-link" href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/main/dictationTraceSnapshot.ts#L12-L32">trace snapshot 12-32</a></td></tr>
+            <tr><td><span class="sev p1">P1</span></td><td><strong>Empty media-type requests are granted.</strong> Missing or empty type list passes the audio-only check.</td><td>Permission boundary accepts an underspecified media request.</td><td>Deny <code>undefined</code>, empty, video, and mixed. Allow only non-empty audio.</td><td><a class="source-link" href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/main/mediaPermissions.ts#L5-L17">media permission 5-17</a></td></tr>
+            <tr><td><span class="sev p1">P1</span></td><td><strong>Committed JSON write can still reject.</strong> Rename finishes before an unguarded final chmod.</td><td>Caller sees failure after data is already durable, then may retry or show wrong state.</td><td>Inject chmod failure after rename. Result must stay consistent and retry-safe.</td><td><a class="source-link" href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/main/store/base.ts#L16-L29">store base 16-29</a></td></tr>
+            <tr><td><span class="sev p1">P1</span></td><td><strong>CI executes mutable action tags.</strong> Workflow uses <code>actions/checkout@v4</code> and <code>setup-bun@v2</code>.</td><td>Upstream tag movement can change release checks without repository review.</td><td>Pin full action SHAs and update through reviewed dependency PRs.</td><td><a class="source-link" href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/.github/workflows/ci.yml#L20-L30">CI 20-30</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="product-gaps">
+      <div class="section-head">
+        <div><div class="section-kicker">Parity gaps</div><h2>After bug fixes, five product systems still need proof.</h2></div>
+        <p class="section-intro">These gaps explain why 392 passing tests cannot support a Wispr Flow parity claim.</p>
+      </div>
+      <div class="gate-list">
+        <article class="gate"><div><h3>Durable failed-dictation recovery</h3><p><code>saveRecordings</code> defaults false. History retry reinserts stored text instead of re-transcribing audio. Failed cloud work can become unrecoverable.</p></div></article>
+        <article class="gate"><div><h3>Cancellable provider work</h3><p>Long clips share a scaled deadline, but provider APIs receive no <code>AbortSignal</code>. Timed-out work can continue and spend quota after user-visible failure.</p></div></article>
+        <article class="gate"><div><h3>Sleep, wake, and route-change recovery</h3><p>Capture has pre-roll, warm mode, physical-device filtering, and restart after native errors. No measured sleep, wake, dock, Bluetooth, or unplug recovery contract exists.</p></div></article>
+        <article class="gate"><div><h3>Real app insertion acceptance</h3><p>Local trace scoring uses readable accessibility values and excludes unreadable baselines. Rich editors, terminals, browsers, and delayed renderers still need visual end-to-end trials.</p></div></article>
+        <article class="gate"><div><h3>Bounded nearby-text context</h3><p>Current app context is bundle classification plus app profiles. It does not use bounded nearby document text for names, grammar continuation, or tone.</p></div></article>
+      </div>
+    </section>
+
+    <section id="path">
+      <div class="section-head">
+        <div><div class="section-kicker">Improvement path</div><h2>Build recovery first. Add intelligence after delivery is boring.</h2></div>
+        <p class="section-intro">Durability order matters. A smarter transcript that vanishes is worse than plain text safely waiting in a recovery queue.</p>
+      </div>
+      <div class="roadmap">
+        <article class="phase">
+          <div class="phase-time">Release gate</div>
+          <div><h3>Close defects and establish trustworthy acceptance</h3><ul>
+            <li>Fix seven verified release-gate items. Add focused failure-injection and browser event-order tests.</li>
+            <li>Resolve the Intel support mismatch by shipping x64 artifacts or narrowing the stated system requirements.</li>
+            <li>Run 16-hour endurance, 500 overlay show cycles, 500 sleep/wake cycles, and a 20-app insertion matrix.</li>
+            <li>Keep PR CI green. Add push-to-main CI and pin action SHAs.</li>
+          </ul></div>
+        </article>
+        <article class="phase">
+          <div class="phase-time">Next 30 days</div>
+          <div><h3>Make every dictation recoverable</h3><ul>
+            <li>Add a local session journal before transcription begins. Store status, target, provider attempts, audio handle, transcript, and insertion result.</li>
+            <li>Retain encrypted audio for a short user-controlled window after failure. Default to local-only and delete after confirmed delivery.</li>
+            <li>Upgrade History retry to re-transcribe audio, rerun formatting, and retry insertion. Keep plain reinsertion as a separate action.</li>
+            <li>Pass <code>AbortSignal</code> through cloud providers and local Whisper. Stop all work at deadline or cancellation.</li>
+            <li>Add explicit clipboard fallback and a persistent recovery queue when insertion cannot be verified.</li>
+          </ul></div>
+        </article>
+        <article class="phase">
+          <div class="phase-time">Next 90 days</div>
+          <div><h3>Prove hardware, app, and language reliability</h3><ul>
+            <li>Build a frozen audio corpus for accents, technical names, noise, short phrases, and 3, 10, and 20-minute dictation.</li>
+            <li>Add mic ranking and seamless handoff for built-in, USB, Bluetooth, docked, clamshell, and virtual routes.</li>
+            <li>Add bounded nearby-text context with password-field exclusion, per-app controls, and local redaction tests.</li>
+            <li>Maintain per-app insertion contracts. Test native AX, clipboard, keystroke, rich editors, terminals, and non-QWERTY layouts.</li>
+            <li>Show local reliability reports for capture, STT, formatting, insertion, recovery, and latency. No mandatory telemetry needed.</li>
+          </ul></div>
+        </article>
+        <article class="phase">
+          <div class="phase-time">Beyond parity</div>
+          <div><h3>Use local authority to remove vendor failure from the user experience</h3><ul>
+            <li>Guarantee local transcription fallback whenever a healthy model is installed, even during cloud outage or account failure.</li>
+            <li>Replay failed sessions deterministically from retained audio and build metadata.</li>
+            <li>Add offline command editing and deterministic formatting before optional cloud formatting.</li>
+            <li>Let users choose privacy profiles for local-only, cloud-fast, or redundant cloud plus local rescue.</li>
+            <li>Treat delivery as a transaction. Text is inserted, queued for recovery, or copied with a clear status. Never silently lost.</li>
+          </ul></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="gates">
+      <div class="section-head">
+        <div><div class="section-kicker">Acceptance gates</div><h2>Numbers required before saying "as reliable as Flow."</h2></div>
+        <p class="section-intro">These targets are intentionally hard. Use rolling release cohorts plus a repeatable local lab. Publish methodology beside results.</p>
+      </div>
+      <div class="metric-grid" aria-label="Ten reliability acceptance metrics">
+        <article class="metric"><div class="metric-num">01</div><div><strong>Capture start</strong><span>At least 99.5% successful native-capture starts across 10,000 sessions.</span></div></article>
+        <article class="metric"><div class="metric-num">02</div><div><strong>Sleep and wake recovery</strong><span>At least 99% successful automatic capture recovery across 500 sleep/wake cycles.</span></div></article>
+        <article class="metric"><div class="metric-num">03</div><div><strong>Durable outcome</strong><span>At least 99.5% of sessions end with inserted text or a durable recovery item.</span></div></article>
+        <article class="metric"><div class="metric-num">04</div><div><strong>Insertion matrix</strong><span>At least 98% verified insertion across 20 named app and field classes.</span></div></article>
+        <article class="metric"><div class="metric-num">05</div><div><strong>Per-app insertion</strong><span>At least 95% success after 100 eligible trials for every named app.</span></div></article>
+        <article class="metric"><div class="metric-num">06</div><div><strong>Native-load containment</strong><span>Zero repeated native-load exceptions after one classified packaged-load failure.</span></div></article>
+        <article class="metric"><div class="metric-num">07</div><div><strong>Cancellation</strong><span>100% of timed-out provider calls receive cancellation. Zero post-deadline session mutation.</span></div></article>
+        <article class="metric"><div class="metric-num">08</div><div><strong>Local rescue</strong><span>100% of failed cloud transcriptions with a healthy local model produce a fallback result within 30 seconds.</span></div></article>
+        <article class="metric"><div class="metric-num">09</div><div><strong>Bounded traces</strong><span>100% of trace text fields remain at or below 500 characters unless user explicitly exports full text.</span></div></article>
+        <article class="metric"><div class="metric-num">10</div><div><strong>Credential integrity</strong><span>Zero credential deletions from untouched blur or Cancel across 1,000 UI interaction trials.</span></div></article>
+      </div>
+    </section>
+
+    <section id="sources">
+      <div class="section-head">
+        <div><div class="section-kicker">Evidence</div><h2>Repository, CI, release, and official Flow sources.</h2></div>
+        <p class="section-intro">Source check completed August 31, 2026. Code links target exact reviewed commit <code>e302cfe</code> or shipped tag <code>v1.1.3</code>.</p>
+      </div>
+      <ol class="sources">
+        <li><a href="https://github.com/Onkarj012/Vaani/releases/tag/v1.1.3">Vaani v1.1.3 release</a>, publication date and arm64 assets.</li>
+        <li><a href="https://github.com/Onkarj012/Vaani/pull/19">Vaani PR #19</a>, branch purpose, validation, and review state.</li>
+        <li><a href="https://github.com/Onkarj012/Vaani/actions/runs/31707492637">Vaani CI run 31707492637</a>, 392 tests, typecheck, package build, and cleanliness checks.</li>
+        <li><a href="https://github.com/Onkarj012/Vaani/blob/v1.1.3/README.md#L180-L193">v1.1.3 known limitations</a>, stale state, capsule, short phrases, and API key documentation.</li>
+        <li><a href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/main/audio/nativeCapture.ts#L61-L238">Native capture service</a>, pre-roll, physical mic selection, tail drain, and native restart behavior.</li>
+        <li><a href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/main/transcription.ts#L65-L188">Transcription chain</a>, retries, failover, provider choice, and offline modes.</li>
+        <li><a href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/main/transcription.ts#L307-L444">Long-form transcription</a>, chunking, shared deadlines, and overlap merge.</li>
+        <li><a href="https://github.com/Onkarj012/Vaani/blob/e302cfed4281c0a48363fcdd42a81623bbb69f15/src/shared/insertionAcceptance.ts#L59-L164">Insertion acceptance</a>, local aggregate and per-app thresholds.</li>
+        <li><a href="https://docs.wisprflow.ai/articles/2503460374-retry-failed-transcriptions">Wispr Flow retry failed transcriptions</a>, audio retention, manual retry, and clipboard fallback.</li>
+        <li><a href="https://docs.wisprflow.ai/articles/4678293671-Context-Awareness">Wispr Flow context awareness</a>, nearby text, app context, privacy controls, and exclusions.</li>
+        <li><a href="https://wisprflow.ai/microphones">Wispr Flow microphone guidance</a>, Bluetooth startup, first-word clipping, clamshell, and external inputs.</li>
+        <li><a href="https://wisprflow.ai/data-controls">Wispr Flow data controls</a>, cloud-only transcription and retention controls.</li>
+        <li><a href="https://wisprflow.ai/whats-new">Wispr Flow product updates</a>, 20-minute dictation, recovery, microphone handoff, reliability claims, and June 2026 incident acknowledgments.</li>
+        <li><a href="https://statuspage.incident.io/wispr-flow/history">Wispr Flow incident history</a>, June and August 2026 dictation latency, reliability, and backend incidents.</li>
+      </ol>
+      <div class="method-note"><strong>Method note.</strong> Luna ran a fenced read-only review using <code>gpt-5.6-luna</code>. No delegated edits, installs, tests, builds, or network calls were allowed. Main session independently checked critical code, GitHub release and PR metadata, CI logs, and official Wispr Flow sources. Local <code>bun run test</code> and <code>bun run typecheck</code> could not run because dependencies are not installed in this checkout. GitHub CI at the reviewed commit passed both.</div>
+    </section>
+
+    <footer>
+      Vaani reliability state report. Local artifact only. No Waymark page created or updated.
+    </footer>
+  </main>
+</body>
+</html>
