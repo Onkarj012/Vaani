@@ -579,6 +579,7 @@ declare global {
       restoreRecordingInput: (deviceId: number | null) => Promise<boolean>;
       getRecorderConfig: () => Promise<RecorderConfig>;
       listAudioInputDevices: () => Promise<AudioInputDevice[]>;
+      requestMicrophonePermission: () => Promise<MacOSPermissionState>;
       onRecorderConfigChanged: (cb: (payload: RecorderConfig) => void) => () => void;
     };
   }

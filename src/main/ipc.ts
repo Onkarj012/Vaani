@@ -694,7 +694,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     return listNativeInputDevices();
   });
   ipcMain.handle(IpcChannel.RequestMicrophonePermission, async (event) => {
-    requireAllowedSender(event, [mainWindow]);
+    requireAllowedSender(event, [mainWindow, recorder?.getWindow()]);
     try {
       await systemPreferences.askForMediaAccess("microphone");
     } catch (error) {

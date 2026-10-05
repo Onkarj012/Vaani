@@ -1,5 +1,5 @@
-import type { AudioClip, AudioInputDevice, AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
-import { selectRecorderDevice } from "./deviceSelection";
+import type { AudioInputDevice, MacOSPermissionState, AudioClip, AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
+import { chooseRecorderDeviceId } from "./deviceSelection";
 import {
   PcmRingBuffer,
   PRE_ROLL_MS,
@@ -33,6 +33,7 @@ declare global {
       restoreRecordingInput: (deviceId: number | null) => Promise<boolean>;
       getRecorderConfig: () => Promise<RecorderConfig>;
       listAudioInputDevices: () => Promise<AudioInputDevice[]>;
+      requestMicrophonePermission: () => Promise<MacOSPermissionState>;
       onRecorderConfigChanged: (cb: (payload: RecorderConfig) => void) => () => void;
     };
   }
@@ -263,14 +264,13 @@ async function openCapture(config: RecorderConfig): Promise<void> {
   await startPcmCapture(nextStream);
 }
 
+/** Resolve an exact microphone ID after permission recovery and native/browser validation. */
 async function chooseMicDevice(preferredDeviceId: string | undefined): Promise<string> {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const nativeDevices = await window.__VAANI_RECORDER__.listAudioInputDevices().catch(() => []);
-  const selected = selectRecorderDevice(devices, preferredDeviceId, nativeDevices);
-  if (!selected.ok) {
-    throw new Error(selected.message);
-  }
-  return selected.deviceId;
+  return chooseRecorderDeviceId({
+    enumerateDevices: () => navigator.mediaDevices.enumerateDevices(),
+    listAudioInputDevices: () => window.__VAANI_RECORDER__.listAudioInputDevices(),
+    requestMicrophonePermission: () => window.__VAANI_RECORDER__.requestMicrophonePermission(),
+  }, preferredDeviceId);
 }
 
 async function startPcmCapture(inputStream: MediaStream): Promise<void> {
