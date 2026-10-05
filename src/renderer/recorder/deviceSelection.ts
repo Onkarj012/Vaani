@@ -116,9 +116,9 @@ export function selectRecorderDevice(
   if (physical.length === 0) return { ok: false, message: NO_PHYSICAL_MICROPHONE_MESSAGE };
   const rank = (device: NativeInputLike): number => (device.transportType === "built-in" ? 0 : device.isDefault ? 1 : 2);
   for (const nativeInput of [...physical].sort((a, b) => rank(a) - rank(b))) {
-    // Chromium can omit a CoreAudio input; try the next physical one instead of failing.
-    if (!inputs.some((device) => matchesNativeInput(device.label, nativeInput))) continue;
-    return uniqueBrowserMatch(inputs, nativeDevices, nativeInput);
+    // Chromium can omit or duplicate a CoreAudio input; try the next physical one instead of failing.
+    const selected = uniqueBrowserMatch(inputs, nativeDevices, nativeInput);
+    if (selected.ok) return selected;
   }
   return selectionFailure();
 }

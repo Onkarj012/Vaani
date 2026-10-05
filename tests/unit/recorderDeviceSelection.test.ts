@@ -134,6 +134,14 @@ describe("review regressions", () => {
       .toMatchObject({ ok: false });
   });
 
+  it("skips an ambiguous ranked input for a uniquely identifiable physical one", () => {
+    const usb = native("usb", "USB Mic", "usb");
+    const devices = [input("one", "MacBook Pro Microphone (Built-in)"), input("two", "MacBook Pro Microphone (Built-in)"),
+      input("usb", "USB Mic (1234:abcd)")];
+    expect(selectRecorderDevice(devices, undefined, [builtIn, usb])).toEqual({ ok: true, deviceId: "usb" });
+    expect(selectRecorderDevice(devices.slice(0, 2), undefined, [builtIn, usb])).toMatchObject({ ok: false });
+  });
+
   it("rejects preferred browser IDs for virtual, unknown or ambiguous native devices", () => {
     expect(selectRecorderDevice([input("virtual", "Background Music (Virtual)")], "virtual",
       [native("virtual-native", "Background Music", "virtual", false)]))
