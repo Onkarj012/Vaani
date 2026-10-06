@@ -26,6 +26,7 @@ import { KNOWN_PROVIDERS } from '@shared/defaults'
 import { Card } from '@renderer/components/ui/card'
 import { Tag } from '@renderer/components/ui/tag'
 import { Button } from '@renderer/components/ui/button'
+import PermissionStatusIndicator from '@renderer/components/PermissionStatusIndicator'
 
 const container = {
   hidden: { opacity: 0 },
@@ -55,9 +56,8 @@ function OnboardingChecklist({
   const hasApiKey =
     activeProvider?.requiresApiKey === false ||
     (settings.providerApiKeys ?? []).some(
-      (pk) => pk.providerId === settings.transcriptionProvider && pk.key?.toString().trim().length > 0
-    ) ||
-    (settings.transcriptionProvider === 'groq' && !!settings.groqApiKey?.toString().trim())
+      (pk) => pk.providerId === settings.transcriptionProvider && pk.hasKey === true
+    )
 
   const items = [
     { label: 'Complete Welcome Tour', done: settings.onboardingCompleted, icon: <Sparkles size={15} />, action: onRestartTour, actionLabel: 'Restart Tour' },
@@ -128,6 +128,7 @@ export default function Dashboard() {
   const checklistDismissed = settings.setupChecklistDismissed || optimisticChecklistDismissed
   const prevPermissionsRef = useRef<PermissionStatus | null>(null)
   const [permissionLostWarning, setPermissionLostWarning] = useState<string | null>(null)
+  const [busyPermission, setBusyPermission] = useState<keyof PermissionStatus | null>(null)
 
   useEffect(() => {
     const poll = () => {
@@ -165,6 +166,26 @@ export default function Dashboard() {
       unsub?.()
     }
   }, [])
+
+  async function handlePermissionAction(permission: keyof PermissionStatus): Promise<void> {
+    if (busyPermission !== null) return
+    setBusyPermission(permission)
+    try {
+      const state = permissions[permission]
+      if (state === 'not-determined' || (permission === 'accessibility' && state === 'denied')) {
+        const nextState = permission === 'microphone'
+          ? await window.vaani.requestMicrophonePermission()
+          : await window.vaani.requestAccessibilityPermission()
+        if (nextState === 'granted') {
+          setPermissions((current) => ({ ...current, [permission]: nextState }))
+          return
+        }
+      }
+      await window.vaani.openPermissionSettings(permission)
+    } finally {
+      setBusyPermission(null)
+    }
+  }
 
   const appBreakdown = useMemo(() => {
     const counts = new Map<string, { words: number; sessions: number }>()
@@ -213,6 +234,14 @@ export default function Dashboard() {
           </Card>
         </motion.div>
       )}
+
+      <motion.div variants={item}>
+        <PermissionStatusIndicator
+          status={permissions}
+          busyPermission={busyPermission}
+          onPermissionAction={(permission) => { void handlePermissionAction(permission) }}
+        />
+      </motion.div>
 
       {permissionLostWarning && (
         <motion.div variants={item}>

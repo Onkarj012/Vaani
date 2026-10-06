@@ -1,6 +1,6 @@
 import type { TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
-import { normalizeDeepgramLanguage, resolveReportedLanguage } from "@main/providers/language";
+import { resolveLanguageForProvider, resolveReportedLanguage } from "@main/providers/language";
 import { validateBearerEndpoint } from "../validation";
 import { createWavBuffer, fetchWithTimeout } from "@main/providers/shared/audioUtils";
 
@@ -19,7 +19,7 @@ export const DeepgramSttProvider: TranscriptionProvider = {
     const wavBuffer = createWavBuffer(clip);
     const model = options.model || "nova-3";
     let url = `https://api.deepgram.com/v1/listen?model=${model}`;
-    const language = normalizeDeepgramLanguage(options.language);
+    const language = resolveLanguageForProvider(options.language, "deepgram", model);
     if (language) {
       url += `&language=${encodeURIComponent(language)}`;
     } else {

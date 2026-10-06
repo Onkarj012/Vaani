@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Globe, Mic, Keyboard, Type, Palette, Monitor, Volume2, Download, Trash2,
@@ -7,13 +7,14 @@ import {
 import { useVaaniUi } from '../context/vaani-ui'
 import { useColorMode } from '../context/color-mode'
 import { HotkeyCapture } from './HotkeyCapture'
-import { KNOWN_PROVIDERS, SUPPORTED_LANGUAGES, isLanguageSupportedByProvider } from '@shared/defaults'
+import { KNOWN_PROVIDERS, SUPPORTED_LANGUAGES, getLanguageLabel, isLanguageSupportedByProvider, resolveProfileLanguage } from '@shared/defaults'
 import { Select } from '@renderer/components/ui/Select'
 import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
 import { createExportPayload } from '@renderer/exportData'
-import type { AudioInputDevice } from '@shared/types'
+import type { AudioInputDevice, ProviderKeyValidation } from '@shared/types'
+import { decideProviderKeyDraft } from '@renderer/lib/providerKeyDraft'
 
 const sidebarItems = [
   { id: 'api', label: 'API & Providers', icon: Plug },
@@ -117,17 +118,30 @@ function providerSummary(provider: typeof KNOWN_PROVIDERS[number] | undefined): 
 }
 
 function ApiKeyInput({
-  value, onChange, onBlur, placeholder, hasKey, onClear,
+  value, onChange, onBlur, onCancel, placeholder, hasKey, lastValidation, onClear, onTest, testing,
 }: {
   value: string;
   onChange: (v: string) => void;
   onBlur?: () => void;
+  onCancel?: () => void;
   placeholder: string;
   hasKey?: boolean;
+  lastValidation?: ProviderKeyValidation | null;
   onClear?: () => void;
+  onTest?: () => void;
+  testing?: boolean;
 }) {
   const [visible, setVisible] = useState(false)
   const [replacing, setReplace] = useState(false)
+  const cancelRequested = useRef(false)
+
+  useEffect(() => {
+    if (hasKey && !value) setReplace(false)
+  }, [hasKey, value])
+
+  useEffect(() => {
+    if (lastValidation?.valid) setReplace(false)
+  }, [lastValidation?.valid])
 
   if (hasKey && !replacing && !value) {
     return (
@@ -137,6 +151,14 @@ function ApiKeyInput({
           <span className="flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent">
             <Check size={10} /> Saved
           </span>
+          {lastValidation?.valid && (
+            <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">
+              <Check size={10} /> Validated
+            </span>
+          )}
+          {lastValidation && !lastValidation.valid && (
+            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-500">Test failed</span>
+          )}
         </div>
         <button
           type="button"
@@ -152,6 +174,9 @@ function ApiKeyInput({
         >
           Clear
         </button>
+        {lastValidation && !lastValidation.valid && (
+          <p className="absolute left-0 top-full mt-1 text-xs text-red-500/80">{lastValidation.message}</p>
+        )}
       </div>
     )
   }
@@ -163,7 +188,7 @@ function ApiKeyInput({
           type={visible ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onBlur={onBlur}
+          onBlur={() => { if (!cancelRequested.current) onBlur?.() }}
           placeholder={placeholder}
           className="pr-11 font-mono"
           autoFocus={replacing}
@@ -180,11 +205,31 @@ function ApiKeyInput({
       {replacing && (
         <button
           type="button"
-          onClick={() => { onChange(''); setReplace(false); }}
+          onMouseDown={(event) => { event.preventDefault(); cancelRequested.current = true; }}
+          onClick={() => {
+            cancelRequested.current = true;
+            onCancel?.();
+            setReplace(false);
+            window.setTimeout(() => { cancelRequested.current = false; }, 0);
+          }}
           className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-ink/30 hover:text-ink"
         >
           Cancel
         </button>
+      )}
+      {onTest && (
+        <button
+          type="button"
+          disabled={testing || !value.trim()}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onTest}
+          className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-ink/30 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {testing ? 'Testing…' : 'Test'}
+        </button>
+      )}
+      {lastValidation && !lastValidation.valid && (
+        <p className="absolute mt-12 text-xs text-red-500/80">{lastValidation.message}</p>
       )}
     </div>
   )
@@ -203,9 +248,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [sttKey, setSttKey] = useState('')
   const [llmKey, setLlmKey] = useState('')
+  const [testingProvider, setTestingProvider] = useState<string | null>(null)
   const [newProfileName, setNewProfileName] = useState('')
   const [newProfileBundleId, setNewProfileBundleId] = useState('')
-  const [newProfileLanguage, setNewProfileLanguage] = useState('auto')
+  const [newProfileLanguage, setNewProfileLanguage] = useState('')
   const [audioDevices, setAudioDevices] = useState<AudioInputDevice[]>([])
 
   useEffect(() => {
@@ -218,9 +264,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   useEffect(() => {
     const pk = settings.providerApiKeys ?? []
-    setSttKey(pk.find((p) => p.providerId === settings.transcriptionProvider)?.key ?? (settings.transcriptionProvider === 'groq' ? settings.groqApiKey : ''))
+    setSttKey(pk.find((p) => p.providerId === settings.transcriptionProvider)?.key ?? '')
     setLlmKey(pk.find((p) => p.providerId === settings.formattingProvider)?.key ?? '')
-  }, [settings.transcriptionProvider, settings.formattingProvider, settings.providerApiKeys, settings.groqApiKey])
+  }, [settings.transcriptionProvider, settings.formattingProvider, settings.providerApiKeys])
 
   if (!isOpen) return null
 
@@ -234,19 +280,35 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       id: crypto.randomUUID(),
       name: newProfileName.trim() || bundleId,
       appBundleIds: [bundleId],
-      language: newProfileLanguage,
+      ...(newProfileLanguage ? { language: newProfileLanguage } : {}),
     };
     void updateSettings({ appProfiles: [...existingProfiles, profile] });
     setNewProfileName('');
     setNewProfileBundleId('');
-    setNewProfileLanguage('auto');
+    setNewProfileLanguage('');
   };
 
-  const saveProviderKey = (providerId: string, key: string) => {
-    const current = settings.providerApiKeys ?? []
-    const existing = current.findIndex((p) => p.providerId === providerId)
-    const next = existing >= 0 ? current.map((p, i) => (i === existing ? { providerId, key } : p)) : [...current, { providerId, key }]
-    void updateSettings({ providerApiKeys: next })
+  const clearProviderKey = async (providerId: string) => {
+    await window.vaani.clearProviderApiKey(providerId)
+    await updateSettings({})
+  }
+
+  const saveProviderKey = async (providerId: string, key: string) => {
+    if (decideProviderKeyDraft(key, "blur") !== "save") return
+    await window.vaani.setProviderApiKey(providerId, key)
+    await updateSettings({})
+  }
+
+  const testProviderKey = async (providerId: string, key: string) => {
+    if (!key.trim()) return
+    setTestingProvider(providerId)
+    try {
+      await saveProviderKey(providerId, key)
+      await window.vaani.testApiKey(providerId, key)
+      await updateSettings({})
+    } finally {
+      setTestingProvider(null)
+    }
   }
 
   const handleExportData = () => {
@@ -260,6 +322,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'stt' || p.type === 'local-stt')
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'llm')
+  const appLanguageOptions = [
+    { value: '', label: `Use global (${getLanguageLabel(settings.language) ?? settings.language})` },
+    ...languages.filter((language) => language.value !== 'auto'),
+  ]
   const activeStt = sttProviders.find((p) => p.id === settings.transcriptionProvider)
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider)
   const activeLlmModels = activeLlm?.models ?? []
@@ -282,16 +348,31 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <p className="mt-1.5 text-xs text-faint">{providerSummary(activeStt)}</p>
           </div>
 
+          {activeStt && activeStt.models.length > 0 && (
+            <div>
+              <FieldLabel>Transcription Model</FieldLabel>
+              <Select
+                value={settings.transcriptionModel}
+                onChange={(v) => updateSettings({ transcriptionModel: v })}
+                options={[{ value: '', label: 'Provider default' }, ...activeStt.models.map((m) => ({ value: m.id, label: m.name }))]}
+              />
+            </div>
+          )}
+
           {activeStt?.requiresApiKey && (
             <div>
               <FieldLabel>{activeStt.name} API Key</FieldLabel>
               <ApiKeyInput
                 value={sttKey}
-                onChange={(v) => { setSttKey(v); saveProviderKey(settings.transcriptionProvider, v) }}
-                onBlur={() => { if (settings.transcriptionProvider === 'groq') void updateSettings({ groqApiKey: sttKey }) }}
+                onChange={setSttKey}
+                onBlur={() => { if (decideProviderKeyDraft(sttKey, "blur") === "save") void saveProviderKey(settings.transcriptionProvider, sttKey) }}
+                onCancel={() => setSttKey('')}
                 placeholder={activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
                 hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.hasKey}
-                onClear={() => saveProviderKey(settings.transcriptionProvider, '')}
+                lastValidation={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.lastValidation}
+                onClear={() => { void clearProviderKey(settings.transcriptionProvider) }}
+                onTest={() => { void testProviderKey(settings.transcriptionProvider, sttKey) }}
+                testing={testingProvider === settings.transcriptionProvider}
               />
             </div>
           )}
@@ -309,10 +390,15 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <FieldLabel>{activeLlm.name} API Key</FieldLabel>
               <ApiKeyInput
                 value={llmKey}
-                onChange={(v) => { setLlmKey(v); saveProviderKey(settings.formattingProvider, v) }}
+                onChange={setLlmKey}
+                onBlur={() => { if (decideProviderKeyDraft(llmKey, "blur") === "save") void saveProviderKey(settings.formattingProvider, llmKey) }}
+                onCancel={() => setLlmKey('')}
                 placeholder={activeLlm.id === 'openai-llm' ? 'sk-...' : activeLlm.id === 'anthropic' ? 'sk-ant-...' : activeLlm.id === 'openrouter' ? 'sk-or-...' : 'gsk_...'}
                 hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.formattingProvider)?.hasKey}
-                onClear={() => saveProviderKey(settings.formattingProvider, '')}
+                lastValidation={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.formattingProvider)?.lastValidation}
+                onClear={() => { void clearProviderKey(settings.formattingProvider) }}
+                onTest={() => { void testProviderKey(settings.formattingProvider, llmKey) }}
+                testing={testingProvider === settings.formattingProvider}
               />
             </div>
           )}
@@ -367,41 +453,44 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <FieldLabel>Per-App Language</FieldLabel>
             <p className="mb-2 text-xs text-faint">Override the default language for a specific app using its bundle ID.</p>
             <div className="space-y-2">
-              {(settings.appProfiles ?? []).map((profile) => (
+              {(settings.appProfiles ?? []).map((profile) => {
+                const effectiveLanguage = resolveProfileLanguage(profile.language, settings.language);
+                const profileLanguage = profile.language && profile.language !== 'auto' ? profile.language : '';
+                return (
                 <div key={profile.id} className="flex items-center gap-2 rounded-xl border border-line p-3">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm text-ink">{profile.name}</div>
                     <div className="truncate text-xs text-faint">{profile.appBundleIds.join(', ')}</div>
                   </div>
                   <Select
-                    value={profile.language ?? 'auto'}
+                    value={profileLanguage}
                     onChange={(v) => {
                       const next = (settings.appProfiles ?? []).map((p) => {
                         if (p.id !== profile.id) return p;
                         const provider = p.transcriptionProvider;
                         return {
                           ...p,
-                          language: v,
-                          transcriptionProvider: provider && isLanguageSupportedByProvider(v, provider, settings.localWhisperModel)
+                          language: v || undefined,
+                          transcriptionProvider: provider && isLanguageSupportedByProvider(v || settings.language, provider, settings.localWhisperModel)
                             ? provider
                             : undefined,
                         };
                       });
                       void updateSettings({ appProfiles: next });
                     }}
-                    options={languages}
+                    options={appLanguageOptions}
                   />
                   <Select
-                    value={profile.transcriptionProvider && isLanguageSupportedByProvider(profile.language ?? 'auto', profile.transcriptionProvider, settings.localWhisperModel) ? profile.transcriptionProvider : ''}
+                    value={profile.transcriptionProvider && isLanguageSupportedByProvider(effectiveLanguage, profile.transcriptionProvider, settings.localWhisperModel) ? profile.transcriptionProvider : ''}
                     onChange={(v) => {
-                      if (v && !isLanguageSupportedByProvider(profile.language ?? 'auto', v, settings.localWhisperModel)) return;
+                      if (v && !isLanguageSupportedByProvider(effectiveLanguage, v, settings.localWhisperModel)) return;
                       const next = (settings.appProfiles ?? []).map((p) => p.id === profile.id ? { ...p, transcriptionProvider: v || undefined } : p);
                       void updateSettings({ appProfiles: next });
                     }}
                     options={[
                       { value: '', label: 'Default STT' },
                       ...sttProviders
-                        .filter((p) => isLanguageSupportedByProvider(profile.language ?? 'auto', p.id, settings.localWhisperModel))
+                        .filter((p) => isLanguageSupportedByProvider(effectiveLanguage, p.id, settings.localWhisperModel))
                         .map((p) => ({ value: p.id, label: p.name })),
                     ]}
                   />
@@ -416,12 +505,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <X size={13} />
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <div className="mt-2 flex gap-2">
               <Input placeholder="App name" value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)} />
               <Input placeholder="Bundle ID (e.g. com.tinyspeck.slackmacgap)" value={newProfileBundleId} onChange={(e) => setNewProfileBundleId(e.target.value)} />
-              <Select value={newProfileLanguage} onChange={setNewProfileLanguage} options={languages} />
+              <Select value={newProfileLanguage} onChange={setNewProfileLanguage} options={appLanguageOptions} />
               <Button variant="outline" onClick={addAppProfile}>Add</Button>
             </div>
           </div>
@@ -623,6 +713,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
       )}
+
     </div>
   )
 

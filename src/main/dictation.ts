@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, systemPreferences } from "electron";
 import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -36,6 +36,7 @@ import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { cleanupText } from "./text/cleanup";
+import { resolveProfileLanguage } from "@main/providers/language";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
@@ -64,6 +65,7 @@ interface DictationServiceDeps {
   transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
   injector?: Pick<TextInjector, "inject">;
   appDetector?: Pick<AppDetector, "getContext">;
+  getMicrophonePermission?: () => string;
   recorder?: RecorderCommands;
   credentials?: CredentialsStore;
   createSessionId?: () => string;
@@ -75,6 +77,7 @@ export class DictationService {
   private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
   private readonly injector: Pick<TextInjector, "inject">;
   private readonly appDetector: Pick<AppDetector, "getContext">;
+  private readonly getMicrophonePermission: () => string;
   private readonly createSessionId: () => string;
   private readonly traces: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> | null;
   private readonly timers = new SessionTimers();
@@ -100,6 +103,7 @@ export class DictationService {
     this.transcription = deps.transcription ?? new TranscriptionService(() => this.settings.get(), deps.credentials);
     this.injector = deps.injector ?? new TextInjector(() => this.settings.get());
     this.appDetector = deps.appDetector ?? new AppDetector();
+    this.getMicrophonePermission = deps.getMicrophonePermission ?? (() => systemPreferences.getMediaAccessStatus("microphone"));
     this.recorder = deps.recorder ?? null;
     this.createSessionId = deps.createSessionId ?? (() => crypto.randomUUID());
     this.traces = deps.traces ?? null;
@@ -255,6 +259,11 @@ export class DictationService {
     }
     void this.patchTrace(payload.sessionId, tracePatch);
 
+    if (this.getMicrophonePermission() !== "granted") {
+      this.failSession(payload.sessionId, "Microphone access is not granted. Enable it in System Settings > Privacy & Security > Microphone, then restart Vaani.", "microphone_permission_denied");
+      return;
+    }
+
     if (!isValidClip(validationClip, settings.minClipDuration)) {
       debug("dictation", "submitAudioClip: clip rejected (too short or empty)");
       this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.", "no_speech");
@@ -272,11 +281,12 @@ export class DictationService {
 
     try {
       const appProfile = resolveAppProfile(settings.appProfiles ?? [], this.activeTarget?.appBundleId ?? null);
+      const language = resolveProfileLanguage(appProfile?.language, settings.language);
       let transcriptionTimer: ReturnType<typeof setTimeout> | null = null;
       const sttStartedAt = Date.now();
       const transcription = await Promise.race([
         this.transcription.transcribe(payload.clip, {
-          ...(appProfile?.language ? { languageOverride: appProfile.language } : {}),
+          languageOverride: language,
           ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
           retryClip: validationClip,
           rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, payload.clip, result.quality).action === "retry",
@@ -320,7 +330,7 @@ export class DictationService {
       if (qualityDecision.action === "save") {
         debug("dictation", `submitAudioClip: transcript saved instead of inserted (${qualityDecision.reason}): "${transcription.rawText}"`);
         const cleanupTrace = { correctionsApplied: [] };
-        const cleanedText = cleanupText({ rawText: transcription.rawText, settings, trace: cleanupTrace });
+        const cleanedText = cleanupText({ rawText: transcription.rawText, settings, trace: cleanupTrace, appProfileId: appProfile?.id });
         void this.patchTrace(payload.sessionId, {
           stages: {
             cleanedText,
@@ -346,7 +356,7 @@ export class DictationService {
           rawAudioPath,
         });
         void this.finishTrace(payload.sessionId, "saved", "fragment", "Saved to history", { injectionMethod: null });
-        this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage);
+        this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage || transcription.language);
         return;
       }
 
@@ -369,7 +379,7 @@ export class DictationService {
 
       const textForCleanup = formattedText !== transcription.rawText ? formattedText : transcription.rawText;
       const cleanupTrace = { correctionsApplied: [] };
-      const cleanedText = cleanupText({ rawText: textForCleanup, settings, trace: cleanupTrace });
+      const cleanedText = cleanupText({ rawText: textForCleanup, settings, trace: cleanupTrace, appProfileId: appProfile?.id });
       void this.patchTrace(payload.sessionId, {
         stages: {
           cleanedText,
@@ -451,7 +461,7 @@ export class DictationService {
             injectionMethod: injection.method,
             stages: { injectedText: cleanedText, injectionStrategy: injection.method, insertionVerification: verification },
           });
-          this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor", transcription.detectedLanguage);
+          this.completeSession(payload.sessionId, "injected", cleanedText, "Inserted at cursor", transcription.detectedLanguage || transcription.language);
           debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         } else {
@@ -460,7 +470,7 @@ export class DictationService {
             injectionMethod: null,
             stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: verification },
           });
-          this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage);
+          this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage || transcription.language);
           debug("editwatch", "arming-unverified-injection", { reason: verification.reason, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         }
@@ -471,7 +481,7 @@ export class DictationService {
           injectionMethod: null,
           stages: { injectedText: cleanedText, injectionStrategy: "none" },
         });
-        this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage);
+        this.completeSession(payload.sessionId, "saved", cleanedText, "Saved to history", transcription.detectedLanguage || transcription.language);
       }
     } catch (error) {
       if (!this.isCurrentSession(payload.sessionId)) return;

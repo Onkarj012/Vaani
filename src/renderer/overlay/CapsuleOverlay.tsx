@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Loader2, BookOpen, Layers, X, ChevronRight } from 'lucide-react'
+import { getLanguageLabel } from '@shared/defaults'
 
 const BAR_COUNT = 9
 const BAR_WIDTH = 2.5
@@ -11,6 +12,7 @@ const WAVEFORM_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
   interface Window {
     capsuleBridge: {
       onMode: (cb: (mode: string) => void) => void
+      onLanguage: (cb: (language: string) => void) => void
       onBars: (cb: (bars: number[]) => void) => void
       onAccent: (cb: (color: string) => void) => void
       onShowSnippet: (cb: (data: { trigger: string }) => void) => void
@@ -80,6 +82,7 @@ export default function CapsuleOverlay() {
   const [accentColor, setAccentColor] = useState('#7575c8')
   const [promptData, setPromptData] = useState<PromptData>({})
   const [autoTimer, setAutoTimer] = useState(8)
+  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null)
   const modeRef = useRef<VisualMode>('hidden')
 
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -91,6 +94,7 @@ export default function CapsuleOverlay() {
     bridge.onMode((m) => {
       switch (m) {
         case 'pressed':
+          setDetectedLanguage(null)
           setMode('pressed')
           break
         case 'recording':
@@ -103,6 +107,7 @@ export default function CapsuleOverlay() {
         case 'idle':
           setMode('hidden')
           setBars(Array(BAR_COUNT).fill(0.08))
+          setDetectedLanguage(null)
           break
       }
     })
@@ -113,6 +118,7 @@ export default function CapsuleOverlay() {
       }
     })
     bridge.onAccent((color) => setAccentColor(color))
+    bridge.onLanguage((language) => setDetectedLanguage(language))
 
     bridge.onShowSnippet((data) => {
       setPromptData({ trigger: data.trigger })
@@ -223,7 +229,7 @@ export default function CapsuleOverlay() {
                 key="proc"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
-                className="flex items-center justify-center px-3 py-2"
+                className="flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2"
               >
                 <motion.div
                   animate={{ rotate: 360 }}
@@ -249,6 +255,11 @@ export default function CapsuleOverlay() {
                 >
                   <Check size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
                 </motion.div>
+                {detectedLanguage && (
+                  <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-white/75">
+                    {getLanguageLabel(detectedLanguage)}
+                  </span>
+                )}
               </motion.div>
             )}
 

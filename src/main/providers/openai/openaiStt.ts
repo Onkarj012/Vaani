@@ -116,7 +116,7 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
       throw new Error(`OpenAI Compatible API is temporarily unavailable. Please try again.`);
     }
 
-    const data = await response.json() as { text: string };
+    const data = await response.json() as { text: string; language?: string };
     const rawText = (data.text ?? "").trim();
     if (!rawText) throw new Error("No speech detected.");
     const resolvedLanguage = resolveReportedLanguage(options.language);
@@ -124,7 +124,7 @@ export const OpenAISttCompatibleProvider: TranscriptionProvider = {
       rawText,
       formattedText: rawText,
       language: resolvedLanguage,
-      detectedLanguage: null,
+      detectedLanguage: data.language ?? null,
       quality: {
         provider: "openai-compatible",
         attemptCount: 1,

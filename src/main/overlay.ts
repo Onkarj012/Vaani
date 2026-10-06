@@ -31,6 +31,7 @@ export class OverlayController {
   private showWatchdog: ReturnType<typeof setTimeout> | null = null;
   private pendingMode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error" | null = null;
   private pendingBars: number[] | null = null;
+  private pendingDetectedLanguage: string | null = null;
   private promptActive = false;
   private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingPromptRemover: (() => void) | null = null;
@@ -39,6 +40,10 @@ export class OverlayController {
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private accentColor = "#FF006E";
   // ── Public setters ────────────────────────────────────────────────────────
+
+  getWindow(): BrowserWindow | null {
+    return this.window && !this.window.isDestroyed() ? this.window : null;
+  }
 
   setColorMode(_colorMode: "light" | "dark"): void {
     // Overlay is always dark — no-op kept for call-site compatibility
@@ -128,6 +133,7 @@ export class OverlayController {
     }
     this.pendingMode = null;
     this.pendingBars = null;
+    this.pendingDetectedLanguage = null;
   }
 
   setRecording(): void {
@@ -141,6 +147,7 @@ export class OverlayController {
   setPressed(): void {
     this.finishActivePrompt();
     this.pendingMode = "pressed";
+    this.pendingDetectedLanguage = null;
     this.pendingBars = null;
     this.show();
     this.tryUpdateMode("pressed");
@@ -166,9 +173,11 @@ export class OverlayController {
     this.show();
   }
 
-  setSuccess(_detectedLanguage?: string | null): void {
+  setSuccess(detectedLanguage?: string | null): void {
     this.pendingMode = "done";
+    this.pendingDetectedLanguage = detectedLanguage ?? null;
     this.show();
+    this.flushPendingDetectedLanguage();
   }
 
   setError(): void {
@@ -452,6 +461,12 @@ export class OverlayController {
     this.window.webContents.send("capsule:set-mode", mode);
   }
 
+  private flushPendingDetectedLanguage(): void {
+    if (!this.pendingDetectedLanguage || !this.loadReady || !this.window || this.window.isDestroyed()) return;
+    this.window.webContents.send("capsule:set-lang", this.pendingDetectedLanguage);
+    this.pendingDetectedLanguage = null;
+  }
+
   private ensureWindow(): Promise<void> {
     if (this.window && !this.window.isDestroyed()) {
       return Promise.resolve();
@@ -524,6 +539,7 @@ export class OverlayController {
     if (this.pendingBars) {
       this.updateBars(this.pendingBars);
     }
+    this.flushPendingDetectedLanguage();
 
     this.armShowWatchdog(this.window);
     await this.restoreFocusIfNeeded(originalFrontmost);
@@ -559,6 +575,11 @@ export class OverlayController {
       },
     });
     this.window = win;
+
+    win.webContents.on("will-navigate", (event) => {
+      event.preventDefault();
+    });
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     win.setAlwaysOnTop(true, "screen-saver");
@@ -614,6 +635,7 @@ export class OverlayController {
         setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 150);
       }
       if (this.pendingBars) this.updateBars(this.pendingBars);
+      this.flushPendingDetectedLanguage();
     });
 
     // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
@@ -626,6 +648,7 @@ export class OverlayController {
           this.loadReady = true;
           if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
           if (this.pendingBars) this.updateBars(this.pendingBars);
+          this.flushPendingDetectedLanguage();
         }
       }, 200);
     });

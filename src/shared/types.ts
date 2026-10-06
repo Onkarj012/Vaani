@@ -94,7 +94,7 @@ export interface TranscriptionQualityMetadata {
 // ─── History ─────────────────────────────────────────────────────────────────
 
 export type DictationTraceOutcome = "started" | "injected" | "saved" | "rejected" | "failed" | "cancelled";
-export type DictationRejectionReason = "no_speech" | "fragment" | "recorder_unavailable" | "recorder_failure" | "timeout" | "transcription_error" | "insertion_failed" | "cancelled";
+export type DictationRejectionReason = "no_speech" | "microphone_permission_denied" | "fragment" | "recorder_unavailable" | "recorder_failure" | "timeout" | "transcription_error" | "insertion_failed" | "cancelled";
 
 export interface ProviderAttemptTrace {
   provider: string;
@@ -210,11 +210,19 @@ export interface CustomCorrection {
   spoken: string;
   written: string;
   source?: "auto-suggested" | "manual";
+  enabled?: boolean;
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
+  fuzzy?: boolean;
+  hitCount?: number;
+  lastUsedAt?: string;
 }
 
 export interface Snippet {
   trigger: string;
   content: string;
+  matchBareTrigger?: boolean;
+  appProfileIds?: string[];
 }
 
 export interface AppProfile {
@@ -234,6 +242,13 @@ export interface ProviderApiKey {
   providerId: string;
   key: string;
   hasKey?: boolean;
+  lastValidation?: ProviderKeyValidation | null;
+}
+
+export interface ProviderKeyValidation {
+  valid: boolean;
+  message: string;
+  testedAt: string;
 }
 
 export interface Settings {
@@ -269,6 +284,7 @@ export interface Settings {
   recordingsPath: string;
   // Phase 1: Provider settings
   transcriptionProvider: string;
+  transcriptionModel: string;
   formattingProvider: string;
   formattingModel: string;
   providerApiKeys: ProviderApiKey[];
@@ -394,6 +410,8 @@ export interface VaaniAPI {
   reportRendererReady: () => void;
   reportRendererError: (payload: { message: string; stack?: string }) => void;
   testApiKey: (providerId: string, apiKey: string) => Promise<{ valid: boolean; message: string }>;
+  setProviderApiKey: (providerId: string, apiKey: string) => Promise<Settings>;
+  clearProviderApiKey: (providerId: string) => Promise<Settings>;
   getProviderStatus: () => Promise<{ id: string; name: string; available: boolean; configured: boolean; type: string }[]>;
   whisperListModels: () => Promise<string[]>;
   whisperLoadModel: (modelName: string) => Promise<boolean>;
