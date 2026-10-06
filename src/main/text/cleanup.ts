@@ -360,16 +360,19 @@ function applySnippets(text: string, snippets: Array<{ trigger: string; content:
   // combined regex and replace in ONE pass over the original text. A single pass
   // means content inserted by any match is never re-scanned, eliminating
   // cross-form cascade (e.g. a typed snippet whose body contains `snippet name`
-  // expanding again on a separate spoken pass).
-  const alternation = ordered.map(({ trigger }) => escapeRegExp(trigger)).join("|");
+  // expanding again on a separate spoken pass). The spoken form tolerates spaces
+  // where the trigger has hyphens — speech never produces "-", so
+  // "snippet john doe" must match the trigger "john-doe".
+  const typedAlternation = ordered.map(({ trigger }) => escapeRegExp(trigger)).join("|");
+  const spokenAlternation = ordered.map(({ trigger }) => spokenTriggerPattern(trigger)).join("|");
   const combined = new RegExp(
-    `(^|\\s)/(${alternation})(?=\\s|$|[,.!?;:])` +
-      `|(^|[\\s,.!?;:])snippet\\s+(${alternation})(?=\\s|$|[,.!?;:])`,
+    `(^|\\s)/(${typedAlternation})(?=\\s|$|[,.!?;:])` +
+      `|(^|[\\s,.!?;:])snippet\\s+(${spokenAlternation})(?=\\s|$|[,.!?;:])`,
     "gi",
   );
 
-  const byTrigger = new Map(ordered.map(({ trigger, content }) => [trigger.toLowerCase(), content]));
-  const lookup = (raw: string): string => byTrigger.get(raw.toLowerCase()) ?? raw;
+  const byTrigger = new Map(ordered.map(({ trigger, content }) => [normalizeTriggerKey(trigger), content]));
+  const lookup = (raw: string): string => byTrigger.get(normalizeTriggerKey(raw)) ?? raw;
 
   return text.replace(
     combined,
@@ -378,6 +381,16 @@ function applySnippets(text: string, snippets: Array<{ trigger: string; content:
         ? `${typedPrefix}${lookup(typedName)}`
         : `${spokenPrefix}${lookup(spokenName)}`,
   );
+}
+
+function normalizeTriggerKey(value: string): string {
+  return value.toLowerCase().replace(/[\s-]+/g, "-");
+}
+
+function spokenTriggerPattern(trigger: string): string {
+  const parts = trigger.split(/[\s-]+/).filter(Boolean);
+  if (parts.length === 0) return escapeRegExp(trigger);
+  return parts.map(escapeRegExp).join("[\\s-]+");
 }
 
 export function cleanupText({ rawText, settings, trace }: TextCleanupInput): string {

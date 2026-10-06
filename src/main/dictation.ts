@@ -1143,7 +1143,7 @@ function extractInsertedFragment(initialValue: string | null, currentValue: stri
 function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {
   if (!initialValue) return null;
   const insertedAt = initialValue.indexOf(insertedText);
-  if (insertedAt < 0) return currentValue.trim() || null;
+  if (insertedAt < 0) return withoutPureContinuation(currentValue.trim(), insertedText);
 
   const prefix = initialValue.slice(0, insertedAt);
   const suffix = initialValue.slice(insertedAt + insertedText.length);
@@ -1153,7 +1153,18 @@ function extractCorrectedInsertedText(initialValue: string | null, currentValue:
 
   const end = suffix.length === 0 ? currentValue.length : currentValue.length - suffix.length;
   const corrected = currentValue.slice(prefix.length, end).trim();
-  return corrected || null;
+  return withoutPureContinuation(corrected, insertedText);
+}
+
+// Text typed before/after the inserted dictation is continued writing, not a
+// correction of it. Diffing it as an edit merges the new keystrokes into the
+// last dictated token and mints junk suggestions like "GitHub" → "GitHub.a".
+function withoutPureContinuation(corrected: string, insertedText: string): string | null {
+  if (!corrected) return null;
+  const inserted = insertedText.trim();
+  if (!inserted || corrected === inserted) return corrected;
+  if (corrected.startsWith(inserted) || corrected.endsWith(inserted)) return null;
+  return corrected;
 }
 
 function shouldSuggestSnippet(originalText: string, correctedText: string): boolean {

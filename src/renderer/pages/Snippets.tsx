@@ -39,7 +39,7 @@ export default function Snippets() {
         <div>
           <p className="label-meta mb-2 text-[11px] text-accent">✦ Shortcuts</p>
           <h1 className="text-display text-5xl text-ink">Snippets</h1>
-          <p className="mt-3 text-muted">Slash commands that expand into full text.</p>
+          <p className="mt-3 text-muted">Voice and slash commands that expand into full text.</p>
         </div>
         <Button onClick={() => setIsAdding(true)}><Plus size={16} />New Snippet</Button>
       </motion.div>
@@ -51,8 +51,10 @@ export default function Snippets() {
               <div>
                 <h3 className="text-display text-lg text-ink">Snippets tutorial</h3>
                 <p className="mt-1 text-sm leading-relaxed text-muted">
-                  Snippets are slash commands that expand into longer text. Type{' '}
-                  <code className="rounded-md bg-bg px-1.5 py-0.5 font-mono text-xs">/email</code> and Vaani replaces it with your full signature.
+                  Snippets expand a short trigger into longer text. While dictating, say{' '}
+                  <code className="rounded-md bg-bg px-1.5 py-0.5 font-mono text-xs">snippet email</code> — or type{' '}
+                  <code className="rounded-md bg-bg px-1.5 py-0.5 font-mono text-xs">/email</code> — and Vaani replaces it with your full signature.
+                  Hyphenated triggers like <code className="rounded-md bg-bg px-1.5 py-0.5 font-mono text-xs">john-doe</code> can be spoken naturally: &quot;snippet john doe&quot;.
                 </p>
               </div>
               <button onClick={() => updateSettings({ snippetsOnboarded: true })} className="shrink-0 text-xs font-semibold text-muted hover:text-ink">Dismiss</button>
