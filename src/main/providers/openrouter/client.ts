@@ -35,7 +35,17 @@ export function openRouterPostJson<T>(request: OpenRouterPostRequest): Promise<T
   });
 }
 
-// Checks a key against OpenRouter's models endpoint. Both OpenRouter adapters use it.
+export const PROVISIONING_KEY_MESSAGE = "This is an OpenRouter provisioning key. It can only manage keys. Create a regular API key at openrouter.ai/keys.";
+
+interface KeyInfoReply {
+  data?: { is_provisioning_key?: boolean };
+}
+
+// Checks a key against OpenRouter's key endpoint. The public models endpoint accepts any key, so it can't tell.
+// Both OpenRouter adapters use it.
 export function validateOpenRouterKey(apiKey: string): Promise<ApiKeyValidationResult> {
-  return validateBearerEndpoint("OpenRouter", `${OPENROUTER_BASE_URL}/models`, apiKey, "Bearer", OPENROUTER_ATTRIBUTION_HEADERS);
+  return validateBearerEndpoint("OpenRouter", `${OPENROUTER_BASE_URL}/key`, apiKey, "Bearer", OPENROUTER_ATTRIBUTION_HEADERS, async (response) => {
+    const reply = await response.json().catch(() => null) as KeyInfoReply | null;
+    return reply?.data?.is_provisioning_key ? { valid: false, message: PROVISIONING_KEY_MESSAGE } : null;
+  });
 }

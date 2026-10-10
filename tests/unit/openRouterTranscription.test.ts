@@ -4,6 +4,7 @@ import type { AudioClip, Settings, TranscriptionResult } from "@shared/types";
 import type { TranscribeOptions } from "@main/transcription";
 import type { TranscriptionProvider } from "@main/providers/types";
 import { OpenRouterSttProvider } from "@main/providers/openrouter/openRouterStt";
+import { PROVISIONING_KEY_MESSAGE } from "@main/providers/openrouter/client";
 
 const registryState = vi.hoisted(() => ({
   providers: new Map<string, TranscriptionProvider>(),
@@ -165,8 +166,22 @@ describe("OpenRouter transcription through the service", () => {
 
     const result = await OpenRouterSttProvider.validateApiKey?.("or-key");
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/models");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/key");
     expect(result).toEqual({ valid: false, message: "OpenRouter rejected the API key." });
+  });
+
+  it("rejects a provisioning key, which the API accepts for reads but not for calls", async () => {
+    fetchMock.mockResolvedValueOnce(jsonReply({ data: { is_provisioning_key: true } }, 200));
+
+    const result = await OpenRouterSttProvider.validateApiKey?.("or-key");
+
+    expect(result).toEqual({ valid: false, message: PROVISIONING_KEY_MESSAGE });
+  });
+
+  it("accepts a regular key", async () => {
+    fetchMock.mockResolvedValueOnce(jsonReply({ data: { is_provisioning_key: false } }, 200));
+
+    expect(await OpenRouterSttProvider.validateApiKey?.("or-key")).toEqual({ valid: true, message: "OpenRouter API key is valid." });
   });
 
   it("falls back to Groq when OpenRouter times out, with time left for Groq", async () => {
