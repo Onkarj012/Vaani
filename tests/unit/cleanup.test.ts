@@ -27,6 +27,13 @@ function createSettings(overrides: Partial<Settings> = {}): Settings {
 }
 
 describe("cleanupText", () => {
+  it("leaves contraction apostrophes alone and curls only real single quotes", () => {
+    const settings = createSettings();
+    expect(cleanupText({ rawText: "I'll run it on Thursday and I'll send the notes.", settings })).toBe("I'll run it on Thursday and I'll send the notes.");
+    expect(cleanupText({ rawText: "She said 'ship it' and left.", settings })).toBe("She said \u2018ship it\u2019 and left.");
+    expect(cleanupText({ rawText: "The students' 'best' work.", settings })).toBe("The students' \u2018best\u2019 work.");
+  });
+
   it("preserves numbered list formatting across lines", () => {
     const result = cleanupText({
       rawText: "1. buy milk\n2. call mom\n3. ship update",

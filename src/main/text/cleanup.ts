@@ -41,7 +41,8 @@ function capitalizeSentences(text: string): string {
 function applySmartPunctuation(text: string): string {
   return text
     .replace(/"([^"]+)"/g, "\u201c$1\u201d")
-    .replace(/'([^']+)'/g, "\u2018$1\u2019")
+    // A quote opens and closes only at a word edge, so the apostrophes in "I'll … I'll" never pair up.
+    .replace(/(?<![\p{L}\p{N}])'(?=\S)([^']*?\S)'(?![\p{L}\p{N}])/gu, "\u2018$1\u2019")
     .replace(/\s?--\s?/g, " \u2013 ")
     .replace(/\.{3,}/g, "\u2026");
 }
