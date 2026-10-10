@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { firstWordMissed, lastWordMissed, missingTerms, normalizeWords, scoreClip, wordErrorRate } from "../../scripts/ab/scoring";
+import { firstWordMissed, lastWordMissed, missingTerms, normalizeWords, scoreClip, wordErrorRate } from "@scripts/ab/scoring";
 
 describe("normalizeWords", () => {
   it("lowercases and drops punctuation", () => {
-    expect(normalizeWords("Hello, World! It's fine.")).toEqual(["hello", "world", "it", "s", "fine"]);
+    expect(normalizeWords("Hello, World! It's fine.")).toEqual(["hello", "world", "its", "fine"]);
+  });
+
+  it("drops straight, curly, and omitted apostrophes", () => {
+    expect(normalizeWords("don't")).toEqual(["dont"]);
+    expect(normalizeWords("don’t")).toEqual(["dont"]);
+    expect(normalizeWords("dont")).toEqual(["dont"]);
   });
 
   it("keeps Devanagari vowel signs and digits inside words", () => {
@@ -47,6 +53,11 @@ describe("wordErrorRate", () => {
 
   it("matches Hinglish with different punctuation", () => {
     expect(wordErrorRate("Mujhe kal meeting hai.", "mujhe kal meeting hai")).toBe(0);
+  });
+
+  it("scores a contraction the same whether or not the apostrophe is present", () => {
+    expect(wordErrorRate("don't stop", "dont stop")).toBe(0);
+    expect(wordErrorRate("don’t stop", "don't stop")).toBe(0);
   });
 });
 

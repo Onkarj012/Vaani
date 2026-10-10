@@ -21,7 +21,8 @@
       "@shared/*": ["src/shared/*"],
       "@main/*": ["src/main/*"],
       "@renderer/*": ["src/renderer/*"],
-      "@preload/*": ["src/preload/*"]
+      "@preload/*": ["src/preload/*"],
+      "@scripts/*": ["scripts/*"]
     }
   },
   "include": [

@@ -218,7 +218,7 @@ export class NativeCaptureService implements RecorderCommands {
       const devices = listNativeInputDevices(this.bridge);
       const selected = selectNativeInputDevice(devices, this.currentConfig.micDeviceId);
       if (!selected.ok) return { ok: false, selectedDeviceUid: null, message: selected.message };
-      if (!this.currentConfig.preWarmMic && !this.activeSessionId) {
+      if ((!this.currentConfig.preWarmMic || !prefersNativeCapture(this.currentConfig)) && !this.activeSessionId) {
         this.suspended = false;
         return { ok: true, selectedDeviceUid: selected.uid };
       }

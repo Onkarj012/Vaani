@@ -10,9 +10,9 @@ export interface ClipScore {
   missedTerms: string[];
 }
 
-// Normalizes to NFC, lowercases, and keeps letters, combining marks, and digits. Marks stay because Devanagari vowel signs are marks.
+// Normalizes to NFC, lowercases, drops apostrophes so "don't" and "dont" match, and keeps letters, combining marks, and digits. Marks stay because Devanagari vowel signs are marks.
 export function normalizeWords(text: string): string[] {
-  return text.normalize("NFC").toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u).filter((word) => word.length > 0);
+  return text.normalize("NFC").toLowerCase().replace(/['’]/g, "").split(/[^\p{L}\p{M}\p{N}]+/u).filter((word) => word.length > 0);
 }
 
 // Word-level Levenshtein alignment. Returns the distance and which reference words the best alignment keeps exactly.

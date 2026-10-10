@@ -368,6 +368,30 @@ describe("NativeCaptureService", () => {
     expect(bridge.audioCaptureStart).toHaveBeenCalledTimes(startsAfterSuccessfulResume);
   });
 
+  it("does not reopen the mic on resume once config stops preferring native", () => {
+    let config: RecorderConfig = { preWarmMic: true, captureBackend: "native", captureProcessing: "default" };
+    const bridge = {
+      audioCaptureStart: vi.fn(() => true),
+      audioCaptureStop: vi.fn(),
+      audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+      audioCaptureIsRunning: vi.fn(() => false),
+    };
+    const sink: NativeCaptureSink = {
+      reportRecorderStarted: vi.fn(),
+      submitAudioClip: vi.fn(),
+      updateAudioLevel: vi.fn(),
+      handleRecorderFailure: vi.fn(),
+    };
+    const service = new NativeCaptureService(() => config, sink, bridge);
+    expect(service.warm()).toBe(true);
+    service.suspendForLifecycle();
+    config = { ...config, captureProcessing: "unprocessed" };
+    service.updateConfig(config);
+    const startsAfterUpdate = bridge.audioCaptureStart.mock.calls.length;
+    expect(service.resumeAfterLifecycle()).toMatchObject({ ok: true });
+    expect(bridge.audioCaptureStart).toHaveBeenCalledTimes(startsAfterUpdate);
+  });
+
   it("reports the session started on the first captured frame, not when capture opens", () => {
     let onData: ((samples: Float32Array) => void) | undefined;
     const sink: NativeCaptureSink = {
