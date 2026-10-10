@@ -47,7 +47,7 @@ export interface OpenRouterTranscriptionReply {
 
 // Sends one clip to OpenRouter's transcription endpoint. The app adapter and the A/B script both call this.
 export async function transcribeWithOpenRouter(request: OpenRouterTranscriptionRequest): Promise<OpenRouterTranscriptionReply> {
-  const hints = hintProviderOptions(request.model, request.vocabularyHints ?? []);
+  const hints = hintProviderOptions(request.model, request.vocabularyHints ?? [], request.language);
   const language = normalizeWhisperLanguage(request.language);
   const reply = await openRouterPostJson<TranscriptionReply>({
     path: "/audio/transcriptions",
@@ -111,10 +111,23 @@ export const OpenRouterSttProvider: TranscriptionProvider = {
   },
 };
 
-// Provider options that carry the hints, or null when the model takes none or there are no terms.
-function hintProviderOptions(model: string, terms: string[]): Record<string, Record<string, string | string[]>> | null {
+// A prompt-style model reads its prompt as text that came before the audio, so this describes the dictation instead of giving orders.
+const DICTATION_CONTEXT = "Voice dictation by an Indian speaker, mostly in English, sometimes in Hindi or Marathi, often mixing them.";
+const CONTEXT_LANGUAGES = new Set(["auto", "en", "hi", "mr", "hinglish"]);
+
+// The prompt for a prompt-style model: the dictation context for Indian languages, then the dictionary terms.
+function promptHint(terms: string[], language: string | undefined): string {
+  const parts = CONTEXT_LANGUAGES.has(language ?? "auto") ? [DICTATION_CONTEXT] : [];
+  if (terms.length > 0) parts.push(`Names and terms: ${terms.join(", ")}.`);
+  return parts.join(" ");
+}
+
+// Provider options that carry the hints, or null when the model takes none or there is nothing to send.
+function hintProviderOptions(model: string, terms: string[], language: string | undefined): Record<string, Record<string, string | string[]>> | null {
   const takesHints = modelEntries("transcription", "openrouter").some((entry) => entry.modelId === model && entry.acceptsVocabularyHints);
   const option = HINT_OPTIONS[model];
-  if (!takesHints || !option || terms.length === 0) return null;
-  return { [option.slug]: { [option.key]: option.asList ? terms : terms.join(", ") } };
+  if (!takesHints || !option) return null;
+  if (option.asList) return terms.length > 0 ? { [option.slug]: { [option.key]: terms } } : null;
+  const prompt = promptHint(terms, language);
+  return prompt ? { [option.slug]: { [option.key]: prompt } } : null;
 }

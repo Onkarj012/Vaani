@@ -6,6 +6,8 @@ import type { TranscriptionProvider } from "@main/providers/types";
 import { OpenRouterSttProvider } from "@main/providers/openrouter/openRouterStt";
 import { PROVISIONING_KEY_MESSAGE } from "@main/providers/openrouter/client";
 
+const DICTATION_CONTEXT = "Voice dictation by an Indian speaker, mostly in English, sometimes in Hindi or Marathi, often mixing them.";
+
 const registryState = vi.hoisted(() => ({
   providers: new Map<string, TranscriptionProvider>(),
 }));
@@ -82,7 +84,7 @@ describe("OpenRouter transcription through the service", () => {
   it("sends dictionary hints on a clip under 2 seconds and reports that they were sent", async () => {
     const result = await transcribeWith(settingsWith({ customCorrections: [{ spoken: "get hub", written: "GitHub" }] }));
 
-    expect(sentBody().provider).toEqual({ options: { openai: { prompt: "GitHub" } } });
+    expect(sentBody().provider).toEqual({ options: { openai: { prompt: `${DICTATION_CONTEXT} Names and terms: GitHub.` } } });
     expect(result.quality?.vocabularyHintsSent).toBe(true);
   });
 
@@ -94,7 +96,20 @@ describe("OpenRouter transcription through the service", () => {
       ],
     }));
 
-    expect(sentBody().provider).toEqual({ options: { openai: { prompt: "GitHub" } } });
+    expect(sentBody().provider).toEqual({ options: { openai: { prompt: `${DICTATION_CONTEXT} Names and terms: GitHub.` } } });
+  });
+
+  it("sends the dictation context alone when the dictionary is empty", async () => {
+    const result = await transcribeWith(settingsWith());
+
+    expect(sentBody().provider).toEqual({ options: { openai: { prompt: DICTATION_CONTEXT } } });
+    expect(result.quality?.vocabularyHintsSent).toBe(true);
+  });
+
+  it("leaves the Indian-language context out for other languages", async () => {
+    await transcribeWith(settingsWith({ language: "es", customCorrections: [{ spoken: "get hub", written: "GitHub" }] }));
+
+    expect(sentBody().provider).toEqual({ options: { openai: { prompt: "Names and terms: GitHub." } } });
   });
 
   it("sends list hints as a list for models that take one", async () => {
