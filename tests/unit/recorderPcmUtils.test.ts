@@ -57,12 +57,12 @@ describe("pcmToAudioClip", () => {
     expect(resampleToTargetRate(new Float32Array(), 48_000, 16_000)).toHaveLength(0);
   });
 
-  it("computes rms frames from pre-normalization samples", () => {
+  it("computes rms frames from the gain-adjusted samples that get sent", () => {
     const input = new Float32Array(320).fill(0.03);
     const clip = pcmToAudioClip(input, 16_000);
 
     expect(Math.max(...clip.pcmData)).toBeCloseTo(0.3);
-    expect(clip.rmsFrames[0]).toBeCloseTo(0.03);
+    expect(clip.rmsFrames[0]).toBeCloseTo(0.3);
   });
 
   it("reports the gain applied to a quiet clip and 1 for a loud one", () => {

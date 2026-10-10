@@ -146,8 +146,14 @@ export interface TranscriptionQualityMetadata {
   decision?: TranscriptQualityDecision;
 }
 
+/** "speech": clear speech contrast. "uncertain": quiet audio with no contrast, still transcribed. "silent": empty or digitally silent, rejected. */
+export type SpeechGateDecision = "speech" | "uncertain" | "silent";
+
 export interface SpeechGateTrace {
+  /** False only when the clip was rejected before transcription. */
   pass: boolean;
+  /** Absent on traces written before the decision existed. */
+  decision?: SpeechGateDecision;
   reason: string;
   noiseFloor: number;
   enterThreshold: number;

@@ -1,10 +1,15 @@
-// Pre-STT speech gate: rejects clips with no speech-like contrast so silence
-// never reaches Whisper (which hallucinates phrases on silent audio). Operates
-// on the clip's 20ms RMS frames and adapts to the clip's own noise floor, so a
-// quiet room and a boosted noise floor are both handled without fixed-level
-// assumptions. The gate only rejects — it never trims audio.
+import type { SpeechGateDecision, SpeechGateTrace } from "@shared/types";
+
+export type SpeechGateResult = SpeechGateTrace & { decision: SpeechGateDecision };
+
+// Pre-STT speech gate. It rejects only empty or digitally silent clips. Every
+// other clip goes to transcription, labeled "speech" when its contrast analysis
+// finds speech-like energy and "uncertain" when it doesn't. It reads the 20ms RMS
+// frames of the samples that get sent, so gain is already applied. It never trims audio.
 
 export const SPEECH_GATE_FRAME_MS = 20;
+// Frames quieter than this RMS hold nothing STT could hear.
+export const DIGITAL_SILENCE_RMS = 1e-4;
 
 const MIN_ENTER_THRESHOLD = 0.003;
 const MIN_EXIT_THRESHOLD = 0.0018;
@@ -19,26 +24,22 @@ const MIN_TOTAL_SPEECH_MS = 160;
 // passes outright.
 const SPEECH_DOMINANT_FLOOR = 0.008;
 
-export interface SpeechGateResult {
-  pass: boolean;
-  reason: "speech" | "speech-dominant" | "no-frames" | "no-speech-contrast";
-  noiseFloor: number;
-  enterThreshold: number;
-  longestRunMs: number;
-  totalSpeechMs: number;
-}
-
+// Labels a clip's frames as silent, speech, or uncertain from the clip's own noise floor.
 export function evaluateSpeechGate(rmsFrames: number[], frameMs = SPEECH_GATE_FRAME_MS): SpeechGateResult {
-  if (rmsFrames.length === 0) {
-    return { pass: false, reason: "no-frames", noiseFloor: 0, enterThreshold: MIN_ENTER_THRESHOLD, longestRunMs: 0, totalSpeechMs: 0 };
-  }
-
   const sorted = [...rmsFrames].sort((a, b) => a - b);
   const noiseFloor = sorted[Math.floor(sorted.length * 0.2)] ?? 0;
+  const loudest = sorted[sorted.length - 1] ?? 0;
+
+  if (rmsFrames.length === 0) {
+    return { pass: false, decision: "silent", reason: "no-frames", noiseFloor: 0, enterThreshold: MIN_ENTER_THRESHOLD, longestRunMs: 0, totalSpeechMs: 0 };
+  }
+  if (loudest < DIGITAL_SILENCE_RMS) {
+    return { pass: false, decision: "silent", reason: "digital-silence", noiseFloor, enterThreshold: MIN_ENTER_THRESHOLD, longestRunMs: 0, totalSpeechMs: 0 };
+  }
 
   if (noiseFloor >= SPEECH_DOMINANT_FLOOR) {
     const totalMs = rmsFrames.length * frameMs;
-    return { pass: true, reason: "speech-dominant", noiseFloor, enterThreshold: noiseFloor, longestRunMs: totalMs, totalSpeechMs: totalMs };
+    return { pass: true, decision: "speech", reason: "speech-dominant", noiseFloor, enterThreshold: noiseFloor, longestRunMs: totalMs, totalSpeechMs: totalMs };
   }
 
   const enter = Math.max(MIN_ENTER_THRESHOLD, noiseFloor * ENTER_FLOOR_MULTIPLIER, noiseFloor + ENTER_FLOOR_OFFSET);
@@ -83,7 +84,15 @@ export function evaluateSpeechGate(rmsFrames: number[], frameMs = SPEECH_GATE_FR
 
   const longestRunMs = longestRun * frameMs;
   const totalSpeechMs = totalFrames * frameMs;
-  const pass = longestRunMs >= MIN_LONGEST_RUN_MS && totalSpeechMs >= MIN_TOTAL_SPEECH_MS;
+  const hasContrast = longestRunMs >= MIN_LONGEST_RUN_MS && totalSpeechMs >= MIN_TOTAL_SPEECH_MS;
 
-  return { pass, reason: pass ? "speech" : "no-speech-contrast", noiseFloor, enterThreshold: enter, longestRunMs, totalSpeechMs };
+  return {
+    pass: true,
+    decision: hasContrast ? "speech" : "uncertain",
+    reason: hasContrast ? "speech" : "no-speech-contrast",
+    noiseFloor,
+    enterThreshold: enter,
+    longestRunMs,
+    totalSpeechMs,
+  };
 }

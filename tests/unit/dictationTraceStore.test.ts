@@ -197,14 +197,33 @@ describe("DictationTraceStore", () => {
       speechGate: { pass: true, reason: "speech", noiseFloor: 0.01, enterThreshold: 0.03, longestRunMs: 200, totalSpeechMs: 300 },
       quality: { provider: "groq", attemptCount: 1, supportsConfidence: true, transcriptLength: 9, segmentNoSpeechProbabilities: [0.1, "x", 0.4] },
       outcome: "verified",
+    }, {
+      id: "gate-decision",
+      sessionId: "session-gate-decision",
+      startedAt: "2026-06-29T00:00:00.000Z",
+      targetAppBundleId: null,
+      targetAppName: null,
+      speechGate: { pass: true, decision: "uncertain", reason: "no-speech-contrast", noiseFloor: 0.004, enterThreshold: 0.01, longestRunMs: 0, totalSpeechMs: 0 },
+      outcome: "verified",
+    }, {
+      id: "gate-bad-decision",
+      sessionId: "session-gate-bad-decision",
+      startedAt: "2026-06-29T00:00:00.000Z",
+      targetAppBundleId: null,
+      targetAppName: null,
+      speechGate: { pass: true, decision: "maybe", reason: "speech", noiseFloor: 0.01, enterThreshold: 0.03, longestRunMs: 200, totalSpeechMs: 300 },
+      outcome: "verified",
     }]), "utf8");
 
     const { DictationTraceStore } = await import("@main/store/dictationTrace");
-    const loaded = await new DictationTraceStore(filePath).getById("capture");
+    const store = new DictationTraceStore(filePath);
+    const loaded = await store.getById("capture");
 
     expect(loaded?.captureSettings).toEqual({ echoCancellation: true, noiseSuppression: false });
     expect(loaded?.captureLevels).toBeUndefined();
     expect(loaded?.speechGate).toEqual({ pass: true, reason: "speech", noiseFloor: 0.01, enterThreshold: 0.03, longestRunMs: 200, totalSpeechMs: 300 });
+    expect((await store.getById("gate-decision"))?.speechGate?.decision).toBe("uncertain");
+    expect((await store.getById("gate-bad-decision"))?.speechGate?.decision).toBeUndefined();
     expect(loaded?.quality?.segmentNoSpeechProbabilities).toEqual([0.1, 0.4]);
   });
 

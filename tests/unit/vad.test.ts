@@ -35,6 +35,22 @@ describe("trimSilence", () => {
     expect(trimmed.pcmData.length).toBeGreaterThan(0);
   });
 
+  it("keeps nonzero audio below the energy floor untrimmed", () => {
+    const clip = clipFromRmsFrames(Array(20).fill(0.0005));
+
+    const trimmed = trimSilence(clip, 0.005);
+
+    expect(trimmed.rmsFrames).toHaveLength(20);
+    expect(trimmed.pcmData.length).toBeGreaterThan(0);
+  });
+
+  it("empties digitally silent audio", () => {
+    const trimmed = trimSilence(clipFromRmsFrames(Array(20).fill(0)), 0.005);
+
+    expect(trimmed.pcmData).toHaveLength(0);
+    expect(trimmed.durationSeconds).toBe(0);
+  });
+
   it("keeps quiet opening and closing words around louder speech", () => {
     const leadingSilence = Array(60).fill(0.001);
     const quietOpeningWord = Array(8).fill(0.003);

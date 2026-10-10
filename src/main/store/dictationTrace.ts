@@ -1,7 +1,7 @@
 import { app } from "electron";
 import { join } from "node:path";
 import { APP_DATA_DIR } from "@shared/defaults";
-import type { CaptureLevels, CaptureTrackSettings, DictationTrace, SpeechGateTrace, TranscriptionQualityMetadata } from "@shared/types";
+import type { CaptureLevels, CaptureTrackSettings, DictationTrace, SpeechGateDecision, SpeechGateTrace, TranscriptionQualityMetadata } from "@shared/types";
 import { DICTATION_TRACE_SEGMENT_LIMIT, buildTraceStageSnapshot } from "@main/dictationTraceSnapshot";
 import { truncateTraceText } from "@main/dictationTraceSnapshot";
 import { readJsonFile, writeJsonFile } from "./base";
@@ -190,7 +190,7 @@ function normalizeCaptureLevels(value: unknown): CaptureLevels | undefined {
   return { preGainPeak, preGainRms, gain };
 }
 
-// Keeps the speech gate record only when its decision and all four measurements are valid.
+// Keeps the speech gate record only when its pass flag and all four measurements are valid.
 function normalizeSpeechGate(value: unknown): SpeechGateTrace | undefined {
   if (!isObject(value) || typeof value.pass !== "boolean" || typeof value.reason !== "string") return undefined;
   const noiseFloor = finiteNumber(value.noiseFloor);
@@ -198,7 +198,11 @@ function normalizeSpeechGate(value: unknown): SpeechGateTrace | undefined {
   const longestRunMs = finiteNumber(value.longestRunMs);
   const totalSpeechMs = finiteNumber(value.totalSpeechMs);
   if (noiseFloor === undefined || enterThreshold === undefined || longestRunMs === undefined || totalSpeechMs === undefined) return undefined;
-  return { pass: value.pass, reason: truncateTraceText(value.reason), noiseFloor, enterThreshold, longestRunMs, totalSpeechMs };
+  return { pass: value.pass, decision: normalizeSpeechDecision(value.decision), reason: truncateTraceText(value.reason), noiseFloor, enterThreshold, longestRunMs, totalSpeechMs };
+}
+
+function normalizeSpeechDecision(value: unknown): SpeechGateDecision | undefined {
+  return value === "speech" || value === "uncertain" || value === "silent" ? value : undefined;
 }
 
 function normalizeQualityDecision(value: unknown): DictationTrace["qualityDecision"] {

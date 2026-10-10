@@ -156,18 +156,15 @@ function scalePcm(input: Float32Array, gain: number): Float32Array {
 }
 
 export function pcmToAudioClip(input: Float32Array, inputRate: number): AudioClip {
-  const pcmData = resampleToTargetRate(input, inputRate, TARGET_SAMPLE_RATE);
-  // rmsFrames reflect the true acoustic levels (pre-normalization) so the
-  // speech gate and VAD judge what the mic actually heard; only the samples
-  // sent to STT are boosted.
-  const rmsFrames = calculateRmsFrames(pcmData, TARGET_SAMPLE_RATE);
-  const gain = quietPcmGain(pcmData);
-  const normalized = gain === 1 ? pcmData : scalePcm(pcmData, gain);
+  const resampled = resampleToTargetRate(input, inputRate, TARGET_SAMPLE_RATE);
+  const gain = quietPcmGain(resampled);
+  // Frame levels come from the boosted samples, so the gate and trim judge exactly what STT receives.
+  const pcmData = gain === 1 ? resampled : scalePcm(resampled, gain);
   return {
-    pcmData: Array.from(normalized),
+    pcmData: Array.from(pcmData),
     sampleRate: TARGET_SAMPLE_RATE,
-    durationSeconds: pcmData.length / TARGET_SAMPLE_RATE,
-    rmsFrames,
+    durationSeconds: resampled.length / TARGET_SAMPLE_RATE,
+    rmsFrames: calculateRmsFrames(pcmData, TARGET_SAMPLE_RATE),
     gain,
   };
 }

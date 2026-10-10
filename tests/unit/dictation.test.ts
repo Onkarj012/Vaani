@@ -7,6 +7,7 @@ import { captureSessionSettings } from "@shared/sessionSettings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
+import { pcmToAudioClip } from "@shared/pcmUtils";
 import type { AudioClip, AudioVisualFrame, DictationEntry, DictationTrace, InjectionResult, Settings, TranscriptionResult } from "@shared/types";
 import type { DictationTraceStore } from "@main/store/dictationTrace";
 import type { RecoveryJournalStore } from "@main/store/recoveryJournal";
@@ -207,6 +208,19 @@ function makeSettingsMutable(settings: MockedSettingsStore, initial: Settings = 
     return current;
   });
   return { current: () => current };
+}
+
+// Alternating samples at a fixed amplitude, run through the same conversion the recorder uses.
+function steadyClip(amplitude: number): AudioClip {
+  return pcmToAudioClip(new Float32Array(16_000).map((_, index) => (index % 2 === 0 ? amplitude : -amplitude)), 16_000);
+}
+
+async function submitClip(service: ReturnType<typeof createDictationService>["service"], clip: AudioClip): Promise<void> {
+  service.beginHotkeySession();
+  const sessionId = (service.getState() as { sessionId: string }).sessionId;
+  service.reportRecorderStarted(sessionId);
+  service.endHotkeySession();
+  await service.submitAudioClip({ sessionId, clip });
 }
 
 async function submitHelloWorld(service: ReturnType<typeof createDictationService>["service"]): Promise<void> {
@@ -686,7 +700,40 @@ describe("DictationService", () => {
     });
 
     expect(service.getState()).toMatchObject({ status: "error", message: noSpeechMessage });
-    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", userMessage: noSpeechMessage });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", userMessage: noSpeechMessage, speechGate: { decision: "silent" } });
+  });
+
+  it("sends a valid-length quiet clip to transcription and inserts the text", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
+
+    await submitClip(service, steadyClip(0.004));
+
+    expect(transcription.transcribe).toHaveBeenCalledOnce();
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", speechGate: { pass: true, decision: "speech", reason: "speech-dominant" } });
+  });
+
+  it("sends nonzero audio with no speech contrast to transcription as uncertain", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
+
+    await submitClip(service, steadyClip(0.0005));
+
+    expect(transcription.transcribe).toHaveBeenCalledOnce();
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", speechGate: { pass: true, decision: "uncertain", reason: "no-speech-contrast" } });
+  });
+
+  it("rejects an empty clip before transcription", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription } = createDictationService({ traces: traceDeps.traces });
+
+    await submitClip(service, { pcmData: [], sampleRate: 16_000, durationSeconds: 0, rmsFrames: [] });
+
+    expect(transcription.transcribe).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "error", message: "No speech detected. Try speaking louder or closer to the microphone." });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", speechGate: { decision: "silent" } });
   });
 
   it("keeps quiet but nonzero audio on the no-speech path when microphone access is not granted", async () => {
@@ -957,7 +1004,7 @@ describe("DictationService", () => {
     expect(trace?.captureLevels?.gain).toBe(4);
     expect(trace?.captureLevels?.preGainPeak).toBeCloseTo(0.025);
     expect(trace?.captureLevels?.preGainRms).toBeCloseTo(0.025);
-    expect(trace?.speechGate).toMatchObject({ pass: true, reason: "speech-dominant" });
+    expect(trace?.speechGate).toMatchObject({ pass: true, decision: "speech", reason: "speech-dominant" });
   });
 
   it("records each segment's no-speech value from the transcription provider", async () => {
