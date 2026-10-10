@@ -343,7 +343,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     URL.revokeObjectURL(url)
   }
 
-  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'stt' || p.type === 'local-stt')
+  const sttProviders = KNOWN_PROVIDERS.filter((p) => !p.hidden && (p.type === 'stt' || p.type === 'local-stt'))
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'llm')
   const appLanguageOptions = [
     { value: '', label: `Use global (${getLanguageLabel(settings.language) ?? settings.language})` },
@@ -428,25 +428,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <Row title="Provider Failover" desc="Try next provider on failure">
             <Toggle checked={settings.failoverEnabled} onChange={(v) => updateSettings({ failoverEnabled: v })} />
           </Row>
-          <div>
-            <FieldLabel>Offline Mode</FieldLabel>
-            <Select value={settings.offlineMode} onChange={(v) => updateSettings({ offlineMode: v as 'auto' | 'always-offline' | 'always-online' })}
-              options={[{ value: 'auto', label: 'Auto' }, { value: 'always-offline', label: 'Always Offline' }, { value: 'always-online', label: 'Always Online' }]} dropUp />
-          </div>
-
-          {settings.transcriptionProvider === 'local-whisper' && (
-            <div>
-              <FieldLabel>Local Whisper Model</FieldLabel>
-              <Select value={settings.localWhisperModel} onChange={(v) => updateSettings({ localWhisperModel: v })}
-                options={[
-                  { value: 'tiny.en', label: 'Tiny English (78 MB, fastest)' },
-                  { value: 'base.en', label: 'Base English (147 MB)' },
-                  { value: 'small.en', label: 'Small English (488 MB)' },
-                  { value: 'medium.en', label: 'Medium English (1.5 GB, most accurate)' },
-                ]} dropUp />
-              <p className="mt-1.5 text-xs text-faint">Models download on first use. Larger models are more accurate but slower.</p>
-            </div>
-          )}
         </div>
       )}
 
@@ -456,9 +437,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           {!isLanguageSupportedByProvider(settings.language, settings.transcriptionProvider, settings.localWhisperModel) && (
             <p className="flex items-start gap-2 text-xs text-amber-500">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-              {settings.transcriptionProvider === 'local-whisper'
-                ? 'The selected local model is English-only. Choose a cloud transcription provider for this language.'
-                : 'The selected transcription provider does not support this language. Vaani will fall back to auto-detect.'}
+              The selected transcription provider does not support this language. Vaani will fall back to auto-detect.
             </p>
           )}
 

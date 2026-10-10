@@ -1,6 +1,6 @@
 import { app } from "electron";
 import { join } from "node:path";
-import { APP_DATA_DIR, DEFAULT_SETTINGS } from "@shared/defaults";
+import { APP_DATA_DIR, DEFAULT_SETTINGS, isHiddenProvider } from "@shared/defaults";
 import { modelForProvider } from "@shared/modelList";
 import type { Settings } from "@shared/types";
 import { error } from "@main/log";
@@ -98,6 +98,26 @@ export class SettingsStore {
     // An inherited value is not consent to retain audio when recovery is enabled.
     if (next.retainFailedAudio === true && next.failedAudioRetentionOptIn !== true) {
       next.retainFailedAudio = false;
+      changed = true;
+    }
+
+    // Hidden transcription options move to the default provider. Its model is normalized below.
+    if (isHiddenProvider(next.transcriptionProvider)) {
+      next.transcriptionProvider = DEFAULT_SETTINGS.transcriptionProvider;
+      next.transcriptionModel = DEFAULT_SETTINGS.transcriptionModel;
+      changed = true;
+    }
+
+    // Always Offline only ever routed to the hidden local provider, so it moves to Auto.
+    if (next.offlineMode === "always-offline") {
+      next.offlineMode = DEFAULT_SETTINGS.offlineMode;
+      changed = true;
+    }
+
+    if (Array.isArray(next.appProfiles) && next.appProfiles.some((profile) => isHiddenProvider(profile.transcriptionProvider))) {
+      next.appProfiles = next.appProfiles.map((profile) => isHiddenProvider(profile.transcriptionProvider)
+        ? { ...profile, transcriptionProvider: DEFAULT_SETTINGS.transcriptionProvider }
+        : profile);
       changed = true;
     }
 

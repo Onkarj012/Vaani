@@ -349,7 +349,7 @@ function ProviderApiSlide({
   onLanguageChange: (v: string) => void;
 }) {
   const isValid = apiKey.trim().length > 0 || hasConfiguredApiKey;
-  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === "stt" || p.type === "local-stt");
+  const sttProviders = KNOWN_PROVIDERS.filter((p) => !p.hidden && (p.type === "stt" || p.type === "local-stt"));
   const activeProvider = sttProviders.find((p) => p.id === settings.transcriptionProvider);
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === "llm");
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider);

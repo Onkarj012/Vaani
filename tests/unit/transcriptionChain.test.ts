@@ -489,26 +489,28 @@ describe("TranscriptionService failover chain", () => {
     await expect(service.formatTranscriptDetailed("private text", { signal: controller.signal })).rejects.toBeInstanceOf(TranscriptionCancelledError);
   });
 
-  it("honors always-online by excluding local whisper fallback", async () => {
+  it.each(["auto", "always-online"] as const)("never uses local whisper as an automatic fallback in %s mode", async (offlineMode) => {
     registryState.providers.set("groq", provider("groq", vi.fn(async () => {
       throw new Error("cloud down");
     })));
-    registryState.providers.set("local-whisper", provider("local-whisper", vi.fn(async (): Promise<TranscriptionResult> => ({
+    const localTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
       rawText: "local",
       formattedText: "local",
       language: "en",
-    })), false));
+    }));
+    registryState.providers.set("local-whisper", provider("local-whisper", localTranscribe, false));
     const { TranscriptionService } = await import("@main/transcription");
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
       transcriptionProvider: "groq",
-      offlineMode: "always-online",
+      offlineMode,
       failoverEnabled: true,
       groqApiKey: "groq-key",
     }));
 
     await expect(service.transcribe(clip)).rejects.toThrow("cloud down");
+    expect(localTranscribe).not.toHaveBeenCalled();
   });
 
   it("uses a per-app provider override as the primary provider", async () => {
@@ -803,24 +805,25 @@ describe("TranscriptionService failover chain", () => {
     const primary = vi.fn()
       .mockRejectedValueOnce(new Error("503 provider failure"))
       .mockRejectedValueOnce(new Error("503 provider failure"));
-    const fallback = vi.fn(async (): Promise<TranscriptionResult> => ({ rawText: "local rescue", formattedText: "local rescue", language: "en" }));
+    const fallback = vi.fn(async (): Promise<TranscriptionResult> => ({ rawText: "groq rescue", formattedText: "groq rescue", language: "en" }));
     registryState.providers.set("openai", provider("openai", primary));
-    registryState.providers.set("local-whisper", provider("local-whisper", fallback, false));
+    registryState.providers.set("groq", provider("groq", fallback));
     const { TranscriptionService } = await import("@main/transcription");
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
       transcriptionProvider: "openai",
       providerApiKeys: [{ providerId: "openai", key: "openai-key" }],
+      groqApiKey: "groq-key",
       failoverEnabled: true,
     }));
 
     const result = await service.transcribe(clip, { recovery: true });
 
-    expect(result.rawText).toBe("local rescue");
+    expect(result.rawText).toBe("groq rescue");
     expect(primary).toHaveBeenCalledTimes(2);
     expect(fallback).toHaveBeenCalledTimes(1);
     expect(result.providerAttempts).toHaveLength(3);
-    expect(result.providerAttempts?.map((attempt) => attempt.provider)).toEqual(["openai", "openai", "local-whisper"]);
+    expect(result.providerAttempts?.map((attempt) => attempt.provider)).toEqual(["openai", "openai", "groq"]);
   });
 
   it.each([

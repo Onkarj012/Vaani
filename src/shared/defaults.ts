@@ -141,6 +141,8 @@ export interface ProviderInfo {
   privacyLevel?: "local-only" | "cloud-audio" | "cloud-text";
   supportsConfidence?: boolean;
   latencyClass?: "fast" | "medium" | "slow";
+  /** Code stays in the repo, but the option is not offered and saved settings move off it. */
+  hidden?: boolean;
 }
 
 export const KNOWN_PROVIDERS: ProviderInfo[] = [
@@ -161,12 +163,12 @@ export const KNOWN_PROVIDERS: ProviderInfo[] = [
   },
   {
     id: "openai-compatible", name: "OpenAI Compatible", type: "stt",
-    requiresApiKey: true,
+    requiresApiKey: true, hidden: true,
     locality: "cloud", estimatedCost: "varies", privacyLevel: "cloud-audio", supportsConfidence: false, latencyClass: "medium",
   },
   {
     id: "local-whisper", name: "Local Whisper (Offline)", type: "local-stt",
-    requiresApiKey: false,
+    requiresApiKey: false, hidden: true,
     locality: "local", estimatedCost: "free-local", privacyLevel: "local-only", supportsConfidence: false, latencyClass: "slow",
   },
   {
@@ -190,3 +192,8 @@ export const KNOWN_PROVIDERS: ProviderInfo[] = [
     locality: "cloud", estimatedCost: "varies", privacyLevel: "cloud-text", latencyClass: "medium",
   },
 ];
+
+/** True for a provider flagged hidden. Hidden providers are never offered or used automatically. */
+export function isHiddenProvider(providerId: string | undefined): boolean {
+  return KNOWN_PROVIDERS.some((provider) => provider.id === providerId && provider.hidden === true);
+}

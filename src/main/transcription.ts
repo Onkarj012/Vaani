@@ -283,7 +283,7 @@ export class TranscriptionService {
     await tryAdd(primaryId);
 
     if (settings.failoverEnabled) {
-      for (const fallbackId of ["groq", "openai", "deepgram", "local-whisper"]) {
+      for (const fallbackId of ["groq", "openai", "deepgram"]) {
         if (fallbackId !== primaryId) await tryAdd(fallbackId);
       }
     }

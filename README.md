@@ -2,27 +2,26 @@
 
 > Press a hotkey. Speak. Words appear — instantly, in any app.
 
-Vaani is a macOS voice dictation app with multi-provider transcription and LLM formatting. Choose cloud providers or an offline-only pipeline with a working local Whisper backend. No subscription or telemetry.
+Vaani is a macOS voice dictation app with multi-provider transcription and LLM formatting. Choose from cloud providers for transcription and formatting. No subscription or telemetry.
 
 ## Features
 
 - **Global Hotkey** — Start dictating from anywhere with a customizable keyboard shortcut. Toggle or push-to-talk mode.
-- **Multi-Provider STT** — Transcribe with Groq Whisper, OpenAI Whisper, or Deepgram Nova-2. Local whisper.cpp is optional and not verified in packaged builds.
+- **Multi-Provider STT** — Transcribe with Groq Whisper, OpenAI Whisper, or Deepgram Nova-2.
 - **Multi-Provider LLM Formatting** — Clean up text with Groq Llama, OpenAI GPT, Anthropic Claude, or OpenRouter
-- **Offline Mode** — Always Offline restricts transcription to local Whisper and skips cloud formatting. A working native Whisper backend and model are required; see Known Limitations.
 - **Smart Text Cleanup** — Removes filler words ("um", "uh", "like"), fixes punctuation, and applies AI formatting
 - **Context-Aware Injection** — Detects the active app and picks the best of 5 insertion methods with per-app policies
 - **Per-App Profiles** — Different provider, language, and formatting settings per application
 - **Snippets & Dictionary** — Custom slash-command snippets and word replacements
 - **History** — Browse and re-inject past dictations
 - **Auto-Updater** — Gets the latest version automatically from GitHub Releases
-- **Privacy controls** — Audio recording is optional. Always Offline keeps dictation content out of cloud transcription and formatting providers.
+- **Privacy controls** — Audio recording is optional.
 
 ## System Requirements
 
 - **macOS**: 12.0 (Monterey) or later
 - **Architecture**: Apple Silicon or Intel
-- **Internet**: Required for cloud transcription and formatting. Always Offline requires a working local Whisper backend and downloaded model, and disables cloud formatting.
+- **Internet**: Required for cloud transcription and formatting.
 - **Permissions**: Accessibility (global hotkeys + text injection), Microphone
 
 ## Installation
@@ -62,7 +61,6 @@ The built app and DMG will be in `out/make/`.
    - [Anthropic](https://anthropic.com) (Claude formatting)
    - [OpenRouter](https://openrouter.ai) (multi-model gateway)
 2. Open Vaani → Settings → paste your key(s)
-3. With a working local Whisper backend and downloaded model, select **Always Offline** to disable cloud transcription and formatting. Selecting **Local (whisper.cpp)** alone in Auto mode does not disable cloud formatting or failover.
 
 Provider API keys are stored in macOS Keychain. Keys left in legacy settings are migrated to Keychain and removed from the settings file on startup.
 
@@ -116,14 +114,12 @@ Open Settings from the menu bar icon or `Cmd+,`.
 | Primary hotkey | Any key combo |
 | Dictation mode | Toggle / Push-to-talk / Double-press |
 | Paste latest hotkey | Any key combo |
-| Transcription provider | Groq / OpenAI / Deepgram / Local (whisper.cpp) |
+| Transcription provider | Groq / OpenAI / Deepgram |
 | Formatting provider | Groq / OpenAI / Anthropic / OpenRouter / None |
 | Language | Auto-detect or specific language |
 | Injection mode | Auto / Accessibility / Clipboard / Keystroke |
 | Smart punctuation | On / Off |
 | Remove filler words | On / Off |
-| Local Whisper model | tiny.en / base.en / small.en |
-| Offline mode | Auto / Always Offline / Always Online |
 
 ## Keyboard Shortcuts
 
@@ -180,10 +176,9 @@ bun run typecheck    # TypeScript check
 
 - Save Recordings is off by default. Enabling it saves WAV files locally for replay.
 - Cloud transcription sends audio to configured providers; cloud formatting sends transcript text. Provider retention policies apply.
-- Always Offline excludes cloud STT and skips provider formatting. Auto mode can use cloud formatting and configured failover even when Local Whisper is selected.
 - Failed-dictation recovery remains disabled in this build. Failed-audio retention is a separate opt-in, off by default; old inherited preferences and reset settings do not enable it.
 - Turning either audio-retention control off stops new saves, including pending saves. Previously saved audio remains until explicitly deleted (or, for recovery audio, until expiry). Recovery has a 50-session / 1 GB storage limit.
-- Provider, model, language, and formatting choices are captured when dictation starts. Switching to Always Offline cancels pending work. Older recovery entries without a saved route keep their text but cannot silently retry through current provider settings.
+- Provider, model, language, and formatting choices are captured when dictation starts. Older recovery entries without a saved route keep their text but cannot silently retry through current provider settings.
 - Copied bug reports contain a limited diagnostic summary, excluding transcript text and local audio paths. Export Data remains a separate, content-bearing export of settings and history.
 - Provider API keys are stored in macOS Keychain; legacy settings keys migrate there on startup
 - Non-secret settings, history, and dictation traces are stored locally in `~/.vaani/`
@@ -192,7 +187,6 @@ bun run typecheck    # TypeScript check
 ## Known Limitations
 
 - macOS only (12+)
-- Local Whisper is not yet verified as a working packaged provider. The checked-in native build uses Whisper stubs unless a real backend is supplied. Always Offline fails without a working local backend; it does not fall back to cloud.
 - Very short phrases (< 3 words) may not inject reliably in some apps
 - **Stale state after extended uptime** — App may become unresponsive after ~16 hours of continuous use. Restarting Vaani resolves this. Auto-recovery watchdog added in v1.0.4; root cause investigation ongoing.
 - **Capsule overlay** — The recording overlay (bottom-center pill) may occasionally not appear when dictation starts. It typically reappears on the next attempt. Visibility retry logic added in v1.0.4.
@@ -202,7 +196,6 @@ bun run typecheck    # TypeScript check
 
 - **Persistent stale state fix** — Root cause investigation and fix for long-uptime unresponsiveness
 - **Capsule reliability** — Eliminate intermittent overlay non-appearance
-- **Improved offline support** — Smarter offline/online switching without user intervention
 - **App profiles** — Per-app transcription settings (language, provider, auto-submit)
 
 ## Contributing
@@ -227,6 +220,6 @@ MIT — see [LICENSE](LICENSE)
 
 ## Credits
 
-- Transcription by [Groq](https://groq.com), [OpenAI](https://openai.com), [Deepgram](https://deepgram.com), and [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
+- Transcription by [Groq](https://groq.com), [OpenAI](https://openai.com), and [Deepgram](https://deepgram.com)
 - LLM formatting by Groq, OpenAI, Anthropic, and [OpenRouter](https://openrouter.ai)
 - Built with [Electron](https://electronjs.org) and [React](https://react.dev)

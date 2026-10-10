@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_SETTINGS } from "@shared/defaults";
+import { defaultModelFor } from "@shared/modelList";
 
 vi.mock("electron", () => ({
   app: {
@@ -87,6 +89,32 @@ describe("model settings migration", () => {
     await reloaded.init();
 
     expect(reloaded.get()).toMatchObject({ formattingModel: "openai/gpt-oss-20b" });
+    expect(await readFile(filePath, "utf8")).toBe(afterFirstLoad);
+  });
+
+  it.each(["local-whisper", "openai-compatible"])("moves hidden %s transcription to the default provider and model", async (hiddenProvider) => {
+    const { store, filePath } = await loadWithStoredSettings({
+      transcriptionProvider: hiddenProvider,
+      transcriptionModel: "tiny.en",
+      offlineMode: "always-offline",
+      appProfiles: [{ id: "notes", name: "Notes", appBundleIds: ["com.notes"], transcriptionProvider: hiddenProvider }],
+    });
+    const migrated = {
+      transcriptionProvider: DEFAULT_SETTINGS.transcriptionProvider,
+      transcriptionModel: defaultModelFor("transcription", DEFAULT_SETTINGS.transcriptionProvider),
+      offlineMode: "auto",
+      appProfiles: [{ id: "notes", transcriptionProvider: DEFAULT_SETTINGS.transcriptionProvider }],
+    };
+
+    expect(store.get()).toMatchObject(migrated);
+    expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject(migrated);
+
+    const afterFirstLoad = await readFile(filePath, "utf8");
+    const { SettingsStore } = await import("@main/store/settings");
+    const reloaded = new SettingsStore(filePath);
+    await reloaded.init();
+
+    expect(reloaded.get()).toMatchObject(migrated);
     expect(await readFile(filePath, "utf8")).toBe(afterFirstLoad);
   });
 });
