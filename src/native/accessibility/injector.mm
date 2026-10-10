@@ -514,6 +514,60 @@ Napi::Number GetClipboardChangeCount(const Napi::CallbackInfo& info) {
   return Napi::Number::New(info.Env(), [[NSPasteboard generalPasteboard] changeCount]);
 }
 
+// Returns every item and type on the pasteboard, or null when the data is larger than maxBytes.
+Napi::Value ReadPasteboard(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  const double maxBytes = info.Length() > 0 && info[0].IsNumber() ? info[0].As<Napi::Number>().DoubleValue() : 0;
+  @autoreleasepool {
+    NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+    Napi::Array items = Napi::Array::New(env);
+    double totalBytes = 0;
+    for (NSPasteboardItem* item in [pasteboard pasteboardItems]) {
+      Napi::Array entries = Napi::Array::New(env);
+      for (NSString* type in [item types]) {
+        NSData* data = [item dataForType:type];
+        if (data == nil) continue;
+        totalBytes += static_cast<double>(data.length);
+        if (totalBytes > maxBytes) return env.Null();
+        Napi::Object entry = Napi::Object::New(env);
+        entry.Set("type", Napi::String::New(env, [type UTF8String]));
+        entry.Set("data", Napi::Buffer<uint8_t>::Copy(env, static_cast<const uint8_t*>(data.bytes), data.length));
+        entries.Set(entries.Length(), entry);
+      }
+      if (entries.Length() > 0) items.Set(items.Length(), entries);
+    }
+    return items;
+  }
+}
+
+// Replaces the pasteboard with the given items. Returns the new change count, or null if the write failed.
+Napi::Value WritePasteboard(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsArray()) {
+    Napi::TypeError::New(env, "Expected pasteboard items").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Array items = info[0].As<Napi::Array>();
+  @autoreleasepool {
+    NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+    NSMutableArray* pasteboardItems = [NSMutableArray array];
+    for (uint32_t i = 0; i < items.Length(); i += 1) {
+      Napi::Array entries = items.Get(i).As<Napi::Array>();
+      NSPasteboardItem* item = [[[NSPasteboardItem alloc] init] autorelease];
+      for (uint32_t j = 0; j < entries.Length(); j += 1) {
+        Napi::Object entry = entries.Get(j).As<Napi::Object>();
+        NSString* type = [NSString stringWithUTF8String:entry.Get("type").As<Napi::String>().Utf8Value().c_str()];
+        Napi::Buffer<uint8_t> buffer = entry.Get("data").As<Napi::Buffer<uint8_t>>();
+        [item setData:[NSData dataWithBytes:buffer.Data() length:buffer.Length()] forType:type];
+      }
+      if (entries.Length() > 0) [pasteboardItems addObject:item];
+    }
+    [pasteboard clearContents];
+    if ([pasteboardItems count] > 0 && ![pasteboard writeObjects:pasteboardItems]) return env.Null();
+    return Napi::Number::New(env, [pasteboard changeCount]);
+  }
+}
+
 Napi::Boolean TypeText(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1 || !info[0].IsString()) {
@@ -630,6 +684,8 @@ Napi::Object InitAccessibility(Napi::Env env, Napi::Object exports) {
   exports.Set("injectText", Napi::Function::New(env, InjectText));
   exports.Set("pasteText", Napi::Function::New(env, PasteText));
   exports.Set("getClipboardChangeCount", Napi::Function::New(env, GetClipboardChangeCount));
+  exports.Set("readPasteboard", Napi::Function::New(env, ReadPasteboard));
+  exports.Set("writePasteboard", Napi::Function::New(env, WritePasteboard));
   exports.Set("typeText", Napi::Function::New(env, TypeText));
   exports.Set("getFocusedSelection", Napi::Function::New(env, GetFocusedSelection));
   exports.Set("getFocusedValue", Napi::Function::New(env, GetFocusedValue));
