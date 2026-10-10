@@ -1,5 +1,6 @@
 import { globalShortcut } from "electron";
 import { HOTKEY_DOUBLE_PRESS_WINDOW_MS } from "@shared/defaults";
+import { parseHotkey } from "@shared/hotkeys";
 import type { DictationMode, Settings } from "@shared/types";
 import { nativeBridge } from "./nativeBridge";
 
@@ -59,8 +60,15 @@ export class HotkeyManager {
     const settings = this.settingsProvider();
     this.registerPasteLatest(settings.pasteLatestHotkey);
 
+    const primary = parseHotkey(settings.primaryHotkey);
+    if (!primary.ok) {
+      console.warn("[vaani] primary dictation hotkey refused:", settings.primaryHotkey);
+      this.onPrimaryHotkeyUnavailable(primary.message);
+      return;
+    }
+
     const started = nativeBridge.startHotkeyMonitor?.(
-      settings.primaryHotkey,
+      primary.hotkey,
       (isPressed: boolean) => {
         if (isPressed) {
           this.handlePress();
@@ -120,19 +128,26 @@ export class HotkeyManager {
   private registerPasteLatest(combo: string): void {
     if (!combo) return;
 
-    const startedNative = nativeBridge.startPasteLatestMonitor?.(combo, () => this.onPasteLatest()) ?? false;
+    const parsed = parseHotkey(combo);
+    if (!parsed.ok) {
+      console.warn("[vaani] paste latest hotkey refused:", parsed.message);
+      return;
+    }
+    const hotkey = parsed.hotkey;
+
+    const startedNative = nativeBridge.startPasteLatestMonitor?.(hotkey, () => this.onPasteLatest()) ?? false;
     if (startedNative) {
       this.usingNativePasteMonitor = true;
       this.pasteLatestAccelerator = null;
       return;
     }
 
-    if (isNativeOnlyAccelerator(combo)) {
-      console.warn("[vaani] paste latest hotkey is native-only, skipping Electron globalShortcut:", combo);
+    if (isNativeOnlyAccelerator(hotkey)) {
+      console.warn("[vaani] paste latest hotkey is native-only, skipping Electron globalShortcut:", hotkey);
       return;
     }
 
-    const accelerator = toElectronAccelerator(combo);
+    const accelerator = toElectronAccelerator(hotkey);
     try {
       const ok = globalShortcut.register(accelerator, () => this.onPasteLatest());
       if (ok) { this.pasteLatestAccelerator = accelerator; }
@@ -147,52 +162,27 @@ export class HotkeyManager {
     const mode: DictationMode = settings.dictationMode || "toggle";
     const now = Date.now();
 
-    // Push-to-talk: start immediately on press, ignore double-press and toggle logic
-    if (mode === "push-to-talk") {
-      if (this.onPress() === false) {
-        this.rejectedPress = true;
-        return;
-      }
-      this.lastPressTime = now;
-      return;
-    }
-
-    // Toggle with double-press support
+    // Any press during a toggle recording ends it. Releases never do.
     if (this.isToggleRecording) {
       this.suppressNextRelease = true;
       this.exitToggleMode(false);
-      this.lastPressTime = now;
       return;
     }
 
-    const withinWindow = now - this.lastPressTime < HOTKEY_DOUBLE_PRESS_WINDOW_MS;
-
-    if (this.pendingReleaseTimer && withinWindow) {
+    // Smart toggle: a second tap inside the window locks recording on.
+    if (this.pendingReleaseTimer) {
       this.clearPendingRelease();
       this.enterToggleMode();
       this.lastPressTime = now;
       return;
     }
 
-    // Toggle mode: press to start, release to stop (with double-press window for very quick taps)
-    if (mode === "toggle") {
-      if (this.pendingReleaseTimer) {
-        this.clearPendingRelease();
-      }
-      if (this.onPress() === false) {
-        this.rejectedPress = true;
-        return;
-      }
-      this.lastPressTime = now;
-      return;
-    }
-
-    // toggle-double mode: single press = push-to-talk, double press = toggle
     if (this.onPress() === false) {
       this.rejectedPress = true;
       return;
     }
     this.lastPressTime = now;
+    if (mode === "toggle") this.enterToggleMode();
   }
 
   private handleRelease(): void {
@@ -215,7 +205,8 @@ export class HotkeyManager {
       return;
     }
 
-    if (this.isToggleRecording) return;
+    // Toggle recordings end on the next press, so a release never stops them.
+    if (this.isToggleRecording || mode === "toggle") return;
 
     const heldFor = Date.now() - this.lastPressTime;
     if (heldFor < HOTKEY_DOUBLE_PRESS_WINDOW_MS) {

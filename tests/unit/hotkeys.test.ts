@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
+import { hotkeyFromKeyEvent, isCanonicalHotkey, parseHotkey } from "@shared/hotkeys";
 import type { Settings } from "@shared/types";
 
 const registerMock = vi.fn(() => true);
@@ -116,7 +117,7 @@ describe("HotkeyManager", () => {
     const { HotkeyManager } = await import("@main/hotkeys");
 
     const manager = new HotkeyManager(
-      () => ({ ...DEFAULT_SETTINGS, primaryHotkey: "Cmd+D" }),
+      () => ({ ...DEFAULT_SETTINGS, primaryHotkey: "Cmd+D", dictationMode: "toggle-double" }),
       onPress,
       onRelease,
       onCancel,
@@ -148,17 +149,17 @@ describe("HotkeyManager", () => {
     dateNowSpy.mockRestore();
   });
 
-  it("cancels toggle recording when Escape is pressed", async () => {
+  it("locks smart toggle recording on a fast down-up-down-up with immediate releases", async () => {
     startHotkeyMonitorMock.mockReturnValue(true);
     startPasteLatestMonitorMock.mockReturnValue(true);
-    const onCancel = vi.fn();
+    const onPress = vi.fn();
+    const onRelease = vi.fn();
     const { HotkeyManager } = await import("@main/hotkeys");
-
     const manager = new HotkeyManager(
-      () => ({ ...DEFAULT_SETTINGS, primaryHotkey: "Cmd+D" }),
+      () => ({ ...DEFAULT_SETTINGS, dictationMode: "toggle-double" }),
+      onPress,
+      onRelease,
       vi.fn(),
-      vi.fn(),
-      onCancel,
       vi.fn(),
       vi.fn()
     );
@@ -169,9 +170,91 @@ describe("HotkeyManager", () => {
     dateNowSpy.mockReturnValue(0);
     callback(true);
     callback(false);
-    vi.advanceTimersByTime(100);
-    dateNowSpy.mockReturnValue(100);
+    dateNowSpy.mockReturnValue(120);
     callback(true);
+    callback(false);
+
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onRelease).not.toHaveBeenCalled();
+    dateNowSpy.mockRestore();
+  });
+
+  it("smart toggle stops on release after a long hold", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onRelease = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, dictationMode: "toggle-double" }),
+      vi.fn(),
+      onRelease,
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    const callback = startHotkeyMonitorMock.mock.calls[0]?.[1] as ((pressed: boolean) => void);
+    const dateNowSpy = vi.spyOn(Date, "now");
+    dateNowSpy.mockReturnValue(0);
+    callback(true);
+    dateNowSpy.mockReturnValue(1_000);
+    callback(false);
+
+    expect(onRelease).toHaveBeenCalledTimes(1);
+    dateNowSpy.mockRestore();
+  });
+
+  it("toggle mode ignores releases and stops on the next press", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onPress = vi.fn();
+    const onRelease = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, dictationMode: "toggle" }),
+      onPress,
+      onRelease,
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    const callback = startHotkeyMonitorMock.mock.calls[0]?.[1] as ((pressed: boolean) => void);
+    callback(true);
+    callback(false);
+    vi.advanceTimersByTime(5_000);
+
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onRelease).not.toHaveBeenCalled();
+
+    callback(true);
+    callback(false);
+
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels toggle recording when Escape is pressed", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onCancel = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, primaryHotkey: "Cmd+D", dictationMode: "toggle" }),
+      vi.fn(),
+      vi.fn(),
+      onCancel,
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    const callback = startHotkeyMonitorMock.mock.calls[0]?.[1] as ((pressed: boolean) => void);
+    callback(true);
+    callback(false);
 
     const registeredShortcuts = registerMock.mock.calls as unknown as Array<[string, () => void]>;
     const escapeHandler = registeredShortcuts.find(([accelerator]) => accelerator === "Escape")?.[1];
@@ -180,7 +263,6 @@ describe("HotkeyManager", () => {
 
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(unregisterMock).toHaveBeenCalledWith("Escape");
-    dateNowSpy.mockRestore();
   });
 
   it("does not release or enter toggle mode after a rejected press", async () => {
@@ -213,7 +295,50 @@ describe("HotkeyManager", () => {
     callback(false);
     vi.advanceTimersByTime(400);
     expect(onPress).toHaveBeenCalledTimes(2);
+    expect(onRelease).not.toHaveBeenCalled();
+
+    callback(true);
+    callback(false);
     expect(onRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a stored primary hotkey native code cannot register", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const unavailable = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, primaryHotkey: "Fn+D" }),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      unavailable
+    );
+
+    manager.register();
+
+    expect(startHotkeyMonitorMock).not.toHaveBeenCalled();
+    expect(unavailable).toHaveBeenCalledWith(expect.stringContaining("Fn works only by itself"));
+  });
+
+  it("hands native code the canonical accelerator", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, primaryHotkey: "alt+ArrowRight", pasteLatestHotkey: "control+command+v" }),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+
+    expect(startHotkeyMonitorMock).toHaveBeenCalledWith("Option+Right", expect.any(Function));
+    expect(startPasteLatestMonitorMock).toHaveBeenCalledWith("Ctrl+Cmd+V", expect.any(Function));
   });
 
   it("allows the next push-to-talk press after a rejected press", async () => {
@@ -240,5 +365,45 @@ describe("HotkeyManager", () => {
 
     expect(onPress).toHaveBeenCalledTimes(2);
     expect(onRelease).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("parseHotkey", () => {
+  it("keeps canonical names and maps aliases to them", () => {
+    expect(parseHotkey("Control+Command+ArrowUp")).toEqual({ ok: true, hotkey: "Ctrl+Cmd+Up" });
+    expect(parseHotkey("option+d")).toEqual({ ok: true, hotkey: "Option+D" });
+    expect(parseHotkey("enter")).toEqual({ ok: true, hotkey: "Return" });
+  });
+
+  it("accepts Fn only by itself", () => {
+    expect(parseHotkey("fn")).toEqual({ ok: true, hotkey: "Fn" });
+    expect(parseHotkey("Fn+D").ok).toBe(false);
+  });
+
+  it("refuses modifier-only and unregistrable keys with a reason", () => {
+    const modifierOnly = parseHotkey("Cmd+Shift");
+    expect(modifierOnly.ok).toBe(false);
+    expect(modifierOnly.ok ? "" : modifierOnly.message).toContain("modifier-only");
+
+    const backspace = parseHotkey("Backspace");
+    expect(backspace.ok).toBe(false);
+    expect(backspace.ok ? "" : backspace.message).toContain("\"Backspace\" can't be used");
+  });
+
+  it("refuses two keys in one hotkey", () => {
+    expect(parseHotkey("Cmd+D+E").ok).toBe(false);
+  });
+
+  it("only treats already canonical strings as canonical", () => {
+    expect(isCanonicalHotkey("Ctrl+Cmd+V")).toBe(true);
+    expect(isCanonicalHotkey("Alt+d")).toBe(false);
+    expect(isCanonicalHotkey("⌘D")).toBe(false);
+  });
+
+  it("builds hotkeys from key presses using the physical key", () => {
+    expect(hotkeyFromKeyEvent({ key: "∂", code: "KeyD", metaKey: false, ctrlKey: false, altKey: true, shiftKey: false }))
+      .toEqual({ ok: true, hotkey: "Option+D" });
+    expect(hotkeyFromKeyEvent({ key: " ", code: "Space", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }))
+      .toEqual({ ok: true, hotkey: "Cmd+Space" });
   });
 });
