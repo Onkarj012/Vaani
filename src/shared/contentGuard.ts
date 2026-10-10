@@ -7,8 +7,8 @@ const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
 const NUMBER_WORD_SOURCE = String.raw`one|two|three|four|five|six|seven|eight|nine|ten|\d+`;
 // A cue whose number starts a longer literal such as "1.5" is not a cue.
 const ENUM_CUE_SOURCE = String.raw`(?:bullet\s*point|number\s+(?:${NUMBER_WORD_SOURCE})|no\.\s*\d+|point\s+(?:${NUMBER_WORD_SOURCE})|item\s+(?:${NUMBER_WORD_SOURCE})|(?:first|second|third|fourth|fifth)\s+(?:item|bullet|point|step))(?![.,:/]\p{N})`;
-// A sign or leading dot is part of the literal only when no letter or digit comes right before it.
-const NUMERIC_LITERAL_SOURCE = String.raw`(?<![\p{L}\p{M}\p{N}])[+-]\p{N}+(?:[.,:/]\p{N}+)*|(?<![\p{L}\p{M}\p{N}])[+-]?\.\p{N}+|\p{N}+(?:[.,:/]\p{N}+)+`;
+// A sign, with a currency symbol before or after it, or a leading dot is part of the literal only when no letter or digit comes right before it.
+const NUMERIC_LITERAL_SOURCE = String.raw`(?<![\p{L}\p{M}\p{N}])(?:[+-]\p{Sc}?|\p{Sc}[+-])\p{N}+(?:[.,:/]\p{N}+)*|(?<![\p{L}\p{M}\p{N}])[+-]?\.\p{N}+|\p{N}+(?:[.,:/]\p{N}+)+`;
 const WORD_SOURCE = String.raw`[\p{L}\p{M}\p{N}]+`;
 const INPUT_TOKEN_RE = new RegExp(
   String.raw`\b(?<line>${LINE_CUE_SOURCE})\b|\b(?<enum>${ENUM_CUE_SOURCE})\b|(?:${NUMERIC_LITERAL_SOURCE})|${WORD_SOURCE}`,
@@ -21,6 +21,7 @@ const OUTPUT_TOKEN_RE = new RegExp(
 const REASONING_BLOCK_RE = /<(think|thinking|reasoning|thought)>[\s\S]*?<\/\1>/gi;
 const UNCLOSED_REASONING_RE = /<(think|thinking|reasoning|thought)>[\s\S]*$/i;
 const WORD_RE = /[\p{L}\p{M}\p{N}]+/gu;
+const CURRENCY_RE = /\p{Sc}/gu;
 
 const NUMBER_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
   zero: "0", one: "1", two: "2", three: "3", four: "4",
@@ -36,9 +37,15 @@ const ORDINAL_NUMBERS: ReadonlyMap<string, string> = new Map([
   ["first", "1"], ["second", "2"], ["third", "3"], ["fourth", "4"], ["fifth", "5"],
 ]);
 
+// Largest alignment table the guard builds. Longer diffs are rejected instead of aligned.
+const MAX_ALIGN_CELLS = 1_000_000;
+const TOO_LONG_REASON = "Transcript too long to verify formatting.";
+
 export interface ContentWordDiff {
   missing: string[];
   added: string[];
+  // Set when the words could not be compared. The formatter output is then unverified.
+  rejection?: string;
 }
 
 // One piece of input or output: a word, a listed filler, a spoken layout cue, a line break, or a list item.
@@ -58,6 +65,11 @@ export function stripReasoningBlocks(text: string): string {
 // Lowercased words in a piece of text.
 function wordsIn(text: string): string[] {
   return (text.match(WORD_RE) ?? []).map(word => word.toLowerCase());
+}
+
+// Lowercased token text without currency symbols, so "-$10" and "-10" compare equal.
+function tokenText(text: string): string {
+  return text.toLowerCase().replace(CURRENCY_RE, "");
 }
 
 // The list number a spoken cue names, or null for an unnumbered cue such as "bullet point".
@@ -118,7 +130,7 @@ function inputUnits(text: string, fillers: readonly string[]): { units: Unit[]; 
   const units = [...text.matchAll(INPUT_TOKEN_RE)].map((match): Unit => {
     if (match.groups?.line) return { kind: "line", words: wordsIn(match[0]) };
     if (match.groups?.enum) return { kind: "enum", value: cueValue(match[0]), words: wordsIn(match[0]) };
-    return { kind: "word", text: match[0].toLowerCase() };
+    return { kind: "word", text: tokenText(match[0]) };
   });
   const marked = markFillers(units, fillers);
   return { units: finishWords(marked.units), phrases: marked.phrases };
@@ -130,7 +142,7 @@ function outputUnits(text: string): Unit[] {
     if (match.groups?.break) return { kind: "break" };
     if (match.groups?.number) return { kind: "item", value: match.groups.number };
     if (match.groups?.bullet) return { kind: "item", value: null };
-    return { kind: "word", text: match[0].toLowerCase() };
+    return { kind: "word", text: tokenText(match[0]) };
   }));
 }
 
@@ -179,8 +191,14 @@ function unitWords(unit: Unit): string[] {
   }
 }
 
-// Aligns input and output units in order. Unmatched input units are missing unless they belong to a filler phrase that was dropped whole; unmatched output units are added.
-function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[]): ContentWordDiff {
+// True when a source unit and an output unit are the same single word, so pairing them never costs a match.
+function sameWordUnit(source: Unit | undefined, output: Unit | undefined): boolean {
+  return (source?.kind === "word" || source?.kind === "filler") && output?.kind === "word" && output.text === source.text;
+}
+
+// Unmatched source indices and added output units for two sections, or null when the table would exceed MAX_ALIGN_CELLS.
+function alignSections(source: Unit[], output: Unit[]): { dropped: number[]; added: Unit[] } | null {
+  if ((source.length + 1) * (output.length + 1) > MAX_ALIGN_CELLS) return null;
   const width = output.length + 1;
   const common = new Uint16Array((source.length + 1) * width);
   const cell = (i: number, j: number): number => common[i * width + j] ?? 0;
@@ -192,8 +210,8 @@ function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[])
     }
   }
 
-  const dropped = new Set<number>();
-  const addedUnits: Unit[] = [];
+  const dropped: number[] = [];
+  const added: Unit[] = [];
   let i = source.length;
   let j = output.length;
   while (i > 0 || j > 0) {
@@ -204,14 +222,29 @@ function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[])
       i -= 1;
       j -= consumed;
     } else if (outputUnit && (!sourceUnit || cell(i, j - 1) >= cell(i - 1, j))) {
-      addedUnits.push(outputUnit);
+      added.push(outputUnit);
       j -= 1;
     } else {
-      dropped.add(i - 1);
+      dropped.push(i - 1);
       i -= 1;
     }
   }
+  return { dropped, added: added.reverse() };
+}
 
+// Aligns input and output units in order. Unmatched input units are missing unless they belong to a filler phrase that was dropped whole; unmatched output units are added.
+function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[]): ContentWordDiff {
+  // Equal words at both ends align without a table, so an unchanged long transcript costs nothing.
+  let head = 0;
+  while (head < source.length && head < output.length && sameWordUnit(source[head], output[head])) head += 1;
+  let tail = 0;
+  while (tail < source.length - head && tail < output.length - head
+    && sameWordUnit(source[source.length - 1 - tail], output[output.length - 1 - tail])) tail += 1;
+
+  const middle = alignSections(source.slice(head, source.length - tail), output.slice(head, output.length - tail));
+  if (!middle) return { missing: [], added: [], rejection: TOO_LONG_REASON };
+
+  const dropped = new Set(middle.dropped.map(index => index + head));
   // A filler phrase may go only when every one of its words goes.
   const dropsWholePhrase = ([start, end]: [number, number]): boolean => {
     for (let index = start; index < end; index += 1) if (!dropped.has(index)) return false;
@@ -220,7 +253,7 @@ function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[])
   const isExempt = (index: number): boolean => phrases.some(phrase => phrase[0] <= index && index < phrase[1] && dropsWholePhrase(phrase));
   return {
     missing: source.filter((_, index) => dropped.has(index) && !isExempt(index)).flatMap(unitWords),
-    added: addedUnits.reverse().flatMap(unitWords),
+    added: middle.added.flatMap(unitWords),
   };
 }
 
@@ -232,8 +265,8 @@ export function diffContentWords(rawText: string, candidate: string, fillers: re
 
 // True only when the formatter kept every word, in order, and added none. Listed fillers may be dropped.
 export function preservesContentWords(rawText: string, candidate: string, fillers: readonly string[] = []): boolean {
-  const { missing, added } = diffContentWords(rawText, candidate, fillers);
-  return missing.length === 0 && added.length === 0;
+  const { missing, added, rejection } = diffContentWords(rawText, candidate, fillers);
+  return rejection === undefined && missing.length === 0 && added.length === 0;
 }
 
 // Input words the formatter dropped or reordered, ignoring listed fillers.

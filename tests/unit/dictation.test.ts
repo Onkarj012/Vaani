@@ -420,6 +420,28 @@ describe("DictationService", () => {
     expect(injector.inject).not.toHaveBeenCalled();
   });
 
+  it("does not refuse a recovery retry that a new dictation superseded while loading the entry", async () => {
+    const fixture = createInsertionRecovery("superseded-retry");
+    const entry = fixture.getEntry();
+    entry.state = "text_ready";
+    entry.text.cleanedText = "...";
+    const loadEntry = fixture.recovery.getById;
+    let finishLoad: () => void = () => undefined;
+    const loadFinished = new Promise<void>((resolve) => { finishLoad = resolve; });
+    const recovery = { ...fixture.recovery, getById: vi.fn(async () => { const loaded = await loadEntry(); await loadFinished; return loaded; }) };
+    const { service, injector } = createDictationService({ recovery, recoveryReady: () => true });
+
+    const retry = service.retryRecoveryInsertion(entry.id);
+    service.beginHotkeySession();
+    await Promise.resolve();
+    const before = service.getState();
+    finishLoad();
+
+    await expect(retry).resolves.toBe(false);
+    expect(service.getState()).toEqual(before);
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
   it("refuses manual recovery retry when its focused identity disappears", async () => {
     const fixture = createInsertionRecovery("manual-identity-lost");
     const entry = fixture.getEntry();
@@ -1027,6 +1049,28 @@ describe("DictationService", () => {
     });
     expect(traceDeps.getTrace()).toMatchObject({
       stages: { formatterUsed: "none", formatterStatus: "rejected", formatterStatusReason: "The formatter changed words in the transcript." },
+    });
+  });
+
+  it("says formatting applied only in part when some paragraphs kept formatter output", async () => {
+    const { service, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "please send the report today", formattedText: "please send the report today", language: "en" });
+    Object.assign(transcription, {
+      formatTranscriptDetailed: vi.fn(async () => ({
+        text: "Please send the report.\n\nthen call them today",
+        formatterUsed: "none",
+        formatterStatus: "failed",
+        formatterStatusReason: "Formatter problem.",
+        partiallyFormatted: true,
+      })),
+    });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(service.getState()).toMatchObject({
+      status: "completed",
+      message: "Inserted. Formatting applied only in part. Some text was inserted unformatted.",
     });
   });
 

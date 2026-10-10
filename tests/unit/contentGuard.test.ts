@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addedContentWords, missingContentWords, preservesContentWords, stripReasoningBlocks } from "../../src/shared/contentGuard";
+import { addedContentWords, diffContentWords, missingContentWords, preservesContentWords, stripReasoningBlocks } from "../../src/shared/contentGuard";
 
 describe("preservesContentWords", () => {
   it("accepts punctuation and capitalization changes", () => {
@@ -153,6 +153,27 @@ describe("preservesContentWords", () => {
     expect(missingContentWords("you know the answer", "You the answer.", ["you know"])).toEqual(["know"]);
     expect(preservesContentWords("you know the answer", "You know the answer.", ["you know"])).toBe(true);
     expect(preservesContentWords("you know hello world", "Hello world.", ["you know"])).toBe(true);
+  });
+
+  it("keeps the minus sign on a currency amount", () => {
+    expect(preservesContentWords("the balance is -$10", "The balance is $10.", [])).toBe(false);
+    expect(preservesContentWords("the balance is $10", "The balance is $10.", [])).toBe(true);
+    expect(preservesContentWords("the balance is $-10", "The balance is -$10.", [])).toBe(true);
+  });
+
+  it("verifies a long unchanged transcript without a full alignment table", () => {
+    const words = Array.from({ length: 5_000 }, (_, index) => `word${index}`).join(" ");
+    expect(preservesContentWords(words, words, [])).toBe(true);
+    const changed = [...words.split(" ").slice(0, 2_500), "changed", ...words.split(" ").slice(2_501)].join(" ");
+    expect(missingContentWords(words, changed, [])).toEqual(["word2500"]);
+    expect(addedContentWords(words, changed, [])).toEqual(["changed"]);
+  });
+
+  it("rejects a diff too large to align", () => {
+    const raw = Array.from({ length: 1_001 }, (_, index) => `alpha${index}`).join(" ");
+    const candidate = Array.from({ length: 1_001 }, (_, index) => `beta${index}`).join(" ");
+    expect(diffContentWords(raw, candidate, []).rejection).toBe("Transcript too long to verify formatting.");
+    expect(preservesContentWords(raw, candidate, [])).toBe(false);
   });
 });
 

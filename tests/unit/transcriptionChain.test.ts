@@ -483,6 +483,20 @@ describe("TranscriptionService failover chain", () => {
     expect(format).toHaveBeenCalledTimes(1);
   });
 
+  it("flags a result where one paragraph kept formatter output and another did not", async () => {
+    const format = vi.fn<FormattingProvider["format"]>()
+      .mockResolvedValueOnce({ status: "ran", text: "First paragraph.", reason: "Formatted." })
+      .mockResolvedValueOnce({ status: "failed", text: "Second paragraph.", reason: "Formatter problem." });
+    registryState.formattingProviders.set("groq-llm", { id: "groq-llm", name: "groq-llm", requiresApiKey: true, models: [], format, isAvailable: vi.fn(async () => true) });
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+
+    await expect(service.formatTranscriptDetailed("First paragraph.\n\nSecond paragraph.")).resolves.toMatchObject({
+      formatterUsed: "none",
+      partiallyFormatted: true,
+    });
+  });
+
   it.each(["failed", "rejected"] as const)("reports a %s paragraph even when another paragraph formatted", async (status) => {
     const format = vi.fn<FormattingProvider["format"]>()
       .mockResolvedValueOnce({ status: "ran", text: "First paragraph.", reason: "Formatted." })
@@ -881,6 +895,7 @@ describe("TranscriptionService failover chain", () => {
       formatterStatus: "rejected",
       formatterStatusReason: "The formatter changed words in the transcript.",
       contentGuardVerdict: { passed: false, missingWords: ["beta"] },
+      partiallyFormatted: true,
     });
   });
 

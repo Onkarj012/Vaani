@@ -761,8 +761,9 @@ export class DictationService {
 
   async reinjectEntry(id: string): Promise<void> {
     if (this.rejectManualInsertionWhileActive()) return;
+    const generation = this.sessionGeneration;
     const entry = await this.history.getById(id);
-    if (!entry) return;
+    if (!entry || generation !== this.sessionGeneration) return;
     const result = await this.performManualInsertion(entry.cleanedText, this.currentInjectionTarget(entry));
     if (!result) return;
     const sessionId = this.createSessionId();
@@ -774,8 +775,9 @@ export class DictationService {
     if (this.rejectManualInsertionWhileActive() || this.manualRetriesInProgress.has(id)) return;
     this.manualRetriesInProgress.add(id);
     try {
+    const generation = this.sessionGeneration;
     const entry = await this.history.getById(id);
-    if (!entry) return;
+    if (!entry || generation !== this.sessionGeneration) return;
     const result = await this.performManualInsertion(entry.cleanedText, this.currentInjectionTarget(entry));
     if (!result) return;
     await this.history.updateById(id, (current) => ({
@@ -818,8 +820,9 @@ export class DictationService {
 
   async copyRecoveryEntry(id: string): Promise<boolean> {
     if (!this.recovery || !this.recoveryReady()) return false;
+    const generation = this.sessionGeneration;
     const entry = await this.recovery.getById(id);
-    if (!entry || entry.terminal) return false;
+    if (!entry || entry.terminal || generation !== this.sessionGeneration) return false;
     if (entry.state !== "transcript_ready" && entry.state !== "text_ready" && entry.state !== "recoverable") return false;
     const text = selectRecoveryText(entry.text);
     if (!text) return false;
@@ -951,6 +954,7 @@ export class DictationService {
     try {
       if (!this.recovery) return false;
       const entry = await this.recovery.getById(id);
+      if (action.signal.aborted || actionGeneration !== this.sessionGeneration) return false;
       if (!entry || entry.terminal) return false;
       recoverySessionId = entry.sessionId;
       if (entry.state !== "text_ready" && entry.state !== "recoverable") return false;
@@ -1025,7 +1029,9 @@ export class DictationService {
 
     this.pasteLatestInProgress = true;
     try {
+      const generation = this.sessionGeneration;
       const latest = await this.history.getLatest();
+      if (generation !== this.sessionGeneration) return;
       if (!latest) {
         this.setState({ status: "error", sessionId: null, message: "No previous dictation is available yet." });
         this.scheduleReset(ERROR_RESET_MS);
@@ -2056,9 +2062,11 @@ function sameTarget(left: Pick<AppContextResult, "appBundleId" | "appName" | "pi
 const OUTCOME_UNCERTAIN_DETAIL = "outcome_uncertain";
 const NOTHING_TO_INSERT_MESSAGE = "Nothing to insert. The transcript was empty after cleanup.";
 const FORMAT_NOTICE = "Formatting did not apply. Inserted the unformatted text.";
+const FORMAT_PARTIAL_NOTICE = "Formatting applied only in part. Some text was inserted unformatted.";
 
 // Short warning added to the insert message when formatting did not apply. Offline and too-short skips get no warning.
 function formatNoticeFor(trace: FormatTranscriptTraceResult): string | null {
+  if (trace.partiallyFormatted) return FORMAT_PARTIAL_NOTICE;
   if (trace.formatterStatus === "failed" || trace.formatterStatus === "rejected") return FORMAT_NOTICE;
   const formatterUnavailable = trace.formatterStatusReason === NO_API_KEY_REASON || trace.formatterStatusReason === NO_PROVIDER_REASON;
   return trace.formatterStatus === "skipped" && formatterUnavailable ? FORMAT_NOTICE : null;

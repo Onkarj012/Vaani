@@ -113,10 +113,12 @@ function OptionButton({ active, onClick, label, description }: { active: boolean
   )
 }
 
-function providerSummary(provider: typeof KNOWN_PROVIDERS[number] | undefined): string {
+function providerSummary(provider: typeof KNOWN_PROVIDERS[number] | undefined, role: 'transcription' | 'cleanup'): string {
   if (!provider) return ''
   const locality = provider.locality === 'local' ? 'Local' : 'Cloud'
-  const privacy = provider.privacyLevel === 'local-only' ? 'audio stays on device' : provider.privacyLevel === 'cloud-text' ? 'sends text to provider' : 'sends audio to provider'
+  // Transcription always uploads audio, so only a cleanup provider's text-only metadata changes the wording.
+  const sendsText = role === 'cleanup' && provider.privacyLevel === 'cloud-text'
+  const privacy = provider.privacyLevel === 'local-only' ? 'audio stays on device' : sendsText ? 'sends text to provider' : 'sends audio to provider'
   const cost = provider.estimatedCost === 'free-local' ? 'free after model download' : `${provider.estimatedCost ?? 'varies'} cost`
   const confidence = provider.supportsConfidence ? 'confidence signals' : 'no confidence signals'
   return `${locality} · ${privacy} · ${cost} · ${confidence}`
@@ -372,7 +374,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               modelId={settings.transcriptionModel}
               onChange={(provider, modelId) => updateSettings({ transcriptionProvider: provider, transcriptionModel: modelId })}
             />
-            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeStt)}</p>
+            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeStt, 'transcription')}</p>
           </div>
 
           {activeStt?.requiresApiKey && (
@@ -403,7 +405,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               modelId={settings.formattingModel}
               onChange={(provider, modelId) => updateSettings({ formattingProvider: provider, formattingModel: modelId })}
             />
-            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeLlm)}</p>
+            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeLlm, 'cleanup')}</p>
           </div>
 
           {activeLlm?.requiresApiKey && (

@@ -124,6 +124,8 @@ export interface FormatTranscriptTraceResult {
   formatterStatus?: DictationFormatterStatus;
   formatterStatusReason?: string;
   contentGuardVerdict?: DictationContentGuardVerdict;
+  // True when some paragraphs kept formatter output but the result as a whole did not count as formatted.
+  partiallyFormatted?: boolean;
 }
 
 // Result for a formatter call that did not run, so the text stays as it was.
@@ -398,6 +400,7 @@ export class TranscriptionService {
       ?? blockResults[0];
     // Only a ran aggregate counts as LLM output; a failed or rejected paragraph makes the whole result unformatted.
     const aggregateRan = summary?.formatterStatus === "ran";
+    const partiallyFormatted = !aggregateRan && blockResults.some(r => r.formatterStatus === "ran") ? true : undefined;
     const text = formattedParts.join("").trim();
 
     if (usedFallback) {
@@ -407,6 +410,7 @@ export class TranscriptionService {
         formatterStatus: summary?.formatterStatus,
         formatterStatusReason: summary?.formatterStatusReason,
         contentGuardVerdict: { passed: false, missingWords },
+        partiallyFormatted,
       };
     }
 
@@ -416,6 +420,7 @@ export class TranscriptionService {
       formatterStatus: summary?.formatterStatus,
       formatterStatusReason: summary?.formatterStatusReason,
       contentGuardVerdict: aggregateRan ? { passed: true } : undefined,
+      partiallyFormatted,
     };
   }
 
@@ -443,14 +448,14 @@ export class TranscriptionService {
     if (!formatted) {
       return { text: rawText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: EMPTY_REPLY_REASON };
     }
-    const { missing, added } = diffContentWords(rawText, formatted, fillerWords);
-    if (missing.length > 0 || added.length > 0) {
+    const { missing, added, rejection } = diffContentWords(rawText, formatted, fillerWords);
+    if (rejection || missing.length > 0 || added.length > 0) {
       debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
       return {
         text: rawText,
         formatterUsed: "guard-fallback",
         formatterStatus: "rejected",
-        formatterStatusReason: CHANGED_WORDS_REASON,
+        formatterStatusReason: rejection ?? CHANGED_WORDS_REASON,
         contentGuardVerdict: { passed: false, missingWords: missing },
       };
     }
