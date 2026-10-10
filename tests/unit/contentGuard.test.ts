@@ -155,6 +155,10 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("you know hello world", "Hello world.", ["you know"])).toBe(true);
   });
 
+  it("accepts a dropped filler phrase that shares a word with the kept text", () => {
+    expect(preservesContentWords("you know you are right", "You are right.", ["you know"])).toBe(true);
+  });
+
   it("keeps the minus sign on a currency amount", () => {
     expect(preservesContentWords("the balance is -$10", "The balance is $10.", [])).toBe(false);
     expect(preservesContentWords("the balance is $10", "The balance is $10.", [])).toBe(true);

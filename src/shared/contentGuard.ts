@@ -235,11 +235,14 @@ function alignSections(source: Unit[], output: Unit[]): { dropped: number[]; add
 // Aligns input and output units in order. Unmatched input units are missing unless they belong to a filler phrase that was dropped whole; unmatched output units are added.
 function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[]): ContentWordDiff {
   // Equal words at both ends align without a table, so an unchanged long transcript costs nothing.
+  // Trimming stops at a filler so a filler phrase is always judged whole by the table.
+  const trimmable = (index: number, outputIndex: number): boolean =>
+    source[index]?.kind === "word" && sameWordUnit(source[index], output[outputIndex]);
   let head = 0;
-  while (head < source.length && head < output.length && sameWordUnit(source[head], output[head])) head += 1;
+  while (head < source.length && head < output.length && trimmable(head, head)) head += 1;
   let tail = 0;
   while (tail < source.length - head && tail < output.length - head
-    && sameWordUnit(source[source.length - 1 - tail], output[output.length - 1 - tail])) tail += 1;
+    && trimmable(source.length - 1 - tail, output.length - 1 - tail)) tail += 1;
 
   const middle = alignSections(source.slice(head, source.length - tail), output.slice(head, output.length - tail));
   if (!middle) return { missing: [], added: [], rejection: TOO_LONG_REASON };
