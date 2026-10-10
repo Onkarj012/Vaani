@@ -225,7 +225,7 @@ function normalizeCommonNumbers(text: string): string {
   return digitized
     .replace(/\bone\s+percent\b/gi, "1%")
     .replace(/(\d+)\s+percent\b/gi, "$1%")
-    .replace(/(\d+(?:[.,]\d+)*)\s+dollars?\b/gi, "$$$1");
+    .replace(/(?<![\d.])(\.?\d+(?:[.,]\d+)*)\s+dollars?\b/gi, "$$$1");
 }
 
 function shouldNormalizeNumberRun(normalized: string): boolean {
