@@ -122,6 +122,38 @@ describe("preservesContentWords", () => {
   it("rejects a line break the output places away from the cue", () => {
     expect(preservesContentWords("hello there new paragraph how are you", "Hello there how are you?\n\n", [])).toBe(false);
   });
+
+  it("does not read a version number split by a list marker as a cue", () => {
+    expect(preservesContentWords("use version number 1.5", "Use version\n1. 5.", [])).toBe(false);
+    expect(preservesContentWords("use version number 1.5", "Use version number 1.5.", [])).toBe(true);
+  });
+
+  it("keeps a sign in a number", () => {
+    expect(preservesContentWords("temperature is -10", "Temperature is 10.", [])).toBe(false);
+    expect(preservesContentWords("temperature is -10", "Temperature is -10.", [])).toBe(true);
+  });
+
+  it("keeps a leading decimal point in a number", () => {
+    expect(preservesContentWords("dose is .5 mg", "Dose is 5 mg.", [])).toBe(false);
+    expect(preservesContentWords("dose is .5 mg", "Dose is .5 mg.", [])).toBe(true);
+  });
+
+  it("does not treat a word hyphen as a sign", () => {
+    expect(preservesContentWords("the COVID-19 rule", "The COVID -19 rule.", [])).toBe(false);
+    expect(preservesContentWords("the COVID-19 rule", "The COVID-19 rule.", [])).toBe(true);
+  });
+
+  it("accepts a spoken cue that the output keeps as words", () => {
+    expect(preservesContentWords("I bought a number two pencil", "I bought a number two pencil.", [])).toBe(true);
+    expect(preservesContentWords("hello there new paragraph how are you", "Hello there new paragraph how are you.", [])).toBe(true);
+  });
+
+  it("exempts a filler phrase only when the output drops all of it", () => {
+    expect(preservesContentWords("you know the answer", "You the answer.", ["you know"])).toBe(false);
+    expect(missingContentWords("you know the answer", "You the answer.", ["you know"])).toEqual(["know"]);
+    expect(preservesContentWords("you know the answer", "You know the answer.", ["you know"])).toBe(true);
+    expect(preservesContentWords("you know hello world", "Hello world.", ["you know"])).toBe(true);
+  });
 });
 
 describe("stripReasoningBlocks", () => {

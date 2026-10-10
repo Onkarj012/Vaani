@@ -492,7 +492,7 @@ describe("TranscriptionService failover chain", () => {
     const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     await expect(service.formatTranscriptDetailed("First paragraph.\n\nSecond paragraph.")).resolves.toMatchObject({
-      formatterUsed: "llm",
+      formatterUsed: "none",
       formatterStatus: status,
       formatterStatusReason: "Formatter problem.",
     });
@@ -1187,6 +1187,38 @@ describe("formatter outcome at the transcription seam", () => {
       formatterUsed: "none",
       formatterStatus: "failed",
       formatterStatusReason: "Request timed out.",
+    });
+  });
+
+  it.each(["openai-llm", "anthropic"])("records a %s reply that stalls while the body is read as failed", async (id) => {
+    const service = await serviceFor(id);
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => Promise.resolve(new Response(new ReadableStream({
+      start(controller) {
+        init.signal?.addEventListener("abort", () => controller.error(new DOMException("The operation was aborted.", "AbortError")));
+      },
+    }), { status: 200 }))));
+
+    const pending = service.formatTranscriptDetailed(rawText);
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await expect(pending).resolves.toEqual({
+      text: rawText,
+      formatterUsed: "none",
+      formatterStatus: "failed",
+      formatterStatusReason: "Request timed out.",
+    });
+  });
+
+  it("does not record LLM output when one paragraph failed", async () => {
+    const service = await serviceFor("openai-llm");
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "We ship it Tuesday." } }] }))
+      .mockResolvedValueOnce(new Response("", { status: 500 })));
+
+    await expect(service.formatTranscriptDetailed("we ship it Tuesday\n\nsend the report today")).resolves.toMatchObject({
+      formatterUsed: "none",
+      formatterStatus: "failed",
     });
   });
 

@@ -5,12 +5,13 @@ import {
   EMPTY_TRANSCRIPT_REASON,
   FORMATTED_REASON,
   FORMATTING_PROMPT,
+  LLM_TIMEOUT_MS,
   MIN_WORDS_FOR_FORMATTING,
   NO_API_KEY_REASON,
   TOO_SHORT_REASON,
 } from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
-import { isAbortError } from "@main/cancellation";
+import { isAbortError, runWithDeadline } from "@main/cancellation";
 import { defaultModelFor, providerModels } from "@shared/modelList";
 
 export const AnthropicLlmProvider: FormattingProvider = {
@@ -26,25 +27,27 @@ export const AnthropicLlmProvider: FormattingProvider = {
     if (!options.apiKey) return formatterResult("skipped", text, NO_API_KEY_REASON);
 
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": options.apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        signal: options.signal,
-        body: JSON.stringify({
-          model: options.model || defaultModelFor("cleanup", "anthropic"),
-          max_tokens: Math.max(256, text.length * 2),
-          temperature: 0,
-          system: options.systemPrompt || FORMATTING_PROMPT,
-          messages: [{ role: "user", content: `<transcript>\n${text}\n</transcript>` }],
-        }),
+      const apiKey = options.apiKey;
+      const data = await runWithDeadline(options.signal, LLM_TIMEOUT_MS, async (signal) => {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          signal,
+          body: JSON.stringify({
+            model: options.model || defaultModelFor("cleanup", "anthropic"),
+            max_tokens: Math.max(256, text.length * 2),
+            temperature: 0,
+            system: options.systemPrompt || FORMATTING_PROMPT,
+            messages: [{ role: "user", content: `<transcript>\n${text}\n</transcript>` }],
+          }),
+        });
+        if (!response.ok) throw new Error(`Anthropic API request failed with status ${response.status}.`);
+        return await response.json() as { content: { type: string; text: string }[] };
       });
-
-      if (!response.ok) throw new Error(`Anthropic API request failed with status ${response.status}.`);
-      const data = await response.json() as { content: { type: string; text: string }[] };
       const formatted = data.content?.find(c => c.type === "text")?.text?.trim();
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
       return formatterResult("ran", formatted, FORMATTED_REASON);

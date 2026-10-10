@@ -1,19 +1,21 @@
 // Word guard for LLM formatting. Compares the words of the formatter input and output,
 // in order and in any script. Punctuation, capitals, and line placement are ignored.
 // Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one") may
-// disappear only when the output has a line break or a list item with the same number there.
+// disappear only when the output has a line break or a list item with the same number there, or keeps the cue words.
 
 const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
 const NUMBER_WORD_SOURCE = String.raw`one|two|three|four|five|six|seven|eight|nine|ten|\d+`;
-const ENUM_CUE_SOURCE = String.raw`bullet\s*point|number\s+(?:${NUMBER_WORD_SOURCE})|no\.\s*\d+|point\s+(?:${NUMBER_WORD_SOURCE})|item\s+(?:${NUMBER_WORD_SOURCE})|(?:first|second|third|fourth|fifth)\s+(?:item|bullet|point|step)`;
-const NUMERIC_LITERAL_SOURCE = String.raw`\p{N}+(?:[.,:/]\p{N}+)+`;
+// A cue whose number starts a longer literal such as "1.5" is not a cue.
+const ENUM_CUE_SOURCE = String.raw`(?:bullet\s*point|number\s+(?:${NUMBER_WORD_SOURCE})|no\.\s*\d+|point\s+(?:${NUMBER_WORD_SOURCE})|item\s+(?:${NUMBER_WORD_SOURCE})|(?:first|second|third|fourth|fifth)\s+(?:item|bullet|point|step))(?![.,:/]\p{N})`;
+// A sign or leading dot is part of the literal only when no letter or digit comes right before it.
+const NUMERIC_LITERAL_SOURCE = String.raw`(?<![\p{L}\p{M}\p{N}])[+-]\p{N}+(?:[.,:/]\p{N}+)*|(?<![\p{L}\p{M}\p{N}])[+-]?\.\p{N}+|\p{N}+(?:[.,:/]\p{N}+)+`;
 const WORD_SOURCE = String.raw`[\p{L}\p{M}\p{N}]+`;
 const INPUT_TOKEN_RE = new RegExp(
-  String.raw`\b(?<line>${LINE_CUE_SOURCE})\b|\b(?<enum>${ENUM_CUE_SOURCE})\b|${NUMERIC_LITERAL_SOURCE}|${WORD_SOURCE}`,
+  String.raw`\b(?<line>${LINE_CUE_SOURCE})\b|\b(?<enum>${ENUM_CUE_SOURCE})\b|(?:${NUMERIC_LITERAL_SOURCE})|${WORD_SOURCE}`,
   "giu",
 );
 const OUTPUT_TOKEN_RE = new RegExp(
-  String.raw`(?:^|\n)[ \t]*(?:(?<bullet>[-*•])|(?<number>\d+)[.)])[ \t]+|(?<break>\n)|${NUMERIC_LITERAL_SOURCE}|${WORD_SOURCE}`,
+  String.raw`(?:^|\n)[ \t]*(?:(?<bullet>[-*•])|(?<number>\d+)[.)])[ \t]+|(?<break>\n)|(?:${NUMERIC_LITERAL_SOURCE})|${WORD_SOURCE}`,
   "gu",
 );
 const REASONING_BLOCK_RE = /<(think|thinking|reasoning|thought)>[\s\S]*?<\/\1>/gi;
@@ -77,18 +79,23 @@ function isWord(unit: Unit | undefined, text: string): boolean {
   return unit?.kind === "word" && unit.text === text;
 }
 
-// Marks listed fillers and filler phrases in the input as fillers. The output may drop them, never add them.
-function markFillers(units: Unit[], fillers: readonly string[]): Unit[] {
+// Marks listed fillers and filler phrases in the input as fillers. Returns the index range of each matched phrase.
+function markFillers(units: Unit[], fillers: readonly string[]): { units: Unit[]; phrases: [number, number][] } {
   const marked = new Set<number>();
+  const phrases: [number, number][] = [];
   for (const filler of fillers) {
     const phrase = wordsIn(filler);
     if (phrase.length === 0) continue;
     for (let start = 0; start + phrase.length <= units.length; start += 1) {
       if (!phrase.every((word, offset) => isWord(units[start + offset], word))) continue;
+      phrases.push([start, start + phrase.length]);
       for (let offset = 0; offset < phrase.length; offset += 1) marked.add(start + offset);
     }
   }
-  return units.map((unit, index): Unit => (marked.has(index) && unit.kind === "word" ? { kind: "filler", text: unit.text } : unit));
+  return {
+    units: units.map((unit, index): Unit => (marked.has(index) && unit.kind === "word" ? { kind: "filler", text: unit.text } : unit)),
+    phrases,
+  };
 }
 
 // Maps standalone spelled-out numbers to digits, skipping fillers when looking at neighbors. "twenty one" stays words so it never matches "20 1".
@@ -106,14 +113,15 @@ function finishWords(units: Unit[]): Unit[] {
   });
 }
 
-// Input words, listed fillers, and spoken layout cues in order. Numeric literals such as 1.5 stay whole.
-function inputUnits(text: string, fillers: readonly string[]): Unit[] {
+// Input units in order, plus the index range of each listed filler phrase. Numeric literals such as 1.5 stay whole.
+function inputUnits(text: string, fillers: readonly string[]): { units: Unit[]; phrases: [number, number][] } {
   const units = [...text.matchAll(INPUT_TOKEN_RE)].map((match): Unit => {
     if (match.groups?.line) return { kind: "line", words: wordsIn(match[0]) };
     if (match.groups?.enum) return { kind: "enum", value: cueValue(match[0]), words: wordsIn(match[0]) };
     return { kind: "word", text: match[0].toLowerCase() };
   });
-  return finishWords(markFillers(units, fillers));
+  const marked = markFillers(units, fillers);
+  return { units: finishWords(marked.units), phrases: marked.phrases };
 }
 
 // Output words, line breaks, and list items in order. Numeric literals such as 1.5 stay whole.
@@ -126,12 +134,37 @@ function outputUnits(text: string): Unit[] {
   }));
 }
 
-// True when an output unit applies an input unit: the same word, a line break for a line cue, or a list item with the same number.
-function sameUnit(source: Unit, output: Unit): boolean {
-  if (source.kind === "word" || source.kind === "filler") return output.kind === "word" && output.text === source.text;
-  if (source.kind === "line") return output.kind === "break";
-  if (source.kind === "enum") return output.kind === "item" && output.value === source.value;
+// True when an output word is a cue word. A spelled-out number may come back as digits.
+function sameCueWord(cueWord: string, outputWord: string): boolean {
+  return outputWord === cueWord || outputWord === NUMBER_WORDS.get(cueWord);
+}
+
+// True when an output unit shows a layout cue: a line break for a line cue, or a list item with the cue's number.
+function showsLayout(cue: Unit, output: Unit): boolean {
+  if (cue.kind === "line") return output.kind === "break";
+  if (cue.kind === "enum") return output.kind === "item" && output.value === cue.value;
   return false;
+}
+
+// Number of output units that the cue words fill when they appear unchanged just before end, or 0.
+function cueWordsCountAt(words: string[], output: Unit[], end: number): number {
+  const start = end - words.length;
+  if (words.length === 0 || start < 0) return 0;
+  const matches = words.every((word, offset) => {
+    const unit = output[start + offset];
+    return unit?.kind === "word" && sameCueWord(word, unit.text);
+  });
+  return matches ? words.length : 0;
+}
+
+// Number of output units, ending just before end, that a source unit accounts for. Zero means no match there.
+function consumedBy(source: Unit, output: Unit[], end: number): number {
+  const last = output[end - 1];
+  if (!last) return 0;
+  if (source.kind === "word" || source.kind === "filler") return last.kind === "word" && last.text === source.text ? 1 : 0;
+  if (source.kind !== "line" && source.kind !== "enum") return 0;
+  if (showsLayout(source, last)) return 1;
+  return cueWordsCountAt(source.words, output, end);
 }
 
 // Words a unit contributes to the missing or added list. Line breaks have none.
@@ -146,48 +179,55 @@ function unitWords(unit: Unit): string[] {
   }
 }
 
-// Aligns input and output units in order. Unmatched input units are missing unless listed as fillers; unmatched output units are added.
-function alignUnits(source: Unit[], output: Unit[]): ContentWordDiff {
+// Aligns input and output units in order. Unmatched input units are missing unless they belong to a filler phrase that was dropped whole; unmatched output units are added.
+function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[]): ContentWordDiff {
   const width = output.length + 1;
   const common = new Uint16Array((source.length + 1) * width);
   const cell = (i: number, j: number): number => common[i * width + j] ?? 0;
   for (let i = 1; i <= source.length; i += 1) {
+    const sourceUnit = source[i - 1];
     for (let j = 1; j <= output.length; j += 1) {
-      const sourceUnit = source[i - 1];
-      const outputUnit = output[j - 1];
-      common[i * width + j] = sourceUnit && outputUnit && sameUnit(sourceUnit, outputUnit)
-        ? cell(i - 1, j - 1) + 1
-        : Math.max(cell(i - 1, j), cell(i, j - 1));
+      const consumed = sourceUnit ? consumedBy(sourceUnit, output, j) : 0;
+      common[i * width + j] = Math.max(cell(i - 1, j), cell(i, j - 1), consumed > 0 ? cell(i - 1, j - consumed) + 1 : 0);
     }
   }
 
-  const missingUnits: Unit[] = [];
+  const dropped = new Set<number>();
   const addedUnits: Unit[] = [];
   let i = source.length;
   let j = output.length;
   while (i > 0 || j > 0) {
     const sourceUnit = source[i - 1];
     const outputUnit = output[j - 1];
-    if (sourceUnit && outputUnit && sameUnit(sourceUnit, outputUnit)) {
+    const consumed = sourceUnit && j > 0 ? consumedBy(sourceUnit, output, j) : 0;
+    if (consumed > 0 && cell(i, j) === cell(i - 1, j - consumed) + 1) {
       i -= 1;
-      j -= 1;
+      j -= consumed;
     } else if (outputUnit && (!sourceUnit || cell(i, j - 1) >= cell(i - 1, j))) {
       addedUnits.push(outputUnit);
       j -= 1;
-    } else if (sourceUnit) {
-      if (sourceUnit.kind !== "filler") missingUnits.push(sourceUnit);
+    } else {
+      dropped.add(i - 1);
       i -= 1;
     }
   }
+
+  // A filler phrase may go only when every one of its words goes.
+  const dropsWholePhrase = ([start, end]: [number, number]): boolean => {
+    for (let index = start; index < end; index += 1) if (!dropped.has(index)) return false;
+    return true;
+  };
+  const isExempt = (index: number): boolean => phrases.some(phrase => phrase[0] <= index && index < phrase[1] && dropsWholePhrase(phrase));
   return {
-    missing: missingUnits.reverse().flatMap(unitWords),
+    missing: source.filter((_, index) => dropped.has(index) && !isExempt(index)).flatMap(unitWords),
     added: addedUnits.reverse().flatMap(unitWords),
   };
 }
 
 // Words the formatter dropped, reordered, or added. Listed fillers may be dropped but not added.
 export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = []): ContentWordDiff {
-  return alignUnits(inputUnits(rawText, fillers), outputUnits(candidate));
+  const input = inputUnits(rawText, fillers);
+  return alignUnits(input.units, input.phrases, outputUnits(candidate));
 }
 
 // True only when the formatter kept every word, in order, and added none. Listed fillers may be dropped.

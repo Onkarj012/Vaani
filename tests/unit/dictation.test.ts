@@ -1326,6 +1326,29 @@ describe("DictationService", () => {
     expect(recoveryFixture.getEntry().terminal).toBe("delivered");
   });
 
+  it("refuses to copy punctuation-only recovery text without changing a live dictation", async () => {
+    const entry = { ...createRecoveryEntry({ id: "entry-1", sessionId: "session-1", buildIdentifier: "1.0.0+abc1234" }), state: "text_ready" as const, text: { rawTranscript: "um", cleanedText: "...", formattedText: null } };
+    const recovery = { ...createInsertionRecovery("session-1").recovery, getById: vi.fn(async () => entry) };
+    const copyText = vi.fn(async () => true);
+    const { service } = createDictationService({ recovery, recoveryReady: () => true, copyText });
+
+    service.beginHotkeySession();
+    const liveState = service.getState();
+    await expect(service.copyRecoveryEntry("entry-1")).resolves.toBe(false);
+    expect(service.getState()).toEqual(liveState);
+    expect(copyText).not.toHaveBeenCalled();
+  });
+
+  it("shows the empty-text error when an idle recovery copy is refused", async () => {
+    const entry = { ...createRecoveryEntry({ id: "entry-1", sessionId: "session-1", buildIdentifier: "1.0.0+abc1234" }), state: "text_ready" as const, text: { rawTranscript: "um", cleanedText: "...", formattedText: null } };
+    const recovery = { ...createInsertionRecovery("session-1").recovery, getById: vi.fn(async () => entry) };
+    const { service, injector } = createDictationService({ recovery, recoveryReady: () => true });
+
+    await expect(service.copyRecoveryEntry("entry-1")).resolves.toBe(false);
+    expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
   it("rejects recovery insertion while a fresh dictation is active", async () => {
     const recoveryFixture = createInsertionRecovery("session-1");
     const { service } = createDictationService({ recovery: recoveryFixture.recovery, recoveryReady: () => true });

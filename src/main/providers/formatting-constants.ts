@@ -1,4 +1,6 @@
 export const MIN_WORDS_FOR_FORMATTING = 4;
+// Deadline for one formatter request, including reading its reply body.
+export const LLM_TIMEOUT_MS = 20_000;
 
 export const FORMATTED_REASON = "Formatted.";
 export const EMPTY_TRANSCRIPT_REASON = "Transcript is empty.";

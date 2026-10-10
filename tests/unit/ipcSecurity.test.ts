@@ -179,6 +179,16 @@ describe("IPC security boundaries", () => {
     await expect(invokeHandlers.get(IpcChannel.RequestMicrophonePermission)?.({ sender: mainSender })).rejects.toBe(failure);
   });
 
+  it("refuses to copy text with no words or numbers", async () => {
+    const { clipboard } = await import("electron");
+    const handler = invokeHandlers.get(IpcChannel.CopyText);
+
+    expect(await handler?.({ sender: mainSender }, "...")).toBe(false);
+    expect(clipboard.writeText).not.toHaveBeenCalled();
+    expect(await handler?.({ sender: mainSender }, "Hello.")).toBe(true);
+    expect(clipboard.writeText).toHaveBeenCalledWith("Hello.");
+  });
+
   it("allows recorder channels only from the recorder renderer", async () => {
     const handler = invokeHandlers.get(IpcChannel.SubmitAudioClip);
     const payload = {

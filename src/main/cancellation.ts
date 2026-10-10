@@ -34,6 +34,20 @@ export function createCancellationScope(parentSignal?: AbortSignal, deadlineAt?:
   };
 }
 
+// Runs a request under a deadline that also covers reading its body. A caller cancel keeps its own error; a deadline becomes "Request timed out.".
+export async function runWithDeadline<T>(parentSignal: AbortSignal | undefined, timeoutMs: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const scope = createCancellationScope(parentSignal, Date.now() + timeoutMs);
+  try {
+    return await run(scope.signal);
+  } catch (error) {
+    if (parentSignal?.aborted) throw error;
+    if (scope.signal.aborted) throw new Error("Request timed out.");
+    throw error;
+  } finally {
+    scope.dispose();
+  }
+}
+
 export function isAbortError(error: unknown): boolean {
   return (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
 }

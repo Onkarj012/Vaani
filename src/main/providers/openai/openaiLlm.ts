@@ -9,33 +9,16 @@ import {
   EMPTY_TRANSCRIPT_REASON,
   FORMATTED_REASON,
   FORMATTING_PROMPT,
+  LLM_TIMEOUT_MS,
   MIN_WORDS_FOR_FORMATTING,
   NO_API_KEY_REASON,
   STRICT_FORMATTING_PROMPT,
   TOO_SHORT_REASON,
 } from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
-import { isAbortError } from "@main/cancellation";
-import { createCancellationScope } from "@main/cancellation";
+import { isAbortError, runWithDeadline } from "@main/cancellation";
 
-const LLM_TIMEOUT_MS = 20_000;
 const ADDED_CONTENT_WORD_SLACK = 3;
-
-function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = LLM_TIMEOUT_MS): Promise<Response> {
-  const scope = createCancellationScope(init.signal ?? undefined, Date.now() + timeoutMs);
-  return (async () => {
-    try {
-      const response = await fetch(input, { ...init, signal: scope.signal });
-      if (scope.signal.aborted && !init.signal?.aborted) throw new Error("Request timed out.");
-      return response;
-    } catch (error) {
-      if (scope.signal.aborted && !init.signal?.aborted) throw new Error("Request timed out.");
-      throw error;
-    } finally {
-      scope.dispose();
-    }
-  })();
-}
 
 const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will format|here['\u2019]s the|let me|as requested|i hope|i think|i believe|the answer is|based on|as an ai|sure!?|certainly!?|of course!?)\b/i;
 
@@ -47,26 +30,27 @@ function hasSuspiciousContentChange(rawText: string, candidate: string, fillers:
 }
 
 async function requestFormatting(text: string, options: Parameters<FormattingProvider["format"]>[1], prompt: string): Promise<string | null> {
-  const response = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${options.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: options.model || defaultModelFor("cleanup", "openai-llm"),
-      temperature: 0,
-      max_completion_tokens: Math.max(256, text.length * 2),
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: `<transcript>\n${text}\n</transcript>` },
-      ],
-    }),
-    signal: options.signal,
+  const data = await runWithDeadline(options.signal, LLM_TIMEOUT_MS, async (signal) => {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${options.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: options.model || defaultModelFor("cleanup", "openai-llm"),
+        temperature: 0,
+        max_completion_tokens: Math.max(256, text.length * 2),
+        messages: [
+          { role: "system", content: prompt },
+          { role: "user", content: `<transcript>\n${text}\n</transcript>` },
+        ],
+      }),
+      signal,
+    });
+    if (!response.ok) throw new Error(`OpenAI API request failed with status ${response.status}.`);
+    return await response.json() as { choices: { message: { content: string } }[] };
   });
-
-  if (!response.ok) throw new Error(`OpenAI API request failed with status ${response.status}.`);
-  const data = await response.json() as { choices: { message: { content: string } }[] };
   return stripReasoningBlocks(data.choices[0]?.message?.content ?? "") || null;
 }
 

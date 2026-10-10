@@ -822,7 +822,12 @@ export class DictationService {
     if (!entry || entry.terminal) return false;
     if (entry.state !== "transcript_ready" && entry.state !== "text_ready" && entry.state !== "recoverable") return false;
     const text = selectRecoveryText(entry.text);
-    if (!text || this.refuseEmptyManualText(text)) return false;
+    if (!text) return false;
+    if (!hasSpokenContent(text)) {
+      // A live dictation keeps its state; an idle copy still shows why nothing was copied.
+      if (!this.isLiveSession()) this.refuseEmptyManualText(text);
+      return false;
+    }
     const copied = await this.copyText(text);
     if (!copied) return false;
     await this.recordRecoveryInsertionOutcome(entry.sessionId, "copied", entry.insertion?.method ?? null, undefined, "Explicit recovery copy.", entry.id);
@@ -1193,8 +1198,13 @@ export class DictationService {
     return undefined;
   }
 
+  // True while a dictation is starting, recording, finalizing, or transcribing.
+  private isLiveSession(): boolean {
+    return this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing" || this.state.status === "transcribing";
+  }
+
   private rejectManualInsertionWhileActive(): boolean {
-    if (this.state.status !== "starting" && this.state.status !== "recording" && this.state.status !== "finalizing" && this.state.status !== "transcribing") return false;
+    if (!this.isLiveSession()) return false;
     this.overlay.setError();
     return true;
   }

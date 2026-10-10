@@ -391,12 +391,13 @@ export class TranscriptionService {
       if (result.contentGuardVerdict?.missingWords) missingWords.push(...result.contentGuardVerdict.missingWords);
     }
 
-    const usedFormatter = blockResults.some(r => r.formatterUsed === "llm");
     const usedFallback = blockResults.some(r => r.formatterUsed === "guard-fallback");
     // A failed or rejected block sets the trace status, so one bad paragraph is never hidden behind a good one.
     const summary = blockResults.find(r => r.formatterStatus === "failed" || r.formatterStatus === "rejected")
       ?? blockResults.find(r => r.formatterUsed === "llm")
       ?? blockResults[0];
+    // Only a ran aggregate counts as LLM output; a failed or rejected paragraph makes the whole result unformatted.
+    const aggregateRan = summary?.formatterStatus === "ran";
     const text = formattedParts.join("").trim();
 
     if (usedFallback) {
@@ -411,10 +412,10 @@ export class TranscriptionService {
 
     return {
       text,
-      formatterUsed: usedFormatter ? "llm" : "none",
+      formatterUsed: aggregateRan ? "llm" : "none",
       formatterStatus: summary?.formatterStatus,
       formatterStatusReason: summary?.formatterStatusReason,
-      contentGuardVerdict: usedFormatter ? { passed: true } : undefined,
+      contentGuardVerdict: aggregateRan ? { passed: true } : undefined,
     };
   }
 

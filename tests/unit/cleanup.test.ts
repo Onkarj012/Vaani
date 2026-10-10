@@ -198,6 +198,11 @@ describe("cleanupText", () => {
     })).toBe("The budget is $10.");
   });
 
+  it("keeps the whole amount when converting a dollar phrase with a decimal or grouping", () => {
+    expect(cleanupText({ rawText: "The price is 1.5 dollars", settings: createSettings() })).toBe("The price is $1.5.");
+    expect(cleanupText({ rawText: "The total is 1,000 dollars", settings: createSettings() })).toBe("The total is $1,000.");
+  });
+
   it("leaves the idiomatic standalone 'one' as a word", () => {
     expect(cleanupText({
       rawText: "I have one more thing",

@@ -1,4 +1,4 @@
-import { createCancellationScope } from "@main/cancellation";
+import { runWithDeadline } from "@main/cancellation";
 import type { ApiKeyValidationResult } from "../types";
 import { validateBearerEndpoint } from "../validation";
 
@@ -22,25 +22,17 @@ export interface OpenRouterPostRequest {
 }
 
 // POSTs to OpenRouter and returns the parsed JSON reply. The timeout also covers reading the body.
-export async function openRouterPostJson<T>(request: OpenRouterPostRequest): Promise<T> {
-  const scope = createCancellationScope(request.signal, Date.now() + (request.timeoutMs ?? OPENROUTER_TIMEOUT_MS));
-  try {
+export function openRouterPostJson<T>(request: OpenRouterPostRequest): Promise<T> {
+  return runWithDeadline(request.signal, request.timeoutMs ?? OPENROUTER_TIMEOUT_MS, async (signal) => {
     const response = await fetch(`${OPENROUTER_BASE_URL}${request.path}`, {
       method: "POST",
       headers: { ...OPENROUTER_ATTRIBUTION_HEADERS, ...request.headers, Authorization: `Bearer ${request.apiKey}` },
       body: request.body,
-      signal: scope.signal,
+      signal,
     });
     if (!response.ok) throw new Error(`OpenRouter API request failed with status ${response.status}.`);
     return await response.json() as T;
-  } catch (error) {
-    // A caller cancel keeps its own error so the formatter rethrows it.
-    if (request.signal?.aborted) throw error;
-    if (scope.signal.aborted) throw new Error("Request timed out.");
-    throw error;
-  } finally {
-    scope.dispose();
-  }
+  });
 }
 
 // Checks a key against OpenRouter's models endpoint. Both OpenRouter adapters use it.

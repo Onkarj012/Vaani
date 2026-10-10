@@ -21,6 +21,7 @@ import type {
 } from "@shared/types";
 import { toRecoveryEntryView, type RecoveryEntryView, type RecoveryRestoredNotice, type RecoveryStorageUsage } from "@shared/recovery";
 import { DictationService } from "./dictation";
+import { hasSpokenContent } from "./text/cleanup";
 import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore, sanitizeSettingsForRenderer } from "./store/credentials";
@@ -597,7 +598,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   });
   ipcMain.handle(IpcChannel.CopyText, (event, text: unknown) => {
     requireAllowedSender(event, [mainWindow]);
-    if (!isBoundedString(text, MAX_TEXT_LENGTH)) return false;
+    if (!isBoundedString(text, MAX_TEXT_LENGTH) || !hasSpokenContent(text)) return false;
     clipboard.writeText(text);
     return true;
   });
