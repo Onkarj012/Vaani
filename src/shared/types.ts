@@ -1,11 +1,44 @@
+import type { RecoveryReadiness } from "./recoveryReadiness";
 import type { DictionarySuggestion } from "./dictionarySuggestions";
+import type { RecoveryEntryView, RecoveryInsertionTerminalOutcome, RecoveryRestoredNotice, RecoveryStorageUsage } from "./recovery";
+export type {
+  RecoveryAttempt,
+  RecoveryEntry,
+  RecoveryEntryView,
+  RecoveryError,
+  RecoveryErrorClass,
+  RecoveryInsertionOutcome,
+  RecoveryInsertionView,
+  RecoveryInsertionPreparation,
+  RecoveryInsertionTerminalOutcome,
+  RecoveryProviderAttempt,
+  RecoveryRetention,
+  RecoveryRetentionMetadata,
+  RecoveryMode,
+  RecoveryState,
+  RecoveryTarget,
+  RecoveryTargetFingerprint,
+  RecoveryTerminal,
+  RecoveryTerminalOutcome,
+  RecoveryTextReferences,
+  RecoveryTransitionInput,
+  RecoveryRestoredNotice,
+  RecoveryStorageUsage,
+} from "./recovery";
 
 // ─── Dictation State ─────────────────────────────────────────────────────────
 
 export type DictationStatus = "idle" | "starting" | "recording" | "finalizing" | "transcribing" | "completed" | "error";
 export type DictationCompletionOutcome = "injected" | "saved";
 export type InjectionMethod = "ax" | "clipboard";
-export type InjectionFailureReason = "permission_missing" | "no_editable_target" | "insertion_failed" | "activation_failed";
+export type InjectionFailureReason =
+  | "permission_missing"
+  | "no_editable_target"
+  | "insertion_failed"
+  | "activation_failed"
+  | "cancelled"
+  | "target_changed"
+  | "outcome_uncertain";
 export type DictationMode = "toggle" | "push-to-talk" | "toggle-double";
 
 export interface SelectionRange {
@@ -22,7 +55,9 @@ export type DictationState =
   | {
       status: "completed";
       sessionId: string;
-      outcome: DictationCompletionOutcome;
+      outcome: DictationCompletionOutcome | "failed";
+      insertionOutcome?: DictationInsertionOutcome;
+      recoveryOutcome?: RecoveryInsertionTerminalOutcome;
       text: string;
       message: string;
       detectedLanguage?: string | null;
@@ -93,20 +128,28 @@ export interface TranscriptionQualityMetadata {
 
 // ─── History ─────────────────────────────────────────────────────────────────
 
-export type DictationTraceOutcome = "started" | "injected" | "saved" | "rejected" | "failed" | "cancelled";
-export type DictationRejectionReason = "no_speech" | "fragment" | "recorder_unavailable" | "recorder_failure" | "timeout" | "transcription_error" | "insertion_failed" | "cancelled";
+export type DictationInsertionOutcome = "verified" | "unconfirmed" | "refused" | "copy-only" | "failed";
+export type DictationTraceOutcome = DictationInsertionOutcome | "started" | "injected" | "saved" | "rejected" | "cancelled" | (string & {});
+export type DictationRejectionReason = "no_speech" | "microphone_permission_denied" | "fragment" | "recorder_unavailable" | "recorder_failure" | "timeout" | "stale-session" | "transcription_error" | "insertion_failed" | "cancelled";
 
 export interface ProviderAttemptTrace {
   provider: string;
   success: boolean;
+  attempt?: number;
   latencyMs?: number;
   error?: string;
+  outcome?: "succeeded" | "failed" | "cancelled";
+  errorClass?: import("./recovery").RecoveryErrorClass;
+  startedAt?: string;
+  completedAt?: string;
+  deadlineAt?: string | null;
   quality?: TranscriptionQualityMetadata;
 }
 
 export interface InjectionAttemptTrace {
   targetAppBundleId: string | null;
   targetAppName: string | null;
+  targetFieldClass?: string | null;
   method?: InjectionMethod | null;
   success: boolean;
   fallbackReason?: string;
@@ -117,7 +160,7 @@ export interface InsertionVerificationTrace {
   readable: boolean;
   passed: boolean;
   repaired: boolean;
-  reason?: "expected-present" | "unreadable" | "partial-suffix-repaired" | "partial-unsafe" | "missing" | "not-at-target";
+  reason?: "expected-present" | "baseline-unreadable" | "unreadable" | "timeout" | "partial-suffix-repaired" | "partial-unsafe" | "missing" | "not-at-target";
 }
 
 export type DictationFormatterUsed = "llm" | "guard-fallback" | "deterministic" | "none";
@@ -145,6 +188,8 @@ export interface DictationStageSnapshot {
   qualityDecision?: DictationStageQualityDecision;
   cleanedText?: string;
   formatterUsed?: DictationFormatterUsed;
+  formatterReason?: "timeout";
+  staleStage?: "starting" | "recording" | "finalizing" | "transcribing";
   contentGuardVerdict?: DictationContentGuardVerdict;
   correctionsApplied?: DictationCorrectionTrace[];
   injectedText?: string;
@@ -157,8 +202,17 @@ export interface DictationTrace {
   id: string;
   sessionId: string;
   startedAt: string;
+  buildIdentifier?: string;
   completedAt?: string;
   hotkeyReleasedAt?: string;
+  stopRequestedAt?: string;
+  lastFrameAfterStopMs?: number;
+  trailingRms?: number;
+  clipReadyAt?: string;
+  sttDoneAt?: string;
+  formatDoneAt?: string;
+  dispatchAt?: string;
+  verifyDoneAt?: string;
   targetAppBundleId: string | null;
   targetAppName: string | null;
   rawAudio?: AudioQualityMetrics;
@@ -180,8 +234,65 @@ export interface DictationTrace {
 }
 
 export interface DictationBugReport {
-  entry: DictationEntry | null;
-  trace: DictationTrace | null;
+  entry: Pick<DictationEntry,
+    | "id"
+    | "traceId"
+    | "timestamp"
+    | "durationSeconds"
+    | "injectionStatus"
+    | "injectionMethod"
+    | "language"
+    | "detectedLanguage"
+  > | null;
+  trace: (Pick<DictationTrace,
+    | "id"
+    | "sessionId"
+    | "startedAt"
+    | "buildIdentifier"
+    | "completedAt"
+    | "hotkeyReleasedAt"
+    | "sttProvider"
+    | "sttLatencyMs"
+    | "formattingLatencyMs"
+    | "transcriptLength"
+    | "injectionMethod"
+    | "outcome"
+    | "rejectionReason"
+  > & {
+    rawAudio?: AudioQualityMetrics;
+    trimmedAudio?: AudioQualityMetrics;
+    quality?: Omit<TranscriptionQualityMetadata, "decision"> & {
+      decision?: Pick<TranscriptQualityDecision, "action">;
+    };
+    qualityDecision?: Pick<TranscriptQualityDecision, "action">;
+    providerAttempts?: Array<Pick<ProviderAttemptTrace,
+      | "provider"
+      | "success"
+      | "attempt"
+      | "latencyMs"
+      | "outcome"
+      | "errorClass"
+      | "startedAt"
+      | "completedAt"
+      | "deadlineAt"
+    > & {
+      quality?: Omit<TranscriptionQualityMetadata, "decision"> & {
+        decision?: Pick<TranscriptQualityDecision, "action">;
+      };
+    }>;
+    injectionAttempts?: Array<Pick<InjectionAttemptTrace, "method" | "success"> & {
+      verification?: InsertionVerificationTrace;
+    }>;
+    stages?: Pick<DictationStageSnapshot,
+      | "formatterUsed"
+      | "injectionStrategy"
+      | "outcome"
+    > & {
+      qualityDecision?: Omit<DictationStageQualityDecision, "reason">;
+      contentGuardVerdict?: Pick<DictationContentGuardVerdict, "passed">;
+      insertionVerification?: InsertionVerificationTrace;
+    };
+  }) | null;
   generatedAt: string;
   appVersion?: string;
 }
@@ -210,11 +321,19 @@ export interface CustomCorrection {
   spoken: string;
   written: string;
   source?: "auto-suggested" | "manual";
+  enabled?: boolean;
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
+  fuzzy?: boolean;
+  hitCount?: number;
+  lastUsedAt?: string;
 }
 
 export interface Snippet {
   trigger: string;
   content: string;
+  matchBareTrigger?: boolean;
+  appProfileIds?: string[];
 }
 
 export interface AppProfile {
@@ -234,6 +353,13 @@ export interface ProviderApiKey {
   providerId: string;
   key: string;
   hasKey?: boolean;
+  lastValidation?: ProviderKeyValidation | null;
+}
+
+export interface ProviderKeyValidation {
+  valid: boolean;
+  message: string;
+  testedAt: string;
 }
 
 export interface Settings {
@@ -267,8 +393,11 @@ export interface Settings {
   dictationMode: DictationMode;
   saveRecordings: boolean;
   recordingsPath: string;
+  recoveryRetentionDays: 1 | 3 | 7 | 14;
+  retainFailedAudio: boolean;
   // Phase 1: Provider settings
   transcriptionProvider: string;
+  transcriptionModel: string;
   formattingProvider: string;
   formattingModel: string;
   providerApiKeys: ProviderApiKey[];
@@ -314,12 +443,15 @@ export interface TranscriptionOptions {
   prompt?: string;
   temperature?: number;
   streaming?: boolean;
+  signal?: AbortSignal;
+  recovery?: boolean;
 }
 
 export interface FormattingOptions {
   model?: string;
   style?: "default" | "strict" | "casual";
   systemPrompt?: string;
+  signal?: AbortSignal;
 }
 
 export type InjectionResult =
@@ -329,11 +461,21 @@ export type InjectionResult =
 export interface RecorderSubmission {
   sessionId: string;
   clip: AudioClip;
+  tailMetrics?: { lastFrameAfterStopMs: number; trailingRms: number };
 }
 
 export interface RecorderFailure {
   sessionId: string;
   message: string;
+  kind?: "interrupted" | "microphone_permission_denied" | "recorder_failure";
+  partialClip?: AudioClip;
+}
+
+export interface RecorderSuspensionAck {
+  sessionId: string;
+  ok: boolean;
+  partialClip?: AudioClip;
+  message?: string;
 }
 
 export interface RecorderConfig {
@@ -367,6 +509,20 @@ export interface VaaniAPI {
   deleteEntry: (id: string) => Promise<void>;
   reinjectEntry: (id: string) => Promise<void>;
   retryHistoryEntry: (id: string) => Promise<void>;
+  getRecoveryReadiness: () => Promise<RecoveryReadiness>;
+  getRecoveryEntries: () => Promise<RecoveryEntryView[]>;
+  retryRecoveryTranscription: (id: string) => Promise<boolean>;
+  retryRecoveryFormatting: (id: string) => Promise<boolean>;
+  useRawRecoveryTranscript: (id: string) => Promise<boolean>;
+  retryRecoveryInsertion: (id: string) => Promise<boolean>;
+  copyRecoveryEntry: (id: string) => Promise<boolean>;
+  playRecoveryAudio: (id: string) => Promise<boolean>;
+  deleteRecoveryAudio: (id: string) => Promise<boolean>;
+  discardRecoveryEntry: (id: string) => Promise<boolean>;
+  getRecoveryStorageUsage: () => Promise<RecoveryStorageUsage>;
+  cleanupRecoveryAudio: () => Promise<RecoveryStorageUsage>;
+  clearRecoveryAudio: () => Promise<RecoveryStorageUsage>;
+  getRecoveryRestoredNotice: () => Promise<RecoveryRestoredNotice | null>;
   getDictationTrace: (traceId: string) => Promise<DictationTrace | undefined>;
   exportBugReport: (entryId: string) => Promise<DictationBugReport>;
   clearHistory: () => Promise<void>;
@@ -394,6 +550,8 @@ export interface VaaniAPI {
   reportRendererReady: () => void;
   reportRendererError: (payload: { message: string; stack?: string }) => void;
   testApiKey: (providerId: string, apiKey: string) => Promise<{ valid: boolean; message: string }>;
+  setProviderApiKey: (providerId: string, apiKey: string) => Promise<Settings>;
+  clearProviderApiKey: (providerId: string) => Promise<Settings>;
   getProviderStatus: () => Promise<{ id: string; name: string; available: boolean; configured: boolean; type: string }[]>;
   whisperListModels: () => Promise<string[]>;
   whisperLoadModel: (modelName: string) => Promise<boolean>;
@@ -408,11 +566,15 @@ declare global {
     __VAANI_RECORDER__: {
       onStartRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       onStopRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onAbortRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onSuspendRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onResumeRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       submitAudioClip: (payload: RecorderSubmission) => Promise<void>;
       reportRecorderReady: () => Promise<void>;
       reportRecorderStarted: (sessionId: string) => Promise<void>;
       reportAudioFrame: (frame: AudioVisualFrame) => Promise<void>;
       reportRecorderFailure: (payload: RecorderFailure) => Promise<void>;
+      reportRecorderSuspended: (payload: RecorderSuspensionAck) => Promise<void>;
       prepareRecordingInput: () => Promise<number | null>;
       restoreRecordingInput: (deviceId: number | null) => Promise<boolean>;
       getRecorderConfig: () => Promise<RecorderConfig>;

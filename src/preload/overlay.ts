@@ -2,8 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const OVERLAY_CHANNELS = [
   'capsule:set-mode',
+  'capsule:set-lang',
   'capsule:update-bars',
   'capsule:set-accent',
+  'capsule:set-status',
   'capsule:show-snippet',
   'capsule:show-dictionary',
   'capsule:hide-expanded',
@@ -13,11 +15,17 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   onMode: (cb: (mode: string) => void) => {
     ipcRenderer.on('capsule:set-mode', (_e, m: string) => cb(m))
   },
+  onLanguage: (cb: (language: string) => void) => {
+    ipcRenderer.on('capsule:set-lang', (_e, language: string) => cb(language))
+  },
   onBars: (cb: (bars: number[]) => void) => {
     ipcRenderer.on('capsule:update-bars', (_e, b: number[]) => cb(b))
   },
   onAccent: (cb: (color: string) => void) => {
     ipcRenderer.on('capsule:set-accent', (_e, c: string) => cb(c))
+  },
+  onStatus: (cb: (message: string | null) => void) => {
+    ipcRenderer.on('capsule:set-status', (_e, message: string | null) => cb(message))
   },
   onShowSnippet: (cb: (data: { trigger: string }) => void) => {
     ipcRenderer.on('capsule:show-snippet', (_e, d: { trigger: string }) => cb(d))

@@ -65,6 +65,7 @@ export function isTargetFrontmost(target?: InjectionTarget): boolean {
   const currentName = current?.name?.trim().toLowerCase() ?? "";
   const targetBundleId = target?.appBundleId?.trim().toLowerCase() ?? "";
   const targetName = target?.appName?.trim().toLowerCase() ?? "";
+  if (target?.pid && target.pid !== current?.pid) return false;
 
   if (targetBundleId && currentBundleId) {
     return targetBundleId === currentBundleId;

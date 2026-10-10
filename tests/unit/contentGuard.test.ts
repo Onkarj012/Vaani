@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addedContentWords, missingContentWords, preservesContentWords } from "../../src/shared/contentGuard";
+import { addedContentWords, missingContentWords, preservesContentWords, preservesFinalWords } from "../../src/shared/contentGuard";
 
 describe("preservesContentWords", () => {
   it("accepts faithful punctuation/capitalization changes", () => {
@@ -52,6 +52,11 @@ describe("preservesContentWords", () => {
 
   it("detects a duplicate word drop", () => {
     expect(missingContentWords("this is very very good", "This is very good.")).toEqual(["very"]);
+  });
+
+  it("rejects final words moved earlier even when word counts still match", () => {
+    expect(preservesFinalWords("we ship it Tuesday", "Tuesday, we ship it.")).toBe(false);
+    expect(preservesFinalWords("we ship it Tuesday", "We ship it Tuesday.")).toBe(true);
   });
 
   it("forgives enumeration cues only when output has list markers", () => {

@@ -19,6 +19,11 @@ const CHROMIUM_TRANSPORT_LABELS: Readonly<Record<string, string>> = {
   virtual: "virtual",
 };
 
+/** Bluetooth mics switch earphones into call mode and duck output, so only an explicit choice may open them. */
+function isBluetoothTransport(transportType: string): boolean {
+  return transportType === "bluetooth" || transportType === "bluetooth-le";
+}
+
 /** Exclude browser aliases whose physical source can change with system defaults. */
 function isPseudoDevice(deviceId: string): boolean {
   return !deviceId || deviceId === "default" || deviceId === "communications";
@@ -75,7 +80,8 @@ function selectWithoutNativeMetadata(inputs: AudioInputLike[], preferredDeviceId
   const physical = inputs.filter((device) => browserInputKind(device.label));
   const chosen = preferredDeviceId
     ? physical.find((device) => device.deviceId === preferredDeviceId)
-    : physical.find((device) => browserInputKind(device.label) === "built-in") ?? physical[0];
+    : physical.find((device) => browserInputKind(device.label) === "built-in")
+      ?? physical.find((device) => !/\(bluetooth( le)?\)$/.test(device.label.trim().toLowerCase()));
   if (!chosen) return preferredDeviceId ? selectionFailure(preferredDeviceId) : { ok: false, message: NO_PHYSICAL_MICROPHONE_MESSAGE };
   const name = chosen.label.trim().toLowerCase();
   return inputs.filter((device) => device.label.trim().toLowerCase() === name).length === 1
@@ -113,9 +119,10 @@ export function selectRecorderDevice(
     return uniqueBrowserMatch(inputs, nativeDevices, nativeInput, preferredDeviceId);
   }
 
-  if (physical.length === 0) return { ok: false, message: NO_PHYSICAL_MICROPHONE_MESSAGE };
+  const automatic = physical.filter((device) => !isBluetoothTransport(device.transportType));
+  if (automatic.length === 0) return { ok: false, message: NO_PHYSICAL_MICROPHONE_MESSAGE };
   const rank = (device: NativeInputLike): number => (device.transportType === "built-in" ? 0 : device.isDefault ? 1 : 2);
-  for (const nativeInput of [...physical].sort((a, b) => rank(a) - rank(b))) {
+  for (const nativeInput of automatic.sort((a, b) => rank(a) - rank(b))) {
     // Chromium can omit or duplicate a CoreAudio input; try the next physical one instead of failing.
     const selected = uniqueBrowserMatch(inputs, nativeDevices, nativeInput);
     if (selected.ok) return selected;

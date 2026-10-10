@@ -1,18 +1,22 @@
-import type { InjectionFailureReason, InjectionResult } from "@shared/types";
+import type { InjectionResult } from "@shared/types";
 import { nativeBridge } from "../nativeBridge";
 import type { InjectionTarget } from "./index";
 import { activateTargetApp, isExternalTarget } from "./target";
+import type { InjectionGuard } from "./guard";
 
 export class AccessibilityTextInjector {
   isTrusted(): boolean {
     return nativeBridge.isAccessibilityTrusted?.() ?? false;
   }
 
-  async inject(text: string, target?: InjectionTarget): Promise<InjectionResult> {
+  async inject(text: string, target?: InjectionTarget, guard: InjectionGuard = () => null, onDispatch?: () => void): Promise<InjectionResult> {
     if (!this.isTrusted()) {
       return { success: false, reason: "permission_missing" };
     }
+    const blockedAtStart = guard();
+    if (blockedAtStart) return { success: false, reason: blockedAtStart };
 
+    let dispatched = false;
     try {
       let activationSucceeded = false;
       
@@ -64,34 +68,34 @@ export class AccessibilityTextInjector {
         }
       }
 
-      const result = nativeBridge.injectText?.(text);
-      if (!result) {
+      const blocked = guard();
+      if (blocked) return { success: false, reason: blocked };
+
+      if (!nativeBridge.injectText) {
         return { success: false, reason: "insertion_failed" };
       }
+      onDispatch?.();
+      dispatched = true;
+      const result = nativeBridge.injectText(text);
+      if (guard()) return { success: false, reason: "outcome_uncertain" };
+      if (!result) return { success: false, reason: "outcome_uncertain" };
 
       if (typeof result === "boolean") {
         if (result) {
           return { success: true, method: "ax" };
         }
-        return { success: false, reason: "insertion_failed" };
+        return { success: false, reason: "outcome_uncertain" };
       }
 
       if (result.success) {
         return { success: true, method: "ax" };
       }
 
-      return { success: false, reason: normalizeFailureReason(result.reason) };
+      return { success: false, reason: "outcome_uncertain" };
     } catch (_error) {
-      return { success: false, reason: "insertion_failed" };
+      return { success: false, reason: dispatched ? "outcome_uncertain" : "insertion_failed" };
     }
   }
-}
-
-function normalizeFailureReason(reason: string | undefined): InjectionFailureReason {
-  if (reason === "permission_missing" || reason === "no_editable_target") {
-    return reason;
-  }
-  return "insertion_failed";
 }
 
 function delay(ms: number): Promise<void> {

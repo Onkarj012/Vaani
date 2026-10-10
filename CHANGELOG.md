@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.2.0 - 2026-08-12
+
+### Added
+
+- Added build identifiers and structured dictation traces for transcription quality, provider attempts, insertion attempts, and verification outcomes.
+- Added a pull-request CI workflow for frozen installs, type checking, unit tests, packaging, whitespace validation, and tracked-file cleanliness on macOS.
+- Added startup checks for Microphone and Accessibility access, with non-dismissible guidance when either permission is missing and recording blocked from the tray and hotkeys until access is granted.
+- Added opt-in engine support for fuzzy dictionary matching, bare spoken snippet triggers, and per-app snippet scope. These options are not yet configurable in the UI.
+
+### Changed
+
+- Moved provider API keys to macOS Keychain, with startup migration of legacy keys and secret-free provider metadata retained in settings.
+- Made long-recording transcription silence-aware, with overlapping chunks, model escalation, and timeout scaling based on chunk count.
+- Applied dictionary corrections before transcript formatting so formatters receive the intended spelling.
+- Preserved credential metadata during settings updates and dictionary rule metadata during unrelated edits.
+
+### Fixed
+
+- Hardened IPC validation and authorization, Keychain key updates and deletion, packaged native-addon loading, media permissions, window navigation, and local JSON file permissions.
+- Fixed insertion verification so only a literal occurrence-count increase over a readable pre-insertion baseline passes, including fallback targets and partial-suffix repair.
+- Excluded unreadable pre-insertion baselines from insertion acceptance denominators and per-app buckets.
+- Reported denied microphone access as a permission failure instead of misclassifying it as no speech.
+- Scaled long-recording deadlines and classified transcription deadline failures as timeouts.
+
+### Validation
+
+- `bun run test -- tests/unit/dictation.test.ts tests/unit/insertionAcceptance.test.ts tests/unit/dictationTraceStore.test.ts` passed.
+- Focused permission, hotkey, dictation, insertion, and trace tests passed: `bun run test -- tests/unit/permissionGuard.test.ts tests/unit/hotkeys.test.ts tests/unit/dictation.test.ts tests/unit/insertionAcceptance.test.ts tests/unit/dictationTraceStore.test.ts`.
+- `bun run typecheck` passed.
+
 ## 1.1.0 - 2026-06-12
 
 ### Added

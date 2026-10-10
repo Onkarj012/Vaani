@@ -1,14 +1,11 @@
-import type { AudioInputDevice, AudioVisualFrame, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
+import type { AudioClip, AudioInputDevice, AudioVisualFrame, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
 import { PcmRingBuffer, PRE_ROLL_MS, TARGET_SAMPLE_RATE, mergePcmChunks, pcmToAudioClip, trimLeadingSilence } from "@shared/pcmUtils";
 import { debug, error } from "@main/log";
 import { nativeBridge } from "@main/nativeBridge";
+import { STOP_MAX_WAIT_MS, STOP_POLL_MS, STOP_QUIET_MS, STOP_TAIL_GRACE_MS, trailingRms } from "@shared/recorderTail";
 
-const STOP_TAIL_GRACE_MS = 300;
 // After the grace window, wait for the native drain queue to go quiet so audio
 // still in the C++ ring / TSFN queue is not discarded with the session.
-const STOP_QUIET_MS = 120;
-const STOP_MAX_WAIT_MS = 1200;
-const STOP_POLL_MS = 40;
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const BAR_BASELINE = 0.04;
@@ -21,13 +18,29 @@ export interface NativeCaptureSink {
   reportRecorderStarted(sessionId: string): void;
   submitAudioClip(payload: RecorderSubmission): void | Promise<void>;
   updateAudioLevel(frame: AudioVisualFrame): void;
-  handleRecorderFailure(payload: RecorderFailure): void;
+  handleRecorderFailure(payload: RecorderFailure, partialClip?: ReturnType<typeof pcmToAudioClip>): void;
 }
 
 export interface RecorderCommands {
   isReady: () => boolean;
   startRecording: (sessionId: string) => boolean;
   stopRecording: (sessionId: string) => boolean;
+  abortRecording?: (sessionId: string) => void;
+  suspendForLifecycle?: () => CaptureSuspendResult | Promise<CaptureSuspendResult>;
+  resumeAfterLifecycle?: () => CaptureResumeResult;
+}
+
+export interface CaptureSuspendResult {
+  wasRunning: boolean;
+  sessionId: string | null;
+  partialClip?: AudioClip;
+  recordingResumed?: boolean;
+}
+
+export interface CaptureResumeResult {
+  ok: boolean;
+  selectedDeviceUid: string | null;
+  message?: string;
 }
 
 type NativeCaptureBridge = {
@@ -48,14 +61,15 @@ export function listNativeInputDevices(bridge: NativeCaptureBridge = nativeBridg
 
 export function selectNativeInputDevice(devices: AudioInputDevice[], preferredUid?: string): { ok: true; uid: string } | { ok: false; message: string } {
   const physical = devices.filter((device) => device.isPhysical);
-  if (physical.length === 0) {
-    return { ok: false, message: "No physical microphone found." };
+  if (preferredUid) {
+    return physical.some((device) => device.uid === preferredUid)
+      ? { ok: true, uid: preferredUid }
+      : { ok: false, message: "Selected microphone is unavailable." };
   }
-  if (preferredUid && physical.some((device) => device.uid === preferredUid)) {
-    return { ok: true, uid: preferredUid };
-  }
-  const defaultPhysical = physical.find((device) => device.isDefault);
-  return { ok: true, uid: defaultPhysical?.uid ?? physical[0]?.uid ?? "" };
+  const builtIn = physical.find((device) => device.transportType === "built-in");
+  return builtIn
+    ? { ok: true, uid: builtIn.uid }
+    : { ok: false, message: "No built-in microphone found. Choose a microphone in Settings." };
 }
 
 export function shouldUseNativeBackend(config: Pick<RecorderConfig, "captureBackend">, nativeUnavailable: boolean, bridge: NativeCaptureBridge = nativeBridge): boolean {
@@ -67,12 +81,15 @@ export class NativeCaptureService implements RecorderCommands {
   private activeSessionId: string | null = null;
   private chunks: Float32Array[] = [];
   private lastChunkAt = 0;
+  private lastFrameAt = 0;
   private noiseFloor = 0;
   private lastReportedAt = 0;
   private smoothedBars = new Array(VISUAL_BAR_COUNT).fill(BAR_BASELINE);
   private currentDeviceUid: string | null = null;
   private currentConfig: RecorderConfig = { preWarmMic: false, captureBackend: "renderer" };
   private startPromise: Promise<boolean> | null = null;
+  private transportGeneration = 0;
+  private suspended = false;
 
   constructor(
     private readonly getConfig: () => RecorderConfig,
@@ -104,6 +121,7 @@ export class NativeCaptureService implements RecorderCommands {
   startRecording(sessionId: string): boolean {
     this.currentConfig = this.normalizeConfig(this.getConfig());
     this.chunks = [];
+    this.lastFrameAt = 0;
     this.resetBars();
 
     if (!this.ensureCapture(this.currentConfig)) {
@@ -132,7 +150,10 @@ export class NativeCaptureService implements RecorderCommands {
         this.sink.handleRecorderFailure({ sessionId, message: "Recording could not be finalized." });
         return;
       }
-      void this.sink.submitAudioClip({ sessionId, clip: pcmToAudioClip(merged, TARGET_SAMPLE_RATE) });
+      void this.sink.submitAudioClip({ sessionId, clip: pcmToAudioClip(merged, TARGET_SAMPLE_RATE), tailMetrics: {
+        lastFrameAfterStopMs: this.lastFrameAt ? this.lastFrameAt - stopRequestedAt : 0,
+        trailingRms: trailingRms(merged, TARGET_SAMPLE_RATE),
+      } });
       this.restartCaptureIfPrewarmed();
     };
 
@@ -154,6 +175,47 @@ export class NativeCaptureService implements RecorderCommands {
       poll();
     }, STOP_TAIL_GRACE_MS);
     return true;
+  }
+
+  suspendForLifecycle(): CaptureSuspendResult | Promise<CaptureSuspendResult> {
+    const sessionId = this.activeSessionId;
+    const wasRunning = this.bridge.audioCaptureIsRunning?.() ?? this.currentDeviceUid !== null;
+    const partialSamples = sessionId ? mergePcmChunks(this.chunks) : new Float32Array();
+    this.suspended = true;
+    this.stopCaptureTransport();
+    this.ring.clear();
+    this.resetBars();
+    return {
+      wasRunning,
+      sessionId,
+      ...(partialSamples.length > 0 ? { partialClip: pcmToAudioClip(partialSamples, TARGET_SAMPLE_RATE) } : {}),
+    };
+  }
+
+  abortRecording(sessionId: string): void {
+    if (this.activeSessionId !== sessionId) return;
+    this.stopCaptureTransport();
+    this.activeSessionId = null;
+    this.chunks = [];
+  }
+
+  resumeAfterLifecycle(): CaptureResumeResult {
+    if (!this.suspended) return { ok: true, selectedDeviceUid: this.currentDeviceUid };
+    try {
+      const devices = listNativeInputDevices(this.bridge);
+      const selected = selectNativeInputDevice(devices, this.currentConfig.micDeviceId);
+      if (!selected.ok) return { ok: false, selectedDeviceUid: null, message: selected.message };
+      if (!this.currentConfig.preWarmMic && !this.activeSessionId) {
+        this.suspended = false;
+        return { ok: true, selectedDeviceUid: selected.uid };
+      }
+      const ok = this.ensureCapture(this.currentConfig);
+      if (!ok) return { ok: false, selectedDeviceUid: null, message: "Native capture could not be resumed." };
+      this.suspended = false;
+      return { ok: true, selectedDeviceUid: this.currentDeviceUid };
+    } catch (err) {
+      return { ok: false, selectedDeviceUid: null, message: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   shutdown(): void {
@@ -178,11 +240,14 @@ export class NativeCaptureService implements RecorderCommands {
     if (isRunning && this.currentDeviceUid === selected.uid) {
       return true;
     }
-    this.shutdown();
+    this.stopCaptureTransport();
+    this.ring.clear();
+    this.resetBars();
+    const generation = ++this.transportGeneration;
     const ok = this.bridge.audioCaptureStart?.({
       deviceUid: selected.uid,
-      onData: (samples) => this.handleData(samples),
-      onError: (message) => this.handleNativeError(message),
+      onData: (samples) => this.handleData(samples, generation),
+      onError: (message) => this.handleNativeError(message, generation),
     }) ?? false;
     if (!ok) {
       this.currentDeviceUid = null;
@@ -192,9 +257,11 @@ export class NativeCaptureService implements RecorderCommands {
     return true;
   }
 
-  private handleData(samples: Float32Array): void {
+  private handleData(samples: Float32Array, generation: number): void {
+    if (generation !== this.transportGeneration) return;
     this.ring.append(samples);
     this.lastChunkAt = Date.now();
+    this.lastFrameAt = this.lastChunkAt;
     this.updateNoiseFloor(samples);
     if (!this.activeSessionId) return;
     this.chunks.push(samples.slice());
@@ -211,15 +278,23 @@ export class NativeCaptureService implements RecorderCommands {
     }
   }
 
-  private handleNativeError(message: string): void {
+  private handleNativeError(message: string, generation: number): void {
+    if (generation !== this.transportGeneration) return;
     const sessionId = this.activeSessionId;
-    this.shutdown();
+    const partialSamples = this.activeSessionId ? mergePcmChunks(this.chunks) : new Float32Array();
+    const partialClip = partialSamples.length > 0 ? pcmToAudioClip(partialSamples, TARGET_SAMPLE_RATE) : undefined;
+    this.suspended = false;
+    this.stopCaptureTransport();
+    this.ring.clear();
+    this.activeSessionId = null;
+    this.chunks = [];
     if (sessionId) {
-      this.sink.handleRecorderFailure({ sessionId, message });
+      this.sink.handleRecorderFailure({ sessionId, message, kind: "interrupted" }, partialClip);
     }
   }
 
   private stopCaptureTransport(): void {
+    this.transportGeneration += 1;
     try {
       this.bridge.audioCaptureStop?.();
     } catch (err) {
@@ -306,6 +381,29 @@ export class CaptureBackendController implements RecorderCommands {
       return this.nativeCapture.stopRecording(sessionId);
     }
     return this.rendererRecorder.stopRecording(sessionId);
+  }
+
+  suspendForLifecycle(): CaptureSuspendResult | Promise<CaptureSuspendResult> {
+    if (this.activeBackend === "renderer" || this.getConfig().captureBackend === "renderer") {
+      return this.rendererRecorder.suspendForLifecycle?.() ?? { wasRunning: false, sessionId: null };
+    }
+    return this.nativeCapture.suspendForLifecycle();
+  }
+
+  resumeAfterLifecycle(): CaptureResumeResult {
+    if (this.activeBackend === "renderer" || this.getConfig().captureBackend === "renderer") {
+      return this.rendererRecorder.resumeAfterLifecycle?.() ?? { ok: true, selectedDeviceUid: null };
+    }
+    return this.nativeCapture.resumeAfterLifecycle();
+  }
+
+  abortRecording(sessionId: string): void {
+    if (this.activeBackend === "renderer") {
+      this.rendererRecorder.abortRecording?.(sessionId);
+    } else {
+      this.nativeCapture.abortRecording(sessionId);
+    }
+    this.activeBackend = null;
   }
 
   updateConfig(config: RecorderConfig): void {

@@ -19,6 +19,7 @@ export type AppContext = "casual" | "formal" | "developer" | "default";
 export interface AppContextResult {
   appBundleId: string | null;
   appName: string | null;
+  pid?: number | null;
   context: AppContext;
 }
 
@@ -35,7 +36,7 @@ export class AppDetector {
     try {
       const app = nativeBridge.getFrontmostApplication?.();
       const bundleId = app?.bundleId ?? null;
-      return { appBundleId: bundleId, appName: app?.name ?? null, context: bundleIdToContext(bundleId) };
+      return { appBundleId: bundleId, appName: app?.name ?? null, pid: app?.pid ?? null, context: bundleIdToContext(bundleId) };
     } catch {
       return { appBundleId: null, appName: null, context: "default" };
     }

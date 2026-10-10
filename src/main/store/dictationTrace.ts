@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { APP_DATA_DIR } from "@shared/defaults";
 import type { DictationTrace } from "@shared/types";
 import { buildTraceStageSnapshot } from "@main/dictationTraceSnapshot";
+import { truncateTraceText } from "@main/dictationTraceSnapshot";
 import { readJsonFile, writeJsonFile } from "./base";
 
 export const DICTATION_TRACE_LIMIT = 200;
@@ -83,10 +84,19 @@ function normalizeTraces(raw: unknown): DictationTrace[] {
       id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
       sessionId: typeof item.sessionId === "string" ? item.sessionId : "",
       startedAt: typeof item.startedAt === "string" ? item.startedAt : new Date().toISOString(),
+      ...(typeof item.buildIdentifier === "string" ? { buildIdentifier: truncateTraceText(item.buildIdentifier) } : {}),
       completedAt: typeof item.completedAt === "string" ? item.completedAt : undefined,
       hotkeyReleasedAt: typeof item.hotkeyReleasedAt === "string" ? item.hotkeyReleasedAt : undefined,
-      targetAppBundleId: typeof item.targetAppBundleId === "string" ? item.targetAppBundleId : null,
-      targetAppName: typeof item.targetAppName === "string" ? item.targetAppName : null,
+      stopRequestedAt: typeof item.stopRequestedAt === "string" ? item.stopRequestedAt : undefined,
+      lastFrameAfterStopMs: finiteNumber(item.lastFrameAfterStopMs),
+      trailingRms: finiteNumber(item.trailingRms),
+      clipReadyAt: typeof item.clipReadyAt === "string" ? item.clipReadyAt : undefined,
+      sttDoneAt: typeof item.sttDoneAt === "string" ? item.sttDoneAt : undefined,
+      formatDoneAt: typeof item.formatDoneAt === "string" ? item.formatDoneAt : undefined,
+      dispatchAt: typeof item.dispatchAt === "string" ? item.dispatchAt : undefined,
+      verifyDoneAt: typeof item.verifyDoneAt === "string" ? item.verifyDoneAt : undefined,
+      targetAppBundleId: typeof item.targetAppBundleId === "string" ? truncateTraceText(item.targetAppBundleId) : null,
+      targetAppName: typeof item.targetAppName === "string" ? truncateTraceText(item.targetAppName) : null,
       rawAudio: normalizeAudioQuality(item.rawAudio),
       trimmedAudio: normalizeAudioQuality(item.trimmedAudio),
       rawAudioPath: typeof item.rawAudioPath === "string" ? item.rawAudioPath : null,
@@ -102,8 +112,9 @@ function normalizeTraces(raw: unknown): DictationTrace[] {
       stages: normalizeStages(item.stages),
       outcome: normalizeOutcome(item.outcome) ?? "started",
       rejectionReason: normalizeRejectionReason(item.rejectionReason),
-      userMessage: typeof item.userMessage === "string" ? item.userMessage : undefined,
+      userMessage: typeof item.userMessage === "string" ? truncateTraceText(item.userMessage) : undefined,
     }))
+    .map(sanitizeTraceForStorage)
     .slice(0, DICTATION_TRACE_LIMIT);
 }
 
@@ -167,13 +178,13 @@ function normalizeProviderAttempts(value: unknown): DictationTrace["providerAtte
   for (const item of value) {
     if (!isObject(item) || typeof item.provider !== "string" || typeof item.success !== "boolean") continue;
     const attempt: NonNullable<DictationTrace["providerAttempts"]>[number] = {
-      provider: item.provider,
+      provider: truncateTraceText(item.provider),
       success: item.success,
     };
     const latencyMs = finiteNumber(item.latencyMs);
     const quality = normalizeQuality(item.quality);
     if (latencyMs !== undefined) attempt.latencyMs = latencyMs;
-    if (typeof item.error === "string") attempt.error = item.error;
+    if (typeof item.error === "string") attempt.error = truncateTraceText(item.error);
     if (quality) attempt.quality = quality;
     attempts.push(attempt);
   }
@@ -190,8 +201,9 @@ function normalizeInjectionAttempts(value: unknown): DictationTrace["injectionAt
       targetAppName: typeof item.targetAppName === "string" ? item.targetAppName : null,
       success: item.success,
     };
+    if (typeof item.targetFieldClass === "string") attempt.targetFieldClass = truncateTraceText(item.targetFieldClass);
     if (item.method === "ax" || item.method === "clipboard") attempt.method = item.method;
-    if (typeof item.fallbackReason === "string") attempt.fallbackReason = item.fallbackReason;
+    if (typeof item.fallbackReason === "string") attempt.fallbackReason = truncateTraceText(item.fallbackReason);
     const verification = normalizeInsertionVerification(item.verification);
     if (verification) attempt.verification = verification;
     attempts.push(attempt);
@@ -206,11 +218,15 @@ function normalizeInjectionMethod(value: unknown): DictationTrace["injectionMeth
 function normalizeStages(value: unknown): DictationTrace["stages"] {
   if (!isObject(value)) return undefined;
   const stages: DictationTrace["stages"] = {};
-  if (typeof value.rawTranscript === "string") stages.rawTranscript = value.rawTranscript;
-  if (typeof value.cleanedText === "string") stages.cleanedText = value.cleanedText;
-  if (typeof value.injectedText === "string") stages.injectedText = value.injectedText;
+  if (typeof value.rawTranscript === "string") stages.rawTranscript = truncateTraceText(value.rawTranscript);
+  if (typeof value.cleanedText === "string") stages.cleanedText = truncateTraceText(value.cleanedText);
+  if (typeof value.injectedText === "string") stages.injectedText = truncateTraceText(value.injectedText);
   if (value.formatterUsed === "llm" || value.formatterUsed === "guard-fallback" || value.formatterUsed === "deterministic" || value.formatterUsed === "none") {
     stages.formatterUsed = value.formatterUsed;
+  }
+  if (value.formatterReason === "timeout") stages.formatterReason = value.formatterReason;
+  if (value.staleStage === "starting" || value.staleStage === "recording" || value.staleStage === "finalizing" || value.staleStage === "transcribing") {
+    stages.staleStage = value.staleStage;
   }
   if (value.injectionStrategy === "ax" || value.injectionStrategy === "clipboard" || value.injectionStrategy === "none") {
     stages.injectionStrategy = value.injectionStrategy;
@@ -239,7 +255,9 @@ function normalizeInsertionVerification(value: unknown): NonNullable<DictationTr
   };
   if (
     value.reason === "expected-present" ||
+    value.reason === "baseline-unreadable" ||
     value.reason === "unreadable" ||
+    value.reason === "timeout" ||
     value.reason === "partial-suffix-repaired" ||
     value.reason === "partial-unsafe" ||
     value.reason === "missing" ||
@@ -281,26 +299,18 @@ function normalizeCorrectionsApplied(value: unknown): NonNullable<DictationTrace
 }
 
 function normalizeOutcome(value: unknown): DictationTrace["outcome"] | undefined {
-  switch (value) {
-    case "injected":
-    case "saved":
-    case "rejected":
-    case "failed":
-    case "cancelled":
-    case "started":
-      return value;
-    default:
-      return undefined;
-  }
+  return typeof value === "string" && value.length > 0 ? truncateTraceText(value) : undefined;
 }
 
 function normalizeRejectionReason(value: unknown): DictationTrace["rejectionReason"] {
   switch (value) {
+    case "microphone_permission_denied":
     case "no_speech":
     case "fragment":
     case "recorder_unavailable":
     case "recorder_failure":
     case "timeout":
+    case "stale-session":
     case "transcription_error":
     case "insertion_failed":
     case "cancelled":
@@ -316,6 +326,48 @@ function copyTrace(trace: DictationTrace): DictationTrace {
 
 function sanitizeTraceForStorage(trace: DictationTrace): DictationTrace {
   const next = copyTrace(trace);
+  next.id = truncateTraceText(next.id);
+  next.sessionId = truncateTraceText(next.sessionId);
+  next.startedAt = truncateTraceText(next.startedAt);
+  if (next.buildIdentifier) next.buildIdentifier = truncateTraceText(next.buildIdentifier);
+  if (next.completedAt) next.completedAt = truncateTraceText(next.completedAt);
+  if (next.hotkeyReleasedAt) next.hotkeyReleasedAt = truncateTraceText(next.hotkeyReleasedAt);
+  if (next.stopRequestedAt) next.stopRequestedAt = truncateTraceText(next.stopRequestedAt);
+  if (next.clipReadyAt) next.clipReadyAt = truncateTraceText(next.clipReadyAt);
+  if (next.sttDoneAt) next.sttDoneAt = truncateTraceText(next.sttDoneAt);
+  if (next.formatDoneAt) next.formatDoneAt = truncateTraceText(next.formatDoneAt);
+  if (next.dispatchAt) next.dispatchAt = truncateTraceText(next.dispatchAt);
+  if (next.verifyDoneAt) next.verifyDoneAt = truncateTraceText(next.verifyDoneAt);
+  next.targetAppBundleId = next.targetAppBundleId ? truncateTraceText(next.targetAppBundleId) : null;
+  next.targetAppName = next.targetAppName ? truncateTraceText(next.targetAppName) : null;
+  if (next.rawAudioPath) next.rawAudioPath = truncateTraceText(next.rawAudioPath);
+  if (next.sttProvider) next.sttProvider = truncateTraceText(next.sttProvider);
+  if (next.userMessage) next.userMessage = truncateTraceText(next.userMessage);
+  if (next.quality) {
+    next.quality = {
+      ...next.quality,
+      provider: truncateTraceText(next.quality.provider),
+      ...(next.quality.decision ? { decision: { ...next.quality.decision, reason: truncateTraceText(next.quality.decision.reason) } } : {}),
+    };
+  }
+  if (next.qualityDecision) next.qualityDecision = { ...next.qualityDecision, reason: truncateTraceText(next.qualityDecision.reason) };
+  if (next.providerAttempts) {
+    next.providerAttempts = next.providerAttempts.map((attempt) => ({
+      ...attempt,
+      provider: truncateTraceText(attempt.provider),
+      ...(attempt.error ? { error: truncateTraceText(attempt.error) } : {}),
+      ...(attempt.quality ? { quality: { ...attempt.quality, provider: truncateTraceText(attempt.quality.provider) } } : {}),
+    }));
+  }
+  if (next.injectionAttempts) {
+    next.injectionAttempts = next.injectionAttempts.map((attempt) => ({
+      ...attempt,
+      targetAppBundleId: attempt.targetAppBundleId ? truncateTraceText(attempt.targetAppBundleId) : null,
+      targetAppName: attempt.targetAppName ? truncateTraceText(attempt.targetAppName) : null,
+      ...(attempt.targetFieldClass ? { targetFieldClass: truncateTraceText(attempt.targetFieldClass) } : {}),
+      ...(attempt.fallbackReason ? { fallbackReason: truncateTraceText(attempt.fallbackReason) } : {}),
+    }));
+  }
   if (next.stages) next.stages = buildTraceStageSnapshot(next.stages);
   return next;
 }

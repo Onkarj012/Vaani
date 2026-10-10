@@ -112,15 +112,32 @@ describe("review regressions", () => {
     const usb = native("usb-uid", "USB Mic", "usb");
     expect(selectRecorderDevice([input("usb", "USB Mic (1234:abcd)")], undefined, [usb]))
       .toEqual({ ok: true, deviceId: "usb" });
-    expect(selectRecorderDevice([input("headset", "Headset (Bluetooth)")], undefined, [headset]))
+  });
+
+  it("prefers the default external input, but never opens Bluetooth automatically", () => {
+    const usb = native("usb", "USB Mic", "usb");
+    const studio = native("studio", "Studio Mic", "usb");
+    const devices = [input("usb", "USB Mic (1234:abcd)"), input("studio", "Studio Mic (5678:abcd)"),
+      input("headset", "Headset (Bluetooth)")];
+    expect(selectRecorderDevice(devices, undefined, [usb, { ...studio, isDefault: true }, headset]))
+      .toEqual({ ok: true, deviceId: "studio" });
+    expect(selectRecorderDevice(devices, undefined, [usb, { ...headset, isDefault: true }]))
+      .toEqual({ ok: true, deviceId: "usb" });
+    const bleHeadset = native("ble", "Buds", "bluetooth-le");
+    expect(selectRecorderDevice([input("headset", "Headset (Bluetooth)"), input("ble", "Buds (Bluetooth LE)")], undefined,
+      [{ ...headset, isDefault: true }, bleHeadset]))
+      .toMatchObject({ ok: false, message: expect.stringContaining("Choose a microphone in Settings") });
+    expect(selectRecorderDevice([input("headset", "Headset (Bluetooth)")], headset.uid, [headset]))
       .toEqual({ ok: true, deviceId: "headset" });
   });
 
-  it("prefers the default external physical input when there is no built-in", () => {
-    const usb = native("usb", "USB Mic", "usb");
-    const devices = [input("usb", "USB Mic (1234:abcd)"), input("headset", "Headset (Bluetooth)")];
-    expect(selectRecorderDevice(devices, undefined, [usb, { ...headset, isDefault: true }]))
-      .toEqual({ ok: true, deviceId: "headset" });
+  it("refuses a renamed Bluetooth input that shares the built-in label", () => {
+    const internal = native("coreaudio-built-in", "Internal Microphone", "built-in");
+    const renamedBluetooth = native("bt", "Internal Microphone", "bluetooth");
+    const devices = [input("bluetooth", "Internal Microphone"), input("browser-built-in", "Internal Microphone")];
+    expect(selectRecorderDevice(devices, undefined, [internal, renamedBluetooth])).toMatchObject({ ok: false });
+    expect(selectRecorderDevice([input("bluetooth", "Internal Microphone")], undefined, [internal, renamedBluetooth]))
+      .toMatchObject({ ok: false });
   });
 
   it("skips physical inputs Chromium does not expose during automatic selection", () => {
@@ -158,6 +175,9 @@ describe("review regressions", () => {
     expect(selectRecorderDevice(devices, "headset", [])).toEqual({ ok: true, deviceId: "headset" });
     expect(selectRecorderDevice([input("usb", "USB Mic (1234:abcd)")], undefined, []))
       .toEqual({ ok: true, deviceId: "usb" });
+    expect(selectRecorderDevice([input("headset", "Headset (Bluetooth)"), input("usb", "USB Mic (1234:abcd)")], undefined, []))
+      .toEqual({ ok: true, deviceId: "usb" });
+    expect(selectRecorderDevice([input("headset", "Headset (Bluetooth)")], undefined, [])).toMatchObject({ ok: false });
   });
 
   it("rejects virtual, unnamed and unknown browser inputs without native metadata", () => {

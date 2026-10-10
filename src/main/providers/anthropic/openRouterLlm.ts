@@ -1,6 +1,7 @@
 import type { FormattingProvider } from "../types";
 import { MIN_WORDS_FOR_FORMATTING, FORMATTING_PROMPT } from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
+import { isAbortError } from "@main/cancellation";
 
 export const OpenRouterLlmProvider: FormattingProvider = {
   id: "openrouter",
@@ -28,6 +29,7 @@ export const OpenRouterLlmProvider: FormattingProvider = {
           "HTTP-Referer": "https://vaani.app",
           "X-Title": "Vaani",
         },
+        signal: options.signal,
         body: JSON.stringify({
           model: options.model || "openai/gpt-4o-mini",
           temperature: 0,
@@ -39,10 +41,11 @@ export const OpenRouterLlmProvider: FormattingProvider = {
         }),
       });
 
-      if (!response.ok) throw new Error(`OpenRouter API is temporarily unavailable. Please try again.`);
+      if (!response.ok) throw new Error(`OpenRouter API request failed with status ${response.status}.`);
       const data = await response.json() as { choices: { message: { content: string } }[] };
       return data.choices[0]?.message?.content?.trim() || text;
-    } catch {
+    } catch (error) {
+      if (options.signal?.aborted || isAbortError(error)) throw error;
       return text;
     }
   },

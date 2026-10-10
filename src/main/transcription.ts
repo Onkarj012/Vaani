@@ -1,18 +1,109 @@
+import { captureSessionSettings, restoreSessionSettings, type SessionSettingsSnapshot } from "@shared/sessionSettings";
 import type { DictationContentGuardVerdict, DictationFormatterUsed, ProviderAttemptTrace, Settings, AudioClip, TranscriptionResult } from "@shared/types";
+import type { RecoveryErrorClass } from "@shared/recovery";
 import { getProviderRegistry } from "./providers";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
-import { missingContentWords } from "@shared/contentGuard";
+import { missingContentWords, preservesFinalWords } from "@shared/contentGuard";
+import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
+import { deterministicFormat } from "@main/text/cleanup";
 
-const MAX_SINGLE_STT_CLIP_SECONDS = 30;
+export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
 const STT_CHUNK_OVERLAP_SECONDS = 2;
+const TRANSCRIPTION_BASE_TIMEOUT_MS = 30_000;
+const TRANSCRIPTION_PER_ADDITIONAL_CHUNK_TIMEOUT_MS = 10_000;
+export const MAX_TRANSCRIPTION_TIMEOUT_MS = 300_000;
+const LOW_LOGPROB_THRESHOLD = -1.2;
 
-interface TranscribeOptions {
+const STRONGER_STT_MODELS: Record<string, string> = {
+  groq: "whisper-large-v3",
+};
+
+export interface TranscriptionAttempt {
+  clip: AudioClip;
+  model: string;
+}
+
+export interface FormattingOptions {
+  signal?: AbortSignal;
+  deadlineAt?: number;
+  sessionSettings?: SessionSettingsSnapshot;
+}
+
+export interface TranscribeOptions {
+  sessionSettings?: SessionSettingsSnapshot;
+  speechContext?: { trimmedDurationSeconds: number; speechGatePassed: boolean };
   languageOverride?: string;
   providerOverride?: string;
   rejectResult?: (result: TranscriptionResult) => boolean;
   retryClip?: AudioClip;
+  deadlineAt?: number;
+  signal?: AbortSignal;
+  recovery?: boolean;
+  shouldYieldToActiveDictation?: () => boolean;
+}
+
+export function getTranscriptionTimeoutMs(clip: AudioClip): number {
+  const chunkSize = Math.max(1, Math.floor(clip.sampleRate * MAX_SINGLE_STT_CLIP_SECONDS));
+  const overlap = Math.max(0, Math.min(chunkSize - 1, Math.floor(clip.sampleRate * STT_CHUNK_OVERLAP_SECONDS)));
+  const step = Math.max(1, chunkSize - overlap);
+  let expectedChunkCount = 0;
+  for (let start = 0; start < clip.pcmData.length; start += step) {
+    expectedChunkCount += 1;
+    if (snapChunkEndToSilence(clip, start, Math.min(clip.pcmData.length, start + chunkSize)) >= clip.pcmData.length) break;
+  }
+  expectedChunkCount = Math.max(1, expectedChunkCount);
+  return Math.min(
+    MAX_TRANSCRIPTION_TIMEOUT_MS,
+    TRANSCRIPTION_BASE_TIMEOUT_MS + (expectedChunkCount - 1) * TRANSCRIPTION_PER_ADDITIONAL_CHUNK_TIMEOUT_MS,
+  );
+}
+
+export class TranscriptionDeadlineExceededError extends Error {
+  readonly providerAttempts: ProviderAttemptTrace[];
+
+  constructor(providerAttempts: ProviderAttemptTrace[] = []) {
+    super("Transcription deadline exceeded.");
+    this.name = "TranscriptionDeadlineExceededError";
+    this.providerAttempts = providerAttempts;
+  }
+}
+
+export class TranscriptionCancelledError extends Error {
+  readonly providerAttempts: ProviderAttemptTrace[];
+
+  constructor(providerAttempts: ProviderAttemptTrace[] = []) {
+    super("Transcription was cancelled.");
+    this.name = "TranscriptionCancelledError";
+    this.providerAttempts = providerAttempts;
+  }
+}
+
+export class RecoveryYieldedError extends Error {
+  constructor() {
+    super("Background recovery yielded to active dictation.");
+    this.name = "RecoveryYieldedError";
+  }
+}
+
+export class TranscriptionChainError extends Error {
+  readonly providerAttempts: ProviderAttemptTrace[];
+  readonly errorClass: RecoveryErrorClass;
+
+  constructor(message: string, providerAttempts: ProviderAttemptTrace[], errorClass: RecoveryErrorClass = "transcription_error") {
+    super(message);
+    this.name = "TranscriptionChainError";
+    this.providerAttempts = providerAttempts;
+    this.errorClass = errorClass;
+  }
+}
+
+function throwIfTranscriptionDeadlineExceeded(deadlineAt?: number, signal?: AbortSignal): void {
+  if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+    throw new TranscriptionDeadlineExceededError();
+  }
+  throwIfAborted(signal);
 }
 
 export interface FormatTranscriptTraceResult {
@@ -28,81 +119,127 @@ export class TranscriptionService {
   ) {}
 
   async transcribe(clip: AudioClip, options?: TranscribeOptions): Promise<TranscriptionResult> {
-    const settings = this.settingsProvider();
-    const registry = getProviderRegistry();
-    const primaryId = options?.providerOverride || settings.transcriptionProvider || "groq";
-    const speechContextPrompt = buildSpeechContextPrompt(settings);
+    const scope = createCancellationScope(options?.signal, options?.deadlineAt);
+    try {
+      const settings = restoreSessionSettings(options?.sessionSettings ?? captureSessionSettings(this.settingsProvider()));
+      const registry = getProviderRegistry();
+      const primaryId = options?.providerOverride || settings.transcriptionProvider || "groq";
+      if (options?.recovery && (primaryId === "local-whisper" || settings.offlineMode === "always-offline") &&
+          settings.localWhisperModel !== this.settingsProvider().localWhisperModel) {
+        throw new Error(`Restore local model "${settings.localWhisperModel}" to retry this session, or start a new dictation.`);
+      }
+      const speechContextPrompt = buildSpeechContextPrompt(settings, options?.speechContext);
+      const chain = await this.buildSttChain(settings, primaryId, registry);
+      if (chain.length === 0) throw new Error(messageForEmptyChain(settings, primaryId));
 
-    const chain = await this.buildSttChain(settings, primaryId, registry);
-    if (chain.length === 0) {
-      throw new Error(messageForEmptyChain(settings, primaryId));
-    }
-
-    debug("transcription", `Chain: ${chain.map(c => c.id).join(" → ")}`);
-
-    const language = options?.languageOverride ?? settings.language;
-    let lastError: Error = new Error("All transcription providers failed.");
-    let lastRejectedResult: TranscriptionResult | null = null;
-    const providerAttempts: ProviderAttemptTrace[] = [];
-    for (let providerIndex = 0; providerIndex < chain.length; providerIndex += 1) {
-      const { id, provider, apiKey } = chain[providerIndex]!;
-      const clips = options?.retryClip ? [clip, options.retryClip] : [clip];
-      for (let clipIndex = 0; clipIndex < clips.length; clipIndex += 1) {
-        const startedAt = Date.now();
-        try {
-          const result = await transcribePossiblyChunked(provider, clips[clipIndex]!, {
-            apiKey,
-            language,
-            prompt: speechContextPrompt,
-            temperature: 0
-          });
-          const quality = {
-            ...result.quality,
-            provider: result.quality?.provider ?? id,
-            attemptCount: providerAttempts.length + 1,
-            supportsConfidence: result.quality?.supportsConfidence ?? false,
-            transcriptLength: result.rawText.length,
-          };
-          const withQuality: TranscriptionResult = {
-            ...result,
-            quality,
-          };
-          providerAttempts.push({ provider: id, success: true, latencyMs: Date.now() - startedAt, quality });
-          if (options?.rejectResult?.(withQuality)) {
-            lastRejectedResult = withQuality;
-            const canRetrySameProvider = clipIndex === 0 && clips.length > 1;
-            if (canRetrySameProvider) {
-              warn("transcription", `Provider "${id}" returned suspicious transcript; retrying with untrimmed audio`);
-              continue;
+      debug("transcription", `Chain: ${chain.map(c => c.id).join(" → ")}`);
+      const language = options?.languageOverride ?? settings.language;
+      let lastError: Error = new Error("All transcription providers failed.");
+      let lastRejectedResult: TranscriptionResult | null = null;
+      const providerAttempts: ProviderAttemptTrace[] = [];
+      for (let providerIndex = 0; providerIndex < chain.length; providerIndex += 1) {
+        const { id, provider, apiKey } = chain[providerIndex]!;
+        const clips = options?.retryClip ? [clip, options.retryClip] : [clip];
+        const attempts = buildTranscriptionAttempts(id, provider.models, clips, settings.transcriptionModel);
+        if (options?.recovery) {
+          const firstAttempt = attempts[0];
+          attempts.splice(0, attempts.length, ...(firstAttempt ? [firstAttempt] : []));
+        }
+        for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+          if (options?.shouldYieldToActiveDictation?.()) throw new RecoveryYieldedError();
+          const attempt = attempts[attemptIndex]!;
+          const startedAt = Date.now();
+          const startedAtIso = new Date(startedAt).toISOString();
+          try {
+            if (options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt) {
+              throw new TranscriptionDeadlineExceededError();
             }
-            if (settings.failoverEnabled && providerIndex < chain.length - 1) {
-              warn("transcription", `Provider "${id}" returned suspicious transcript; trying next provider`);
-              break;
+            const result = await transcribePossiblyChunked(provider, attempt.clip, {
+              apiKey,
+              language,
+              model: id === "local-whisper" ? settings.localWhisperModel : attempt.model || undefined,
+              prompt: attempt.clip.durationSeconds >= 2 ? speechContextPrompt : undefined,
+              temperature: 0,
+              signal: scope.signal,
+              recovery: options?.recovery,
+            }, options?.deadlineAt, scope.signal, options?.shouldYieldToActiveDictation, () => {
+              const current = this.settingsProvider();
+              if (options?.recovery && ((id !== "local-whisper" && current.offlineMode === "always-offline") ||
+                  (id === "local-whisper" && current.localWhisperModel !== settings.localWhisperModel))) {
+                throw new TranscriptionCancelledError();
+              }
+            });
+            throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
+            const quality = {
+              ...result.quality,
+              provider: result.quality?.provider ?? id,
+              attemptCount: providerAttempts.length + 1,
+              supportsConfidence: result.quality?.supportsConfidence ?? false,
+              transcriptLength: result.rawText.length,
+            };
+            const withQuality: TranscriptionResult = { ...result, quality };
+            providerAttempts.push({
+              provider: id,
+              success: true,
+              attempt: providerAttempts.length + 1,
+              latencyMs: Date.now() - startedAt,
+              quality,
+              outcome: "succeeded",
+              startedAt: startedAtIso,
+              completedAt: new Date().toISOString(),
+              deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null,
+            });
+            const lowConfidence = quality.avgLogprob != null && quality.avgLogprob < LOW_LOGPROB_THRESHOLD;
+            if (options?.rejectResult?.(withQuality) || lowConfidence) {
+              lastRejectedResult = withQuality;
+              if (attemptIndex < attempts.length - 1) {
+                warn("transcription", `Provider "${id}" returned a low-confidence transcript; retrying transcription`);
+                continue;
+              }
+              if (settings.failoverEnabled && providerIndex < chain.length - 1) {
+                warn("transcription", `Provider "${id}" returned suspicious transcript; trying next provider`);
+                break;
+              }
             }
+            return { ...withQuality, quality: { ...quality, attemptCount: providerAttempts.length }, providerAttempts };
+          } catch (error) {
+            const deadlineExceeded = options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt;
+            if (deadlineExceeded || error instanceof TranscriptionDeadlineExceededError) {
+              providerAttempts.push({ provider: id, success: false, attempt: providerAttempts.length + 1, latencyMs: Date.now() - startedAt, error: "Transcription deadline exceeded.", outcome: "cancelled", errorClass: "timeout", startedAt: startedAtIso, completedAt: new Date().toISOString(), deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null });
+              throw new TranscriptionDeadlineExceededError(providerAttempts);
+            }
+            if (scope.signal.aborted || error instanceof TranscriptionCancelledError || isAbortError(error)) {
+              providerAttempts.push({ provider: id, success: false, attempt: providerAttempts.length + 1, latencyMs: Date.now() - startedAt, error: "Transcription was cancelled.", outcome: "cancelled", errorClass: "aborted", startedAt: startedAtIso, completedAt: new Date().toISOString(), deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null });
+              throw new TranscriptionCancelledError(providerAttempts);
+            }
+            lastError = error instanceof Error ? error : new Error(String(error));
+            const failure = classifyTranscriptionError(error);
+            providerAttempts.push({ provider: id, success: false, attempt: providerAttempts.length + 1, latencyMs: Date.now() - startedAt, error: lastError.message, outcome: "failed", errorClass: failure.class, startedAt: startedAtIso, completedAt: new Date().toISOString(), deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null });
+            warn("transcription", `Provider "${id}" failed: ${lastError.message}`);
+            if (options?.recovery) {
+              if (failure.permanent) throw new TranscriptionChainError(lastError.message, providerAttempts, failure.class);
+              if (failure.retryable && attemptIndex === 0) {
+                attempts.push(attempt);
+                continue;
+              }
+            } else if (isAuthError(error)) {
+              throw lastError;
+            }
+            if (!settings.failoverEnabled || chain.length === 1) {
+              throw options?.recovery ? new TranscriptionChainError(lastError.message, providerAttempts, providerAttempts[providerAttempts.length - 1]?.errorClass ?? "transcription_error") : lastError;
+            }
+            break;
           }
-          return {
-            ...withQuality,
-            quality: {
-              ...quality,
-              attemptCount: providerAttempts.length,
-            },
-            providerAttempts,
-          };
-        } catch (error) {
-          if (isAuthError(error)) {
-            throw error;
-          }
-          lastError = error instanceof Error ? error : new Error(String(error));
-          providerAttempts.push({ provider: id, success: false, latencyMs: Date.now() - startedAt, error: lastError.message });
-          warn("transcription", `Provider "${id}" failed: ${lastError.message}`);
-          if (!settings.failoverEnabled || chain.length === 1) throw lastError;
-          break;
         }
       }
-    }
 
-    if (lastRejectedResult) return { ...lastRejectedResult, providerAttempts };
-    throw lastError;
+      if (lastRejectedResult) return { ...lastRejectedResult, providerAttempts };
+      throw options?.recovery
+        ? new TranscriptionChainError(lastError.message, providerAttempts, providerAttempts[providerAttempts.length - 1]?.errorClass ?? "transcription_error")
+        : lastError;
+    } finally {
+      scope.dispose();
+    }
   }
 
   private async buildSttChain(
@@ -121,10 +258,11 @@ export class TranscriptionService {
       if (!provider) {
         return;
       }
-      const apiKey = await this.resolveApiKey(settings, id);
+      const apiKey = await this.resolveApiKey(this.settingsProvider(), id);
       if (provider.requiresApiKey && !apiKey) {
         return;
       }
+      if (id === "local-whisper" && !(await provider.isAvailable())) return;
       chain.push({ id, provider, apiKey: apiKey ?? "" });
     };
 
@@ -144,26 +282,37 @@ export class TranscriptionService {
     return chain;
   }
 
-  async formatTranscript(rawText: string): Promise<string> {
-    return (await this.formatTranscriptDetailed(rawText)).text;
+  async formatTranscript(rawText: string, options?: FormattingOptions): Promise<string> {
+    return (await this.formatTranscriptDetailed(rawText, options)).text;
   }
 
-  async formatTranscriptDetailed(rawText: string): Promise<FormatTranscriptTraceResult> {
-    const settings = this.settingsProvider();
-    const registry = getProviderRegistry();
-
-    const llmId = settings.formattingProvider || "groq-llm";
-    const provider = registry.getFormatting(llmId);
-
-    if (!provider) return { text: rawText, formatterUsed: "none" };
-
-    const apiKey = await this.resolveApiKey(settings, llmId);
-    if (provider.requiresApiKey && !apiKey) return { text: rawText, formatterUsed: "none" };
-
+  async formatTranscriptDetailed(rawText: string, options?: FormattingOptions): Promise<FormatTranscriptTraceResult> {
+    const scope = createCancellationScope(options?.signal, options?.deadlineAt);
     try {
-      return await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings);
-    } catch {
+      const settings = restoreSessionSettings(options?.sessionSettings ?? captureSessionSettings(this.settingsProvider()));
+      // Offline policy covers the entire pipeline, including LLM formatting.
+      // The current formatting registry contains remote providers only.
+      if (settings.offlineMode === "always-offline" || this.settingsProvider().offlineMode === "always-offline") {
+        throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
+        return { text: rawText, formatterUsed: "none" };
+      }
+      const registry = getProviderRegistry();
+      const llmId = settings.formattingProvider || "groq-llm";
+      const provider = registry.getFormatting(llmId);
+      if (!provider) return { text: rawText, formatterUsed: "none" };
+      const configuredApiKey = configuredApiKeyFor(this.settingsProvider(), llmId);
+      const apiKey = configuredApiKey ?? (this.credentials ? await this.resolveApiKey(this.settingsProvider(), llmId) : null);
+      if (provider.requiresApiKey && !apiKey) return { text: rawText, formatterUsed: "none" };
+      throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
+      const result = await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings, scope.signal);
+      throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
+      return result;
+    } catch (error) {
+      if (options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt) throw new TranscriptionDeadlineExceededError();
+      if (scope.signal.aborted || isAbortError(error)) throw new TranscriptionCancelledError();
       return { text: rawText, formatterUsed: "none" };
+    } finally {
+      scope.dispose();
     }
   }
 
@@ -172,9 +321,10 @@ export class TranscriptionService {
     provider: FormattingProvider,
     apiKey: string,
     settings: Settings,
+    signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
     if (!hasParagraphBreak(rawText)) {
-      return this.formatTranscriptBlock(rawText, provider, apiKey, settings);
+      return this.formatTranscriptBlock(rawText, provider, apiKey, settings, signal);
     }
 
     const parts = splitParagraphParts(rawText);
@@ -191,7 +341,8 @@ export class TranscriptionService {
 
       const text = part.value.trim();
       if (!text) continue;
-      const result = await this.formatTranscriptBlock(text, provider, apiKey, settings);
+      throwIfAborted(signal);
+      const result = await this.formatTranscriptBlock(text, provider, apiKey, settings, signal);
       formattedParts.push(result.text.trim());
       if (result.formatterUsed === "llm") usedFormatter = true;
       if (result.formatterUsed === "guard-fallback") usedFallback = true;
@@ -218,17 +369,21 @@ export class TranscriptionService {
     provider: FormattingProvider,
     apiKey: string,
     settings: Settings,
+    signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
+    if (signal.aborted) throw new TranscriptionCancelledError();
+    if (this.settingsProvider().offlineMode === "always-offline") return { text: rawText, formatterUsed: "none" };
     const formatted = await provider.format(rawText, {
       apiKey,
       model: settings.formattingModel,
-      systemPrompt: settings.customPrompt
+      systemPrompt: settings.customPrompt,
+      signal,
     });
     const missingWords = missingContentWords(rawText, formatted);
-    if (missingWords.length > 0) {
+    if (missingWords.length > 0 || !preservesFinalWords(rawText, formatted)) {
       debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
       return {
-        text: rawText,
+        text: deterministicFormat(rawText),
         formatterUsed: "guard-fallback",
         contentGuardVerdict: { passed: false, missingWords },
       };
@@ -265,29 +420,66 @@ async function transcribePossiblyChunked(
   provider: TranscriptionProvider,
   clip: AudioClip,
   options: Parameters<TranscriptionProvider["transcribe"]>[1],
+  deadlineAt?: number,
+  signal?: AbortSignal,
+  shouldYieldToActiveDictation?: () => boolean,
+  beforeProviderCall?: () => void,
 ): Promise<TranscriptionResult> {
   if (clip.durationSeconds <= MAX_SINGLE_STT_CLIP_SECONDS) {
-    return provider.transcribe(clip, options);
+    if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+      throw new TranscriptionDeadlineExceededError();
+    }
+    throwIfTranscriptionDeadlineExceeded(deadlineAt, signal);
+    beforeProviderCall?.();
+    const pending = provider.transcribe(clip, options);
+    if (signal?.aborted) {
+      void pending.catch(() => undefined);
+      throw new TranscriptionCancelledError();
+    }
+    return pending;
   }
 
   const chunks = splitAudioClip(clip, MAX_SINGLE_STT_CLIP_SECONDS, STT_CHUNK_OVERLAP_SECONDS);
   debug("transcription", `Chunking long clip for STT: ${clip.durationSeconds.toFixed(2)}s into ${chunks.length} chunks`);
   const results: TranscriptionResult[] = [];
   for (const [index, chunk] of chunks.entries()) {
+    if (shouldYieldToActiveDictation?.()) throw new RecoveryYieldedError();
+    throwIfTranscriptionDeadlineExceeded(deadlineAt, signal);
     debug("transcription", `Transcribing chunk ${index + 1}/${chunks.length}: ${chunk.durationSeconds.toFixed(2)}s`);
-    results.push(await provider.transcribe(chunk, options));
+    beforeProviderCall?.();
+    results.push(await provider.transcribe(chunk, {
+      ...options,
+      prompt: chunk.durationSeconds >= 2 ? options.prompt : undefined,
+    }));
   }
 
   return mergeChunkedTranscriptionResults(results, chunks);
 }
 
-function splitAudioClip(clip: AudioClip, maxDurationSeconds: number, overlapSeconds: number): AudioClip[] {
+export function buildTranscriptionAttempts(
+  providerId: string,
+  providerModels: TranscriptionProvider["models"],
+  clips: AudioClip[],
+  configuredModel: string,
+): TranscriptionAttempt[] {
+  const model = providerModels.some((candidate) => candidate.id === configuredModel) ? configuredModel : "";
+  const attempts = clips.map((clip) => ({ clip, model }));
+  const strongerModel = STRONGER_STT_MODELS[providerId];
+  if (strongerModel && configuredModel !== strongerModel) {
+    const firstClip = clips[0];
+    if (firstClip) attempts.push({ clip: firstClip, model: strongerModel });
+  }
+  return attempts;
+}
+
+export function splitAudioClip(clip: AudioClip, maxDurationSeconds: number, overlapSeconds: number): AudioClip[] {
   const samplesPerChunk = Math.max(1, Math.floor(clip.sampleRate * maxDurationSeconds));
   const overlapSamples = Math.max(0, Math.min(samplesPerChunk - 1, Math.floor(clip.sampleRate * overlapSeconds)));
   const stepSamples = Math.max(1, samplesPerChunk - overlapSamples);
   const chunks: AudioClip[] = [];
   for (let start = 0; start < clip.pcmData.length; start += stepSamples) {
-    const end = Math.min(clip.pcmData.length, start + samplesPerChunk);
+    const nominalEnd = Math.min(clip.pcmData.length, start + samplesPerChunk);
+    const end = snapChunkEndToSilence(clip, start, nominalEnd);
     const pcmData = clip.pcmData.slice(start, end);
     chunks.push({
       pcmData,
@@ -298,6 +490,26 @@ function splitAudioClip(clip: AudioClip, maxDurationSeconds: number, overlapSeco
     if (end >= clip.pcmData.length) break;
   }
   return chunks.length > 0 ? chunks : [clip];
+}
+
+function snapChunkEndToSilence(clip: AudioClip, start: number, nominalEnd: number): number {
+  if (clip.rmsFrames.length === 0 || nominalEnd >= clip.pcmData.length) return nominalEnd;
+
+  const windowSamples = Math.floor(clip.sampleRate * 2);
+  const windowStart = Math.max(start + 1, nominalEnd - windowSamples);
+  const windowEnd = Math.min(clip.pcmData.length, nominalEnd + windowSamples);
+  const framesPerSample = clip.rmsFrames.length / clip.pcmData.length;
+  const firstFrame = Math.max(0, Math.floor(windowStart * framesPerSample));
+  const lastFrame = Math.min(clip.rmsFrames.length - 1, Math.ceil(windowEnd * framesPerSample) - 1);
+  if (firstFrame > lastFrame) return nominalEnd;
+
+  let minimumFrame = firstFrame;
+  for (let frame = firstFrame + 1; frame <= lastFrame; frame += 1) {
+    if (clip.rmsFrames[frame]! < clip.rmsFrames[minimumFrame]!) minimumFrame = frame;
+  }
+
+  const snappedEnd = Math.round((minimumFrame + 0.5) / framesPerSample);
+  return snappedEnd > start ? Math.min(snappedEnd, clip.pcmData.length) : nominalEnd;
 }
 
 function sliceRmsFramesForSamples(clip: AudioClip, startSample: number, endSample: number): number[] {
@@ -412,6 +624,31 @@ function isAuthError(error: unknown): boolean {
   return msg.includes("401") || msg.includes("403") || msg.includes("unauthorized") || msg.includes("authentication") || msg.includes("invalid api key") || msg.includes("incorrect api key");
 }
 
+export function classifyTranscriptionError(error: unknown): { class: RecoveryErrorClass; retryable: boolean; permanent: boolean } {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  const statusMatch = message.match(/\b(4\d\d|5\d\d)\b/);
+  const objectStatus = isRecord(error) && typeof error.status === "number" ? error.status : null;
+  const status = objectStatus ?? (statusMatch ? Number(statusMatch[1]) : null);
+  if (isAuthError(error)) return { class: "authentication", retryable: false, permanent: true };
+  if (message.includes("permission") || message.includes("access denied")) return { class: "permission_denied", retryable: false, permanent: true };
+  if ((message.includes("invalid") || message.includes("required") || message.includes("not configured")) && (message.includes("config") || message.includes("base url") || message.includes("model") || message.includes("api key"))) return { class: "invalid_config", retryable: false, permanent: true };
+  if (message.includes("malformed") || message.includes("invalid audio") || message.includes("unsupported audio")) return { class: "malformed_audio", retryable: false, permanent: true };
+  if (status === 429 || message.includes("rate limit") || message.includes("too many requests")) return { class: "rate_limit", retryable: true, permanent: false };
+  if ((status !== null && status >= 500) || message.includes("temporarily unavailable") || message.includes("service unavailable")) return { class: "provider_5xx", retryable: true, permanent: false };
+  if (message.includes("network") || message.includes("fetch failed") || message.includes("econn") || message.includes("timeout") || message.includes("temporar")) return { class: "transient_network", retryable: true, permanent: false };
+  return { class: "transcription_error", retryable: false, permanent: true };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function configuredApiKeyFor(settings: Settings, providerId: string): string | null {
+  if ((providerId === "groq" || providerId === "groq-llm") && settings.groqApiKey) return settings.groqApiKey;
+  const providerKey = settings.providerApiKeys?.find((candidate) => candidate.providerId === providerId)?.key;
+  return providerKey || null;
+}
+
 function hasParagraphBreak(text: string): boolean {
   return /\r?\n[ \t]*\r?\n/.test(text);
 }
@@ -434,8 +671,10 @@ const MAX_SPEECH_CONTEXT_CHARS = 600;
 const MAX_SPEECH_CONTEXT_ITEMS = 24;
 
 export function buildSpeechContextPrompt(
-  settings: Pick<Settings, "customCorrections" | "snippets">,
+  settings: Pick<Settings, "customCorrections">,
+  speechContext?: { trimmedDurationSeconds: number; speechGatePassed: boolean },
 ): string | undefined {
+  if (!speechContext?.speechGatePassed || !(speechContext.trimmedDurationSeconds >= 2)) return undefined;
   const terms: string[] = [];
   const seen = new Set<string>();
   const add = (value: string | undefined) => {
@@ -449,10 +688,6 @@ export function buildSpeechContextPrompt(
 
   for (const correction of settings.customCorrections ?? []) {
     add(correction.written);
-  }
-
-  for (const snippet of settings.snippets ?? []) {
-    add(snippet.content);
   }
 
   let prompt = "";

@@ -1,0 +1,9 @@
+[
+  { "name": "leading um", "rawText": "um hello there", "settingsOverrides": {}, "expected": "Hello there." },
+  { "name": "repeated um and uh", "rawText": "umm hello uhh world", "settingsOverrides": {}, "expected": "Hello world." },
+  { "name": "filler inside sentence", "rawText": "I um need to call mom", "settingsOverrides": {}, "expected": "I need to call mom." },
+  { "name": "custom filler", "rawText": "I basically like this", "settingsOverrides": { "extraFillerWords": ["basically"] }, "expected": "I like this." },
+  { "name": "custom filler is case insensitive", "rawText": "This is LIKE a test", "settingsOverrides": { "extraFillerWords": ["like"] }, "expected": "This is a test." },
+  { "name": "fillers disabled by empty configured list", "rawText": "um hello uh world", "settingsOverrides": { "fillerWords": [], "extraFillerWords": [] }, "expected": "Um hello uh world." },
+  { "name": "cleanup disabled keeps filler and whitespace normalized", "rawText": "um   hello   world", "settingsOverrides": { "cleanupEnabled": false }, "expected": "um hello world" }
+]

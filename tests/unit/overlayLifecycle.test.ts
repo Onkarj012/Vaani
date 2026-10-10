@@ -23,6 +23,7 @@ class BrowserWindowMock {
     isLoading: vi.fn(() => false),
     getURL: vi.fn(() => "test://overlay"),
     forcefullyCrashRenderer: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
   };
   hidden = false;
   destroyed = false;
@@ -106,5 +107,31 @@ describe("OverlayController lifecycle characterization", () => {
 
     expect(win.destroy).toHaveBeenCalled();
     expect(win.hide).not.toHaveBeenCalled();
+  });
+
+  it("clears status text on hide and on new recording modes", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+    controller.setRecording();
+    await Promise.resolve();
+    await Promise.resolve();
+    const win = windows[0];
+    if (!win) throw new Error("Expected overlay window.");
+    win.webContents.ipc.handlers.get("capsule:ready")?.();
+    await Promise.resolve();
+
+    controller.setStatusMessage("Old failure");
+    const beforeHide = win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-status").length;
+    controller.hide();
+    expect(win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-status").slice(beforeHide)).toEqual([["capsule:set-status", null]]);
+
+    controller.setStatusMessage("Old failure");
+    const beforePressed = win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-status").length;
+    controller.setPressed();
+    expect(win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-status").slice(beforePressed)).toEqual([["capsule:set-status", null]]);
+    controller.setStatusMessage("Old failure");
+    const beforeRecording = win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-status").length;
+    controller.setRecording();
+    expect(win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-status").slice(beforeRecording)).toEqual([["capsule:set-status", null]]);
   });
 });

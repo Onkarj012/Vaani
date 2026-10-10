@@ -1,0 +1,10 @@
+[
+  { "name": "ten", "rawText": "I need ten apples", "settingsOverrides": {}, "expected": "I need 10 apples." },
+  { "name": "compound number", "rawText": "the answer is twenty one", "settingsOverrides": {}, "expected": "The answer is 21." },
+  { "name": "hundred", "rawText": "one hundred users joined", "settingsOverrides": {}, "expected": "100 users joined." },
+  { "name": "percent", "rawText": "set the limit to twenty five percent", "settingsOverrides": {}, "expected": "Set the limit to 25%." },
+  { "name": "dollars", "rawText": "the budget is ten dollars", "settingsOverrides": {}, "expected": "The budget is $10." },
+  { "name": "standalone one remains prose", "rawText": "I have one more thing", "settingsOverrides": {}, "expected": "I have one more thing." },
+  { "name": "one fifty remains prose", "rawText": "the price is one fifty", "settingsOverrides": {}, "expected": "The price is one fifty." },
+  { "name": "number cue is not digitized as prose", "rawText": "number one", "settingsOverrides": {}, "expected": "Number one." }
+]

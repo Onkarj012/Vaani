@@ -116,6 +116,28 @@ describe("cleanupText", () => {
     expect(result).toBe("The final word after the pause is Vaani.\n\nThe final sentence should end with the word Google.");
   });
 
+  it("leaves unrelated words unchanged with plain and fuzzy dictionary rules", () => {
+    const settings = createSettings({ customCorrections: [
+      { spoken: "Bani", written: "Vaani" },
+      { spoken: "get hub", written: "GitHub", fuzzy: true },
+    ] });
+
+    expect(cleanupText({ rawText: "send the report tomorrow", settings })).toBe("Send the report tomorrow.");
+  });
+
+  it("does not expand bare snippets for unrelated words or when bare matching is off", () => {
+    const snippet = { trigger: "long phrase", content: "Kubernetes Vaani" };
+
+    expect(cleanupText({
+      rawText: "please send the report",
+      settings: createSettings({ snippets: [{ ...snippet, matchBareTrigger: true }] }),
+    })).toBe("Please send the report.");
+    expect(cleanupText({
+      rawText: "please use long phrase today",
+      settings: createSettings({ snippets: [snippet] }),
+    })).toBe("Please use long phrase today.");
+  });
+
   it("preserves trailing Vaani as spoken content", () => {
     expect(cleanupText({
       rawText: "hello world Vaani",
@@ -350,6 +372,45 @@ describe("cleanupText", () => {
       "4. Stop recording after a short pause.",
     ].join("\n"));
   });
+
+  // Documents a known defect: this assertion deliberately encodes buggy behaviour and must be updated when the defect is fixed. See .wayfinder/tickets/09-enumeration-duplication.md.
+  it("characterizes current duplicate-marker defect when spoken cues precede formatted list markers", () => {
+    const result = cleanupText({
+      rawText: [
+        "point one 1. Hypnosis",
+        "point two 2. Hypnotic therapy",
+        "point three 3. Evidence-based hypnosis.",
+      ].join("\n"),
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "1.",
+      "",
+      "1. Hypnosis.",
+      "2.",
+      "2. Hypnotic therapy.",
+      "3.",
+      "3. Evidence-based hypnosis.",
+    ].join("\n"));
+  });
+
+  it("preserves a pure already-formatted multiline list", () => {
+    const result = cleanupText({
+      rawText: [
+        "1. Hypnosis",
+        "2. Hypnotic therapy",
+        "3. Evidence-based hypnosis.",
+      ].join("\n"),
+      settings: createSettings()
+    });
+
+    expect(result).toBe([
+      "1. Hypnosis",
+      "2. Hypnotic therapy",
+      "3. Evidence-based hypnosis.",
+    ].join("\n"));
+  });
 });
 
 describe("applySnippets — spoken marker", () => {
@@ -373,10 +434,28 @@ describe("applySnippets — spoken marker", () => {
       expected: "My address is hi@example.com.",
     },
     {
-      name: "slash marker no longer expands (spoken 'slash' is ordinary speech)",
-      raw: "send to slash email now",
+      name: "slash marker at start",
+      raw: "slash email is the best way",
       snippets: [{ trigger: "email", content: "hi@example.com" }],
-      expected: "Send to slash email now.",
+      expected: "Hi@example.com is the best way.",
+    },
+    {
+      name: "slash marker mid-sentence",
+      raw: "contact me at slash email please",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Contact me at hi@example.com please.",
+    },
+    {
+      name: "slash marker at end",
+      raw: "my address is slash email",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "My address is hi@example.com.",
+    },
+    {
+      name: "slash marker after punctuation",
+      raw: "hello, slash email please",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Hello, hi@example.com please.",
     },
     {
       name: "inserted content is not re-expanded (no double-expansion)",
@@ -403,6 +482,18 @@ describe("applySnippets — spoken marker", () => {
       expected: "Use hi@example.com here.",
     },
     {
+      name: "case-insensitive slash marker",
+      raw: "use SLASH Email here",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Use hi@example.com here.",
+    },
+    {
+      name: "slash marker does not match a longer spoken word",
+      raw: "use slashed email here",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Use slashed email here.",
+    },
+    {
       name: "case-insensitive trigger name",
       raw: "use snippet EMAIL here",
       snippets: [{ trigger: "email", content: "hi@example.com" }],
@@ -415,8 +506,23 @@ describe("applySnippets — spoken marker", () => {
       expected: "Use snippet unknown here.",
     },
     {
+      name: "unknown slash name leaves transcript unchanged",
+      raw: "use slash unknown here",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Use slash unknown here.",
+    },
+    {
       name: "multiple snippets expand",
       raw: "from snippet name to snippet email",
+      snippets: [
+        { trigger: "name", content: "Alice" },
+        { trigger: "email", content: "alice@example.com" },
+      ],
+      expected: "From Alice to alice@example.com.",
+    },
+    {
+      name: "both spoken markers expand",
+      raw: "from slash name to snippet email",
       snippets: [
         { trigger: "name", content: "Alice" },
         { trigger: "email", content: "alice@example.com" },
@@ -461,4 +567,28 @@ describe("applySnippets — spoken marker", () => {
       expect(result).toBe(expected)
     })
   }
+
+  it("expands spoken slash markers when cleanup is disabled", () => {
+    expect(cleanupText({
+      rawText: "use slash email here",
+      settings: createSettings({
+        cleanupEnabled: false,
+        snippets: [{ trigger: "email", content: "hi@example.com" }],
+      }),
+    })).toBe("use hi@example.com here");
+  });
+
+  it("keeps spoken slash expansion scoped to the active app profile", () => {
+    const snippet = { trigger: "profile phrase", content: "expanded", appProfileIds: ["work"] };
+    expect(cleanupText({
+      rawText: "say slash profile phrase",
+      settings: createSettings({ snippets: [snippet] }),
+      appProfileId: "work",
+    })).toBe("Say expanded.");
+    expect(cleanupText({
+      rawText: "say slash profile phrase",
+      settings: createSettings({ snippets: [snippet] }),
+      appProfileId: "home",
+    })).toBe("Say slash profile phrase.");
+  });
 })

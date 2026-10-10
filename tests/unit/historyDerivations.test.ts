@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DictationEntry } from "@shared/types";
+import { mapHistoryItems } from "@renderer/context/vaani-ui";
+import { createRecoveryActionRunner, deriveRecoveryActions, deriveRecoveryItem, dedupeRecoveryEntries, matchesRecoverySearch } from "@renderer/lib/recoveryDerivations";
+import { createRecoveryEntry, toRecoveryEntryView } from "@shared/recovery";
 import {
   computeEntryFacts,
   createHistoryHaystack,
@@ -95,5 +98,111 @@ describe("history derivations", () => {
         usageCount: 0,
       },
     ]);
+  });
+
+  it("carries detected language into the history presentation model", () => {
+    const mapped = mapHistoryItems([{
+      ...entry("detected", now, "namaste world"),
+      detectedLanguage: "hi",
+      language: null,
+    }]);
+
+    expect(mapped[0]).toMatchObject({ language: null, detectedLanguage: "hi" });
+  });
+
+  it("derives bounded recovery previews and only state-valid actions", () => {
+    const entry = toRecoveryEntryView({
+      ...createRecoveryEntry({ id: "recovery-1", sessionId: "session-1", buildIdentifier: "test" }, new Date("2026-06-16T10:00:00.000Z")),
+      state: "recoverable",
+      text: { rawTranscript: "word ".repeat(200), cleanedText: null, formattedText: null },
+      audio: { kind: "encrypted-session-file", path: "/private/recovery.enc", durationSeconds: 2 },
+      insertion: {
+        status: "failed",
+        outcome: "recoverable",
+        method: "clipboard",
+        reason: "insertion_failed",
+        detail: "bounded detail",
+        targetFingerprint: { appBundleId: "com.example.Editor", appName: "Editor", windowTitle: "Secret window" },
+        appIdentity: { appBundleId: "com.example.Editor", appName: "Editor", windowTitle: "Secret window" },
+        baselineReadable: true,
+        baselineHash: "baseline-secret",
+        textHash: "text-secret",
+        intendedStrategy: "clipboard",
+        deadlineAt: "2026-06-16T12:01:00.000Z",
+      },
+      providerAttempts: [{
+        attempt: 1,
+        provider: "groq",
+        startedAt: "2026-06-16T10:00:00.000Z",
+        completedAt: "2026-06-16T10:00:01.000Z",
+        deadlineAt: null,
+        outcome: "failed",
+      }],
+      lastError: { class: "transcription_error", detail: "provider failed" },
+    });
+    const item = deriveRecoveryItem(entry, new Date("2026-06-16T12:00:00.000Z"));
+    expect(item.preview.length).toBeLessThanOrEqual(180);
+    expect(matchesRecoverySearch(item, "word")).toBe(true);
+    expect(item.age).toBe("2h old");
+    expect(item.actions).toEqual(expect.arrayContaining(["retry-transcription", "retry-formatting", "retry-insertion", "copy", "play-audio", "delete-audio", "discard"]));
+    expect(entry.text.rawTranscript).toBe("word ".repeat(200));
+    expect(deriveRecoveryActions({ ...entry, state: "delivered", terminal: "delivered" })).toEqual([]);
+    expect(dedupeRecoveryEntries([entry, entry])).toHaveLength(1);
+    expect(JSON.stringify(entry)).not.toContain("recovery.enc");
+    expect(JSON.stringify(entry)).not.toContain("Secret window");
+    expect(JSON.stringify(entry)).not.toContain("baseline-secret");
+    expect(JSON.stringify(entry)).not.toContain("groq");
+    expect(entry.insertion).toEqual({
+      status: "failed",
+      outcome: "recoverable",
+      method: "clipboard",
+      reason: "insertion_failed",
+      detail: "bounded detail",
+    });
+
+    const audioExpired = {
+      ...entry,
+      audioAvailable: false,
+      audioDurationSeconds: null,
+      retention: {
+        ...entry.retention,
+        audioExpiresAt: "2026-06-16T11:00:00.000Z",
+        expiresAt: "2026-06-17T10:00:00.000Z",
+      },
+    };
+    const expiredItem = deriveRecoveryItem(audioExpired, new Date("2026-06-16T12:00:00.000Z"));
+    expect(expiredItem.status).toBe("Audio expired; text available");
+    expect(expiredItem.actions).toEqual(expect.arrayContaining(["copy", "retry-insertion"]));
+    expect(expiredItem.actions).not.toEqual(expect.arrayContaining(["retry-transcription", "play-audio", "delete-audio"]));
+  });
+
+  it("searches full recovery text and hides Use raw when formatted text exists", () => {
+    const entry = toRecoveryEntryView({
+      ...createRecoveryEntry({ id: "search", sessionId: "search", buildIdentifier: "test" }),
+      state: "text_ready",
+      text: { rawTranscript: `${"a".repeat(200)} hidden-term`, cleanedText: null, formattedText: "formatted text" },
+    });
+    const item = deriveRecoveryItem(entry);
+    expect(item.preview).not.toContain("hidden-term");
+    expect(matchesRecoverySearch(item, "hidden-term")).toBe(true);
+    expect(matchesRecoverySearch(deriveRecoveryItem({ ...entry, text: { rawTranscript: null, cleanedText: null, formattedText: null } }), "")).toBe(true);
+    expect(deriveRecoveryActions(entry)).not.toContain("use-raw-transcript");
+    expect(deriveRecoveryActions({ ...entry, text: { ...entry.text, formattedText: null } })).toContain("use-raw-transcript");
+  });
+
+  it("locks concurrent actions on one recovery entry and reports false results", async () => {
+    const busy = vi.fn();
+    const error = vi.fn();
+    const runner = createRecoveryActionRunner(busy, error);
+    let finish: (value: boolean) => void = () => undefined;
+    const action = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    const first = runner.run("entry", action);
+    await runner.run("entry", action);
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(runner.isBusy("entry")).toBe(true);
+    finish(false);
+    await first;
+    expect(error).toHaveBeenLastCalledWith("entry", expect.stringContaining("could not be completed"));
+    expect(busy).toHaveBeenLastCalledWith("entry", false);
   });
 });

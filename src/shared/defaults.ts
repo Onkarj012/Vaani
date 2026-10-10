@@ -34,8 +34,11 @@ export const DEFAULT_SETTINGS: Settings = {
   dictationMode: "toggle",
   saveRecordings: false,
   recordingsPath: "",
+  recoveryRetentionDays: 3,
+  retainFailedAudio: false,
   // Phase 1
   transcriptionProvider: "groq",
+  transcriptionModel: "",
   formattingProvider: "groq-llm",
   formattingModel: "llama-3.1-8b-instant",
   providerApiKeys: [],
@@ -93,6 +96,15 @@ export const SUPPORTED_LANGUAGES: LanguageInfo[] = [
   { value: "ru", label: "Russian", whisper: true, deepgram: true, localEn: false },
 ];
 
+export function getLanguageLabel(language: string | null | undefined): string | null {
+  if (!language) return null;
+  return SUPPORTED_LANGUAGES.find((entry) => entry.value === language)?.label ?? language;
+}
+
+export function resolveProfileLanguage(profileLanguage: string | undefined, globalLanguage: string): string {
+  return profileLanguage && profileLanguage !== "auto" ? profileLanguage : globalLanguage;
+}
+
 // Pure support check used by both the provider chain and the Settings UI.
 export function isLanguageSupportedByProvider(
   language: string,
@@ -135,7 +147,10 @@ export interface ProviderInfo {
 export const KNOWN_PROVIDERS: ProviderInfo[] = [
   {
     id: "groq", name: "Groq Whisper", type: "stt",
-    models: [{ id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" }],
+    models: [
+      { id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" },
+      { id: "whisper-large-v3", name: "Whisper Large v3" },
+    ],
     requiresApiKey: true, defaultModel: "whisper-large-v3-turbo",
     locality: "cloud", estimatedCost: "low", privacyLevel: "cloud-audio", supportsConfidence: true, latencyClass: "fast",
   },

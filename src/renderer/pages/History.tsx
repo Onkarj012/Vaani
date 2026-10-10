@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react'
+import { recoveryReadinessMessage } from "@shared/recoveryReadiness";
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Search, Copy, RotateCcw, Trash2, Clock, Type, X, Check, AudioLines, Edit3, FileWarning, RefreshCw } from 'lucide-react'
+import { Search, Copy, RotateCcw, Trash2, Clock, Type, X, Check, AudioLines, Edit3, FileWarning, RefreshCw, Globe, Play, ShieldAlert } from 'lucide-react'
 import { useVaaniUi } from '@renderer/context/vaani-ui'
 import { Card } from '@renderer/components/ui/card'
 import { Input, Textarea } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
 import type { DictationTrace } from '@shared/types'
+import { getLanguageLabel } from '@shared/defaults'
+import { createRecoveryActionRunner, dedupeRecoveryEntries, deriveRecoveryItem, filterRecoveryItems, matchesRecoverySearch, type RecoveryAction, type RecoveryFilter } from '@renderer/lib/recoveryDerivations'
 
 type TraceLoadState = DictationTrace | null | 'loading'
 
@@ -13,12 +16,24 @@ const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: {
 const item = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }
 
 export default function History() {
-  const { historyItems, updateHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry, retryHistoryEntry, copyHistoryEntry } = useVaaniUi()
+  const { historyItems, updateHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry, retryHistoryEntry, copyHistoryEntry, recoveryReadiness, recoveryEntries, reloadHistory, retryRecoveryTranscription, retryRecoveryFormatting, useRawRecoveryTranscript, retryRecoveryInsertion, copyRecoveryEntry, playRecoveryAudio, deleteRecoveryAudio, discardRecoveryEntry } = useVaaniUi()
   const [searchQuery, setSearchQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [traces, setTraces] = useState<Record<string, TraceLoadState>>({})
+  const [recoveryFilter, setRecoveryFilter] = useState<RecoveryFilter>('all')
+  const [busyRecoveryIds, setBusyRecoveryIds] = useState<string[]>([])
+  const [recoveryActionErrors, setRecoveryActionErrors] = useState<Record<string, string>>({})
+  const [recoveryActionRunner] = useState(() => createRecoveryActionRunner(
+    (id, busy) => setBusyRecoveryIds((current) => busy ? [...current, id] : current.filter((value) => value !== id)),
+    (id, message) => setRecoveryActionErrors((current) => {
+      const next = { ...current }
+      if (message) next[id] = message
+      else delete next[id]
+      return next
+    }),
+  ))
 
   const groups = ['Today', 'Yesterday', 'This Week', 'Earlier']
   const grouped = groups
@@ -29,6 +44,33 @@ export default function History() {
         .filter((it) => it.text.toLowerCase().includes(searchQuery.toLowerCase())),
     }))
     .filter((group) => group.items.length > 0)
+  const recoveryItems = useMemo(
+    () => filterRecoveryItems(
+      dedupeRecoveryEntries(recoveryEntries).map((entry) => deriveRecoveryItem(entry)),
+      recoveryFilter,
+    ).filter((item) => matchesRecoverySearch(item, searchQuery)),
+    [recoveryEntries, recoveryFilter, searchQuery],
+  )
+
+  const runRecoveryAction = async (id: string, action: RecoveryAction) => {
+    if (recoveryActionRunner.isBusy(id)) return
+    if (action === 'delete-audio' && !window.confirm('Delete the encrypted recovery audio? The transcript will stay in History.')) return
+    if (action === 'discard' && !window.confirm('Discard this recovery item and its encrypted audio?')) return
+    await recoveryActionRunner.run(id, async () => {
+      if (action === 'retry-transcription') return retryRecoveryTranscription(id)
+      if (action === 'retry-formatting') return retryRecoveryFormatting(id)
+      if (action === 'use-raw-transcript') return useRawRecoveryTranscript(id)
+      if (action === 'retry-insertion') return retryRecoveryInsertion(id)
+      if (action === 'copy') {
+        const copied = await copyRecoveryEntry(id)
+        if (copied) await reloadHistory()
+        return copied
+      }
+      if (action === 'play-audio') return playRecoveryAudio(id)
+      if (action === 'delete-audio') return deleteRecoveryAudio(id)
+      return discardRecoveryEntry(id)
+    })
+  }
 
   const handleSave = () => {
     if (editingId) void updateHistoryEntry(editingId, editText)
@@ -80,6 +122,11 @@ export default function History() {
         )}
       </motion.div>
 
+      <p role="status" className="rounded-2xl border border-line p-4 text-sm text-muted">{recoveryReadinessMessage(recoveryReadiness)}</p>
+      {recoveryEntries.length > 0 && (
+        <RecoverySection total={recoveryEntries.length} items={recoveryItems} filter={recoveryFilter} onFilterChange={setRecoveryFilter} busyIds={busyRecoveryIds} errors={recoveryActionErrors} onAction={(id, action) => { void runRecoveryAction(id, action) }} />
+      )}
+
       <div className="space-y-8">
         {grouped.length === 0 ? (
           <motion.div variants={item} className="py-20 text-center">
@@ -125,6 +172,11 @@ export default function History() {
                           <span className="flex items-center gap-1"><Clock size={11} />{it.time}</span>
                           <span className="flex items-center gap-1"><AudioLines size={11} />{it.duration}</span>
                           <span className="flex items-center gap-1"><Type size={11} />{it.wordCount} words</span>
+                          {(it.detectedLanguage || it.language) && (
+                            <span className="flex items-center gap-1">
+                              <Globe size={11} />{getLanguageLabel(it.detectedLanguage || it.language)}
+                            </span>
+                          )}
                           <span>{it.injectionStatus === 'injected' ? 'Inserted' : 'Saved'}</span>
                         </div>
 
@@ -155,6 +207,97 @@ export default function History() {
       </div>
     </motion.div>
   )
+}
+
+function RecoverySection({
+  total,
+  items,
+  filter,
+  onFilterChange,
+  onAction,
+  busyIds,
+  errors,
+}: {
+  total: number;
+  items: ReturnType<typeof deriveRecoveryItem>[];
+  filter: RecoveryFilter;
+  onFilterChange: (filter: RecoveryFilter) => void;
+  onAction: (id: string, action: RecoveryAction) => void;
+  busyIds: string[];
+  errors: Record<string, string>;
+}) {
+  const filters: Array<{ value: RecoveryFilter; label: string }> = [
+    { value: 'all', label: 'All' },
+    { value: 'needs-transcription', label: 'Transcription' },
+    { value: 'needs-formatting', label: 'Formatting' },
+    { value: 'ready-to-insert', label: 'Ready to insert' },
+    { value: 'text-only', label: 'Text only' },
+  ]
+  return (
+    <motion.section variants={item} aria-labelledby="recovery-heading" className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-3">
+          <h2 id="recovery-heading" className="text-display text-2xl text-ink">Recovery</h2>
+          <span className="rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">{total}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 sm:ml-auto">
+          {filters.map((option) => (
+            <button key={option.value} onClick={() => onFilterChange(option.value)} className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${filter === option.value ? 'bg-ink text-bg' : 'bg-surface text-muted hover:bg-line hover:text-ink'}`}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {items.length === 0 ? <p className="rounded-2xl border border-line p-5 text-sm text-muted">No recovery items match this filter.</p> : (
+        <div className="space-y-3">
+          {items.map((item) => (
+            <Card key={item.entry.id} className="p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-700">{item.status}</span>
+                    {item.entry.recoveryMode === 'text-only' && <span className="rounded-full bg-surface px-2.5 py-1 text-[11px] font-semibold text-muted">Reduced recovery</span>}
+                  </div>
+                  <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink/85">{item.preview}</p>
+                </div>
+                <div className="label-meta text-right text-[10px] text-faint">
+                  <div>{item.age}</div>
+                  <div className="mt-1">{item.expires}</div>
+                </div>
+              </div>
+              <div className="label-meta mt-4 flex flex-wrap items-center gap-3 text-[10px] text-faint">
+                <span>{item.entry.audioAvailable ? `Audio available${item.entry.audioDurationSeconds ? ` · ${Math.round(item.entry.audioDurationSeconds)}s` : ''}` : 'Audio unavailable'}</span>
+                {item.entry.appName && <span>Target noted: {item.entry.appName}</span>}
+                <span>State: {item.entry.state.replaceAll('_', ' ')}</span>
+              </div>
+              {item.entry.lastError.class !== 'none' && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-500/5 p-3 text-xs text-red-600"><ShieldAlert size={14} className="mt-0.5 shrink-0" /><span>Last error: {item.entry.lastError.class.replaceAll('_', ' ')}{item.entry.lastError.detail ? ` · ${item.entry.lastError.detail}` : ''}</span></div>
+              )}
+              {errors[item.entry.id] && <p role="alert" className="mt-3 text-xs text-red-600">{errors[item.entry.id]}</p>}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {item.actions.map((action) => <RecoveryActionButton key={action} action={action} disabled={busyIds.includes(item.entry.id)} onClick={() => onAction(item.entry.id, action)} />)}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </motion.section>
+  )
+}
+
+function RecoveryActionButton({ action, onClick, disabled }: { action: RecoveryAction; onClick: () => void; disabled: boolean }) {
+  const labels: Record<RecoveryAction, string> = {
+    'retry-transcription': 'Retry transcription',
+    'retry-formatting': 'Retry formatting',
+    'use-raw-transcript': 'Use raw transcript',
+    'retry-insertion': 'Retry insertion',
+    copy: 'Copy',
+    'play-audio': 'Play audio',
+    'delete-audio': 'Delete audio',
+    discard: 'Discard',
+  }
+  const Icon = action === 'copy' ? Copy : action === 'play-audio' ? Play : action === 'discard' || action === 'delete-audio' ? Trash2 : action.startsWith('retry') ? RefreshCw : RotateCcw
+  return <Button variant={action === 'discard' || action === 'delete-audio' ? 'destructive' : 'soft'} size="sm" onClick={onClick} disabled={disabled}><Icon size={13} />{labels[action]}</Button>
 }
 
 function Diagnostics({ trace }: { trace: DictationTrace | null | undefined }) {

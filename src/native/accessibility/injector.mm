@@ -1,6 +1,7 @@
 #include <napi.h>
 #include <atomic>
 #include <vector>
+#include <string>
 #include <unistd.h>
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
@@ -386,6 +387,28 @@ Napi::Value GetFocusedValue(const Napi::CallbackInfo& info) {
   return result;
 }
 
+Napi::Value GetFocusedElementIdentity(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (!AXIsProcessTrusted()) return env.Null();
+  AXUIElementRef element = CopyFocusedElement();
+  if (element == nullptr) return env.Null();
+  pid_t pid = 0;
+  CFTypeRef role = nullptr;
+  const bool available = AXUIElementGetPid(element, &pid) == kAXErrorSuccess && pid > 0
+    && AXUIElementCopyAttributeValue(element, kAXRoleAttribute, &role) == kAXErrorSuccess
+    && role != nullptr && CFGetTypeID(role) == CFStringGetTypeID();
+  if (!available) {
+    if (role != nullptr) CFRelease(role);
+    CFRelease(element);
+    return env.Null();
+  }
+  const std::string identity = std::to_string(pid) + ":" + std::to_string(CFHash(element))
+    + ":" + [(__bridge NSString*)role UTF8String];
+  CFRelease(role);
+  CFRelease(element);
+  return Napi::String::New(env, identity);
+}
+
 Napi::Boolean SetFocusedSelection(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
@@ -415,15 +438,25 @@ Napi::Boolean SetFocusedSelection(const Napi::CallbackInfo& info) {
 
 Napi::Boolean PasteText(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (info.Length() < 1 || !info[0].IsString()) {
-    Napi::TypeError::New(env, "Expected text input").ThrowAsJavaScriptException();
+  if (info.Length() < 2 || !info[0].IsString() || !info[1].IsNumber()) {
+    Napi::TypeError::New(env, "Expected text and clipboard change count").ThrowAsJavaScriptException();
     return Napi::Boolean::New(env, false);
   }
 
   NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
-  [pasteboard clearContents];
   NSString* text = [NSString stringWithUTF8String:info[0].As<Napi::String>().Utf8Value().c_str()];
-  [pasteboard setString:text forType:NSPasteboardTypeString];
+  NSString* expectedBundle = info.Length() > 2 && info[2].IsString()
+    ? [NSString stringWithUTF8String:info[2].As<Napi::String>().Utf8Value().c_str()] : nil;
+  const pid_t expectedPid = info.Length() > 3 && info[3].IsNumber() ? info[3].As<Napi::Number>().Int32Value() : 0;
+  auto targetIsFrontmost = [&]() {
+    NSRunningApplication* frontmost = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    if (frontmost == nil) return false;
+    if (expectedPid > 0 && [frontmost processIdentifier] != expectedPid) return false;
+    return expectedBundle == nil || expectedBundle.length == 0 || [[frontmost bundleIdentifier] isEqualToString:expectedBundle];
+  };
+  if (text == nil || !targetIsFrontmost() || [pasteboard changeCount] != info[1].As<Napi::Number>().Int64Value() || ![[pasteboard stringForType:NSPasteboardTypeString] isEqualToString:text]) {
+    return Napi::Boolean::New(env, false);
+  }
 
   CGEventRef optionUp = CGEventCreateKeyboardEvent(nullptr, kVK_Option, false);
   CGEventRef controlUp = CGEventCreateKeyboardEvent(nullptr, kVK_Control, false);
@@ -449,8 +482,13 @@ Napi::Boolean PasteText(const Napi::CallbackInfo& info) {
   PostKeyboardEvent(rightShiftUp);
   PostKeyboardEvent(rightCommandUp);
   usleep(15000);
+  if (!targetIsFrontmost() || [pasteboard changeCount] != info[1].As<Napi::Number>().Int64Value() || ![[pasteboard stringForType:NSPasteboardTypeString] isEqualToString:text]) {
+    CFRelease(optionUp); CFRelease(controlUp); CFRelease(shiftUp); CFRelease(rightOptionUp);
+    CFRelease(rightControlUp); CFRelease(rightShiftUp); CFRelease(rightCommandUp);
+    CFRelease(commandDown); CFRelease(vDown); CFRelease(vUp); CFRelease(commandUp);
+    return Napi::Boolean::New(env, false);
+  }
   PostKeyboardEvent(commandDown);
-  usleep(10000);
   PostKeyboardEvent(vDown);
   usleep(10000);
   PostKeyboardEvent(vUp);
@@ -470,6 +508,10 @@ Napi::Boolean PasteText(const Napi::CallbackInfo& info) {
   CFRelease(commandUp);
 
   return Napi::Boolean::New(env, true);
+}
+
+Napi::Number GetClipboardChangeCount(const Napi::CallbackInfo& info) {
+  return Napi::Number::New(info.Env(), [[NSPasteboard generalPasteboard] changeCount]);
 }
 
 Napi::Boolean TypeText(const Napi::CallbackInfo& info) {
@@ -587,9 +629,11 @@ Napi::Object InitAccessibility(Napi::Env env, Napi::Object exports) {
   exports.Set("isAccessibilityTrusted", Napi::Function::New(env, IsAccessibilityTrusted));
   exports.Set("injectText", Napi::Function::New(env, InjectText));
   exports.Set("pasteText", Napi::Function::New(env, PasteText));
+  exports.Set("getClipboardChangeCount", Napi::Function::New(env, GetClipboardChangeCount));
   exports.Set("typeText", Napi::Function::New(env, TypeText));
   exports.Set("getFocusedSelection", Napi::Function::New(env, GetFocusedSelection));
   exports.Set("getFocusedValue", Napi::Function::New(env, GetFocusedValue));
+  exports.Set("getFocusedElementIdentity", Napi::Function::New(env, GetFocusedElementIdentity));
   exports.Set("setFocusedSelection", Napi::Function::New(env, SetFocusedSelection));
   exports.Set("prepareRecordingInput", Napi::Function::New(env, PrepareRecordingInput));
   exports.Set("restoreRecordingInput", Napi::Function::New(env, RestoreRecordingInput));

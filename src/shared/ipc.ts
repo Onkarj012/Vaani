@@ -8,6 +8,7 @@ export const enum IpcChannel {
   RecorderStarted = "dictation:recorder-started",
   ReportAudioFrame = "dictation:report-audio-frame",
   RecorderFailure = "dictation:recorder-failure",
+  RecorderSuspended = "dictation:recorder-suspended",
   PrepareRecordingInput = "dictation:prepare-recording-input",
   RestoreRecordingInput = "dictation:restore-recording-input",
   GetRecorderConfig = "dictation:get-recorder-config",
@@ -15,6 +16,9 @@ export const enum IpcChannel {
   RecorderConfigChanged = "dictation:recorder-config-changed",
   StartRecording = "dictation:start-recording",
   StopRecording = "dictation:stop-recording",
+  AbortRecording = "dictation:abort-recording",
+  SuspendRecording = "dictation:suspend-recording",
+  ResumeRecording = "dictation:resume-recording",
 
   // History
   GetHistory = "history:get",
@@ -26,6 +30,20 @@ export const enum IpcChannel {
   DeleteEntry = "history:delete",
   ClearHistory = "history:clear",
   CopyText = "clipboard:copy-text",
+  CopyRecoveryEntry = "recovery:copy-entry",
+  GetRecoveryReadiness = "recovery:get-readiness",
+  GetRecoveryEntries = "recovery:get-entries",
+  RetryRecoveryTranscription = "recovery:retry-transcription",
+  RetryRecoveryFormatting = "recovery:retry-formatting",
+  UseRawRecoveryTranscript = "recovery:use-raw-transcript",
+  RetryRecoveryInsertion = "recovery:retry-insertion",
+  PlayRecoveryAudio = "recovery:play-audio",
+  DeleteRecoveryAudio = "recovery:delete-audio",
+  DiscardRecoveryEntry = "recovery:discard-entry",
+  GetRecoveryStorageUsage = "recovery:get-storage-usage",
+  CleanupRecoveryAudio = "recovery:cleanup-audio",
+  ClearRecoveryAudio = "recovery:clear-audio",
+  GetRecoveryRestored = "recovery:get-restored",
 
   // Settings
   GetSettings = "settings:get",
@@ -53,6 +71,8 @@ export const enum IpcChannel {
 
   // Phase 1: Providers
   TestApiKey = "providers:test-api-key",
+  SetProviderApiKey = "providers:set-api-key",
+  ClearProviderApiKey = "providers:clear-api-key",
   GetProviderStatus = "providers:get-status",
 
   // Updater notifications

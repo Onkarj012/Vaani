@@ -142,16 +142,3 @@ if (isOverlayMode && CapsuleOverlay) {
     </React.StrictMode>
   );
 }
-
-
-// Only report ready in main mode (overlay uses capsuleBridge.sendReady)
-if (!isOverlayMode && typeof window.vaani !== "undefined") {
-  function reportRendererReady(): void {
-    window.vaani.reportRendererReady();
-  }
-
-  queueMicrotask(reportRendererReady);
-  setTimeout(reportRendererReady, 0);
-  setTimeout(reportRendererReady, 150);
-  setTimeout(reportRendererReady, 350);
-}

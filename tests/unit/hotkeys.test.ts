@@ -182,4 +182,63 @@ describe("HotkeyManager", () => {
     expect(unregisterMock).toHaveBeenCalledWith("Escape");
     dateNowSpy.mockRestore();
   });
+
+  it("does not release or enter toggle mode after a rejected press", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onPress = vi.fn(() => false);
+    const onRelease = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, dictationMode: "toggle" }),
+      onPress,
+      onRelease,
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    const callback = startHotkeyMonitorMock.mock.calls[0]?.[1] as ((pressed: boolean) => void);
+    callback(true);
+    callback(false);
+    vi.advanceTimersByTime(400);
+
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onRelease).not.toHaveBeenCalled();
+    expect(registerMock).not.toHaveBeenCalledWith("Escape", expect.any(Function));
+
+    onPress.mockReturnValue(true);
+    callback(true);
+    callback(false);
+    vi.advanceTimersByTime(400);
+    expect(onPress).toHaveBeenCalledTimes(2);
+    expect(onRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows the next push-to-talk press after a rejected press", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onPress = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+    const onRelease = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, dictationMode: "push-to-talk" }),
+      onPress,
+      onRelease,
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    const callback = startHotkeyMonitorMock.mock.calls[0]?.[1] as ((pressed: boolean) => void);
+    callback(true);
+    callback(false);
+    callback(true);
+    callback(false);
+
+    expect(onPress).toHaveBeenCalledTimes(2);
+    expect(onRelease).toHaveBeenCalledTimes(1);
+  });
 });

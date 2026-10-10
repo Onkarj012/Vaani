@@ -9,6 +9,7 @@ Napi::Object GetFrontmostApplication(const Napi::CallbackInfo& info) {
   if (app != nil) {
     result.Set("bundleId", Napi::String::New(env, [[app bundleIdentifier] UTF8String] ?: ""));
     result.Set("name", Napi::String::New(env, [[app localizedName] UTF8String] ?: ""));
+    result.Set("pid", Napi::Number::New(env, [app processIdentifier]));
   }
 
   return result;

@@ -5,20 +5,20 @@ import { debug, error } from "@main/log";
 import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
 import { validateBearerEndpoint } from "../validation";
 import { createWavBuffer } from "@main/providers/shared/audioUtils";
+import { createCancellationScope, isAbortError, waitWithAbort } from "@main/cancellation";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
 const ATTEMPT_TIMEOUT_MS = 15_000;
 
-function delay(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
-}
-
 export const GroqSttProvider: TranscriptionProvider = {
   id: "groq",
   name: "Groq Whisper",
   requiresApiKey: true,
-  models: [{ id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" }],
+  models: [
+    { id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" },
+    { id: "whisper-large-v3", name: "Whisper Large v3" },
+  ],
 
   async transcribe(clip, options): Promise<TranscriptionResult> {
     debug("groq", `transcribe called: hasApiKey=${!!options.apiKey}, clipDuration=${clip.durationSeconds.toFixed(2)}s, samples=${clip.pcmData.length}`);
@@ -39,11 +39,11 @@ export const GroqSttProvider: TranscriptionProvider = {
 
     let lastError: Error | null = null;
 
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const maxRetries = options.recovery ? 1 : MAX_RETRIES;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const scope = createCancellationScope(options.signal, Date.now() + ATTEMPT_TIMEOUT_MS);
       try {
-        debug("groq", `Attempt ${attempt + 1}/${MAX_RETRIES}: calling Groq API...`);
-        const controller = new AbortController();
-        const attemptTimer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+        debug("groq", `Attempt ${attempt + 1}/${maxRetries}: calling Groq API...`);
         const groq = new Groq({ apiKey: options.apiKey });
         const response = await groq.audio.transcriptions.create({
           file,
@@ -52,8 +52,8 @@ export const GroqSttProvider: TranscriptionProvider = {
           temperature: options.temperature ?? 0,
           response_format: "verbose_json",
           ...(prompt ? { prompt } : {}),
-        }, { signal: controller.signal });
-        clearTimeout(attemptTimer);
+        }, { signal: scope.signal });
+        if (scope.signal.aborted) throw new Error("Groq request timed out.");
 
         const rawText = (response.text ?? "").trim();
         debug("groq", `Success: ${rawText.length} chars`);
@@ -87,14 +87,22 @@ export const GroqSttProvider: TranscriptionProvider = {
           },
         };
       } catch (err) {
+        if (options.signal?.aborted) throw err;
+        if (scope.signal.aborted) {
+          lastError = new Error("Groq request timed out.");
+        } else if (isAbortError(err)) {
+          throw err;
+        }
         const message = err instanceof Error ? err.message : String(err);
-        lastError = err instanceof Error ? err : new Error(message);
+        lastError = scope.signal.aborted ? new Error("Groq request timed out.") : err instanceof Error ? err : new Error(message);
 
         // Don't retry user-facing errors
         if (isNotRetryableError(message)) throw lastError;
 
         debug("groq", `Attempt ${attempt + 1} failed: ${lastError.message}`);
-        if (attempt < MAX_RETRIES - 1) await delay(RETRY_DELAY);
+        if (attempt < maxRetries - 1) await waitWithAbort(RETRY_DELAY, options.signal);
+      } finally {
+        scope.dispose();
       }
     }
 

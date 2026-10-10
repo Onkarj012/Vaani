@@ -1,6 +1,7 @@
 import type { FormattingProvider } from "../types";
 import { MIN_WORDS_FOR_FORMATTING, FORMATTING_PROMPT } from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
+import { isAbortError } from "@main/cancellation";
 
 export const AnthropicLlmProvider: FormattingProvider = {
   id: "anthropic",
@@ -25,6 +26,7 @@ export const AnthropicLlmProvider: FormattingProvider = {
           "x-api-key": options.apiKey,
           "anthropic-version": "2023-06-01",
         },
+        signal: options.signal,
         body: JSON.stringify({
           model: options.model || "claude-3-5-haiku-latest",
           max_tokens: Math.max(256, text.length * 2),
@@ -34,11 +36,12 @@ export const AnthropicLlmProvider: FormattingProvider = {
         }),
       });
 
-      if (!response.ok) throw new Error(`Anthropic API is temporarily unavailable. Please try again.`);
+      if (!response.ok) throw new Error(`Anthropic API request failed with status ${response.status}.`);
       const data = await response.json() as { content: { type: string; text: string }[] };
       const content = data.content?.find(c => c.type === "text");
       return content?.text?.trim() || text;
-    } catch {
+    } catch (error) {
+      if (options.signal?.aborted || isAbortError(error)) throw error;
       return text;
     }
   },

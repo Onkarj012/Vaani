@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AudioInputDevice, RecorderConfig } from "@shared/types";
+import type { AudioInputDevice, RecorderConfig, RecorderSubmission } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { CaptureBackendController, NativeCaptureService, selectNativeInputDevice, shouldUseNativeBackend, type NativeCaptureSink } from "@main/audio/nativeCapture";
 
@@ -24,13 +24,51 @@ describe("selectNativeInputDevice", () => {
     expect(selectNativeInputDevice(devices, "preferred")).toEqual({ ok: true, uid: "preferred" });
   });
 
-  it("falls back to the physical default device", () => {
+  it("reports a missing selected UID instead of falling back to built-in", () => {
     const devices = [
       device({ uid: "virtual", isPhysical: false, transportType: "virtual" }),
-      device({ uid: "default", isDefault: true }),
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "built-in" }),
     ];
 
-    expect(selectNativeInputDevice(devices, "missing")).toEqual({ ok: true, uid: "default" });
+    expect(selectNativeInputDevice(devices, "missing")).toEqual({ ok: false, message: "Selected microphone is unavailable." });
+  });
+
+  it("prefers built-in over a default Bluetooth input", () => {
+    const devices = [
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "built-in" }),
+    ];
+
+    expect(selectNativeInputDevice(devices)).toEqual({ ok: true, uid: "built-in" });
+  });
+
+  it("skips Bluetooth and Bluetooth LE when selecting the built-in input", () => {
+    const devices = [
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "ble", name: "LE Headset", transportType: "bluetooth-le" }),
+      device({ uid: "built-in" }),
+    ];
+
+    expect(selectNativeInputDevice(devices)).toEqual({ ok: true, uid: "built-in" });
+  });
+
+  it("refuses to choose when only Bluetooth inputs are available", () => {
+    const devices = [
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "ble", name: "LE Headset", transportType: "bluetooth-le" }),
+    ];
+
+    expect(selectNativeInputDevice(devices)).toMatchObject({ ok: false });
+  });
+
+  it("honors an explicit Bluetooth UID", () => {
+    const devices = [
+      device({ uid: "bt", name: "Headset", transportType: "bluetooth", isDefault: true }),
+      device({ uid: "built-in" }),
+    ];
+
+    expect(selectNativeInputDevice(devices, "bt")).toEqual({ ok: true, uid: "bt" });
   });
 
   it("errors when only virtual or aggregate inputs are present", () => {
@@ -41,7 +79,7 @@ describe("selectNativeInputDevice", () => {
 
     expect(selectNativeInputDevice(devices)).toEqual({
       ok: false,
-      message: expect.stringContaining("No physical microphone found"),
+      message: expect.stringContaining("No built-in microphone found"),
     });
   });
 });
@@ -63,6 +101,32 @@ describe("shouldUseNativeBackend", () => {
 });
 
 describe("CaptureBackendController", () => {
+  it("routes renderer lifecycle suspension and cancellation through the active backend", () => {
+    const config: RecorderConfig = { preWarmMic: false, captureBackend: "renderer" };
+    const native = new NativeCaptureService(() => config, {
+      reportRecorderStarted: vi.fn(),
+      submitAudioClip: vi.fn(),
+      updateAudioLevel: vi.fn(),
+      handleRecorderFailure: vi.fn(),
+    }, {});
+    const renderer = {
+      isReady: vi.fn(() => true),
+      startRecording: vi.fn(() => true),
+      stopRecording: vi.fn(() => true),
+      abortRecording: vi.fn(),
+      suspendForLifecycle: vi.fn(() => ({ wasRunning: true, sessionId: "renderer-session" })),
+      resumeAfterLifecycle: vi.fn(() => ({ ok: true as const, selectedDeviceUid: null })),
+    };
+    const controller = new CaptureBackendController(() => config, native, renderer);
+
+    expect(controller.startRecording("renderer-session")).toBe(true);
+    expect(controller.suspendForLifecycle()).toEqual({ wasRunning: true, sessionId: "renderer-session" });
+    expect(renderer.suspendForLifecycle).toHaveBeenCalledTimes(1);
+    expect(controller.resumeAfterLifecycle()).toMatchObject({ ok: true });
+    controller.abortRecording("renderer-session");
+    expect(renderer.abortRecording).toHaveBeenCalledWith("renderer-session");
+  });
+
   it("falls back to renderer when native start fails", () => {
     const config: RecorderConfig = { preWarmMic: true, captureBackend: "native" };
     const native = {
@@ -85,6 +149,64 @@ describe("CaptureBackendController", () => {
 });
 
 describe("NativeCaptureService", () => {
+  it("submits last-frame timing and final 300 ms loudness with the clip", async () => {
+    vi.useFakeTimers();
+    try {
+      let onData: ((samples: Float32Array) => void) | undefined;
+      const submitAudioClip = vi.fn<(payload: RecorderSubmission) => void>();
+      const bridge = {
+        audioCaptureStart: vi.fn((options: { onData: (samples: Float32Array) => void }) => {
+          onData = options.onData;
+          return true;
+        }),
+        audioCaptureStop: vi.fn(),
+        audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+      };
+      const service = new NativeCaptureService(
+        () => ({ preWarmMic: false, captureBackend: "native" }),
+        { reportRecorderStarted: vi.fn(), submitAudioClip, updateAudioLevel: vi.fn(), handleRecorderFailure: vi.fn() },
+        bridge,
+      );
+
+      expect(service.startRecording("s1")).toBe(true);
+      expect(service.stopRecording("s1")).toBe(true);
+      await vi.advanceTimersByTimeAsync(50);
+      onData?.(new Float32Array(16_000).fill(0.02));
+      await vi.advanceTimersByTimeAsync(370);
+      expect(submitAudioClip.mock.calls[0]?.[0].tailMetrics?.lastFrameAfterStopMs).toBe(50);
+      expect(submitAudioClip.mock.calls[0]?.[0].tailMetrics?.trailingRms).toBeCloseTo(0.02);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps suspension retryable after a failed resume and makes a later success idempotent", () => {
+    const config: RecorderConfig = { preWarmMic: true, captureBackend: "native", micDeviceId: "built-in" };
+    let startSucceeds = true;
+    const sink: NativeCaptureSink = {
+      reportRecorderStarted: vi.fn(),
+      submitAudioClip: vi.fn(),
+      updateAudioLevel: vi.fn(),
+      handleRecorderFailure: vi.fn(),
+    };
+    const bridge = {
+      audioCaptureStart: vi.fn(() => startSucceeds),
+      audioCaptureStop: vi.fn(),
+      audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+      audioCaptureIsRunning: vi.fn(() => false),
+    };
+    const service = new NativeCaptureService(() => config, sink, bridge);
+    expect(service.warm()).toBe(true);
+    service.suspendForLifecycle();
+    startSucceeds = false;
+    expect(service.resumeAfterLifecycle()).toMatchObject({ ok: false });
+    startSucceeds = true;
+    expect(service.resumeAfterLifecycle()).toMatchObject({ ok: true, selectedDeviceUid: "built-in" });
+    const startsAfterSuccessfulResume = bridge.audioCaptureStart.mock.calls.length;
+    expect(service.resumeAfterLifecycle()).toMatchObject({ ok: true, selectedDeviceUid: "built-in" });
+    expect(bridge.audioCaptureStart).toHaveBeenCalledTimes(startsAfterSuccessfulResume);
+  });
+
   it("defers capture rebuilds while a session is active", () => {
     let config: RecorderConfig = { preWarmMic: true, captureBackend: "native", micDeviceId: "built-in" };
     const sink: NativeCaptureSink = {
@@ -112,5 +234,27 @@ describe("NativeCaptureService", () => {
 
     expect(bridge.audioCaptureStop).not.toHaveBeenCalled();
     expect(sink.reportRecorderStarted).toHaveBeenCalledWith("s1");
+  });
+
+  it("aborts a native session before state reset without submitting a clip", () => {
+    const config: RecorderConfig = { preWarmMic: false, captureBackend: "native" };
+    const sink: NativeCaptureSink = {
+      reportRecorderStarted: vi.fn(),
+      submitAudioClip: vi.fn(),
+      updateAudioLevel: vi.fn(),
+      handleRecorderFailure: vi.fn(),
+    };
+    const bridge = {
+      audioCaptureStart: vi.fn(() => true),
+      audioCaptureStop: vi.fn(),
+      audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+      audioCaptureIsRunning: vi.fn(() => false),
+    };
+    const service = new NativeCaptureService(() => config, sink, bridge);
+    expect(service.startRecording("native-session")).toBe(true);
+    service.abortRecording("native-session");
+    expect(bridge.audioCaptureStop).toHaveBeenCalled();
+    expect(service.stopRecording("native-session")).toBe(true);
+    expect(sink.submitAudioClip).not.toHaveBeenCalled();
   });
 });

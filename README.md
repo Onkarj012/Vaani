@@ -2,27 +2,27 @@
 
 > Press a hotkey. Speak. Words appear — instantly, in any app.
 
-Vaani is a fast, privacy-first voice dictation app for macOS with multi-provider transcription and LLM formatting. Choose from Groq, OpenAI, Deepgram, Anthropic, or run entirely offline with local Whisper. No subscription, no cloud storage, no telemetry.
+Vaani is a macOS voice dictation app with multi-provider transcription and LLM formatting. Choose cloud providers or an offline-only pipeline with a working local Whisper backend. No subscription or telemetry.
 
 ## Features
 
 - **Global Hotkey** — Start dictating from anywhere with a customizable keyboard shortcut. Toggle or push-to-talk mode.
-- **Multi-Provider STT** — Transcribe with Groq Whisper, OpenAI Whisper, Deepgram Nova-2, or local whisper.cpp (offline)
+- **Multi-Provider STT** — Transcribe with Groq Whisper, OpenAI Whisper, or Deepgram Nova-2. Local whisper.cpp is optional and not verified in packaged builds.
 - **Multi-Provider LLM Formatting** — Clean up text with Groq Llama, OpenAI GPT, Anthropic Claude, or OpenRouter
-- **Offline Mode** — Built-in whisper.cpp runs entirely on-device — no internet, no API keys needed
+- **Offline Mode** — Always Offline restricts transcription to local Whisper and skips cloud formatting. A working native Whisper backend and model are required; see Known Limitations.
 - **Smart Text Cleanup** — Removes filler words ("um", "uh", "like"), fixes punctuation, and applies AI formatting
 - **Context-Aware Injection** — Detects the active app and picks the best of 5 insertion methods with per-app policies
 - **Per-App Profiles** — Different provider, language, and formatting settings per application
 - **Snippets & Dictionary** — Custom slash-command snippets and word replacements
 - **History** — Browse and re-inject past dictations
 - **Auto-Updater** — Gets the latest version automatically from GitHub Releases
-- **Privacy-First** — Audio is transient; nothing stored on any server. Local mode keeps everything on-device.
+- **Privacy controls** — Audio recording is optional. Always Offline keeps dictation content out of cloud transcription and formatting providers.
 
 ## System Requirements
 
 - **macOS**: 12.0 (Monterey) or later
 - **Architecture**: Apple Silicon or Intel
-- **Internet**: Required only for cloud transcription (Groq API). For offline transcription, select Local (whisper.cpp) — no internet or API keys required.
+- **Internet**: Required for cloud transcription and formatting. Always Offline requires a working local Whisper backend and downloaded model, and disables cloud formatting.
 - **Permissions**: Accessibility (global hotkeys + text injection), Microphone
 
 ## Installation
@@ -62,7 +62,9 @@ The built app and DMG will be in `out/make/`.
    - [Anthropic](https://anthropic.com) (Claude formatting)
    - [OpenRouter](https://openrouter.ai) (multi-model gateway)
 2. Open Vaani → Settings → paste your key(s)
-3. Or skip cloud entirely — select **Local (whisper.cpp)** for offline transcription
+3. With a working local Whisper backend and downloaded model, select **Always Offline** to disable cloud transcription and formatting. Selecting **Local (whisper.cpp)** alone in Auto mode does not disable cloud formatting or failover.
+
+Provider API keys are stored in macOS Keychain. Keys left in legacy settings are migrated to Keychain and removed from the settings file on startup.
 
 ### 2. Accessibility Permission
 
@@ -79,6 +81,8 @@ This is required for global hotkeys and text injection.
 
 Vaani requests microphone access on first use. Click **Allow**.
 
+On every startup, Vaani checks both Microphone and Accessibility access and guides you to **System Settings** if either permission is missing. Rebuilt ad-hoc apps may need these permissions granted again.
+
 ## Usage
 
 ### Dictation
@@ -94,6 +98,8 @@ Press `Ctrl+Cmd+V` to re-insert your most recent dictation.
 ### Snippets
 
 Type `/` followed by a snippet name while dictating to expand it.
+
+Phase 3 also supports opt-in fuzzy dictionary matching, bare spoken snippet triggers, and per-app snippet scope in the engine. These advanced options are not yet configurable in the UI.
 
 ### Tips
 
@@ -117,6 +123,7 @@ Open Settings from the menu bar icon or `Cmd+,`.
 | Smart punctuation | On / Off |
 | Remove filler words | On / Off |
 | Local Whisper model | tiny.en / base.en / small.en |
+| Offline mode | Auto / Always Offline / Always Online |
 
 ## Keyboard Shortcuts
 
@@ -145,7 +152,7 @@ src/
 ├── main/            # Electron main process
 │   ├── providers/   # Multi-provider STT + LLM engine (groq, openai, deepgram, anthropic, local, openai-compatible)
 │   ├── injection/   # AX + clipboard + keystroke injection (5 strategies, per-app policies)
-│   ├── store/       # Settings & history (JSON, ~/.vaani/)
+│   ├── store/       # Keychain credentials plus local settings, history, and traces
 │   ├── native/      # C++/Obj-C native addons (hotkey, injection, audio, whisper)
 │   └── text/        # Cleanup and formatting
 ├── renderer/        # React UI (pages, components, hooks, overlay)
@@ -171,25 +178,28 @@ bun run typecheck    # TypeScript check
 
 ## Privacy
 
-- Audio is never stored locally or on any server
-- Cloud transcription sends audio to your selected provider's API; their privacy policies apply
-- Local whisper.cpp mode keeps all audio on-device
-- Settings and history are stored locally in `~/.vaani/`
+- Save Recordings is off by default. Enabling it saves WAV files locally for replay.
+- Cloud transcription sends audio to configured providers; cloud formatting sends transcript text. Provider retention policies apply.
+- Always Offline excludes cloud STT and skips provider formatting. Auto mode can use cloud formatting and configured failover even when Local Whisper is selected.
+- Failed-dictation recovery remains disabled in this build. Failed-audio retention is a separate opt-in, off by default; old inherited preferences and reset settings do not enable it.
+- Turning either audio-retention control off stops new saves, including pending saves. Previously saved audio remains until explicitly deleted (or, for recovery audio, until expiry). Recovery has a 50-session / 1 GB storage limit.
+- Provider, model, language, and formatting choices are captured when dictation starts. Switching to Always Offline cancels pending work. Older recovery entries without a saved route keep their text but cannot silently retry through current provider settings.
+- Copied bug reports contain a limited diagnostic summary, excluding transcript text and local audio paths. Export Data remains a separate, content-bearing export of settings and history.
+- Provider API keys are stored in macOS Keychain; legacy settings keys migrate there on startup
+- Non-secret settings, history, and dictation traces are stored locally in `~/.vaani/`
 - No telemetry or analytics
 
 ## Known Limitations
 
 - macOS only (12+)
-- Cloud providers require internet; local whisper.cpp works fully offline
+- Local Whisper is not yet verified as a working packaged provider. The checked-in native build uses Whisper stubs unless a real backend is supplied. Always Offline fails without a working local backend; it does not fall back to cloud.
 - Very short phrases (< 3 words) may not inject reliably in some apps
 - **Stale state after extended uptime** — App may become unresponsive after ~16 hours of continuous use. Restarting Vaani resolves this. Auto-recovery watchdog added in v1.0.4; root cause investigation ongoing.
 - **Capsule overlay** — The recording overlay (bottom-center pill) may occasionally not appear when dictation starts. It typically reappears on the next attempt. Visibility retry logic added in v1.0.4.
-- API keys are stored in plain JSON on disk. Keychain integration is planned for v1.1.
 - Notarization requires Apple Developer credentials. See installation workaround below.
 
-## Roadmap (v1.1+)
+## Roadmap
 
-- **macOS Keychain integration** — Secure API key storage replacing plain JSON
 - **Persistent stale state fix** — Root cause investigation and fix for long-uptime unresponsiveness
 - **Capsule reliability** — Eliminate intermittent overlay non-appearance
 - **Improved offline support** — Smarter offline/online switching without user intervention

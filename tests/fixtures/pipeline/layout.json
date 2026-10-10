@@ -1,0 +1,10 @@
+[
+  { "name": "new paragraph", "rawText": "intro sentence new paragraph second sentence", "settingsOverrides": {}, "expected": "Intro sentence.\n\nSecond sentence." },
+  { "name": "new line", "rawText": "first line new line second line", "settingsOverrides": {}, "expected": "First line.\nSecond line." },
+  { "name": "new para and next line", "rawText": "first new para second new line third", "settingsOverrides": {}, "expected": "First.\n\nSecond.\nThird." },
+  { "name": "point enumeration", "rawText": "things to do point one buy milk point two call mom point three ship update", "settingsOverrides": {}, "expected": "Things to do.\n\n1. Buy milk\n2. Call mom\n3. Ship update." },
+  { "name": "number enumeration", "rawText": "checklist number one open the app number two start recording", "settingsOverrides": {}, "expected": "Checklist.\n\n1. Open the app\n2. Start recording." },
+  { "name": "inline numbered markers", "rawText": "test a list 1. Open the app 2. Start recording 3. Stop recording", "settingsOverrides": {}, "expected": "Test a list.\n\n1. Open the app\n2. Start recording\n3. Stop recording." },
+  { "name": "bullet list", "rawText": "- first item\n- second item\n- third item", "settingsOverrides": {}, "expected": "- First item\n- Second item\n- Third item" },
+  { "name": "paragraph blocks", "rawText": "first paragraph line one\ncontinues here\n\nsecond paragraph starts", "settingsOverrides": {}, "expected": "First paragraph line one continues here.\n\nSecond paragraph starts." }
+]

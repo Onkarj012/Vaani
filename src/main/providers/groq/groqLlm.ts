@@ -3,6 +3,7 @@ import { addedContentWords, missingContentWords } from "@shared/contentGuard";
 import type { FormattingProvider } from "../types";
 import { FORMATTING_PROMPT, MIN_WORDS_FOR_FORMATTING, STRICT_FORMATTING_PROMPT } from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
+import { createCancellationScope, isAbortError } from "@main/cancellation";
 
 const FORMATTING_MODEL = "llama-3.1-8b-instant";
 
@@ -16,9 +17,8 @@ function hasSuspiciousContentChange(rawText: string, candidate: string): boolean
   );
 }
 
-async function requestFormatting(apiKey: string, text: string, prompt: string, model: string): Promise<string | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FORMATTING_TIMEOUT_MS);
+async function requestFormatting(apiKey: string, text: string, prompt: string, model: string, signal?: AbortSignal): Promise<string | null> {
+  const scope = createCancellationScope(signal, Date.now() + FORMATTING_TIMEOUT_MS);
   try {
     const groq = new Groq({ apiKey });
     const response = await groq.chat.completions.create({
@@ -29,13 +29,16 @@ async function requestFormatting(apiKey: string, text: string, prompt: string, m
         { role: "system", content: prompt },
         { role: "user", content: `<transcript>\n${text}\n</transcript>` },
       ],
-    }, { signal: controller.signal });
+    }, { signal: scope.signal });
+    if (scope.signal.aborted) throw new Error("Groq formatting request timed out.");
     return response.choices[0]?.message?.content?.trim() || null;
   } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") return null;
+    if (signal?.aborted) throw err;
+    if (scope.signal.aborted) throw new Error("Groq formatting request timed out.");
+    if (isAbortError(err)) throw err;
     throw err;
   } finally {
-    clearTimeout(timeout);
+    scope.dispose();
   }
 }
 
@@ -56,17 +59,18 @@ export const GroqLlmProvider: FormattingProvider = {
 
     try {
       const model = options.model || FORMATTING_MODEL;
-      const formatted = await requestFormatting(options.apiKey, text, FORMATTING_PROMPT, model);
+      const formatted = await requestFormatting(options.apiKey, text, FORMATTING_PROMPT, model, options.signal);
       if (!formatted) return text;
 
       if (hasSuspiciousContentChange(text, formatted)) {
-        const strictFormatted = await requestFormatting(options.apiKey, text, STRICT_FORMATTING_PROMPT, model);
+        const strictFormatted = await requestFormatting(options.apiKey, text, STRICT_FORMATTING_PROMPT, model, options.signal);
         if (!strictFormatted || hasSuspiciousContentChange(text, strictFormatted)) return text;
         return strictFormatted;
       }
 
       return formatted;
-    } catch {
+    } catch (error) {
+      if (options.signal?.aborted || isAbortError(error)) throw error;
       return text;
     }
   },
