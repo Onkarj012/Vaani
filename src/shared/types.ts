@@ -99,6 +99,8 @@ export interface AudioVisualFrame {
 }
 
 export type CaptureBackend = "native" | "renderer";
+// "unprocessed" turns off browser echo cancellation, auto gain, and noise suppression.
+export type CaptureProcessing = "default" | "unprocessed";
 
 export interface AudioInputDevice {
   uid: string;
@@ -459,6 +461,7 @@ export interface Settings {
   micDeviceId?: string;
   preWarmMic: boolean;
   captureBackend: CaptureBackend;
+  captureProcessing: CaptureProcessing;
   stylePreset: "plain" | "developer" | "casual" | "formal" | "email";
   // Onboarding tracking
   dictionaryOnboarded: boolean;
@@ -535,6 +538,7 @@ export interface RecorderConfig {
   micDeviceId?: string;
   preWarmMic: boolean;
   captureBackend?: CaptureBackend;
+  captureProcessing?: CaptureProcessing;
 }
 
 export interface RecorderCommand {

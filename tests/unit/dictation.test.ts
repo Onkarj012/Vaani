@@ -107,7 +107,8 @@ function createDictationService(deps: {
   const recorder = {
     isReady: vi.fn(() => true),
     startRecording: vi.fn(() => true),
-    stopRecording: vi.fn(() => true)
+    stopRecording: vi.fn(() => true),
+    abortRecording: vi.fn()
   };
 
   const transcription = {
@@ -549,6 +550,34 @@ describe("DictationService", () => {
 
     vi.advanceTimersByTime(5_000);
 
+    expect(overlay.setError).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays starting, with no recording indicator, until the recorder reports the first frame", () => {
+    const { service, overlay } = createDictationService();
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    vi.advanceTimersByTime(4_000);
+
+    expect(service.getState()).toMatchObject({ status: "starting", sessionId });
+    expect(overlay.setRecording).not.toHaveBeenCalled();
+
+    service.reportRecorderStarted(sessionId);
+
+    expect(service.getState()).toMatchObject({ status: "recording", sessionId });
+    expect(overlay.setRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the recorder and errors when no frame arrives before the start deadline", () => {
+    const { service, overlay, recorder } = createDictationService();
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    vi.advanceTimersByTime(5_000);
+
+    expect(recorder.abortRecording).toHaveBeenCalledWith(sessionId);
+    expect(overlay.setRecording).not.toHaveBeenCalled();
     expect(overlay.setError).toHaveBeenCalledTimes(1);
   });
 

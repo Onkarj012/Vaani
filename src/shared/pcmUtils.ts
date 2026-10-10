@@ -3,6 +3,8 @@ import type { AudioClip } from "./types";
 export const TARGET_SAMPLE_RATE = 16_000;
 export const PRE_ROLL_MS = 2_000;
 export const PRE_ROLL_SILENCE_THRESHOLD = 0.0015;
+// Audio kept before the detected onset, so a soft opening sound is not clipped.
+export const PRE_ROLL_LEAD_PAD_MS = 250;
 
 export class PcmRingBuffer {
   private readonly samples: Float32Array;
@@ -42,23 +44,19 @@ export class PcmRingBuffer {
   }
 }
 
+// Drops silence before the first speech frame, keeping a lead pad. Keeps the whole input when no speech is found.
 export function trimLeadingSilence(input: Float32Array, sampleRate: number, threshold = PRE_ROLL_SILENCE_THRESHOLD): Float32Array {
   const frameSize = Math.max(1, Math.floor(sampleRate * 0.02));
-  let firstSpeechSample = input.length;
+  const leadPadSamples = Math.floor(sampleRate * PRE_ROLL_LEAD_PAD_MS / 1000);
 
   for (let offset = 0; offset < input.length; offset += frameSize) {
     const frame = input.subarray(offset, Math.min(offset + frameSize, input.length));
     if (calculateRms(frame) >= threshold) {
-      firstSpeechSample = offset;
-      break;
+      return input.slice(Math.max(0, offset - leadPadSamples));
     }
   }
 
-  if (firstSpeechSample >= input.length) {
-    return new Float32Array();
-  }
-
-  return input.slice(firstSpeechSample);
+  return input;
 }
 
 export function mergePcmChunks(chunks: Float32Array[]): Float32Array {

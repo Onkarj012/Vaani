@@ -90,6 +90,7 @@ export class NativeCaptureService implements RecorderCommands {
   private startPromise: Promise<boolean> | null = null;
   private transportGeneration = 0;
   private suspended = false;
+  private awaitingFirstFrame = false;
 
   constructor(
     private readonly getConfig: () => RecorderConfig,
@@ -131,7 +132,7 @@ export class NativeCaptureService implements RecorderCommands {
     const preRoll = trimLeadingSilence(this.ring.snapshot(Math.floor(TARGET_SAMPLE_RATE * PRE_ROLL_MS / 1000)), TARGET_SAMPLE_RATE);
     if (preRoll.length > 0) this.chunks.push(preRoll);
     this.activeSessionId = sessionId;
-    this.sink.reportRecorderStarted(sessionId);
+    this.awaitingFirstFrame = true;
     return true;
   }
 
@@ -265,6 +266,11 @@ export class NativeCaptureService implements RecorderCommands {
     this.updateNoiseFloor(samples);
     if (!this.activeSessionId) return;
     this.chunks.push(samples.slice());
+    // Started means audio is arriving, not that the device opened.
+    if (this.awaitingFirstFrame && samples.length > 0) {
+      this.awaitingFirstFrame = false;
+      this.sink.reportRecorderStarted(this.activeSessionId);
+    }
     this.publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT, this.noiseFloor));
   }
 

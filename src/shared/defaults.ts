@@ -52,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   micDeviceId: undefined,
   preWarmMic: false,
   captureBackend: "renderer",
+  captureProcessing: "default",
   stylePreset: "plain",
   // Onboarding tracking
   dictionaryOnboarded: false,

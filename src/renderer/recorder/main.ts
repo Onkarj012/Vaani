@@ -1,5 +1,5 @@
 import type { AudioInputDevice, MacOSPermissionState, AudioClip, AudioVisualFrame, CaptureTrackSettings, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
-import { chooseRecorderDeviceId } from "./deviceSelection";
+import { captureProcessingConstraints, chooseRecorderDeviceId } from "./deviceSelection";
 import {
   PcmRingBuffer,
   PRE_ROLL_MS,
@@ -8,12 +8,11 @@ import {
   trimLeadingSilence,
 } from "./pcmUtils";
 import pcmWorkletUrl from "./pcmWorklet.ts?url";
-import { rendererQuietThreshold, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
+import { STOP_QUIET_RMS, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
 
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const DEFAULT_INPUT_SAMPLE_RATE = 48_000;
-const ECHO_CANCELLATION = true;
 
 declare global {
   interface Window {
@@ -54,8 +53,7 @@ let capturePromise: Promise<void> | null = null;
 let sessionChunks: Float32Array[] = [];
 let lastFrameAt = 0;
 let lastLoudFrameAt = 0;
-let quietThreshold = 0;
-let frameRms: number[] = [];
+let awaitingFirstFrame = false;
 let lastReportedAt = 0;
 let smoothedBars = new Array(VISUAL_BAR_COUNT).fill(0.12);
 
@@ -111,8 +109,6 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
     sessionChunks = [];
     lastFrameAt = 0;
     lastLoudFrameAt = 0;
-    quietThreshold = 0;
-    frameRms = [];
     resetSmoothedBars();
     previousInputDevice = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
@@ -125,7 +121,7 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
     }
 
     activeSessionId = sessionId;
-    await window.__VAANI_RECORDER__.reportRecorderStarted(sessionId);
+    awaitingFirstFrame = true;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Microphone recording could not start.";
     await reportFailure(sessionId, `Microphone recording could not start: ${message}`);
@@ -142,7 +138,6 @@ async function stopRecording(sessionId: string): Promise<void> {
   }
 
   const stopRequestedAt = Date.now();
-  quietThreshold = rendererQuietThreshold(frameRms);
   await waitForRendererDrain(stopRequestedAt, () => lastLoudFrameAt, () => activeSessionId === sessionId);
   if (activeSessionId !== sessionId) return;
 
@@ -265,9 +260,7 @@ async function openCapture(config: RecorderConfig): Promise<void> {
     audio: {
       deviceId: { exact: micDeviceId },
       channelCount: 1,
-      echoCancellation: ECHO_CANCELLATION,
-      noiseSuppression: false,
-      autoGainControl: true,
+      ...captureProcessingConstraints(config.captureProcessing),
     },
   });
 
@@ -342,13 +335,17 @@ function handlePcmData(samples: Float32Array): void {
   }
 
   sessionChunks.push(samples.slice());
+  // Started means audio is arriving, not that the device opened.
+  if (awaitingFirstFrame && samples.length > 0) {
+    awaitingFirstFrame = false;
+    void window.__VAANI_RECORDER__.reportRecorderStarted(activeSessionId);
+  }
   lastFrameAt = Date.now();
   let sumSquares = 0;
   for (const sample of samples) sumSquares += sample * sample;
   if (samples.length > 0) {
     const rms = Math.sqrt(sumSquares / samples.length);
-    if (quietThreshold === 0) frameRms.push(rms);
-    if (rms >= quietThreshold) lastLoudFrameAt = lastFrameAt;
+    if (rms >= STOP_QUIET_RMS) lastLoudFrameAt = lastFrameAt;
   }
   publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT));
 }
@@ -384,9 +381,8 @@ function publishBars(nextBars: number[]): void {
 
 async function cleanupSession(): Promise<void> {
   activeSessionId = null;
+  awaitingFirstFrame = false;
   sessionChunks = [];
-  frameRms = [];
-  quietThreshold = 0;
 
   if (previousInputDevice !== null) {
     const deviceId = previousInputDevice;
@@ -436,7 +432,7 @@ async function shutdownWarmCapture(): Promise<void> {
 }
 
 function recorderConfigKey(config: RecorderConfig): string {
-  return `${config.preWarmMic ? "warm" : "ondemand"}:${config.micDeviceId ?? ""}`;
+  return `${config.preWarmMic ? "warm" : "ondemand"}:${config.micDeviceId ?? ""}:${config.captureProcessing ?? "default"}`;
 }
 
 function normalizeConfig(config: RecorderConfig | undefined): RecorderConfig {
@@ -444,6 +440,7 @@ function normalizeConfig(config: RecorderConfig | undefined): RecorderConfig {
     micDeviceId: config?.micDeviceId,
     preWarmMic: config?.preWarmMic ?? false,
     captureBackend: config?.captureBackend ?? "renderer",
+    captureProcessing: config?.captureProcessing ?? "default",
   };
 }
 

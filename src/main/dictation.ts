@@ -273,8 +273,10 @@ export class DictationService {
     }
 
     this.clearRecorderStartTimer();
+    // This budget covers the first audio frame, so a mic that stays silent is released here.
     this.timers.setTimeout("recorderStart", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "starting") {
+        this.recorder?.abortRecording?.(sessionId);
         this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.", "recorder_unavailable");
       }
     }, RECORDER_START_TIMEOUT_MS);

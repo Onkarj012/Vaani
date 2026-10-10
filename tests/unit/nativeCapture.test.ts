@@ -207,8 +207,8 @@ describe("NativeCaptureService", () => {
     expect(bridge.audioCaptureStart).toHaveBeenCalledTimes(startsAfterSuccessfulResume);
   });
 
-  it("defers capture rebuilds while a session is active", () => {
-    let config: RecorderConfig = { preWarmMic: true, captureBackend: "native", micDeviceId: "built-in" };
+  it("reports the session started on the first captured frame, not when capture opens", () => {
+    let onData: ((samples: Float32Array) => void) | undefined;
     const sink: NativeCaptureSink = {
       reportRecorderStarted: vi.fn(),
       submitAudioClip: vi.fn(),
@@ -216,7 +216,40 @@ describe("NativeCaptureService", () => {
       handleRecorderFailure: vi.fn(),
     };
     const bridge = {
-      audioCaptureStart: vi.fn(() => true),
+      audioCaptureStart: vi.fn((options: { onData: (samples: Float32Array) => void }) => {
+        onData = options.onData;
+        return true;
+      }),
+      audioCaptureStop: vi.fn(),
+      audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+      audioCaptureIsRunning: vi.fn(() => false),
+    };
+    const service = new NativeCaptureService(() => ({ preWarmMic: false, captureBackend: "native" }), sink, bridge);
+
+    expect(service.startRecording("s1")).toBe(true);
+    expect(sink.reportRecorderStarted).not.toHaveBeenCalled();
+    onData?.(new Float32Array(0));
+    expect(sink.reportRecorderStarted).not.toHaveBeenCalled();
+    onData?.(new Float32Array(320).fill(0.01));
+    onData?.(new Float32Array(320).fill(0.01));
+    expect(sink.reportRecorderStarted).toHaveBeenCalledTimes(1);
+    expect(sink.reportRecorderStarted).toHaveBeenCalledWith("s1");
+  });
+
+  it("defers capture rebuilds while a session is active", () => {
+    let config: RecorderConfig = { preWarmMic: true, captureBackend: "native", micDeviceId: "built-in" };
+    let onData: ((samples: Float32Array) => void) | undefined;
+    const sink: NativeCaptureSink = {
+      reportRecorderStarted: vi.fn(),
+      submitAudioClip: vi.fn(),
+      updateAudioLevel: vi.fn(),
+      handleRecorderFailure: vi.fn(),
+    };
+    const bridge = {
+      audioCaptureStart: vi.fn((options: { onData: (samples: Float32Array) => void }) => {
+        onData = options.onData;
+        return true;
+      }),
       audioCaptureStop: vi.fn(),
       audioCaptureListInputDevices: vi.fn(() => [
         device({ uid: "built-in", isDefault: true }),
@@ -227,6 +260,7 @@ describe("NativeCaptureService", () => {
     const service = new NativeCaptureService(() => config, sink, bridge);
 
     expect(service.startRecording("s1")).toBe(true);
+    onData?.(new Float32Array(320).fill(0.01));
     bridge.audioCaptureStop.mockClear();
 
     config = { preWarmMic: true, captureBackend: "native", micDeviceId: "usb" };

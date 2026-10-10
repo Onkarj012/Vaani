@@ -250,6 +250,7 @@ const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) =
   micDeviceId: (value) => value === undefined || isBoundedString(value, MAX_SHORT_TEXT_LENGTH),
   preWarmMic: (value) => typeof value === "boolean",
   captureBackend: (value) => isOneOf(value, ["native", "renderer"]),
+  captureProcessing: (value) => isOneOf(value, ["default", "unprocessed"]),
   stylePreset: (value) => isOneOf(value, ["plain", "developer", "casual", "formal", "email"]),
   dictionaryOnboarded: (value) => typeof value === "boolean",
   snippetsOnboarded: (value) => typeof value === "boolean",
@@ -783,6 +784,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
       micDeviceId: settings.get().micDeviceId,
       preWarmMic: settings.get().preWarmMic,
       captureBackend: settings.get().captureBackend,
+      captureProcessing: settings.get().captureProcessing,
     };
   });
 
