@@ -49,6 +49,7 @@ import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDe
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
+import { NO_API_KEY_REASON, NO_PROVIDER_REASON } from "./providers/formatting-constants";
 import { formatBuildIdentifier } from "@shared/buildIdentifier";
 import { evaluateInsertionAcceptance } from "@shared/insertionAcceptance";
 import { resolveProfileLanguage } from "@main/providers/language";
@@ -570,7 +571,7 @@ export class DictationService {
       if (!this.isCurrentSession(payload.sessionId)) return;
       if (operationSignal?.aborted) return;
       if (!hasSpokenContent(cleanedText)) {
-        this.failSession(payload.sessionId, "Nothing to insert. The transcript was empty after cleanup.", "fragment");
+        this.failSession(payload.sessionId, NOTHING_TO_INSERT_MESSAGE, "fragment");
         return;
       }
       const initialTarget = this.activeTarget;
@@ -807,13 +808,21 @@ export class DictationService {
     return this.traces?.getById(traceId);
   }
 
+  // Shows the empty-text error and returns true when text has nothing to insert or copy.
+  private refuseEmptyManualText(text: string): boolean {
+    if (hasSpokenContent(text)) return false;
+    this.setState({ status: "error", sessionId: null, message: NOTHING_TO_INSERT_MESSAGE });
+    this.scheduleReset(ERROR_RESET_MS);
+    return true;
+  }
+
   async copyRecoveryEntry(id: string): Promise<boolean> {
     if (!this.recovery || !this.recoveryReady()) return false;
     const entry = await this.recovery.getById(id);
     if (!entry || entry.terminal) return false;
     if (entry.state !== "transcript_ready" && entry.state !== "text_ready" && entry.state !== "recoverable") return false;
     const text = selectRecoveryText(entry.text);
-    if (!text) return false;
+    if (!text || this.refuseEmptyManualText(text)) return false;
     const copied = await this.copyText(text);
     if (!copied) return false;
     await this.recordRecoveryInsertionOutcome(entry.sessionId, "copied", entry.insertion?.method ?? null, undefined, "Explicit recovery copy.", entry.id);
@@ -944,7 +953,7 @@ export class DictationService {
       if (isUnresolvedInsertion(entry.insertion)) return false;
       const text = selectRecoveryText(entry.text);
       const target = this.currentInjectionTarget({ appBundleId: entry.target.appBundleId, appName: entry.target.appName });
-      if (!text || !target) return false;
+      if (!text || !target || this.refuseEmptyManualText(text)) return false;
       const baseline = sameTarget(target, this.appDetector.getContext()) ? safeFocusedValue() : null;
       const identity = safeFocusedElementIdentity();
       if (identity === null) {
@@ -1200,6 +1209,7 @@ export class DictationService {
     expectedIdentity?: string | null,
   ): Promise<{ method: "ax" | "clipboard" } | null> {
     if (signal?.aborted || expectedGeneration !== this.sessionGeneration) return null;
+    if (this.refuseEmptyManualText(text)) return null;
     if (!target || !isExternalTarget(target)) {
       this.setState({ status: "error", sessionId: null, message: "Focus an external text field before retrying insertion." });
       this.scheduleReset(ERROR_RESET_MS);
@@ -2034,12 +2044,14 @@ function sameTarget(left: Pick<AppContextResult, "appBundleId" | "appName" | "pi
 }
 
 const OUTCOME_UNCERTAIN_DETAIL = "outcome_uncertain";
+const NOTHING_TO_INSERT_MESSAGE = "Nothing to insert. The transcript was empty after cleanup.";
+const FORMAT_NOTICE = "Formatting did not apply. Inserted the unformatted text.";
 
-// Short warning added to the insert message when formatting did not apply.
+// Short warning added to the insert message when formatting did not apply. Offline and too-short skips get no warning.
 function formatNoticeFor(trace: FormatTranscriptTraceResult): string | null {
-  return trace.formatterStatus === "failed" || trace.formatterStatus === "rejected"
-    ? "Formatting did not apply. Inserted the unformatted text."
-    : null;
+  if (trace.formatterStatus === "failed" || trace.formatterStatus === "rejected") return FORMAT_NOTICE;
+  const formatterUnavailable = trace.formatterStatusReason === NO_API_KEY_REASON || trace.formatterStatusReason === NO_PROVIDER_REASON;
+  return trace.formatterStatus === "skipped" && formatterUnavailable ? FORMAT_NOTICE : null;
 }
 
 function insertionStatusText(outcome: DictationInsertionOutcome, historySaved: boolean, stage: string, copied = false): string {

@@ -866,6 +866,27 @@ describe("DictationService", () => {
     expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
   });
 
+  it("refuses to reinject a history entry that is punctuation only", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getById.mockResolvedValue({ id: "entry-1", cleanedText: "...", rawText: "um" });
+    injector.inject.mockClear();
+
+    await service.reinjectEntry("entry-1");
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+  });
+
+  it("refuses to paste latest when the latest entry is punctuation only", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getLatest.mockResolvedValue({ id: "entry-1", cleanedText: ".", rawText: "um" });
+
+    await service.pasteLatestEntry();
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+  });
+
   it("records stage timestamps from hotkey release through insertion verification", async () => {
     const traceDeps = createTraceDeps();
     const { service } = createDictationService({ traces: traceDeps.traces });
@@ -1007,6 +1028,35 @@ describe("DictationService", () => {
     expect(traceDeps.getTrace()).toMatchObject({
       stages: { formatterUsed: "none", formatterStatus: "rejected", formatterStatusReason: "The formatter changed words in the transcript." },
     });
+  });
+
+  it("warns when formatting is skipped because the formatter has no API key", async () => {
+    const { service, transcription, settings } = createDictationService();
+    settings.get.mockReturnValue({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm" });
+    const formatter = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm" }));
+    Object.assign(transcription, { formatTranscriptDetailed: formatter.formatTranscriptDetailed.bind(formatter) });
+    transcription.transcribe.mockResolvedValue({ rawText: "please send the report today", formattedText: "please send the report today", language: "en" });
+
+    await submitHelloWorld(service);
+
+    expect(groqCreate).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({
+      status: "completed",
+      message: "Inserted. Formatting did not apply. Inserted the unformatted text.",
+    });
+  });
+
+  it("does not warn when formatting is skipped for a transcript too short to format", async () => {
+    const { service, transcription, settings } = createDictationService();
+    settings.get.mockReturnValue({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" });
+    const formatter = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+    Object.assign(transcription, { formatTranscriptDetailed: formatter.formatTranscriptDetailed.bind(formatter) });
+    transcription.transcribe.mockResolvedValue({ rawText: "hello there", formattedText: "hello there", language: "en" });
+
+    await submitHelloWorld(service);
+
+    expect(groqCreate).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "completed", message: "Inserted." });
   });
 
   it("saves no-speech hallucinations when quality retries are exhausted", async () => {

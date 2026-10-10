@@ -1090,6 +1090,27 @@ describe("formatter outcome at the transcription seam", () => {
     });
   });
 
+  it("checks a Groq reply only after its reasoning block is removed", async () => {
+    groqCreate.mockResolvedValueOnce({ choices: [{ message: { content: "<think>Do not send it.</think>We ship it Tuesday." } }] });
+
+    await expect((await serviceFor("groq-llm")).formatTranscriptDetailed(rawText)).resolves.toMatchObject({
+      text: "We ship it Tuesday.",
+      formatterUsed: "llm",
+      formatterStatus: "ran",
+    });
+    expect(groqCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks an OpenAI reply only after its reasoning block is removed", async () => {
+    stubFetch(jsonResponse({ choices: [{ message: { content: "<think>Sure, I'll format this.</think>We ship it Tuesday." } }] }));
+
+    await expect((await serviceFor("openai-llm")).formatTranscriptDetailed(rawText)).resolves.toMatchObject({
+      text: "We ship it Tuesday.",
+      formatterUsed: "llm",
+      formatterStatus: "ran",
+    });
+  });
+
   it("records a timed-out OpenAI call as failed", async () => {
     const service = await serviceFor("openai-llm");
     vi.useFakeTimers();

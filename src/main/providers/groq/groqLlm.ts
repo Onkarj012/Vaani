@@ -1,5 +1,5 @@
 import Groq from "groq-sdk";
-import { addedContentWords, missingContentWords } from "@shared/contentGuard";
+import { addedContentWords, missingContentWords, stripReasoningBlocks } from "@shared/contentGuard";
 import type { FormattingProvider, FormattingResult } from "../types";
 import { formatterErrorReason, formatterResult } from "../types";
 import {
@@ -43,7 +43,7 @@ async function requestFormatting(apiKey: string, text: string, prompt: string, m
       ],
     }, { signal: scope.signal });
     if (scope.signal.aborted) throw new Error("Groq formatting request timed out.");
-    return response.choices[0]?.message?.content?.trim() || null;
+    return stripReasoningBlocks(response.choices[0]?.message?.content ?? "") || null;
   } catch (err) {
     if (signal?.aborted) throw err;
     if (scope.signal.aborted) throw new Error("Groq formatting request timed out.");

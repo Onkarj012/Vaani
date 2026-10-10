@@ -1,6 +1,6 @@
 import type { FormattingProvider, FormattingResult } from "../types";
 import { formatterErrorReason, formatterResult } from "../types";
-import { addedContentWords, missingContentWords } from "@shared/contentGuard";
+import { addedContentWords, missingContentWords, stripReasoningBlocks } from "@shared/contentGuard";
 import { defaultModelFor, providerModels } from "@shared/modelList";
 import {
   CHANGED_WORDS_REASON,
@@ -67,7 +67,7 @@ async function requestFormatting(text: string, options: Parameters<FormattingPro
 
   if (!response.ok) throw new Error(`OpenAI API request failed with status ${response.status}.`);
   const data = await response.json() as { choices: { message: { content: string } }[] };
-  return data.choices[0]?.message?.content?.trim() || null;
+  return stripReasoningBlocks(data.choices[0]?.message?.content ?? "") || null;
 }
 
 export const OpenAILlmProvider: FormattingProvider = {

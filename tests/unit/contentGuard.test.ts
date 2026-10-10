@@ -73,6 +73,39 @@ describe("preservesContentWords", () => {
       "What is the status. The answer is 42."
     )).toEqual(["the", "answer", "is", "42"]);
   });
+
+  it("rejects a decimal number split into two numbers", () => {
+    expect(preservesContentWords("set ratio to 1.5", "Set ratio to 1.5.")).toBe(true);
+    expect(preservesContentWords("set ratio to 1.5", "Set ratio to 1 5.")).toBe(false);
+    expect(missingContentWords("set ratio to 1.5", "Set ratio to 1 5.")).toEqual(["1.5"]);
+  });
+
+  it("keeps thousands separators and times whole", () => {
+    expect(preservesContentWords("pay 1,000 at 10:30", "Pay 1,000 at 10:30.")).toBe(true);
+    expect(preservesContentWords("pay 1,000 at 10:30", "Pay 1 000 at 10:30.")).toBe(false);
+  });
+
+  it("rejects a compound spelled number split into digits", () => {
+    expect(preservesContentWords("I have twenty one items", "I have twenty one items.")).toBe(true);
+    expect(preservesContentWords("I have twenty one items", "I have 20 1 items.")).toBe(false);
+  });
+
+  it("rejects a dictated number dropped from a list that the output numbers", () => {
+    const raw = "I bought a number two pencil point one write the report point two send it";
+    expect(preservesContentWords(raw, "I bought a pencil.\n1. Write the report.\n2. Send it.")).toBe(false);
+    expect(missingContentWords(raw, "I bought a pencil.\n1. Write the report.\n2. Send it.")).toEqual(["number", "two"]);
+  });
+
+  it("accepts dictated bullet points formatted as a bullet list", () => {
+    expect(preservesContentWords(
+      "bullet point milk bullet point eggs",
+      "- Milk\n- Eggs"
+    )).toBe(true);
+  });
+
+  it("rejects a line break the output places away from the cue", () => {
+    expect(preservesContentWords("hello there new paragraph how are you", "Hello there how are you?\n\n")).toBe(false);
+  });
 });
 
 describe("stripReasoningBlocks", () => {
