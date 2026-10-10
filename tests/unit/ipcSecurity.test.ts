@@ -200,6 +200,17 @@ describe("IPC security boundaries", () => {
     expect(() => handler?.({ sender: mainSender }, payload)).toThrow("Unauthorized IPC sender");
   });
 
+  it("drops recorder submissions whose capture settings are not boolean flags", async () => {
+    const handler = invokeHandlers.get(IpcChannel.SubmitAudioClip);
+    const submit = vi.mocked(dictation.submitAudioClip);
+    submit.mockClear();
+    const clip = { pcmData: [0, 0.5], sampleRate: 16_000, durationSeconds: 0.000125, rmsFrames: [0.25], gain: 2 };
+    await handler?.({ sender: recorderSender }, { sessionId: "session-1", clip, captureSettings: { echoCancellation: true } });
+    expect(submit).toHaveBeenCalledTimes(1);
+    await handler?.({ sender: recorderSender }, { sessionId: "session-1", clip, captureSettings: { echoCancellation: "yes" } });
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
   it("allows the capsule command only from the overlay renderer", async () => {
     history.getLatest.mockResolvedValue({ id: "entry-1" });
     const handler = eventHandlers.get("capsule:open-last-entry");

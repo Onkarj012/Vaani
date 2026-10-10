@@ -1,4 +1,4 @@
-import type { AudioInputDevice, MacOSPermissionState, AudioClip, AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
+import type { AudioInputDevice, MacOSPermissionState, AudioClip, AudioVisualFrame, CaptureTrackSettings, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
 import { chooseRecorderDeviceId } from "./deviceSelection";
 import {
   PcmRingBuffer,
@@ -149,6 +149,7 @@ async function stopRecording(sessionId: string): Promise<void> {
   const inputRate = audioContext?.sampleRate ?? DEFAULT_INPUT_SAMPLE_RATE;
   const chunksAtStop = sessionChunks.slice();
   const lastFrameAfterStopMs = lastFrameAt ? lastFrameAt - stopRequestedAt : 0;
+  const captureSettings = readCaptureSettings(stream);
   await cleanupSession();
 
   if (!currentConfig.preWarmMic) {
@@ -161,10 +162,21 @@ async function stopRecording(sessionId: string): Promise<void> {
     return;
   }
 
-  await window.__VAANI_RECORDER__.submitAudioClip({ sessionId, clip, tailMetrics: {
+  await window.__VAANI_RECORDER__.submitAudioClip({ sessionId, clip, captureSettings, tailMetrics: {
     lastFrameAfterStopMs,
     trailingRms: trailingRms(mergePcmChunks(chunksAtStop), inputRate),
   } });
+}
+
+// Reads the processing flags the mic track reports, so traces show what the browser applied.
+function readCaptureSettings(mediaStream: MediaStream | null): CaptureTrackSettings | undefined {
+  const settings = mediaStream?.getAudioTracks()[0]?.getSettings();
+  if (!settings) return undefined;
+  const captured: CaptureTrackSettings = {};
+  if (typeof settings.echoCancellation === "boolean") captured.echoCancellation = settings.echoCancellation;
+  if (typeof settings.autoGainControl === "boolean") captured.autoGainControl = settings.autoGainControl;
+  if (typeof settings.noiseSuppression === "boolean") captured.noiseSuppression = settings.noiseSuppression;
+  return captured;
 }
 
 async function abortRecording(sessionId: string): Promise<void> {

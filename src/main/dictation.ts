@@ -23,6 +23,7 @@ import type {
   InjectionFailureReason,
   ProviderAttemptTrace,
   RecorderFailure,
+  CaptureLevels,
   RecorderSubmission,
   SelectionRange,
   Settings,
@@ -386,9 +387,13 @@ export class DictationService {
     const settings = restoreSessionSettings(snapshot);
     const validationClip = trimSilence(payload.clip, settings.silenceThreshold);
     const rawAudio = analyzeAudioQuality(payload.clip, settings.silenceThreshold);
+    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames);
     const tracePatch: Partial<DictationTrace> = {
       rawAudio,
+      captureLevels: captureLevelsFor(rawAudio, payload.clip.gain),
+      speechGate,
       trimmedAudio: analyzeAudioQuality(validationClip, settings.silenceThreshold),
+      ...(payload.captureSettings ? { captureSettings: payload.captureSettings } : {}),
       ...(payload.tailMetrics ? payload.tailMetrics : {}),
     };
 
@@ -414,7 +419,6 @@ export class DictationService {
       return;
     }
 
-    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames);
     if (!speechGate.pass) {
       debug("dictation", `submitAudioClip: speech gate rejected clip (${speechGate.reason}, floor=${speechGate.noiseFloor.toFixed(4)}, longest=${speechGate.longestRunMs}ms, total=${speechGate.totalSpeechMs}ms)`);
       this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.", "no_speech");
@@ -2010,6 +2014,16 @@ function getElectronAppVersion(): string {
 
 function clippedCopy(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] } {
   return { pcmData: [...clip.pcmData], sampleRate: clip.sampleRate, durationSeconds: clip.durationSeconds, rmsFrames: [...clip.rmsFrames] };
+}
+
+// Recovers pre-gain peak and RMS from the gain-adjusted clip, since the boost is a single multiplier.
+function captureLevelsFor(sent: AudioQualityMetrics, gain: number | undefined): CaptureLevels {
+  const appliedGain = gain ?? 1;
+  return {
+    preGainPeak: sent.peakAmplitude / appliedGain,
+    preGainRms: sent.rmsAverage / appliedGain,
+    gain: appliedGain,
+  };
 }
 
 function analyzeAudioQuality(clip: AudioClip, silenceThreshold: number): AudioQualityMetrics {

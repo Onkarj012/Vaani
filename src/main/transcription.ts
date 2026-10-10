@@ -599,6 +599,7 @@ function mergeChunkedTranscriptionResults(results: TranscriptionResult[], chunks
   const rawText = mergeTranscriptParts(results.map(result => result.rawText));
   const qualities = results.map(result => result.quality).filter((quality): quality is NonNullable<TranscriptionResult["quality"]> => !!quality);
   const segmentCount = qualities.reduce((sum, quality) => sum + (quality.segmentCount ?? 0), 0);
+  const segmentNoSpeechProbabilities = qualities.flatMap(quality => quality.segmentNoSpeechProbabilities ?? []);
   return {
     ...first,
     rawText,
@@ -611,6 +612,7 @@ function mergeChunkedTranscriptionResults(results: TranscriptionResult[], chunks
         compressionRatio: averageNullable(qualities.map(quality => quality.compressionRatio)),
         noSpeechProbability: maxNullable(qualities.map(quality => quality.noSpeechProbability)),
         segmentCount: segmentCount > 0 ? segmentCount : undefined,
+        segmentNoSpeechProbabilities: segmentNoSpeechProbabilities.length > 0 ? segmentNoSpeechProbabilities : undefined,
         transcriptLength: rawText.length,
         chunkCount: chunks.length,
         chunkDurationsSeconds: chunks.map(chunk => Number(chunk.durationSeconds.toFixed(3))),

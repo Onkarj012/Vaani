@@ -937,6 +937,58 @@ describe("DictationService", () => {
     expect(trace?.stopRequestedAt).toBe(trace?.hotkeyReleasedAt);
   });
 
+  it("records the build, capture settings, pre-gain levels, and speech gate on the trace", async () => {
+    const traceDeps = createTraceDeps();
+    const { service } = createDictationService({ traces: traceDeps.traces });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.025], gain: 4 },
+      captureSettings: { echoCancellation: true, autoGainControl: true, noiseSuppression: false },
+    });
+    await vi.waitFor(() => expect(traceDeps.getTrace()?.completedAt).toBeDefined());
+    const trace = traceDeps.getTrace();
+    expect(trace?.buildIdentifier).toMatch(/^1\.1\.3\+/);
+    expect(trace?.captureSettings).toEqual({ echoCancellation: true, autoGainControl: true, noiseSuppression: false });
+    expect(trace?.rawAudio?.peakAmplitude).toBeCloseTo(0.1);
+    expect(trace?.captureLevels?.gain).toBe(4);
+    expect(trace?.captureLevels?.preGainPeak).toBeCloseTo(0.025);
+    expect(trace?.captureLevels?.preGainRms).toBeCloseTo(0.025);
+    expect(trace?.speechGate).toMatchObject({ pass: true, reason: "speech-dominant" });
+  });
+
+  it("records each segment's no-speech value from the transcription provider", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, settings, transcription } = createDictationService({ traces: traceDeps.traces });
+    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, transcriptionProvider: "groq" });
+    transcription.transcribe.mockResolvedValueOnce({
+      rawText: "open get hub",
+      formattedText: "open get hub",
+      language: "en",
+      quality: {
+        provider: "groq",
+        attemptCount: 1,
+        supportsConfidence: true,
+        noSpeechProbability: 0.2,
+        transcriptLength: 13,
+        segmentNoSpeechProbabilities: [0.1, 0.2],
+      },
+    });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] },
+    });
+    await vi.waitFor(() => expect(traceDeps.getTrace()?.completedAt).toBeDefined());
+    expect(traceDeps.getTrace()?.quality?.segmentNoSpeechProbabilities).toEqual([0.1, 0.2]);
+  });
+
   it("keeps the original release time when stop waits for recorder startup", async () => {
     const traceDeps = createTraceDeps();
     const { service } = createDictationService({ traces: traceDeps.traces });

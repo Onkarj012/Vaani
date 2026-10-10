@@ -67,6 +67,7 @@ export const GroqSttProvider: TranscriptionProvider = {
         const avgLogprob = averageNumber(segments.map((segment) => segment.avg_logprob));
         const compressionRatio = averageNumber(segments.map((segment) => segment.compression_ratio));
         const noSpeechProbability = maxNumber(segments.map((segment) => segment.no_speech_prob));
+        const segmentNoSpeechProbabilities = segments.flatMap((segment) => typeof segment.no_speech_prob === "number" ? [segment.no_speech_prob] : []);
 
         return {
           rawText,
@@ -82,6 +83,7 @@ export const GroqSttProvider: TranscriptionProvider = {
             noSpeechProbability,
             segmentCount: segments.length,
             transcriptLength: rawText.length,
+            ...(segmentNoSpeechProbabilities.length > 0 ? { segmentNoSpeechProbabilities } : {}),
           },
         };
       } catch (err) {

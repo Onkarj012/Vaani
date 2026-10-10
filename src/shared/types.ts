@@ -75,6 +75,22 @@ export interface AudioClip {
   sampleRate: number;
   durationSeconds: number;
   rmsFrames: number[];
+  /** Boost applied to pcmData after capture. Absent means no boost. */
+  gain?: number;
+}
+
+/** Processing flags the capture track reports as active. Absent when the track did not report them. */
+export interface CaptureTrackSettings {
+  echoCancellation?: boolean;
+  autoGainControl?: boolean;
+  noiseSuppression?: boolean;
+}
+
+/** Clip levels before the boost applied for transcription. */
+export interface CaptureLevels {
+  preGainPeak: number;
+  preGainRms: number;
+  gain: number;
 }
 
 export interface AudioVisualFrame {
@@ -125,7 +141,18 @@ export interface TranscriptionQualityMetadata {
   chunkOverlapSeconds?: number;
   /** True when the request carried vocabulary hints. Models without hint support report false. */
   vocabularyHintsSent?: boolean;
+  /** One no_speech probability per provider segment. Absent when the provider returns no segments. */
+  segmentNoSpeechProbabilities?: number[];
   decision?: TranscriptQualityDecision;
+}
+
+export interface SpeechGateTrace {
+  pass: boolean;
+  reason: string;
+  noiseFloor: number;
+  enterThreshold: number;
+  longestRunMs: number;
+  totalSpeechMs: number;
 }
 
 // ─── History ─────────────────────────────────────────────────────────────────
@@ -224,7 +251,13 @@ export interface DictationTrace {
   verifyDoneAt?: string;
   targetAppBundleId: string | null;
   targetAppName: string | null;
+  /** Levels of the gain-adjusted clip sent for transcription. */
   rawAudio?: AudioQualityMetrics;
+  /** Peak and RMS before gain, and the gain applied. */
+  captureLevels?: CaptureLevels;
+  /** Processing the mic track actually reported. */
+  captureSettings?: CaptureTrackSettings;
+  speechGate?: SpeechGateTrace;
   trimmedAudio?: AudioQualityMetrics;
   rawAudioPath?: string | null;
   sttProvider?: string | null;
@@ -475,6 +508,7 @@ export interface RecorderSubmission {
   sessionId: string;
   clip: AudioClip;
   tailMetrics?: { lastFrameAfterStopMs: number; trailingRms: number };
+  captureSettings?: CaptureTrackSettings;
 }
 
 export interface RecorderFailure {

@@ -128,17 +128,26 @@ const NORMALIZE_SILENCE_EPSILON = 1e-9;
 const NORMALIZE_TARGET_PEAK = 0.3;
 const NORMALIZE_MAX_GAIN = 20;
 
-// Gentle peak normalization for quiet-but-real speech so STT gets a usable
-// level. Near-silence is left untouched — boosting it would only feed noise to
-// Whisper and defeat the silence gates.
-export function normalizeQuietPcm(input: Float32Array): Float32Array {
+// Boost multiplier for a clip. 1 means the clip is left alone.
+function quietPcmGain(input: Float32Array): number {
   let peak = 0;
   for (let index = 0; index < input.length; index += 1) {
     peak = Math.max(peak, Math.abs(input[index] ?? 0));
   }
-  if (peak >= NORMALIZE_PEAK_BELOW || peak <= NORMALIZE_SILENCE_PEAK + NORMALIZE_SILENCE_EPSILON) return input;
+  if (peak >= NORMALIZE_PEAK_BELOW || peak <= NORMALIZE_SILENCE_PEAK + NORMALIZE_SILENCE_EPSILON) return 1;
+  return Math.min(NORMALIZE_MAX_GAIN, NORMALIZE_TARGET_PEAK / peak);
+}
 
-  const gain = Math.min(NORMALIZE_MAX_GAIN, NORMALIZE_TARGET_PEAK / peak);
+// Gentle peak normalization for quiet-but-real speech so STT gets a usable
+// level. Near-silence is left untouched — boosting it would only feed noise to
+// Whisper and defeat the silence gates.
+export function normalizeQuietPcm(input: Float32Array): Float32Array {
+  const gain = quietPcmGain(input);
+  return gain === 1 ? input : scalePcm(input, gain);
+}
+
+// Multiplies every sample by gain.
+function scalePcm(input: Float32Array, gain: number): Float32Array {
   const output = new Float32Array(input.length);
   for (let index = 0; index < input.length; index += 1) {
     output[index] = (input[index] ?? 0) * gain;
@@ -152,12 +161,14 @@ export function pcmToAudioClip(input: Float32Array, inputRate: number): AudioCli
   // speech gate and VAD judge what the mic actually heard; only the samples
   // sent to STT are boosted.
   const rmsFrames = calculateRmsFrames(pcmData, TARGET_SAMPLE_RATE);
-  const normalized = normalizeQuietPcm(pcmData);
+  const gain = quietPcmGain(pcmData);
+  const normalized = gain === 1 ? pcmData : scalePcm(pcmData, gain);
   return {
     pcmData: Array.from(normalized),
     sampleRate: TARGET_SAMPLE_RATE,
     durationSeconds: pcmData.length / TARGET_SAMPLE_RATE,
     rmsFrames,
+    gain,
   };
 }
 

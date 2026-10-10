@@ -2,6 +2,7 @@ import type { DictationStageSnapshot, DictationTrace } from "@shared/types";
 
 export const DICTATION_TRACE_TEXT_LIMIT = 500;
 export const DICTATION_TRACE_ARRAY_LIMIT = 20;
+export const DICTATION_TRACE_SEGMENT_LIMIT = 50;
 
 export function truncateTraceText(text: string): string {
   return text.length > DICTATION_TRACE_TEXT_LIMIT

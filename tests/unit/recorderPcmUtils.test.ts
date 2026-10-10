@@ -64,6 +64,11 @@ describe("pcmToAudioClip", () => {
     expect(Math.max(...clip.pcmData)).toBeCloseTo(0.3);
     expect(clip.rmsFrames[0]).toBeCloseTo(0.03);
   });
+
+  it("reports the gain applied to a quiet clip and 1 for a loud one", () => {
+    expect(pcmToAudioClip(new Float32Array(320).fill(0.03), 16_000).gain).toBeCloseTo(10);
+    expect(pcmToAudioClip(new Float32Array(320).fill(0.5), 16_000).gain).toBe(1);
+  });
 });
 
 describe("normalizeQuietPcm", () => {

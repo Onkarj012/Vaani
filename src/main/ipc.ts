@@ -14,6 +14,7 @@ import type {
   ProviderApiKey,
   ProviderKeyValidation,
   RecorderFailure,
+  CaptureTrackSettings,
   RecorderSubmission,
   RecorderSuspensionAck,
   Settings,
@@ -89,6 +90,7 @@ const MAX_CUSTOM_CORRECTION_HIT_COUNT = 1_000_000;
 const MAX_AUDIO_DURATION_SECONDS = 600;
 const MAX_AUDIO_SAMPLES = 10_000_000;
 const MAX_RMS_FRAMES = 100_000;
+const MAX_AUDIO_GAIN = 100;
 
 type IpcSenderEvent = Electron.IpcMainEvent | Electron.IpcMainInvokeEvent;
 type IpcWindow = { webContents: { send: (channel: string, ...args: unknown[]) => void }; isDestroyed: () => boolean };
@@ -264,9 +266,12 @@ function isSettingsPatch(value: unknown): value is Partial<Settings> {
   });
 }
 
+const CAPTURE_SETTING_KEYS = ["echoCancellation", "autoGainControl", "noiseSuppression"] as const;
+
 function isAudioClip(value: unknown): value is RecorderSubmission["clip"] {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["pcmData", "sampleRate", "durationSeconds", "rmsFrames"])) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["pcmData", "sampleRate", "durationSeconds", "rmsFrames", "gain"])) return false;
   if (!isFiniteNumberInRange(value.sampleRate, 8_000, 192_000)) return false;
+  if (value.gain !== undefined && !isFiniteNumberInRange(value.gain, 1, MAX_AUDIO_GAIN)) return false;
   if (!isFiniteNumberInRange(value.durationSeconds, 0, MAX_AUDIO_DURATION_SECONDS)) return false;
   if (!Array.isArray(value.pcmData) || value.pcmData.length === 0 || value.pcmData.length > MAX_AUDIO_SAMPLES) return false;
   const sampleCheckCount = Math.min(value.pcmData.length, 4_096);
@@ -283,15 +288,23 @@ function isAudioClip(value: unknown): value is RecorderSubmission["clip"] {
     && value.rmsFrames.every((frame) => isFiniteNumberInRange(frame, 0, 1));
 }
 
+// Accepts only the boolean processing flags the renderer reports.
+function isCaptureTrackSettings(value: unknown): value is CaptureTrackSettings {
+  return isRecord(value)
+    && hasOnlyKeys(value, CAPTURE_SETTING_KEYS)
+    && CAPTURE_SETTING_KEYS.every((key) => value[key] === undefined || typeof value[key] === "boolean");
+}
+
 function isRecorderSubmission(value: unknown): value is RecorderSubmission {
   return isRecord(value)
-    && hasOnlyKeys(value, ["sessionId", "clip", "tailMetrics"])
+    && hasOnlyKeys(value, ["sessionId", "clip", "tailMetrics", "captureSettings"])
     && isBoundedString(value.sessionId, MAX_ID_LENGTH, false)
     && isAudioClip(value.clip)
     && (value.tailMetrics === undefined || (isRecord(value.tailMetrics)
       && hasOnlyKeys(value.tailMetrics, ["lastFrameAfterStopMs", "trailingRms"])
       && isFiniteNumberInRange(value.tailMetrics.lastFrameAfterStopMs, -MAX_AUDIO_DURATION_SECONDS * 1000, 5_000)
-      && isFiniteNumberInRange(value.tailMetrics.trailingRms, 0, 1)));
+      && isFiniteNumberInRange(value.tailMetrics.trailingRms, 0, 1)))
+    && (value.captureSettings === undefined || isCaptureTrackSettings(value.captureSettings));
 }
 
 function isAudioVisualFrame(value: unknown): value is AudioVisualFrame {
