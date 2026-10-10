@@ -159,6 +159,14 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("you know you are right", "You are right.", ["you know"])).toBe(true);
   });
 
+  it("keeps the fast path for a long transcript with fillers at both ends", () => {
+    const body = Array.from({ length: 1_100 }, (_, index) => `word${index}`).join(" ");
+    const raw = `um you know ${body} uh`;
+    const formatted = `Um you know ${body} uh.`.replace("word0", "Word0");
+    expect(diffContentWords(raw, formatted, ["um", "uh", "you know"])).toEqual({ missing: [], added: [] });
+    expect(preservesContentWords(`you know ${body} you know`, `${body}.`, ["you know"])).toBe(true);
+  });
+
   it("keeps the minus sign on a currency amount", () => {
     expect(preservesContentWords("the balance is -$10", "The balance is $10.", [])).toBe(false);
     expect(preservesContentWords("the balance is $10", "The balance is $10.", [])).toBe(true);

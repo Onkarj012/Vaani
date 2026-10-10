@@ -234,20 +234,57 @@ function alignSections(source: Unit[], output: Unit[]): { dropped: number[]; add
 
 // Aligns input and output units in order. Unmatched input units are missing unless they belong to a filler phrase that was dropped whole; unmatched output units are added.
 function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[]): ContentWordDiff {
-  // Equal words at both ends align without a table, so an unchanged long transcript costs nothing.
-  // Trimming stops at a filler so a filler phrase is always judged whole by the table.
-  const trimmable = (index: number, outputIndex: number): boolean =>
-    source[index]?.kind === "word" && sameWordUnit(source[index], output[outputIndex]);
-  let head = 0;
-  while (head < source.length && head < output.length && trimmable(head, head)) head += 1;
-  let tail = 0;
-  while (tail < source.length - head && tail < output.length - head
-    && trimmable(source.length - 1 - tail, output.length - 1 - tail)) tail += 1;
+  // Equal words at both ends align without a table, so a long transcript with small edits stays cheap.
+  // Whole filler phrases the output drops are skipped there too.
+  const skipped: number[] = [];
+  const skip = ([start, end]: [number, number]): void => { for (let index = start; index < end; index += 1) skipped.push(index); };
+  let sourceHead = 0;
+  let outputHead = 0;
+  while (sourceHead < source.length) {
+    if (outputHead < output.length && sameWordUnit(source[sourceHead], output[outputHead])) { sourceHead += 1; outputHead += 1; continue; }
+    // Skip dropped filler phrases only when the words after them line up again.
+    let next = sourceHead;
+    const run: [number, number][] = [];
+    for (let phrase = phrases.find(([start]) => start === next); phrase; phrase = phrases.find(([start]) => start === next)) {
+      run.push(phrase);
+      next = phrase[1];
+    }
+    const realigns = next === source.length
+      ? outputHead === output.length
+      : outputHead < output.length && sameWordUnit(source[next], output[outputHead]);
+    if (run.length === 0 || !realigns) break;
+    run.forEach(skip);
+    sourceHead = next;
+  }
+  // A trim edge inside a filler phrase moves back, so the table judges the phrase whole.
+  for (const [start, end] of phrases) {
+    if (start < sourceHead && sourceHead < end) { outputHead -= sourceHead - start; sourceHead = start; }
+  }
+  let sourceTail = source.length;
+  let outputTail = output.length;
+  while (sourceTail > sourceHead) {
+    if (outputTail > outputHead && sameWordUnit(source[sourceTail - 1], output[outputTail - 1])) { sourceTail -= 1; outputTail -= 1; continue; }
+    let next = sourceTail;
+    const run: [number, number][] = [];
+    for (let phrase = phrases.find(([, end]) => end === next); phrase && phrase[0] >= sourceHead; phrase = phrases.find(([, end]) => end === next)) {
+      run.push(phrase);
+      next = phrase[0];
+    }
+    const realigns = next === sourceHead
+      ? outputTail === outputHead
+      : outputTail > outputHead && sameWordUnit(source[next - 1], output[outputTail - 1]);
+    if (run.length === 0 || !realigns) break;
+    run.forEach(skip);
+    sourceTail = next;
+  }
+  for (const [start, end] of phrases) {
+    if (start < sourceTail && sourceTail < end) { outputTail += end - sourceTail; sourceTail = end; }
+  }
 
-  const middle = alignSections(source.slice(head, source.length - tail), output.slice(head, output.length - tail));
+  const middle = alignSections(source.slice(sourceHead, sourceTail), output.slice(outputHead, outputTail));
   if (!middle) return { missing: [], added: [], rejection: TOO_LONG_REASON };
 
-  const dropped = new Set(middle.dropped.map(index => index + head));
+  const dropped = new Set([...skipped, ...middle.dropped.map(index => index + sourceHead)]);
   // A filler phrase may go only when every one of its words goes.
   const dropsWholePhrase = ([start, end]: [number, number]): boolean => {
     for (let index = start; index < end; index += 1) if (!dropped.has(index)) return false;
