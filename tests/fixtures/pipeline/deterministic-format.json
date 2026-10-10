@@ -1,10 +1,10 @@
 [
   {
-    "name": "collapses adjacent duplicate words",
+    "name": "keeps adjacent repeated words",
     "rawText": "hello hello world",
     "settingsOverrides": {},
     "stage": "deterministicFormat",
-    "expected": "Hello world."
+    "expected": "Hello hello world."
   },
   {
     "name": "collapses repeated whitespace",

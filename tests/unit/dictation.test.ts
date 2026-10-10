@@ -835,6 +835,29 @@ describe("DictationService", () => {
     }));
   });
 
+  it("keeps repeated words and stores the raw transcript apart from the inserted text", async () => {
+    const { service, history, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "i had had enough", formattedText: "i had had enough", language: "en" });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).toHaveBeenCalledWith("I had had enough.", expect.anything(), expect.objectContaining({ isTargetValid: expect.any(Function) }));
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
+      rawText: "i had had enough",
+      cleanedText: "I had had enough.",
+    }));
+  });
+
+  it("refuses to insert text that cleanup reduces to punctuation", async () => {
+    const { service, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "um uh um uh", formattedText: "um uh um uh", language: "en" });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+  });
+
   it("records stage timestamps from hotkey release through insertion verification", async () => {
     const traceDeps = createTraceDeps();
     const { service } = createDictationService({ traces: traceDeps.traces });

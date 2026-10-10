@@ -84,13 +84,13 @@ describe("cleanupText", () => {
     expect(result).toBe("I like this.");
   });
 
-  it("collapses accidental adjacent duplicate words", () => {
+  it("keeps adjacent repeated words", () => {
     const result = cleanupText({
       rawText: "github github should only appear once",
       settings: createSettings()
     });
 
-    expect(result).toBe("Github should only appear once.");
+    expect(result).toBe("Github github should only appear once.");
   });
 
   it("does not normalize product names without dictionary rules", () => {

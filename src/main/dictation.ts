@@ -42,7 +42,7 @@ import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
-import { applyDictionary, cleanupText } from "./text/cleanup";
+import { applyDictionary, cleanupText, hasSpokenContent } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
@@ -568,6 +568,10 @@ export class DictationService {
       });
       if (!this.isCurrentSession(payload.sessionId)) return;
       if (operationSignal?.aborted) return;
+      if (!hasSpokenContent(cleanedText)) {
+        this.failSession(payload.sessionId, "Nothing to insert. The transcript was empty after cleanup.", "fragment");
+        return;
+      }
       const initialTarget = this.activeTarget;
       const initialSelection = this.activeSelection;
       const initialTargetValue = this.activeTargetValue;
