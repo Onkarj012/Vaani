@@ -8,7 +8,7 @@ import {
   trimLeadingSilence,
 } from "./pcmUtils";
 import pcmWorkletUrl from "./pcmWorklet.ts?url";
-import { STOP_QUIET_RMS, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
+import { NOISE_SAMPLE_MS, STOP_QUIET_RMS, quietThresholdFromNoise, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
 
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
@@ -53,6 +53,9 @@ let capturePromise: Promise<void> | null = null;
 let sessionChunks: Float32Array[] = [];
 let lastFrameAt = 0;
 let lastLoudFrameAt = 0;
+let firstFrameAt = 0;
+let openingFrameRms: number[] = [];
+let quietThreshold: number | null = null;
 let awaitingFirstFrame = false;
 let lastReportedAt = 0;
 let smoothedBars = new Array(VISUAL_BAR_COUNT).fill(0.12);
@@ -109,6 +112,9 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
     sessionChunks = [];
     lastFrameAt = 0;
     lastLoudFrameAt = 0;
+    firstFrameAt = 0;
+    openingFrameRms = [];
+    quietThreshold = null;
     resetSmoothedBars();
     previousInputDevice = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
@@ -138,6 +144,7 @@ async function stopRecording(sessionId: string): Promise<void> {
   }
 
   const stopRequestedAt = Date.now();
+  quietThreshold ??= quietThresholdFromNoise(openingFrameRms);
   await waitForRendererDrain(stopRequestedAt, () => lastLoudFrameAt, () => activeSessionId === sessionId);
   if (activeSessionId !== sessionId) return;
 
@@ -345,7 +352,12 @@ function handlePcmData(samples: Float32Array): void {
   for (const sample of samples) sumSquares += sample * sample;
   if (samples.length > 0) {
     const rms = Math.sqrt(sumSquares / samples.length);
-    if (rms >= STOP_QUIET_RMS) lastLoudFrameAt = lastFrameAt;
+    if (firstFrameAt === 0) firstFrameAt = lastFrameAt;
+    if (quietThreshold === null) {
+      openingFrameRms.push(rms);
+      if (lastFrameAt - firstFrameAt >= NOISE_SAMPLE_MS) quietThreshold = quietThresholdFromNoise(openingFrameRms);
+    }
+    if (rms >= (quietThreshold ?? STOP_QUIET_RMS)) lastLoudFrameAt = lastFrameAt;
   }
   publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT));
 }

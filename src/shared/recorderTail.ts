@@ -4,8 +4,18 @@ export const STOP_MAX_WAIT_MS = 1200;
 export const STOP_POLL_MS = 40;
 
 // A continuous renderer stream cannot become callback-quiet like the native queue.
-// Frames below this fixed level count as quiet. A soft ending above it still counts as speech.
+// Frames below the room's noise level count as quiet. The level stays between these bounds.
 export const STOP_QUIET_RMS = 0.002;
+export const STOP_QUIET_MAX_RMS = 0.01;
+// How much of the recording's opening is used to measure room noise.
+export const NOISE_SAMPLE_MS = 500;
+
+// Quiet level for the stop tail, from the opening frames' RMS. Speech at the press only raises it up to the cap.
+export function quietThresholdFromNoise(openingFrameRms: readonly number[]): number {
+  const sorted = openingFrameRms.filter((rms) => Number.isFinite(rms) && rms > 0).sort((a, b) => a - b);
+  const floor = sorted[Math.floor((sorted.length - 1) * 0.2)] ?? 0;
+  return Math.min(STOP_QUIET_MAX_RMS, Math.max(STOP_QUIET_RMS, floor * 2));
+}
 
 export function shouldFinishRendererDrain(elapsedMs: number, quietForMs: number): boolean {
   return elapsedMs >= STOP_MAX_WAIT_MS || (elapsedMs >= STOP_TAIL_GRACE_MS && quietForMs >= STOP_QUIET_MS);
