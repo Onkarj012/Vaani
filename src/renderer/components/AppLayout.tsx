@@ -116,7 +116,7 @@ export default function AppLayout() {
   const [permissionsBlocked, setPermissionsBlocked] = useState(true)
   const [restoredNotice, setRestoredNotice] = useState<RecoveryRestoredNotice | null>(null)
   const navigate = useNavigate()
-  const { settings, settingsLoading, updateSettings } = useVaaniUi()
+  const { settings, settingsLoading, updateSettings, settingsSaveError, dismissSettingsSaveError } = useVaaniUi()
   const { notification, dismiss } = useUpdateNotification()
   const onboardingOpen = !settingsLoading && !settings.onboardingCompleted
   const showOpenRouterPrompt = !settingsLoading && settings.onboardingCompleted && !settings.openRouterKeyPromptShown &&
@@ -156,6 +156,12 @@ export default function AppLayout() {
           </header>
 
           {notification && <UpdateBanner notification={notification} onDismiss={dismiss} />}
+          {settingsSaveError && (
+            <div role="alert" className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 lg:mx-12">
+              <span>Settings not saved. {settingsSaveError} Fix or move the file, then restart Vaani.</span>
+              <button aria-label="Dismiss settings error" onClick={dismissSettingsSaveError} className="shrink-0 rounded-full p-1 hover:bg-red-600/10"><span aria-hidden="true">×</span></button>
+            </div>
+          )}
           {restoredNotice && (
             <div className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-2xl bg-accent/10 px-4 py-3 text-sm text-accent lg:mx-12">
               <span>{restoredNotice.count} unfinished dictation{restoredNotice.count === 1 ? '' : 's'} restored. Nothing was inserted automatically.</span>

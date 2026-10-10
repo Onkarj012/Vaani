@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -80,10 +80,12 @@ describe("SettingsStore", () => {
   it("surfaces failed consent writes and allows a later write to recover", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vaani-consent-test-"));
     const blockedDir = join(tempDir, "blocked");
-    await writeFile(blockedDir, "not a directory");
+    await mkdir(blockedDir);
     const { SettingsStore } = await import("@main/store/settings");
     const store = new SettingsStore(join(blockedDir, "settings.json"));
     await store.init();
+    await rm(blockedDir, { recursive: true });
+    await writeFile(blockedDir, "not a directory");
     store.update({ retainFailedAudio: false });
     await expect(store.flush()).rejects.toThrow();
     expect(store.get().retainFailedAudio).toBe(false);

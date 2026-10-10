@@ -396,7 +396,7 @@ export interface RegisterIpcHandlersOptions {
   mainWindow: IpcWindow | null;
   dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry">;
   history: Pick<HistoryStore, "getAll" | "getById" | "updateById" | "getLatest" | "delete" | "clear">;
-  settings: Pick<SettingsStore, "get" | "update" | "flush">;
+  settings: Pick<SettingsStore, "get" | "update" | "flush" | "saveBlockedReason">;
   hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "reregister" | "setCaptureActive">;
   recorder?: { getWindow: () => IpcWindow | null; markReady: () => void; acknowledgeLifecycleSuspension?: (ack: RecorderSuspensionAck) => boolean };
   overlay?: { getWindow: () => IpcWindow | null };
@@ -627,6 +627,8 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.UpdateSettings, async (event, patch: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isSettingsPatch(patch)) return getSanitizedSettings();
+    const blocked = settings.saveBlockedReason();
+    if (blocked) throw new Error(blocked);
     let settingsPatch: Partial<Settings> = { ...patch };
 
     if ("groqApiKey" in settingsPatch) {
