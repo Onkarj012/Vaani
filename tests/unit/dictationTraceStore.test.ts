@@ -71,13 +71,13 @@ describe("DictationTraceStore", () => {
 
   it("reloads formatter timeout and stale-session trace details", async () => {
     const store = await createStore();
-    await store.upsert({ ...trace("format"), outcome: "injected", stages: { formatterUsed: "none", formatterReason: "timeout" } });
+    await store.upsert({ ...trace("format"), outcome: "injected", stages: { formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: "Formatting timed out.", formatterReason: "timeout" } });
     await store.upsert({ ...trace("stale"), outcome: "failed", rejectionReason: "stale-session", stages: { staleStage: "transcribing", outcome: "failed" } });
     if (!tempDir) throw new Error("Trace test directory was not initialized.");
     const { DictationTraceStore } = await import("@main/store/dictationTrace");
     const reloaded = new DictationTraceStore(join(tempDir, "traces.json"));
 
-    expect((await reloaded.getById("format"))?.stages).toMatchObject({ formatterUsed: "none", formatterReason: "timeout" });
+    expect((await reloaded.getById("format"))?.stages).toMatchObject({ formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: "Formatting timed out.", formatterReason: "timeout" });
     expect(await reloaded.getById("stale")).toMatchObject({ rejectionReason: "stale-session", stages: { staleStage: "transcribing" } });
   });
 

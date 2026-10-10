@@ -1,9 +1,21 @@
 import { captureSessionSettings } from "@shared/sessionSettings";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
-import type { AudioClip, TranscriptionResult } from "@shared/types";
+import type { AudioClip, FormattingOptions, TranscriptionResult } from "@shared/types";
 import type { FormattingProvider, TranscriptionProvider } from "@main/providers/types";
 import { createCancellationScope } from "@main/cancellation";
+import { AnthropicLlmProvider } from "@main/providers/anthropic/anthropicLlm";
+import { OpenRouterLlmProvider } from "@main/providers/anthropic/openRouterLlm";
+import { OpenAILlmProvider } from "@main/providers/openai/openaiLlm";
+import { GroqLlmProvider } from "@main/providers/groq/groqLlm";
+
+const groqCreate = vi.hoisted(() => vi.fn());
+
+vi.mock("groq-sdk", () => ({
+  default: class {
+    chat = { completions: { create: groqCreate } };
+  },
+}));
 
 const registryState = vi.hoisted(() => ({
   providers: new Map<string, TranscriptionProvider>(),
@@ -28,13 +40,18 @@ function provider(id: string, transcribe: TranscriptionProvider["transcribe"], r
   };
 }
 
-function formattingProvider(id: string, format: FormattingProvider["format"], requiresApiKey = true): FormattingProvider {
+// Fake formatter that returns plain text, reported as a formatter that ran.
+function formattingProvider(
+  id: string,
+  format: (rawText: string, options: FormattingOptions & { apiKey?: string }) => Promise<string>,
+  requiresApiKey = true,
+): FormattingProvider {
   return {
     id,
     name: id,
     requiresApiKey,
     models: [],
-    format,
+    format: async (rawText, options) => ({ status: "ran", text: await format(rawText, options), reason: "Formatted." }),
     isAvailable: vi.fn(async () => true),
   };
 }
@@ -384,7 +401,12 @@ describe("TranscriptionService failover chain", () => {
 
     const transcript = await service.transcribe(clip);
     expect(transcript.rawText).toBe("local");
-    await expect(service.formatTranscriptDetailed(transcript.rawText)).resolves.toEqual({ text: "local", formatterUsed: "none" });
+    await expect(service.formatTranscriptDetailed(transcript.rawText)).resolves.toEqual({
+      text: "local",
+      formatterUsed: "none",
+      formatterStatus: "skipped",
+      formatterStatusReason: "Offline mode is on.",
+    });
     expect(groqTranscribe).not.toHaveBeenCalled();
     expect(localTranscribe).toHaveBeenCalledTimes(1);
     expect(cloudFormat).not.toHaveBeenCalled();
@@ -437,7 +459,12 @@ describe("TranscriptionService failover chain", () => {
       }), new CredentialsStore(new MemoryCredentialBackend()));
       const rawText = "Keep this identifier release_v1.3\n\nआणि हा मजकूर";
 
-      await expect(service.formatTranscriptDetailed(rawText)).resolves.toEqual({ text: rawText, formatterUsed: "none" });
+      await expect(service.formatTranscriptDetailed(rawText)).resolves.toEqual({
+        text: rawText,
+        formatterUsed: "none",
+        formatterStatus: "skipped",
+        formatterStatusReason: "Offline mode is on.",
+      });
       expect(getCredential).not.toHaveBeenCalled();
       expect(format).not.toHaveBeenCalled();
     },
@@ -687,6 +714,8 @@ describe("TranscriptionService failover chain", () => {
     expect(result).toEqual({
       text: "Um I like this.",
       formatterUsed: "guard-fallback",
+      formatterStatus: "rejected",
+      formatterStatusReason: "The formatter changed words in the transcript.",
       contentGuardVerdict: { passed: false, missingWords: ["like"] },
     });
   });
@@ -699,6 +728,8 @@ describe("TranscriptionService failover chain", () => {
     expect(await service.formatTranscriptDetailed("we ship it Tuesday")).toEqual({
       text: "We ship it Tuesday.",
       formatterUsed: "guard-fallback",
+      formatterStatus: "rejected",
+      formatterStatusReason: "The formatter changed words in the transcript.",
       contentGuardVerdict: { passed: false, missingWords: ["tuesday"] },
     });
   });
@@ -723,6 +754,8 @@ describe("TranscriptionService failover chain", () => {
     expect(result).toEqual({
       text: "First block.\n\nSecond block.",
       formatterUsed: "llm",
+      formatterStatus: "ran",
+      formatterStatusReason: "Formatted.",
       contentGuardVerdict: { passed: true },
     });
   });
@@ -745,6 +778,8 @@ describe("TranscriptionService failover chain", () => {
     expect(result).toEqual({
       text: "Alpha beta.\n\nGamma delta.",
       formatterUsed: "guard-fallback",
+      formatterStatus: "rejected",
+      formatterStatusReason: "The formatter changed words in the transcript.",
       contentGuardVerdict: { passed: false, missingWords: ["beta"] },
     });
   });
@@ -888,5 +923,143 @@ describe("TranscriptionService failover chain", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("formatter outcome at the transcription seam", () => {
+  const rawText = "we ship it Tuesday";
+
+  beforeEach(() => {
+    registryState.formattingProviders.set("groq-llm", GroqLlmProvider);
+    registryState.formattingProviders.set("anthropic", AnthropicLlmProvider);
+    registryState.formattingProviders.set("openrouter", OpenRouterLlmProvider);
+    registryState.formattingProviders.set("openai-llm", OpenAILlmProvider);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    groqCreate.mockReset();
+  });
+
+  async function serviceFor(formattingProvider: string, withKey = true) {
+    const { TranscriptionService } = await import("@main/transcription");
+    return new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      formattingProvider,
+      providerApiKeys: withKey ? [{ providerId: formattingProvider, key: "test-key" }] : [],
+    }));
+  }
+
+  function stubFetch(response: Response): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn(async () => response);
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function jsonResponse(body: unknown): Response {
+    return new Response(JSON.stringify(body), { status: 200 });
+  }
+
+  it("records a formatter reply as ran and uses it", async () => {
+    stubFetch(jsonResponse({ choices: [{ message: { content: "We ship it Tuesday." } }] }));
+
+    await expect((await serviceFor("openrouter")).formatTranscriptDetailed(rawText)).resolves.toEqual({
+      text: "We ship it Tuesday.",
+      formatterUsed: "llm",
+      formatterStatus: "ran",
+      formatterStatusReason: "Formatted.",
+      contentGuardVerdict: { passed: true },
+    });
+  });
+
+  it.each([
+    {
+      id: "groq-llm",
+      setup: () => groqCreate.mockRejectedValue(new Error("Groq is down.")),
+      reason: "Groq is down.",
+    },
+    {
+      id: "anthropic",
+      setup: () => stubFetch(jsonResponse({ content: [] })),
+      reason: "The formatter returned an empty reply.",
+    },
+    {
+      id: "openrouter",
+      setup: () => stubFetch(jsonResponse({ choices: [{ message: { content: "   " } }] })),
+      reason: "The formatter returned an empty reply.",
+    },
+    {
+      id: "openrouter",
+      setup: () => stubFetch(new Response("", { status: 500 })),
+      reason: "OpenRouter API request failed with status 500.",
+    },
+    {
+      id: "openai-llm",
+      setup: () => stubFetch(jsonResponse({ choices: [{ message: { content: "" } }] })),
+      reason: "The formatter returned an empty reply.",
+    },
+  ])("records a failed $id call as failed, not ran", async ({ id, setup, reason }) => {
+    setup();
+
+    await expect((await serviceFor(id)).formatTranscriptDetailed(rawText)).resolves.toEqual({
+      text: rawText,
+      formatterUsed: "none",
+      formatterStatus: "failed",
+      formatterStatusReason: reason,
+    });
+  });
+
+  it("records a timed-out OpenAI call as failed", async () => {
+    const service = await serviceFor("openai-llm");
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")));
+    })));
+
+    const pending = service.formatTranscriptDetailed(rawText);
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await expect(pending).resolves.toEqual({
+      text: rawText,
+      formatterUsed: "none",
+      formatterStatus: "failed",
+      formatterStatusReason: "Request timed out.",
+    });
+  });
+
+  it("records an assistant-style OpenAI reply as rejected and keeps the raw text", async () => {
+    stubFetch(jsonResponse({ choices: [{ message: { content: "Here's the formatted transcript: We ship it Tuesday." } }] }));
+
+    await expect((await serviceFor("openai-llm")).formatTranscriptDetailed(rawText)).resolves.toEqual({
+      text: rawText,
+      formatterUsed: "none",
+      formatterStatus: "rejected",
+      formatterStatusReason: "The formatter replied like an assistant instead of formatting the transcript.",
+    });
+  });
+
+  it("records a too-short transcript as skipped without calling the provider", async () => {
+    const fetchMock = stubFetch(jsonResponse({ choices: [{ message: { content: "Hi there." } }] }));
+
+    await expect((await serviceFor("openrouter")).formatTranscriptDetailed("hi there")).resolves.toEqual({
+      text: "hi there",
+      formatterUsed: "none",
+      formatterStatus: "skipped",
+      formatterStatusReason: "Too few words to format.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("records a missing formatter key as skipped without calling the provider", async () => {
+    const fetchMock = stubFetch(jsonResponse({ choices: [{ message: { content: "unused" } }] }));
+
+    await expect((await serviceFor("openrouter", false)).formatTranscriptDetailed(rawText)).resolves.toEqual({
+      text: rawText,
+      formatterUsed: "none",
+      formatterStatus: "skipped",
+      formatterStatusReason: "No API key.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

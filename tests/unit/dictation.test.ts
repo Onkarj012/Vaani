@@ -914,6 +914,8 @@ describe("DictationService", () => {
       formatTranscriptDetailed: vi.fn(async () => ({
         text: "um I like this",
         formatterUsed: "guard-fallback",
+        formatterStatus: "rejected",
+        formatterStatusReason: "The formatter changed words in the transcript.",
         contentGuardVerdict: { passed: false, missingWords: ["like"] },
       })),
     });
@@ -939,6 +941,8 @@ describe("DictationService", () => {
     expect(updatedTrace?.stages).toMatchObject({
       cleanedText: "I like this.",
       formatterUsed: "guard-fallback",
+      formatterStatus: "rejected",
+      formatterStatusReason: "The formatter changed words in the transcript.",
       contentGuardVerdict: { passed: false, missingWords: ["like"] },
     });
     expect(["1.1.3+unresolved", "unresolved+unresolved"]).toContain(updatedTrace?.buildIdentifier);

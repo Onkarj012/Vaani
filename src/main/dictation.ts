@@ -545,7 +545,7 @@ export class DictationService {
         if (error instanceof TranscriptionDeadlineExceededError) {
           formattedText = correctedText;
           formatTrace = { text: correctedText, formatterUsed: "none" };
-          void this.patchTrace(payload.sessionId, { stages: { formatterReason: "timeout" } });
+          void this.patchTrace(payload.sessionId, { stages: { formatterStatus: "failed", formatterStatusReason: "Formatting timed out.", formatterReason: "timeout" } });
         } else {
           if (error instanceof TranscriptionCancelledError) return;
           formattedText = correctedText;
@@ -560,6 +560,8 @@ export class DictationService {
         stages: {
           cleanedText,
           formatterUsed: formatTrace.formatterUsed,
+          formatterStatus: formatTrace.formatterStatus,
+          formatterStatusReason: formatTrace.formatterStatusReason,
           contentGuardVerdict: formatTrace.contentGuardVerdict,
           correctionsApplied: cleanupTrace.correctionsApplied,
         },
@@ -1889,10 +1891,7 @@ export class DictationService {
       return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt, sessionSettings });
     }
     const text = await this.transcription.formatTranscript(rawText, { signal, deadlineAt, sessionSettings });
-    return {
-      text,
-      formatterUsed: text === rawText ? "none" : "llm",
-    };
+    return { text, formatterUsed: "none" };
   }
 
   private async verifyInsertion(

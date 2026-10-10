@@ -1,8 +1,10 @@
 import { captureSessionSettings, restoreSessionSettings, type SessionSettingsSnapshot } from "@shared/sessionSettings";
-import type { DictationContentGuardVerdict, DictationFormatterUsed, ProviderAttemptTrace, Settings, AudioClip, TranscriptionResult } from "@shared/types";
+import type { DictationContentGuardVerdict, DictationFormatterStatus, DictationFormatterUsed, ProviderAttemptTrace, Settings, AudioClip, TranscriptionResult } from "@shared/types";
 import type { RecoveryErrorClass } from "@shared/recovery";
 import { getProviderRegistry } from "./providers";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
+import { formatterErrorReason } from "./providers/types";
+import { CHANGED_WORDS_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { missingContentWords, preservesFinalWords } from "@shared/contentGuard";
@@ -109,7 +111,14 @@ function throwIfTranscriptionDeadlineExceeded(deadlineAt?: number, signal?: Abor
 export interface FormatTranscriptTraceResult {
   text: string;
   formatterUsed: DictationFormatterUsed;
+  formatterStatus?: DictationFormatterStatus;
+  formatterStatusReason?: string;
   contentGuardVerdict?: DictationContentGuardVerdict;
+}
+
+// Result for a formatter call that did not run, so the text stays as it was.
+function skippedFormat(text: string, reason: string): FormatTranscriptTraceResult {
+  return { text, formatterUsed: "none", formatterStatus: "skipped", formatterStatusReason: reason };
 }
 
 export class TranscriptionService {
@@ -294,15 +303,15 @@ export class TranscriptionService {
       // The current formatting registry contains remote providers only.
       if (settings.offlineMode === "always-offline" || this.settingsProvider().offlineMode === "always-offline") {
         throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
-        return { text: rawText, formatterUsed: "none" };
+        return skippedFormat(rawText, OFFLINE_REASON);
       }
       const registry = getProviderRegistry();
       const llmId = settings.formattingProvider || "groq-llm";
       const provider = registry.getFormatting(llmId);
-      if (!provider) return { text: rawText, formatterUsed: "none" };
+      if (!provider) return skippedFormat(rawText, NO_PROVIDER_REASON);
       const configuredApiKey = configuredApiKeyFor(this.settingsProvider(), llmId);
       const apiKey = configuredApiKey ?? (this.credentials ? await this.resolveApiKey(this.settingsProvider(), llmId) : null);
-      if (provider.requiresApiKey && !apiKey) return { text: rawText, formatterUsed: "none" };
+      if (provider.requiresApiKey && !apiKey) return skippedFormat(rawText, NO_API_KEY_REASON);
       throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
       const result = await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings, scope.signal);
       throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
@@ -310,7 +319,7 @@ export class TranscriptionService {
     } catch (error) {
       if (options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt) throw new TranscriptionDeadlineExceededError();
       if (scope.signal.aborted || isAbortError(error)) throw new TranscriptionCancelledError();
-      return { text: rawText, formatterUsed: "none" };
+      return { text: rawText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: formatterErrorReason(error) };
     } finally {
       scope.dispose();
     }
@@ -330,8 +339,7 @@ export class TranscriptionService {
     const parts = splitParagraphParts(rawText);
     const formattedParts: string[] = [];
     const missingWords: string[] = [];
-    let usedFormatter = false;
-    let usedFallback = false;
+    const blockResults: FormatTranscriptTraceResult[] = [];
 
     for (const part of parts) {
       if (part.type === "separator") {
@@ -343,23 +351,34 @@ export class TranscriptionService {
       if (!text) continue;
       throwIfAborted(signal);
       const result = await this.formatTranscriptBlock(text, provider, apiKey, settings, signal);
+      blockResults.push(result);
       formattedParts.push(result.text.trim());
-      if (result.formatterUsed === "llm") usedFormatter = true;
-      if (result.formatterUsed === "guard-fallback") usedFallback = true;
       if (result.contentGuardVerdict?.missingWords) missingWords.push(...result.contentGuardVerdict.missingWords);
     }
 
+    const usedFormatter = blockResults.some(r => r.formatterUsed === "llm");
+    const usedFallback = blockResults.some(r => r.formatterUsed === "guard-fallback");
+    // The block that decided the outcome supplies the trace status. Falls back to the first block.
+    const summary = blockResults.find(r => r.formatterUsed === "guard-fallback")
+      ?? blockResults.find(r => r.formatterUsed === "llm")
+      ?? blockResults[0];
+    const text = formattedParts.join("").trim();
+
     if (usedFallback) {
       return {
-        text: formattedParts.join("").trim(),
+        text,
         formatterUsed: "guard-fallback",
+        formatterStatus: summary?.formatterStatus,
+        formatterStatusReason: summary?.formatterStatusReason,
         contentGuardVerdict: { passed: false, missingWords },
       };
     }
 
     return {
-      text: formattedParts.join("").trim(),
+      text,
       formatterUsed: usedFormatter ? "llm" : "none",
+      formatterStatus: summary?.formatterStatus,
+      formatterStatusReason: summary?.formatterStatusReason,
       contentGuardVerdict: usedFormatter ? { passed: true } : undefined,
     };
   }
@@ -372,25 +391,33 @@ export class TranscriptionService {
     signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
     if (signal.aborted) throw new TranscriptionCancelledError();
-    if (this.settingsProvider().offlineMode === "always-offline") return { text: rawText, formatterUsed: "none" };
-    const formatted = await provider.format(rawText, {
+    if (this.settingsProvider().offlineMode === "always-offline") return skippedFormat(rawText, OFFLINE_REASON);
+    const result = await provider.format(rawText, {
       apiKey,
       model: settings.formattingModel,
       systemPrompt: settings.customPrompt,
       signal,
     });
+    if (result.status !== "ran") {
+      return { text: result.text, formatterUsed: "none", formatterStatus: result.status, formatterStatusReason: result.reason };
+    }
+    const formatted = result.text;
     const missingWords = missingContentWords(rawText, formatted);
     if (missingWords.length > 0 || !preservesFinalWords(rawText, formatted)) {
       debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
       return {
         text: deterministicFormat(rawText),
         formatterUsed: "guard-fallback",
+        formatterStatus: "rejected",
+        formatterStatusReason: CHANGED_WORDS_REASON,
         contentGuardVerdict: { passed: false, missingWords },
       };
     }
     return {
       text: formatted,
       formatterUsed: "llm",
+      formatterStatus: "ran",
+      formatterStatusReason: result.reason,
       contentGuardVerdict: { passed: true },
     };
   }

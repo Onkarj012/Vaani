@@ -164,6 +164,7 @@ export interface InsertionVerificationTrace {
 }
 
 export type DictationFormatterUsed = "llm" | "guard-fallback" | "deterministic" | "none";
+export type DictationFormatterStatus = "ran" | "skipped" | "failed" | "rejected";
 
 export interface DictationCorrectionTrace {
   spoken: string;
@@ -188,6 +189,8 @@ export interface DictationStageSnapshot {
   qualityDecision?: DictationStageQualityDecision;
   cleanedText?: string;
   formatterUsed?: DictationFormatterUsed;
+  formatterStatus?: DictationFormatterStatus;
+  formatterStatusReason?: string;
   formatterReason?: "timeout";
   staleStage?: "starting" | "recording" | "finalizing" | "transcribing";
   contentGuardVerdict?: DictationContentGuardVerdict;

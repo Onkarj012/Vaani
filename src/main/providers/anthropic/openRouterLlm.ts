@@ -1,5 +1,14 @@
-import type { FormattingProvider } from "../types";
-import { MIN_WORDS_FOR_FORMATTING, FORMATTING_PROMPT } from "../formatting-constants";
+import type { FormattingProvider, FormattingResult } from "../types";
+import { formatterErrorReason, formatterResult } from "../types";
+import {
+  EMPTY_REPLY_REASON,
+  EMPTY_TRANSCRIPT_REASON,
+  FORMATTED_REASON,
+  FORMATTING_PROMPT,
+  MIN_WORDS_FOR_FORMATTING,
+  NO_API_KEY_REASON,
+  TOO_SHORT_REASON,
+} from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
 import { isAbortError } from "@main/cancellation";
 
@@ -14,11 +23,11 @@ export const OpenRouterLlmProvider: FormattingProvider = {
     { id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash" },
   ],
 
-  async format(rawText, options): Promise<string> {
+  async format(rawText, options): Promise<FormattingResult> {
     const text = rawText.trim();
-    if (!text) return text;
-    if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) return text;
-    if (!options.apiKey) return text;
+    if (!text) return formatterResult("skipped", text, EMPTY_TRANSCRIPT_REASON);
+    if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) return formatterResult("skipped", text, TOO_SHORT_REASON);
+    if (!options.apiKey) return formatterResult("skipped", text, NO_API_KEY_REASON);
 
     try {
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -43,10 +52,12 @@ export const OpenRouterLlmProvider: FormattingProvider = {
 
       if (!response.ok) throw new Error(`OpenRouter API request failed with status ${response.status}.`);
       const data = await response.json() as { choices: { message: { content: string } }[] };
-      return data.choices[0]?.message?.content?.trim() || text;
+      const formatted = data.choices[0]?.message?.content?.trim();
+      if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
+      return formatterResult("ran", formatted, FORMATTED_REASON);
     } catch (error) {
       if (options.signal?.aborted || isAbortError(error)) throw error;
-      return text;
+      return formatterResult("failed", text, formatterErrorReason(error));
     }
   },
 

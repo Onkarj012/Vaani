@@ -1,6 +1,18 @@
-import type { FormattingProvider } from "../types";
+import type { FormattingProvider, FormattingResult } from "../types";
+import { formatterErrorReason, formatterResult } from "../types";
 import { addedContentWords, missingContentWords } from "@shared/contentGuard";
-import { FORMATTING_PROMPT, MIN_WORDS_FOR_FORMATTING, STRICT_FORMATTING_PROMPT } from "../formatting-constants";
+import {
+  CHANGED_WORDS_REASON,
+  CHAT_REPLY_REASON,
+  EMPTY_REPLY_REASON,
+  EMPTY_TRANSCRIPT_REASON,
+  FORMATTED_REASON,
+  FORMATTING_PROMPT,
+  MIN_WORDS_FOR_FORMATTING,
+  NO_API_KEY_REASON,
+  STRICT_FORMATTING_PROMPT,
+  TOO_SHORT_REASON,
+} from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
 import { isAbortError } from "@main/cancellation";
 import { createCancellationScope } from "@main/cancellation";
@@ -66,29 +78,27 @@ export const OpenAILlmProvider: FormattingProvider = {
     { id: "gpt-4o", name: "GPT-4o" },
   ],
 
-  async format(rawText, options): Promise<string> {
+  async format(rawText, options): Promise<FormattingResult> {
     const text = rawText.trim();
-    if (!text) return text;
-    if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) return text;
-    if (!options.apiKey) return text;
+    if (!text) return formatterResult("skipped", text, EMPTY_TRANSCRIPT_REASON);
+    if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) return formatterResult("skipped", text, TOO_SHORT_REASON);
+    if (!options.apiKey) return formatterResult("skipped", text, NO_API_KEY_REASON);
 
     try {
       const formatted = await requestFormatting(text, options, options.systemPrompt || FORMATTING_PROMPT);
-      if (!formatted) return text;
-      if (ASSISTANT_REPLY_PATTERN.test(formatted)) return text;
+      if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
+      if (ASSISTANT_REPLY_PATTERN.test(formatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
       if (hasSuspiciousContentChange(text, formatted)) {
         const strictFormatted = await requestFormatting(text, options, STRICT_FORMATTING_PROMPT);
-        if (
-          !strictFormatted
-          || ASSISTANT_REPLY_PATTERN.test(strictFormatted)
-          || hasSuspiciousContentChange(text, strictFormatted)
-        ) return text;
-        return strictFormatted;
+        if (!strictFormatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
+        if (ASSISTANT_REPLY_PATTERN.test(strictFormatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
+        if (hasSuspiciousContentChange(text, strictFormatted)) return formatterResult("rejected", text, CHANGED_WORDS_REASON);
+        return formatterResult("ran", strictFormatted, FORMATTED_REASON);
       }
-      return formatted;
+      return formatterResult("ran", formatted, FORMATTED_REASON);
     } catch (error) {
       if (options.signal?.aborted || isAbortError(error)) throw error;
-      return text;
+      return formatterResult("failed", text, formatterErrorReason(error));
     }
   },
 

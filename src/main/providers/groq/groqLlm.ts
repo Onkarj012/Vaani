@@ -1,7 +1,18 @@
 import Groq from "groq-sdk";
 import { addedContentWords, missingContentWords } from "@shared/contentGuard";
-import type { FormattingProvider } from "../types";
-import { FORMATTING_PROMPT, MIN_WORDS_FOR_FORMATTING, STRICT_FORMATTING_PROMPT } from "../formatting-constants";
+import type { FormattingProvider, FormattingResult } from "../types";
+import { formatterErrorReason, formatterResult } from "../types";
+import {
+  CHANGED_WORDS_REASON,
+  EMPTY_REPLY_REASON,
+  EMPTY_TRANSCRIPT_REASON,
+  FORMATTED_REASON,
+  FORMATTING_PROMPT,
+  MIN_WORDS_FOR_FORMATTING,
+  NO_API_KEY_REASON,
+  STRICT_FORMATTING_PROMPT,
+  TOO_SHORT_REASON,
+} from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
 import { createCancellationScope, isAbortError } from "@main/cancellation";
 
@@ -51,27 +62,28 @@ export const GroqLlmProvider: FormattingProvider = {
     { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
   ],
 
-  async format(rawText, options): Promise<string> {
+  async format(rawText, options): Promise<FormattingResult> {
     const text = rawText.trim();
-    if (!text) return text;
-    if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) return text;
-    if (!options.apiKey) return text;
+    if (!text) return formatterResult("skipped", text, EMPTY_TRANSCRIPT_REASON);
+    if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) return formatterResult("skipped", text, TOO_SHORT_REASON);
+    if (!options.apiKey) return formatterResult("skipped", text, NO_API_KEY_REASON);
 
     try {
       const model = options.model || FORMATTING_MODEL;
       const formatted = await requestFormatting(options.apiKey, text, FORMATTING_PROMPT, model, options.signal);
-      if (!formatted) return text;
+      if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
 
       if (hasSuspiciousContentChange(text, formatted)) {
         const strictFormatted = await requestFormatting(options.apiKey, text, STRICT_FORMATTING_PROMPT, model, options.signal);
-        if (!strictFormatted || hasSuspiciousContentChange(text, strictFormatted)) return text;
-        return strictFormatted;
+        if (!strictFormatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
+        if (hasSuspiciousContentChange(text, strictFormatted)) return formatterResult("rejected", text, CHANGED_WORDS_REASON);
+        return formatterResult("ran", strictFormatted, FORMATTED_REASON);
       }
 
-      return formatted;
+      return formatterResult("ran", formatted, FORMATTED_REASON);
     } catch (error) {
       if (options.signal?.aborted || isAbortError(error)) throw error;
-      return text;
+      return formatterResult("failed", text, formatterErrorReason(error));
     }
   },
 
