@@ -91,7 +91,7 @@ describe("TranscriptionService failover chain", () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
     const { TranscriptionService } = await import("@main/transcription");
     await new TranscriptionService(() => settings).formatTranscript("hello", { sessionSettings: snapshot });
-    expect(format).toHaveBeenCalledWith("hello", expect.objectContaining({ model: "original-model", systemPrompt: "original-prompt" }));
+    expect(format).toHaveBeenCalledWith("hello", expect.objectContaining({ model: "original-model", systemPrompt: expect.stringMatching(/^original-prompt/) }));
   });
 
   it("keeps the live session route after offline mode is enabled during a request", async () => {
@@ -1098,6 +1098,52 @@ describe("formatter outcome at the transcription seam", () => {
     });
   });
 
+  function sentBody(fetchMock: ReturnType<typeof vi.fn>): { model: string; reasoning?: unknown; messages: { role: string; content: string }[] } {
+    return JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+  }
+
+  it("turns reasoning off for Haiku and sends the Roman script rule for an English session with Devanagari", async () => {
+    const hinglish = "कल सुबह की मीटिंग कैंसल हो गई है, तो please client को email भेज देना।";
+    const roman = "Kal subah ki meeting cancel ho gayi hai, toh please client ko email bhej dena.";
+    const fetchMock = stubFetch(jsonResponse({ choices: [{ message: { content: roman } }] }));
+
+    const result = await (await serviceFor("openrouter")).formatTranscriptDetailed(hinglish, { language: "en" });
+
+    const body = sentBody(fetchMock);
+    expect(body.model).toBe("anthropic/claude-haiku-5.5");
+    expect(body.reasoning).toEqual({ enabled: false });
+    expect(body.messages[0]?.content).toContain("Script: write every word in Roman letters.");
+    expect(result).toMatchObject({ text: roman, formatterUsed: "llm", formatterStatus: "ran" });
+  });
+
+  it("sends the one-script-per-sentence rule for auto, and no script rule for English-only text", async () => {
+    const fetchMock = stubFetch(jsonResponse({ choices: [{ message: { content: "We ship it Tuesday." } }] }));
+    const service = await serviceFor("openrouter");
+
+    await service.formatTranscriptDetailed("मी उद्या पुण्याला येतोय, संध्याकाळी भेटू.", { language: "auto" });
+    expect(sentBody(fetchMock).messages[0]?.content).toContain("Script: give each sentence one script.");
+
+    fetchMock.mockClear();
+    await service.formatTranscriptDetailed(rawText, { language: "auto" });
+    expect(sentBody(fetchMock).messages[0]?.content).not.toContain("Script:");
+  });
+
+  it("leaves reasoning alone for a model that cannot turn it off", async () => {
+    const fetchMock = stubFetch(jsonResponse({ choices: [{ message: { content: "We ship it Tuesday." } }] }));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
+      formattingProvider: "openrouter",
+      formattingModel: "openai/gpt-oss-120b",
+      providerApiKeys: [{ providerId: "openrouter", key: "test-key" }],
+    }));
+
+    await service.formatTranscriptDetailed(rawText);
+
+    expect(sentBody(fetchMock)).not.toHaveProperty("reasoning");
+  });
+
   it.each([
     {
       id: "groq-llm",
@@ -1256,7 +1302,7 @@ describe("formatter outcome at the transcription seam", () => {
 
     if (id === "groq-llm") {
       expect(groqCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ messages: [{ role: "system", content: customPrompt }, expect.anything()] }),
+        expect.objectContaining({ messages: [{ role: "system", content: expect.stringContaining(customPrompt) }, expect.anything()] }),
         expect.anything(),
       );
     } else {

@@ -544,7 +544,7 @@ export class DictationService {
         await this.transitionRecovery(payload.sessionId, "formatting", { text: { cleanedText: correctedText }, signal: operationSignal });
         const formattingStartedAt = Date.now();
         if (!electron.app.isPackaged && process.env.VAANI_DEV_FORCE_FORMAT_TIMEOUT === "1") throw new TranscriptionDeadlineExceededError();
-        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + FORMATTING_TIMEOUT_MS, snapshot);
+        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + FORMATTING_TIMEOUT_MS, snapshot, language);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
         formattedText = formatTrace.text;
         void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
@@ -1926,9 +1926,9 @@ export class DictationService {
     });
   }
 
-  private async formatTranscriptWithTrace(rawText: string, signal?: AbortSignal, deadlineAt?: number, sessionSettings?: SessionSettingsSnapshot): Promise<FormatTranscriptTraceResult> {
+  private async formatTranscriptWithTrace(rawText: string, signal?: AbortSignal, deadlineAt?: number, sessionSettings?: SessionSettingsSnapshot, language?: string): Promise<FormatTranscriptTraceResult> {
     if (this.transcription.formatTranscriptDetailed) {
-      return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt, sessionSettings });
+      return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt, sessionSettings, language });
     }
     const text = await this.transcription.formatTranscript(rawText, { signal, deadlineAt, sessionSettings });
     return { text, formatterUsed: "none" };

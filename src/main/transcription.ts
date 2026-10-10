@@ -5,7 +5,7 @@ import { getProviderRegistry } from "./providers";
 import { defaultModelFor } from "@shared/modelList";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { formatterErrorReason } from "./providers/types";
-import { CHANGED_WORDS_REASON, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
+import { buildFormattingPrompt, CHANGED_WORDS_REASON, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
@@ -34,6 +34,8 @@ export interface FormattingOptions {
   signal?: AbortSignal;
   deadlineAt?: number;
   sessionSettings?: SessionSettingsSnapshot;
+  /** Dictation language after any app profile override. Picks the cleanup script rule. */
+  language?: string;
 }
 
 export interface TranscribeOptions {
@@ -349,7 +351,7 @@ export class TranscriptionService {
       const apiKey = configuredApiKey ?? (this.credentials ? await this.resolveApiKey(this.settingsProvider(), llmId) : null);
       if (provider.requiresApiKey && !apiKey) return skippedFormat(rawText, NO_API_KEY_REASON);
       throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
-      const result = await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings, scope.signal);
+      const result = await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings, options?.language ?? settings.language, scope.signal);
       throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
       return result;
     } catch (error) {
@@ -366,10 +368,11 @@ export class TranscriptionService {
     provider: FormattingProvider,
     apiKey: string,
     settings: Settings,
+    language: string,
     signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
     if (!hasParagraphBreak(rawText)) {
-      return this.formatTranscriptBlock(rawText, provider, apiKey, settings, signal);
+      return this.formatTranscriptBlock(rawText, provider, apiKey, settings, language, signal);
     }
 
     const parts = splitParagraphParts(rawText);
@@ -386,7 +389,7 @@ export class TranscriptionService {
       const text = part.value.trim();
       if (!text) continue;
       throwIfAborted(signal);
-      const result = await this.formatTranscriptBlock(text, provider, apiKey, settings, signal);
+      const result = await this.formatTranscriptBlock(text, provider, apiKey, settings, language, signal);
       blockResults.push(result);
       formattedParts.push(result.text.trim());
       if (result.contentGuardVerdict?.missingWords) missingWords.push(...result.contentGuardVerdict.missingWords);
@@ -428,6 +431,7 @@ export class TranscriptionService {
     provider: FormattingProvider,
     apiKey: string,
     settings: Settings,
+    language: string,
     signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
     if (signal.aborted) throw new TranscriptionCancelledError();
@@ -436,7 +440,7 @@ export class TranscriptionService {
     const result = await provider.format(rawText, {
       apiKey,
       model: settings.formattingModel,
-      systemPrompt: settings.customPrompt,
+      systemPrompt: buildFormattingPrompt({ customPrompt: settings.customPrompt, language, text: rawText, fillerWords }),
       signal,
       fillerWords,
     });
