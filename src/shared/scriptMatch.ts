@@ -1,7 +1,9 @@
 // Sound check for a Devanagari word the formatter rewrote in Roman letters ("कैंसल" → "cancel").
 // Both words become consonant shapes; vowels, aspiration, and doubled letters drop out. The shapes must match exactly.
 // Only known Roman spelling variants add extra shapes: a nasal mark, a nukta letter, a final h ("toh"), an h after a
-// consonant ("achha"), a y after a vowel ("gayi"), z written for j ("cheez"), a soft g ("message"), and "cch" for ch ("acchi").
+// consonant ("achha"), a y after a vowel ("gayi"), z written for j ("cheez"), a soft g ("message"), "cch" for ch ("acchi"),
+// and m for a nasal before p, b, or m ("sambhalo"). Shapes can't tell apart words that share consonants, so negations
+// and numbers take fixed spellings.
 
 const DEVANAGARI_WORD_RE = /^[\u0900-\u097F]+$/u;
 const LATIN_WORD_RE = /^[a-z]+$/u;
@@ -26,6 +28,23 @@ const CONSONANTS: Readonly<Record<string, string>> = {
 const NUKTA_SOUNDS: Readonly<Record<string, string[]>> = {
   "ज": ["s", "j"], "ड": ["r", "d"], "ढ": ["r", "d"], "फ": ["f"], "क": ["k"], "ख": ["k"], "ग": ["g"],
 };
+
+// Negations and number words change meaning when one sound changes ("साठ" sixty, "सात" seven), so they take only
+// these Roman spellings instead of the sound check.
+const FIXED_SPELLINGS: ReadonlyMap<string, ReadonlySet<string>> = new Map(Object.entries({
+  "न": "na naa", "ना": "na naa", "नहीं": "nahi nahin nahee nai nhi", "नही": "nahi nahin nahee nai nhi", "मत": "mat",
+  "नको": "nako", "नाही": "nahi nai", "शून्य": "shunya shoonya",
+  "एक": "ek", "दो": "do", "दोन": "don", "तीन": "teen tin", "चार": "char chaar", "पांच": "paanch panch", "पाँच": "paanch panch",
+  "पाच": "paach pach", "छह": "chhah chah cheh chhe che chhai", "छः": "chhah chah cheh chhe che", "सहा": "saha", "सात": "saat sat",
+  "आठ": "aath ath", "नौ": "nau nao", "नऊ": "nau nao", "दस": "das", "दहा": "daha", "ग्यारह": "gyarah gyara", "बारह": "barah bara baarah",
+  "तेरह": "terah tera", "चौदह": "chaudah chauda", "पंद्रह": "pandrah pandra", "पन्द्रह": "pandrah pandra", "सोलह": "solah sola",
+  "सत्रह": "satrah satra", "अठारह": "atharah athara", "उन्नीस": "unnis unees unnees", "बीस": "bees bis", "तीस": "tees tis",
+  "चालीस": "chalis chaalis", "पचास": "pachas pachaas", "साठ": "saath sath", "सत्तर": "sattar", "अस्सी": "assi", "नब्बे": "nabbe",
+  "सौ": "sau so", "हज़ार": "hazaar hazar hajar", "हजार": "hazaar hazar hajar", "लाख": "lakh laakh", "करोड़": "crore karod karor",
+  "करोड": "crore karod karor",
+}).map(([word, spellings]) => [word.normalize("NFC"), new Set(spellings.split(" "))]));
+
+const LABIALS = new Set(["प", "फ", "ब", "भ", "म"]);
 
 const LATIN_DIGRAPHS: Readonly<Record<string, string>> = {
   ch: "C", sh: "s", ph: "f", kh: "k", gh: "g", th: "t", dh: "d", bh: "b", jh: "j", ck: "k",
@@ -68,7 +87,7 @@ function devanagariShapes(word: string): string[] {
     if (letter === NUKTA) return;
     const consonant = CONSONANTS[letter];
     if (consonant) shapes = extendShapes(shapes, letters[index + 1] === NUKTA ? NUKTA_SOUNDS[letter] ?? [consonant] : [consonant]);
-    else if (NASALS.has(letter)) shapes = extendShapes(shapes, ["n", ""]);
+    else if (NASALS.has(letter)) shapes = extendShapes(shapes, LABIALS.has(letters[index + 1] ?? "") ? ["m", "n", ""] : ["n", ""]);
     else if (letter === VISARGA) shapes = extendShapes(shapes, ["h"]);
     else if (VOCALIC_R.has(letter)) shapes = extendShapes(shapes, ["r"]);
   });
@@ -108,6 +127,8 @@ function latinShapes(word: string): string[] {
 // True when a lowercase Roman word plausibly spells the same spoken word as a Devanagari one.
 export function soundsAlike(devanagariWord: string, latinWord: string): boolean {
   if (!isDevanagariWord(devanagariWord) || !LATIN_WORD_RE.test(latinWord)) return false;
+  const fixed = FIXED_SPELLINGS.get(devanagariWord.normalize("NFC"));
+  if (fixed) return fixed.has(latinWord);
   const roman = new Set(latinShapes(latinWord));
   return devanagariShapes(devanagariWord).some(shape => roman.has(shape));
 }

@@ -119,5 +119,32 @@
     "reply": "काम करो।\n1. Check the logs.\n2. Send the mail.",
     "passes": true,
     "source": "Codex review round 1"
+  },
+  {
+    "name": "Negation swapped for a same-shape word is rejected",
+    "raw": "यह काम न करें।",
+    "reply": "Yeh kaam naya karein.",
+    "passes": false,
+    "source": "Codex review round 2"
+  },
+  {
+    "name": "Number swapped for a same-shape number is rejected (sixty to seven)",
+    "raw": "साठ रुपये भेजो।",
+    "reply": "Saat rupaye bhejo.",
+    "passes": false,
+    "source": "Codex review round 2"
+  },
+  {
+    "name": "Number transliterated faithfully passes",
+    "raw": "साठ रुपये भेजो।",
+    "reply": "Saath rupaye bhejo.",
+    "passes": true
+  },
+  {
+    "name": "Nasal before b written as m passes (sambhalo)",
+    "raw": "इसे संभालो।",
+    "reply": "Ise sambhalo.",
+    "passes": true,
+    "source": "Codex review round 2"
   }
 ]
