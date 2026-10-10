@@ -12,7 +12,7 @@ import {
   type RecoveryEntry,
 } from "@shared/recovery";
 import { createWavBuffer } from "@main/providers/shared/audioUtils";
-import { evaluateSpeechGate } from "./speechGate";
+import { clipPeak, evaluateSpeechGate } from "./speechGate";
 import { RecoveryKeyAccessError, RecoveryKeyCorruptError, RecoveryKeyMissingError, RecoveryKeyStore } from "@main/keychain";
 
 export const RECOVERY_AUDIO_MAX_BYTES = 1_000_000_000;
@@ -437,7 +437,7 @@ const spawnWavFile: PlaybackSpawner = (command, args, options) => spawn(command,
 
 export function shouldRetainVoicedAudio(clip: AudioClip, silenceThreshold: number): boolean {
   if (clip.pcmData.length === 0 || clip.durationSeconds < RECOVERY_MIN_VOICED_DURATION_MS / 1000) return false;
-  return evaluateSpeechGate(clip.rmsFrames).totalSpeechMs >= RECOVERY_MIN_VOICED_DURATION_MS
+  return evaluateSpeechGate(clip.rmsFrames, clipPeak(clip.pcmData)).totalSpeechMs >= RECOVERY_MIN_VOICED_DURATION_MS
     && clip.rmsFrames.some((frame) => frame >= silenceThreshold);
 }
 

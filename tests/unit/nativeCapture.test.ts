@@ -98,6 +98,11 @@ describe("shouldUseNativeBackend", () => {
     expect(shouldUseNativeBackend({ captureBackend: "renderer" }, false, { audioCaptureStart: vi.fn() })).toBe(false);
     expect(shouldUseNativeBackend({ captureBackend: "native" }, true, { audioCaptureStart: vi.fn() })).toBe(false);
   });
+
+  it("keeps unprocessed capture on the renderer even when native is selected", () => {
+    expect(shouldUseNativeBackend({ captureBackend: "native", captureProcessing: "unprocessed" }, false, { audioCaptureStart: vi.fn() })).toBe(false);
+    expect(shouldUseNativeBackend({ captureBackend: "native", captureProcessing: "default" }, false, { audioCaptureStart: vi.fn() })).toBe(true);
+  });
 });
 
 describe("CaptureBackendController", () => {
@@ -146,6 +151,30 @@ describe("CaptureBackendController", () => {
     expect(native.startRecording).toHaveBeenCalledWith("s1");
     expect(renderer.startRecording).toHaveBeenCalledWith("s1");
   });
+
+  it("records unprocessed sessions on the renderer and routes lifecycle calls there", () => {
+    const config: RecorderConfig = { preWarmMic: true, captureBackend: "native", captureProcessing: "unprocessed" };
+    const native = {
+      isReady: vi.fn(() => true),
+      startRecording: vi.fn(() => true),
+      stopRecording: vi.fn(() => true),
+      shutdown: vi.fn(),
+      suspendForLifecycle: vi.fn(() => ({ wasRunning: false, sessionId: null })),
+    } as unknown as NativeCaptureService;
+    const renderer = {
+      isReady: vi.fn(() => true),
+      startRecording: vi.fn(() => true),
+      stopRecording: vi.fn(() => true),
+      suspendForLifecycle: vi.fn(() => ({ wasRunning: true, sessionId: "s2" })),
+    };
+    const controller = new CaptureBackendController(() => config, native, renderer);
+
+    expect(controller.startRecording("s2")).toBe(true);
+    expect(native.startRecording).not.toHaveBeenCalled();
+    expect(renderer.startRecording).toHaveBeenCalledWith("s2");
+    expect(controller.suspendForLifecycle()).toEqual({ wasRunning: true, sessionId: "s2" });
+    expect(native.suspendForLifecycle).not.toHaveBeenCalled();
+  });
 });
 
 describe("NativeCaptureService", () => {
@@ -175,6 +204,7 @@ describe("NativeCaptureService", () => {
       await vi.advanceTimersByTimeAsync(370);
       expect(submitAudioClip.mock.calls[0]?.[0].tailMetrics?.lastFrameAfterStopMs).toBe(50);
       expect(submitAudioClip.mock.calls[0]?.[0].tailMetrics?.trailingRms).toBeCloseTo(0.02);
+      expect(submitAudioClip.mock.calls[0]?.[0].captureSettings).toEqual({ echoCancellation: true, autoGainControl: false });
     } finally {
       vi.useRealTimers();
     }

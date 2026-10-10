@@ -10,23 +10,41 @@ export interface ClipScore {
   missedTerms: string[];
 }
 
-// Lowercases and keeps letters, combining marks, and digits. Marks stay because Devanagari vowel signs are marks.
+// Normalizes to NFC, lowercases, and keeps letters, combining marks, and digits. Marks stay because Devanagari vowel signs are marks.
 export function normalizeWords(text: string): string[] {
-  return text.toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u).filter((word) => word.length > 0);
+  return text.normalize("NFC").toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u).filter((word) => word.length > 0);
 }
 
-// Word-level Levenshtein distance. Substitutions, insertions, and deletions each cost 1.
-function editDistance(reference: string[], hypothesis: string[]): number {
-  let previous = Array.from({ length: hypothesis.length + 1 }, (_, j) => j);
+// Word-level Levenshtein alignment. Returns the distance and which reference words the best alignment keeps exactly.
+function align(reference: string[], hypothesis: string[]): { distance: number; matchedReference: boolean[] } {
+  const cost: number[][] = [Array.from({ length: hypothesis.length + 1 }, (_, j) => j)];
   for (let i = 1; i <= reference.length; i++) {
+    const previous = cost[i - 1] ?? [];
     const current = [i];
     for (let j = 1; j <= hypothesis.length; j++) {
-      const cost = reference[i - 1] === hypothesis[j - 1] ? 0 : 1;
-      current[j] = Math.min((previous[j] ?? 0) + 1, (current[j - 1] ?? 0) + 1, (previous[j - 1] ?? 0) + cost);
+      const mismatch = reference[i - 1] === hypothesis[j - 1] ? 0 : 1;
+      current[j] = Math.min((previous[j] ?? 0) + 1, (current[j - 1] ?? 0) + 1, (previous[j - 1] ?? 0) + mismatch);
     }
-    previous = current;
+    cost.push(current);
   }
-  return previous[hypothesis.length] ?? 0;
+
+  // Walks back from the end. Each reference word is either matched, substituted, or deleted.
+  const matchedReference = new Array<boolean>(reference.length).fill(false);
+  let i = reference.length;
+  let j = hypothesis.length;
+  while (i > 0 && j > 0) {
+    const same = reference[i - 1] === hypothesis[j - 1];
+    if ((cost[i]?.[j] ?? 0) === (cost[i - 1]?.[j - 1] ?? 0) + (same ? 0 : 1)) {
+      matchedReference[i - 1] = same;
+      i--;
+      j--;
+    } else if ((cost[i]?.[j] ?? 0) === (cost[i - 1]?.[j] ?? 0) + 1) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+  return { distance: cost[reference.length]?.[hypothesis.length] ?? 0, matchedReference };
 }
 
 // Word error rate. An empty reference scores 0 only when the transcript is also empty.
@@ -34,19 +52,19 @@ export function wordErrorRate(reference: string, hypothesis: string): number {
   const ref = normalizeWords(reference);
   const hyp = normalizeWords(hypothesis);
   if (ref.length === 0) return hyp.length === 0 ? 0 : 1;
-  return editDistance(ref, hyp) / ref.length;
+  return align(ref, hyp).distance / ref.length;
 }
 
-// True when the transcript's first word is not the reference's first word.
+// True when the reference's first word is deleted or substituted. Extra words before it do not count.
 export function firstWordMissed(reference: string, hypothesis: string): boolean {
   const ref = normalizeWords(reference);
-  return ref.length > 0 && ref[0] !== normalizeWords(hypothesis)[0];
+  return ref.length > 0 && align(ref, normalizeWords(hypothesis)).matchedReference[0] !== true;
 }
 
-// True when the transcript's last word is not the reference's last word.
+// True when the reference's last word is deleted or substituted. Extra words after it do not count.
 export function lastWordMissed(reference: string, hypothesis: string): boolean {
   const ref = normalizeWords(reference);
-  return ref.length > 0 && ref.at(-1) !== normalizeWords(hypothesis).at(-1);
+  return ref.length > 0 && align(ref, normalizeWords(hypothesis)).matchedReference[ref.length - 1] !== true;
 }
 
 // Terms that do not appear in the transcript. Multi-word terms must appear as a run of words.

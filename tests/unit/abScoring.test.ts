@@ -9,6 +9,11 @@ describe("normalizeWords", () => {
   it("keeps Devanagari vowel signs and digits inside words", () => {
     expect(normalizeWords("मेरा नाम है। 42 बजे")).toEqual(["मेरा", "नाम", "है", "42", "बजे"]);
   });
+
+  it("compares precomposed and decomposed nukta letters as equal", () => {
+    expect(normalizeWords("क़")).toEqual(normalizeWords("क़"));
+    expect(wordErrorRate("क़ा", "क़ा")).toBe(0);
+  });
 });
 
 describe("wordErrorRate", () => {
@@ -64,6 +69,30 @@ describe("first and last word misses", () => {
   it("does not flag an empty reference", () => {
     expect(firstWordMissed("", "anything")).toBe(false);
     expect(lastWordMissed("", "")).toBe(false);
+  });
+
+  it("does not flag an extra word before the first word", () => {
+    expect(firstWordMissed("book the room", "please book the room")).toBe(false);
+    expect(lastWordMissed("book the room", "please book the room")).toBe(false);
+  });
+
+  it("does not flag an extra word after the last word", () => {
+    expect(firstWordMissed("book the room", "book the room please")).toBe(false);
+    expect(lastWordMissed("book the room", "book the room please")).toBe(false);
+  });
+
+  it("flags a substituted first word", () => {
+    expect(firstWordMissed("book the room", "cook the room")).toBe(true);
+    expect(lastWordMissed("book the room", "cook the room")).toBe(false);
+  });
+
+  it("flags a substituted last word", () => {
+    expect(firstWordMissed("book the room", "book the zoom")).toBe(false);
+    expect(lastWordMissed("book the room", "book the zoom")).toBe(true);
+  });
+
+  it("flags a deleted first word even when a word was inserted elsewhere", () => {
+    expect(firstWordMissed("book the room", "the room please")).toBe(true);
   });
 });
 

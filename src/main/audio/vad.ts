@@ -1,6 +1,6 @@
 import type { AudioClip } from "@shared/types";
 import { debug } from "@main/log";
-import { DIGITAL_SILENCE_RMS } from "./speechGate";
+import { DIGITAL_SILENCE_PEAK, clipPeak } from "./speechGate";
 
 // Frames are 20ms (see calculateRmsFrames). A short, quiet leading word ("I",
 // "a", "the") often falls below the silence threshold, so startIndex lands on the
@@ -30,7 +30,7 @@ export function trimSilence(clip: AudioClip, threshold: number): AudioClip {
   debug("vad", `trimSilence: threshold=${effectiveThreshold.toFixed(4)}, maxRms=${maxRms.toFixed(4)}, avgRms=${avgRms.toFixed(4)}, frames=${clip.rmsFrames.length}, startIdx=${startIndex}, endIdx=${endIndex}`);
 
   if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
-    if (maxRms >= DIGITAL_SILENCE_RMS && clip.pcmData.length > 0) {
+    if (clipPeak(clip.pcmData) >= DIGITAL_SILENCE_PEAK) {
       debug("vad", "All frames below trim threshold but audio has energy; keeping untrimmed clip.");
       return clip;
     }

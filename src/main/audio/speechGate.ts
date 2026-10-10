@@ -8,8 +8,8 @@ export type SpeechGateResult = SpeechGateTrace & { decision: SpeechGateDecision 
 // frames of the samples that get sent, so gain is already applied. It never trims audio.
 
 export const SPEECH_GATE_FRAME_MS = 20;
-// Frames quieter than this RMS hold nothing STT could hear.
-export const DIGITAL_SILENCE_RMS = 1e-4;
+// A clip is digitally silent when every sample rounds to zero in 16-bit PCM.
+export const DIGITAL_SILENCE_PEAK = 0.5 / 32768;
 
 const MIN_ENTER_THRESHOLD = 0.003;
 const MIN_EXIT_THRESHOLD = 0.0018;
@@ -24,16 +24,22 @@ const MIN_TOTAL_SPEECH_MS = 160;
 // passes outright.
 const SPEECH_DOMINANT_FLOOR = 0.008;
 
-// Labels a clip's frames as silent, speech, or uncertain from the clip's own noise floor.
-export function evaluateSpeechGate(rmsFrames: number[], frameMs = SPEECH_GATE_FRAME_MS): SpeechGateResult {
+// Largest absolute sample in a clip.
+export function clipPeak(pcmData: number[]): number {
+  let peak = 0;
+  for (const sample of pcmData) peak = Math.max(peak, Math.abs(sample));
+  return peak;
+}
+
+// Labels a clip's frames as silent, speech, or uncertain from the clip's own noise floor. `peak` is the clip's largest sample.
+export function evaluateSpeechGate(rmsFrames: number[], peak: number, frameMs = SPEECH_GATE_FRAME_MS): SpeechGateResult {
   const sorted = [...rmsFrames].sort((a, b) => a - b);
   const noiseFloor = sorted[Math.floor(sorted.length * 0.2)] ?? 0;
-  const loudest = sorted[sorted.length - 1] ?? 0;
 
   if (rmsFrames.length === 0) {
     return { pass: false, decision: "silent", reason: "no-frames", noiseFloor: 0, enterThreshold: MIN_ENTER_THRESHOLD, longestRunMs: 0, totalSpeechMs: 0 };
   }
-  if (loudest < DIGITAL_SILENCE_RMS) {
+  if (peak < DIGITAL_SILENCE_PEAK) {
     return { pass: false, decision: "silent", reason: "digital-silence", noiseFloor, enterThreshold: MIN_ENTER_THRESHOLD, longestRunMs: 0, totalSpeechMs: 0 };
   }
 

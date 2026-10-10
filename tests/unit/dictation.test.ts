@@ -732,6 +732,15 @@ describe("DictationService", () => {
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", userMessage: noSpeechMessage, speechGate: { decision: "silent" } });
   });
 
+  it("sends a one-second clip of nonzero 16-bit samples to transcription", async () => {
+    const { service, transcription } = createDictationService();
+
+    await submitClip(service, steadyClip(0.00005));
+
+    expect(transcription.transcribe).toHaveBeenCalledTimes(1);
+    expect(transcription.transcribe.mock.calls[0]?.[0].pcmData).toHaveLength(16_000);
+  });
+
   it("sends a valid-length quiet clip to transcription and inserts the text", async () => {
     const traceDeps = createTraceDeps();
     const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });

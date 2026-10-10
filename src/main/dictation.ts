@@ -389,7 +389,7 @@ export class DictationService {
     const settings = restoreSessionSettings(snapshot);
     const validationClip = trimSilence(payload.clip, settings.silenceThreshold);
     const rawAudio = analyzeAudioQuality(payload.clip, settings.silenceThreshold);
-    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames);
+    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames, rawAudio.peakAmplitude);
     const tracePatch: Partial<DictationTrace> = {
       rawAudio,
       captureLevels: captureLevelsFor(rawAudio, payload.clip.gain),
