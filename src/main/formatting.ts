@@ -8,7 +8,7 @@ export async function formatTranscript(apiKey: string, rawText: string, options?
   const registry = getProviderRegistry();
   const provider = registry.getFormatting("groq-llm");
   if (provider) {
-    return (await provider.format(rawText, { apiKey, ...options })).text;
+    return (await provider.format(rawText, { apiKey, fillerWords: [], ...options })).text;
   }
   return rawText;
 }

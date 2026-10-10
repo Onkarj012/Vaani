@@ -10,6 +10,7 @@ import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
+import { activeFillerWords } from "./text/cleanup";
 
 export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
 const STT_CHUNK_OVERLAP_SECONDS = 2;
@@ -426,11 +427,13 @@ export class TranscriptionService {
   ): Promise<FormatTranscriptTraceResult> {
     if (signal.aborted) throw new TranscriptionCancelledError();
     if (this.settingsProvider().offlineMode === "always-offline") return skippedFormat(rawText, OFFLINE_REASON);
+    const fillerWords = activeFillerWords(settings);
     const result = await provider.format(rawText, {
       apiKey,
       model: settings.formattingModel,
       systemPrompt: settings.customPrompt,
       signal,
+      fillerWords,
     });
     if (result.status !== "ran") {
       return { text: result.text, formatterUsed: "none", formatterStatus: result.status, formatterStatusReason: result.reason };
@@ -439,7 +442,7 @@ export class TranscriptionService {
     if (!formatted) {
       return { text: rawText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: EMPTY_REPLY_REASON };
     }
-    const { missing, added } = diffContentWords(rawText, formatted);
+    const { missing, added } = diffContentWords(rawText, formatted, fillerWords);
     if (missing.length > 0 || added.length > 0) {
       debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
       return {

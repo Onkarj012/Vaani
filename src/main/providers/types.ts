@@ -27,7 +27,8 @@ export interface FormattingProvider {
   readonly name: string;
   readonly requiresApiKey: boolean;
   readonly models: { id: string; name: string }[];
-  format(rawText: string, options: FormattingOptions & { apiKey?: string }): Promise<FormattingResult>;
+  // fillerWords are the words the formatter may drop, and the only ones the content guard lets go.
+  format(rawText: string, options: FormattingOptions & { apiKey?: string; fillerWords: readonly string[] }): Promise<FormattingResult>;
   isAvailable(): Promise<boolean>;
   validateApiKey?(apiKey: string): Promise<ApiKeyValidationResult>;
 }

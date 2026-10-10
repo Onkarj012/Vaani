@@ -39,10 +39,10 @@ function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs
 
 const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will format|here['\u2019]s the|let me|as requested|i hope|i think|i believe|the answer is|based on|as an ai|sure!?|certainly!?|of course!?)\b/i;
 
-function hasSuspiciousContentChange(rawText: string, candidate: string): boolean {
+function hasSuspiciousContentChange(rawText: string, candidate: string, fillers: readonly string[]): boolean {
   return (
-    missingContentWords(rawText, candidate).length > 0
-    || addedContentWords(rawText, candidate).length > ADDED_CONTENT_WORD_SLACK
+    missingContentWords(rawText, candidate, fillers).length > 0
+    || addedContentWords(rawText, candidate, fillers).length > ADDED_CONTENT_WORD_SLACK
   );
 }
 
@@ -86,11 +86,11 @@ export const OpenAILlmProvider: FormattingProvider = {
       const formatted = await requestFormatting(text, options, options.systemPrompt || FORMATTING_PROMPT);
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
       if (ASSISTANT_REPLY_PATTERN.test(formatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
-      if (hasSuspiciousContentChange(text, formatted)) {
+      if (hasSuspiciousContentChange(text, formatted, options.fillerWords)) {
         const strictFormatted = await requestFormatting(text, options, STRICT_FORMATTING_PROMPT);
         if (!strictFormatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
         if (ASSISTANT_REPLY_PATTERN.test(strictFormatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
-        if (hasSuspiciousContentChange(text, strictFormatted)) return formatterResult("rejected", text, CHANGED_WORDS_REASON);
+        if (hasSuspiciousContentChange(text, strictFormatted, options.fillerWords)) return formatterResult("rejected", text, CHANGED_WORDS_REASON);
         return formatterResult("ran", strictFormatted, FORMATTED_REASON);
       }
       return formatterResult("ran", formatted, FORMATTED_REASON);

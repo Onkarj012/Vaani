@@ -1,6 +1,6 @@
 // Word guard for LLM formatting. Compares the words of the formatter input and output,
 // in order and in any script. Punctuation, capitals, and line placement are ignored.
-// Filler words may disappear. Spoken layout cues ("new paragraph", "point one") may
+// Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one") may
 // disappear only when the output has a line break or a list item with the same number there.
 
 const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
@@ -19,7 +19,6 @@ const OUTPUT_TOKEN_RE = new RegExp(
 const REASONING_BLOCK_RE = /<(think|thinking|reasoning|thought)>[\s\S]*?<\/\1>/gi;
 const UNCLOSED_REASONING_RE = /<(think|thinking|reasoning|thought)>[\s\S]*$/i;
 const WORD_RE = /[\p{L}\p{M}\p{N}]+/gu;
-const FILLER_WORDS = new Set(["um", "uh"]);
 
 const NUMBER_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
   zero: "0", one: "1", two: "2", three: "3", four: "4",
@@ -40,9 +39,10 @@ export interface ContentWordDiff {
   added: string[];
 }
 
-// One piece of input or output: a word, a spoken layout cue, a line break, or a list item.
+// One piece of input or output: a word, a listed filler, a spoken layout cue, a line break, or a list item.
 type Unit =
   | { kind: "word"; text: string }
+  | { kind: "filler"; text: string }
   | { kind: "line"; words: string[] }
   | { kind: "enum"; value: string | null; words: string[] }
   | { kind: "break" }
@@ -72,24 +72,48 @@ function isNumberWord(unit: Unit | undefined): boolean {
   return unit?.kind === "word" && NUMBER_WORDS.has(unit.text);
 }
 
-// Drops filler words, then maps standalone spelled-out numbers to digits. "twenty one" stays words so it never matches "20 1".
+// True when a unit is the given word.
+function isWord(unit: Unit | undefined, text: string): boolean {
+  return unit?.kind === "word" && unit.text === text;
+}
+
+// Marks listed fillers and filler phrases in the input as fillers. The output may drop them, never add them.
+function markFillers(units: Unit[], fillers: readonly string[]): Unit[] {
+  const marked = new Set<number>();
+  for (const filler of fillers) {
+    const phrase = wordsIn(filler);
+    if (phrase.length === 0) continue;
+    for (let start = 0; start + phrase.length <= units.length; start += 1) {
+      if (!phrase.every((word, offset) => isWord(units[start + offset], word))) continue;
+      for (let offset = 0; offset < phrase.length; offset += 1) marked.add(start + offset);
+    }
+  }
+  return units.map((unit, index): Unit => (marked.has(index) && unit.kind === "word" ? { kind: "filler", text: unit.text } : unit));
+}
+
+// Maps standalone spelled-out numbers to digits, skipping fillers when looking at neighbors. "twenty one" stays words so it never matches "20 1".
 function finishWords(units: Unit[]): Unit[] {
-  const kept = units.filter(unit => unit.kind !== "word" || !FILLER_WORDS.has(unit.text));
-  return kept.map((unit, index) => {
+  const neighbor = (index: number, step: -1 | 1): Unit | undefined => {
+    let i = index + step;
+    while (units[i]?.kind === "filler") i += step;
+    return units[i];
+  };
+  return units.map((unit, index) => {
     if (unit.kind !== "word") return unit;
     const digits = NUMBER_WORDS.get(unit.text);
-    if (!digits || isNumberWord(kept[index - 1]) || isNumberWord(kept[index + 1])) return unit;
+    if (!digits || isNumberWord(neighbor(index, -1)) || isNumberWord(neighbor(index, 1))) return unit;
     return { kind: "word", text: digits };
   });
 }
 
-// Input words and spoken layout cues in order. Numeric literals such as 1.5 stay whole.
-function inputUnits(text: string): Unit[] {
-  return finishWords([...text.matchAll(INPUT_TOKEN_RE)].map((match): Unit => {
+// Input words, listed fillers, and spoken layout cues in order. Numeric literals such as 1.5 stay whole.
+function inputUnits(text: string, fillers: readonly string[]): Unit[] {
+  const units = [...text.matchAll(INPUT_TOKEN_RE)].map((match): Unit => {
     if (match.groups?.line) return { kind: "line", words: wordsIn(match[0]) };
     if (match.groups?.enum) return { kind: "enum", value: cueValue(match[0]), words: wordsIn(match[0]) };
     return { kind: "word", text: match[0].toLowerCase() };
-  }));
+  });
+  return finishWords(markFillers(units, fillers));
 }
 
 // Output words, line breaks, and list items in order. Numeric literals such as 1.5 stay whole.
@@ -104,7 +128,7 @@ function outputUnits(text: string): Unit[] {
 
 // True when an output unit applies an input unit: the same word, a line break for a line cue, or a list item with the same number.
 function sameUnit(source: Unit, output: Unit): boolean {
-  if (source.kind === "word") return output.kind === "word" && output.text === source.text;
+  if (source.kind === "word" || source.kind === "filler") return output.kind === "word" && output.text === source.text;
   if (source.kind === "line") return output.kind === "break";
   if (source.kind === "enum") return output.kind === "item" && output.value === source.value;
   return false;
@@ -113,7 +137,8 @@ function sameUnit(source: Unit, output: Unit): boolean {
 // Words a unit contributes to the missing or added list. Line breaks have none.
 function unitWords(unit: Unit): string[] {
   switch (unit.kind) {
-    case "word": return [unit.text];
+    case "word":
+    case "filler": return [unit.text];
     case "line":
     case "enum": return unit.words;
     case "break": return [];
@@ -121,7 +146,7 @@ function unitWords(unit: Unit): string[] {
   }
 }
 
-// Aligns input and output units in order. Unmatched input units are missing; unmatched output units are added.
+// Aligns input and output units in order. Unmatched input units are missing unless listed as fillers; unmatched output units are added.
 function alignUnits(source: Unit[], output: Unit[]): ContentWordDiff {
   const width = output.length + 1;
   const common = new Uint16Array((source.length + 1) * width);
@@ -150,7 +175,7 @@ function alignUnits(source: Unit[], output: Unit[]): ContentWordDiff {
       addedUnits.push(outputUnit);
       j -= 1;
     } else if (sourceUnit) {
-      missingUnits.push(sourceUnit);
+      if (sourceUnit.kind !== "filler") missingUnits.push(sourceUnit);
       i -= 1;
     }
   }
@@ -160,23 +185,23 @@ function alignUnits(source: Unit[], output: Unit[]): ContentWordDiff {
   };
 }
 
-// Words the formatter dropped, reordered, or added between its input and output.
-export function diffContentWords(rawText: string, candidate: string): ContentWordDiff {
-  return alignUnits(inputUnits(rawText), outputUnits(candidate));
+// Words the formatter dropped, reordered, or added. Listed fillers may be dropped but not added.
+export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = []): ContentWordDiff {
+  return alignUnits(inputUnits(rawText, fillers), outputUnits(candidate));
 }
 
-// True only when the formatter kept every word, in order, and added none.
-export function preservesContentWords(rawText: string, candidate: string): boolean {
-  const { missing, added } = diffContentWords(rawText, candidate);
+// True only when the formatter kept every word, in order, and added none. Listed fillers may be dropped.
+export function preservesContentWords(rawText: string, candidate: string, fillers: readonly string[] = []): boolean {
+  const { missing, added } = diffContentWords(rawText, candidate, fillers);
   return missing.length === 0 && added.length === 0;
 }
 
-// Input words the formatter dropped or reordered.
-export function missingContentWords(rawText: string, candidate: string): string[] {
-  return diffContentWords(rawText, candidate).missing;
+// Input words the formatter dropped or reordered, ignoring listed fillers.
+export function missingContentWords(rawText: string, candidate: string, fillers: readonly string[] = []): string[] {
+  return diffContentWords(rawText, candidate, fillers).missing;
 }
 
 // Output words the formatter added or moved.
-export function addedContentWords(rawText: string, candidate: string): string[] {
-  return diffContentWords(rawText, candidate).added;
+export function addedContentWords(rawText: string, candidate: string, fillers: readonly string[] = []): string[] {
+  return diffContentWords(rawText, candidate, fillers).added;
 }

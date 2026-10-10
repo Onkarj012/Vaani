@@ -743,6 +743,29 @@ describe("TranscriptionService failover chain", () => {
     });
   });
 
+  it("keeps literal text when the formatter drops a filler with cleanup off", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "I like this.")));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
+      formattingProvider: "groq-llm",
+      groqApiKey: "groq-key",
+      cleanupEnabled: false,
+    }));
+
+    const result = await service.formatTranscriptDetailed("um I like this");
+
+    expect(result).toEqual({
+      text: "um I like this",
+      formatterUsed: "guard-fallback",
+      formatterStatus: "rejected",
+      formatterStatusReason: "The formatter changed words in the transcript.",
+      contentGuardVerdict: { passed: false, missingWords: ["um"] },
+    });
+  });
+
   it("falls back to corrected raw text when the formatter omits the last word", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "We ship it.")));
     const { TranscriptionService } = await import("@main/transcription");

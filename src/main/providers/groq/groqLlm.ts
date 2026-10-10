@@ -22,10 +22,10 @@ const FORMATTING_MODEL = defaultModelFor("cleanup", "groq-llm");
 const FORMATTING_TIMEOUT_MS = 20_000;
 const ADDED_CONTENT_WORD_SLACK = 3;
 
-function hasSuspiciousContentChange(rawText: string, candidate: string): boolean {
+function hasSuspiciousContentChange(rawText: string, candidate: string, fillers: readonly string[]): boolean {
   return (
-    missingContentWords(rawText, candidate).length > 0
-    || addedContentWords(rawText, candidate).length > ADDED_CONTENT_WORD_SLACK
+    missingContentWords(rawText, candidate, fillers).length > 0
+    || addedContentWords(rawText, candidate, fillers).length > ADDED_CONTENT_WORD_SLACK
   );
 }
 
@@ -71,10 +71,10 @@ export const GroqLlmProvider: FormattingProvider = {
       const formatted = await requestFormatting(options.apiKey, text, options.systemPrompt || FORMATTING_PROMPT, model, options.signal);
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
 
-      if (hasSuspiciousContentChange(text, formatted)) {
+      if (hasSuspiciousContentChange(text, formatted, options.fillerWords)) {
         const strictFormatted = await requestFormatting(options.apiKey, text, STRICT_FORMATTING_PROMPT, model, options.signal);
         if (!strictFormatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
-        if (hasSuspiciousContentChange(text, strictFormatted)) return formatterResult("rejected", text, CHANGED_WORDS_REASON);
+        if (hasSuspiciousContentChange(text, strictFormatted, options.fillerWords)) return formatterResult("rejected", text, CHANGED_WORDS_REASON);
         return formatterResult("ran", strictFormatted, FORMATTED_REASON);
       }
 

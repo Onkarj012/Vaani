@@ -20,6 +20,12 @@ function escapeRegExp(v: string): string {
   return v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Filler words the cleanup stage removes. Empty when cleanup is off.
+export function activeFillerWords(settings: Settings): string[] {
+  if (!settings.cleanupEnabled) return [];
+  return [...(settings.fillerWords ?? []), ...(settings.extraFillerWords ?? [])];
+}
+
 function removeFillers(text: string, fillers: string[]): string {
   return fillers.reduce((t, f) => {
     const pattern = f === "um" || f === "uh" ? `${escapeRegExp(f)}+` : escapeRegExp(f);
@@ -467,10 +473,7 @@ export function cleanupText({ rawText, settings, trace, skipCorrections = false,
     return hasMultipleLines(expanded) ? normalizeLineWhitespace(expanded) : normalizeWhitespace(expanded);
   }
 
-  const fillered = removeFillers(expanded, [
-    ...(settings.fillerWords ?? []),
-    ...(settings.extraFillerWords ?? []),
-  ]);
+  const fillered = removeFillers(expanded, activeFillerWords(settings));
   const numbered = normalizeCommonNumbers(fillered);
   if (hasMultipleLines(numbered)) {
     return applySpokenLayout(formatMultilineText(numbered, settings), settings);
