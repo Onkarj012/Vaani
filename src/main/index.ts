@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, powerMonitor, session, systemPreferences } from "electron";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync, existsSync, renameSync } from "node:fs";
+import { setDefaultAutoSelectFamilyAttemptTimeout } from "node:net";
 import { dirname, join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,10 @@ import { RecoveryLifecycleCoordinator } from "./recoveryLifecycle";
 import { subscribeNativeLoadFailure } from "./nativeBridge";
 import { consumeRestoredRecoveryNotice } from "./recoveryStartup";
 import { createQuitHandler } from "./quitCleanup";
+
+// Node gives each address 250 ms to connect. A VPN with a ~270 ms handshake then fails every
+// provider call with ETIMEDOUT, while curl on the same network works.
+setDefaultAutoSelectFamilyAttemptTimeout(2_000);
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
