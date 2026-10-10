@@ -982,8 +982,9 @@ describe("DictationService", () => {
   it("inserts the literal text and warns when the formatter drops a word", async () => {
     groqCreate.mockResolvedValue({ choices: [{ message: { content: "Please send the report." } }] });
     const traceDeps = createTraceDeps();
-    const { service, injector, transcription } = createDictationService({ traces: traceDeps.traces });
-    const formatter = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const { service, injector, transcription, settings } = createDictationService({ traces: traceDeps.traces });
+    settings.get.mockReturnValue({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" });
+    const formatter = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
     Object.assign(transcription, { formatTranscriptDetailed: formatter.formatTranscriptDetailed.bind(formatter) });
     transcription.transcribe.mockResolvedValue({ rawText: "please send the report today", formattedText: "please send the report today", language: "en" });
 

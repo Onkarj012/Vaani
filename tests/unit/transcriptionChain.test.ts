@@ -740,7 +740,7 @@ describe("TranscriptionService failover chain", () => {
   it("rejects a formatter reply that adds a negation and inserts the literal text", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "Do not send the report today.")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("send the report today")).toMatchObject({
       text: "send the report today",
@@ -752,7 +752,7 @@ describe("TranscriptionService failover chain", () => {
   it("rejects a dropped Devanagari word", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "मुझे ऑफिस जाना है।")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("मुझे कल ऑफिस जाना है")).toMatchObject({
       text: "मुझे कल ऑफिस जाना है",
@@ -763,7 +763,7 @@ describe("TranscriptionService failover chain", () => {
   it("removes reasoning text from an accepted formatter reply", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "<think>I will format this.</think>Send the report today.")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("send the report today")).toEqual({
       text: "Send the report today.",
@@ -777,7 +777,7 @@ describe("TranscriptionService failover chain", () => {
   it("treats a formatter reply that is only reasoning as failed", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "<thinking>no answer yet")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("send the report today")).toMatchObject({
       text: "send the report today",
