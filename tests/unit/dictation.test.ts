@@ -16,7 +16,7 @@ import { DictationService } from "./dictation.fixture";
 import { selectRecoveryText } from "@main/dictation";
 import { nativeBridge } from "@main/nativeBridge";
 import type { InjectionOptions, InjectionTarget } from "@main/injection";
-import { TranscriptionDeadlineExceededError, type TranscribeOptions } from "@main/transcription";
+import { TranscriptionDeadlineExceededError, TranscriptionService, type TranscribeOptions } from "@main/transcription";
 
 vi.mock("electron", () => ({
   app: {
@@ -41,6 +41,14 @@ vi.mock("electron", () => ({
     isTrustedAccessibilityClient: vi.fn(() => true),
     askForMediaAccess: vi.fn(async () => true)
   }
+}));
+
+const groqCreate = vi.hoisted(() => vi.fn());
+
+vi.mock("groq-sdk", () => ({
+  default: class {
+    chat = { completions: { create: groqCreate } };
+  },
 }));
 
 function createDictationService(deps: {
@@ -291,7 +299,7 @@ describe("DictationService", () => {
   it("passes the same start-time route through STT and formatting despite settings edits", async () => {
     const fixture = createInsertionRecovery("snapshot-session");
     const { service, settings, transcription } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true });
-    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, language: "hi", groqApiKey: "secret-canary" });
+    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, transcriptionProvider: "groq", language: "hi", groqApiKey: "secret-canary" });
     service.beginHotkeySession();
     const sessionId = (service.getState() as { sessionId: string }).sessionId;
     service.reportRecorderStarted(sessionId);
@@ -409,6 +417,28 @@ describe("DictationService", () => {
     await expect(retry).resolves.toBe(false);
     expect(recoveryFixture.getEntry().insertion?.outcome).not.toBe("delivered");
     await expect(service.retryRecoveryInsertion("recovery-insertion")).resolves.toBe(false);
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
+  it("does not refuse a recovery retry that a new dictation superseded while loading the entry", async () => {
+    const fixture = createInsertionRecovery("superseded-retry");
+    const entry = fixture.getEntry();
+    entry.state = "text_ready";
+    entry.text.cleanedText = "...";
+    const loadEntry = fixture.recovery.getById;
+    let finishLoad: () => void = () => undefined;
+    const loadFinished = new Promise<void>((resolve) => { finishLoad = resolve; });
+    const recovery = { ...fixture.recovery, getById: vi.fn(async () => { const loaded = await loadEntry(); await loadFinished; return loaded; }) };
+    const { service, injector } = createDictationService({ recovery, recoveryReady: () => true });
+
+    const retry = service.retryRecoveryInsertion(entry.id);
+    service.beginHotkeySession();
+    await Promise.resolve();
+    const before = service.getState();
+    finishLoad();
+
+    await expect(retry).resolves.toBe(false);
+    expect(service.getState()).toEqual(before);
     expect(injector.inject).not.toHaveBeenCalled();
   });
 
@@ -713,7 +743,7 @@ describe("DictationService", () => {
 
     expect(injector.inject).toHaveBeenCalledWith("Open GitHub.", expect.anything(), expect.anything());
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open GitHub.", injectionStatus: "injected" }));
-    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", userMessage: "Inserted.", stages: { formatterUsed: "none", formatterReason: "timeout" } });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", userMessage: "Inserted. Formatting did not apply. Inserted the unformatted text.", stages: { formatterUsed: "none", formatterReason: "timeout" } });
   });
 
   it("forces the formatter deadline only with the development switch", async () => {
@@ -835,6 +865,50 @@ describe("DictationService", () => {
     }));
   });
 
+  it("keeps repeated words and stores the raw transcript apart from the inserted text", async () => {
+    const { service, history, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "i had had enough", formattedText: "i had had enough", language: "en" });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).toHaveBeenCalledWith("I had had enough.", expect.anything(), expect.objectContaining({ isTargetValid: expect.any(Function) }));
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({
+      rawText: "i had had enough",
+      cleanedText: "I had had enough.",
+    }));
+  });
+
+  it("refuses to insert text that cleanup reduces to punctuation", async () => {
+    const { service, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "um uh um uh", formattedText: "um uh um uh", language: "en" });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+  });
+
+  it("refuses to reinject a history entry that is punctuation only", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getById.mockResolvedValue({ id: "entry-1", cleanedText: "...", rawText: "um" });
+    injector.inject.mockClear();
+
+    await service.reinjectEntry("entry-1");
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+  });
+
+  it("refuses to paste latest when the latest entry is punctuation only", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getLatest.mockResolvedValue({ id: "entry-1", cleanedText: ".", rawText: "um" });
+
+    await service.pasteLatestEntry();
+
+    expect(injector.inject).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+  });
+
   it("records stage timestamps from hotkey release through insertion verification", async () => {
     const traceDeps = createTraceDeps();
     const { service } = createDictationService({ traces: traceDeps.traces });
@@ -914,6 +988,8 @@ describe("DictationService", () => {
       formatTranscriptDetailed: vi.fn(async () => ({
         text: "um I like this",
         formatterUsed: "guard-fallback",
+        formatterStatus: "rejected",
+        formatterStatusReason: "The formatter changed words in the transcript.",
         contentGuardVerdict: { passed: false, missingWords: ["like"] },
       })),
     });
@@ -939,9 +1015,92 @@ describe("DictationService", () => {
     expect(updatedTrace?.stages).toMatchObject({
       cleanedText: "I like this.",
       formatterUsed: "guard-fallback",
+      formatterStatus: "rejected",
+      formatterStatusReason: "The formatter changed words in the transcript.",
       contentGuardVerdict: { passed: false, missingWords: ["like"] },
     });
     expect(["1.1.3+unresolved", "unresolved+unresolved"]).toContain(updatedTrace?.buildIdentifier);
+  });
+
+  it("inserts the literal text and warns when the formatter drops a word", async () => {
+    groqCreate.mockResolvedValue({ choices: [{ message: { content: "Please send the report." } }] });
+    const traceDeps = createTraceDeps();
+    const { service, injector, transcription, settings } = createDictationService({ traces: traceDeps.traces });
+    settings.get.mockReturnValue({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" });
+    const formatter = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+    Object.assign(transcription, { formatTranscriptDetailed: formatter.formatTranscriptDetailed.bind(formatter) });
+    transcription.transcribe.mockResolvedValue({ rawText: "please send the report today", formattedText: "please send the report today", language: "en" });
+
+    service.beginHotkeySession();
+    await Promise.resolve();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+    await Promise.resolve();
+
+    expect(injector.inject).toHaveBeenCalledWith("Please send the report today.", expect.anything(), expect.anything());
+    expect(service.getState()).toMatchObject({
+      status: "completed",
+      message: "Inserted. Formatting did not apply. Inserted the unformatted text.",
+    });
+    expect(traceDeps.getTrace()).toMatchObject({
+      stages: { formatterUsed: "none", formatterStatus: "rejected", formatterStatusReason: "The formatter changed words in the transcript." },
+    });
+  });
+
+  it("says formatting applied only in part when some paragraphs kept formatter output", async () => {
+    const { service, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "please send the report today", formattedText: "please send the report today", language: "en" });
+    Object.assign(transcription, {
+      formatTranscriptDetailed: vi.fn(async () => ({
+        text: "Please send the report.\n\nthen call them today",
+        formatterUsed: "none",
+        formatterStatus: "failed",
+        formatterStatusReason: "Formatter problem.",
+        partiallyFormatted: true,
+      })),
+    });
+
+    await submitHelloWorld(service);
+
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(service.getState()).toMatchObject({
+      status: "completed",
+      message: "Inserted. Formatting applied only in part. Some text was inserted unformatted.",
+    });
+  });
+
+  it("warns when formatting is skipped because the formatter has no API key", async () => {
+    const { service, transcription, settings } = createDictationService();
+    settings.get.mockReturnValue({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm" });
+    const formatter = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm" }));
+    Object.assign(transcription, { formatTranscriptDetailed: formatter.formatTranscriptDetailed.bind(formatter) });
+    transcription.transcribe.mockResolvedValue({ rawText: "please send the report today", formattedText: "please send the report today", language: "en" });
+
+    await submitHelloWorld(service);
+
+    expect(groqCreate).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({
+      status: "completed",
+      message: "Inserted. Formatting did not apply. Inserted the unformatted text.",
+    });
+  });
+
+  it("does not warn when formatting is skipped for a transcript too short to format", async () => {
+    const { service, transcription, settings } = createDictationService();
+    settings.get.mockReturnValue({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" });
+    const formatter = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+    Object.assign(transcription, { formatTranscriptDetailed: formatter.formatTranscriptDetailed.bind(formatter) });
+    transcription.transcribe.mockResolvedValue({ rawText: "hello there", formattedText: "hello there", language: "en" });
+
+    await submitHelloWorld(service);
+
+    expect(groqCreate).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "completed", message: "Inserted." });
   });
 
   it("saves no-speech hallucinations when quality retries are exhausted", async () => {
@@ -1209,6 +1368,29 @@ describe("DictationService", () => {
       expect.objectContaining({ method: "clipboard" }),
     );
     expect(recoveryFixture.getEntry().terminal).toBe("delivered");
+  });
+
+  it("refuses to copy punctuation-only recovery text without changing a live dictation", async () => {
+    const entry = { ...createRecoveryEntry({ id: "entry-1", sessionId: "session-1", buildIdentifier: "1.0.0+abc1234" }), state: "text_ready" as const, text: { rawTranscript: "um", cleanedText: "...", formattedText: null } };
+    const recovery = { ...createInsertionRecovery("session-1").recovery, getById: vi.fn(async () => entry) };
+    const copyText = vi.fn(async () => true);
+    const { service } = createDictationService({ recovery, recoveryReady: () => true, copyText });
+
+    service.beginHotkeySession();
+    const liveState = service.getState();
+    await expect(service.copyRecoveryEntry("entry-1")).resolves.toBe(false);
+    expect(service.getState()).toEqual(liveState);
+    expect(copyText).not.toHaveBeenCalled();
+  });
+
+  it("shows the empty-text error when an idle recovery copy is refused", async () => {
+    const entry = { ...createRecoveryEntry({ id: "entry-1", sessionId: "session-1", buildIdentifier: "1.0.0+abc1234" }), state: "text_ready" as const, text: { rawTranscript: "um", cleanedText: "...", formattedText: null } };
+    const recovery = { ...createInsertionRecovery("session-1").recovery, getById: vi.fn(async () => entry) };
+    const { service, injector } = createDictationService({ recovery, recoveryReady: () => true });
+
+    await expect(service.copyRecoveryEntry("entry-1")).resolves.toBe(false);
+    expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+    expect(injector.inject).not.toHaveBeenCalled();
   });
 
   it("rejects recovery insertion while a fresh dictation is active", async () => {

@@ -20,6 +20,12 @@ function escapeRegExp(v: string): string {
   return v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Filler words the cleanup stage removes. Empty when cleanup is off.
+export function activeFillerWords(settings: Settings): string[] {
+  if (!settings.cleanupEnabled) return [];
+  return [...(settings.fillerWords ?? []), ...(settings.extraFillerWords ?? [])];
+}
+
 function removeFillers(text: string, fillers: string[]): string {
   return fillers.reduce((t, f) => {
     const pattern = f === "um" || f === "uh" ? `${escapeRegExp(f)}+` : escapeRegExp(f);
@@ -219,7 +225,7 @@ function normalizeCommonNumbers(text: string): string {
   return digitized
     .replace(/\bone\s+percent\b/gi, "1%")
     .replace(/(\d+)\s+percent\b/gi, "$1%")
-    .replace(/(\d+)\s+dollars?\b/gi, "$$$1");
+    .replace(/(?<![\d.])(\.?\d+(?:[.,]\d+)*)\s+dollars?\b/gi, "$$$1");
 }
 
 function shouldNormalizeNumberRun(normalized: string): boolean {
@@ -227,21 +233,6 @@ function shouldNormalizeNumberRun(normalized: string): boolean {
   if (!normalized.startsWith("one ")) return true;
   if (/\bhundred\b/.test(normalized)) return true;
   return true;
-}
-
-function collapseAdjacentDuplicateWords(text: string): string {
-  const preserveRepeats = new Set(["ha", "no", "ok", "okay", "really", "so", "very", "yes"]);
-  let next = text;
-  while (true) {
-    const collapsed = next.replace(
-      /\b([\p{L}\p{N}][\p{L}\p{N}'-]*)([,.!?;:]?)(\s+)\1\b/giu,
-      (match, word: string, punctuation: string, spacing: string) => preserveRepeats.has(word.toLowerCase())
-        ? match
-        : `${word}${punctuation}${spacing}`.trimEnd(),
-    );
-    if (collapsed === next) return next;
-    next = collapsed;
-  }
 }
 
 function normalizeLineWhitespace(text: string): string {
@@ -349,9 +340,25 @@ const TOKEN_PATTERN = /[\p{L}\p{N}][\p{L}\p{N}'-]*/gu;
 const OPEN_BOUNDARY = "(^|[\\s([\\{\\\"'“‘])";
 const CLOSE_BOUNDARY = "(?=\\s|$|[,.!?;:)\\]}\\\"'“”‘’…-])";
 
+// Literal occurrences of one rule, honoring its case and whole-word settings.
+function exactReplacementCandidates(text: string, correction: CustomCorrection): TextReplacement[] {
+  const spoken = correction.spoken.trim();
+  const pattern = new RegExp(
+    correction.wholeWord === false ? escapeRegExp(spoken) : `${OPEN_BOUNDARY}${escapeRegExp(spoken)}${CLOSE_BOUNDARY}`,
+    correction.caseSensitive ? "g" : "gi",
+  );
+  return [...text.matchAll(pattern)].map(match => {
+    const prefixLength = correction.wholeWord === false ? 0 : (match[1]?.length ?? 0);
+    const start = (match.index ?? 0) + prefixLength;
+    return { start, end: start + spoken.length, value: correction.written, correction: { spoken, written: correction.written } };
+  });
+}
+
+// Fuzzy spans one word shorter, equal, or longer than the spoken phrase, so split or merged words still match.
 function fuzzyReplacementCandidates(text: string, correction: CustomCorrection): TextReplacement[] {
   const spoken = correction.spoken.trim();
   if (correction.fuzzy !== true || spoken.length < 4) return [];
+  const fold = (value: string): string => (correction.caseSensitive ? value : value.toLowerCase());
   const tokens = [...text.matchAll(TOKEN_PATTERN)];
   const wordCount = spoken.split(/\s+/).length;
   const candidates: TextReplacement[] = [];
@@ -364,8 +371,10 @@ function fuzzyReplacementCandidates(text: string, correction: CustomCorrection):
       const start = first.index;
       const end = last.index + last[0].length;
       const candidate = text.slice(start, end);
+      // A case-only difference is an exact-match miss for case-sensitive rules, not a fuzzy hit.
+      if (correction.caseSensitive && candidate.toLowerCase() === spoken.toLowerCase()) continue;
       if (normalizedEditDistance(candidate, spoken) >= MAX_EDIT_RATIO) continue;
-      if (editDistance(candidate.toLowerCase(), spoken.toLowerCase()) > 2) continue;
+      if (editDistance(fold(candidate), fold(spoken)) > 2) continue;
       if (!phoneticKeysEqual(candidate, spoken)) continue;
       candidates.push({ start, end, value: correction.written, correction: { spoken, written: correction.written } });
     }
@@ -373,28 +382,30 @@ function fuzzyReplacementCandidates(text: string, correction: CustomCorrection):
   return candidates;
 }
 
-export function applyDictionary(text: string, settings: Settings, trace?: TextCleanupTrace): string {
-  const replacements: TextReplacement[] = [];
-  for (const correction of settings.customCorrections ?? []) {
-    if (correction.enabled === false) continue;
-    const spoken = correction.spoken.trim();
-    if (!spoken) continue;
-    const pattern = new RegExp(
-      correction.wholeWord === false ? escapeRegExp(spoken) : `${OPEN_BOUNDARY}${escapeRegExp(spoken)}${CLOSE_BOUNDARY}`,
-      correction.caseSensitive ? "g" : "gi",
-    );
-    for (const match of text.matchAll(pattern)) {
-      const prefixLength = correction.wholeWord === false ? 0 : (match[1]?.length ?? 0);
-      const start = (match.index ?? 0) + prefixLength;
-      replacements.push({ start, end: start + spoken.length, value: correction.written, correction: { spoken, written: correction.written } });
-    }
-    replacements.push(...fuzzyReplacementCandidates(text, correction));
-  }
+// True when two replacement spans share any character.
+function overlaps(left: TextReplacement, right: TextReplacement): boolean {
+  return left.start < right.end && left.end > right.start;
+}
+
+// Keeps the longest candidates first and drops any that overlap a kept one.
+function selectNonOverlapping(candidates: TextReplacement[]): TextReplacement[] {
   const selected: TextReplacement[] = [];
-  for (const candidate of replacements.sort((left, right) => (right.end - right.start) - (left.end - left.start) || left.start - right.start)) {
-    if (selected.some(existing => candidate.start < existing.end && candidate.end > existing.start)) continue;
+  const longestFirst = [...candidates].sort((left, right) => (right.end - right.start) - (left.end - left.start) || left.start - right.start);
+  for (const candidate of longestFirst) {
+    if (selected.some(existing => overlaps(candidate, existing))) continue;
     selected.push(candidate);
   }
+  return selected;
+}
+
+// Exact matches are placed first. Fuzzy matches only fill spans no exact match touches.
+export function applyDictionary(text: string, settings: Settings, trace?: TextCleanupTrace): string {
+  const rules = (settings.customCorrections ?? []).filter(correction => correction.enabled !== false && correction.spoken.trim());
+  const exact = selectNonOverlapping(rules.flatMap(correction => exactReplacementCandidates(text, correction)));
+  const fuzzy = rules
+    .flatMap(correction => fuzzyReplacementCandidates(text, correction))
+    .filter(candidate => !exact.some(existing => overlaps(candidate, existing)));
+  const selected = [...exact, ...selectNonOverlapping(fuzzy)];
   const matched = new Set<string>();
   for (const replacement of selected) if (replacement.correction) matched.add(JSON.stringify(replacement.correction));
   for (const encoded of matched) trace?.correctionsApplied.push(JSON.parse(encoded) as DictationCorrectionTrace);
@@ -459,16 +470,11 @@ export function cleanupText({ rawText, settings, trace, skipCorrections = false,
   const expanded = applySnippets(corrected, settings.snippets ?? [], appProfileId, placeholderResolver);
 
   if (!settings.cleanupEnabled) {
-    const deduped = collapseAdjacentDuplicateWords(expanded);
-    return hasMultipleLines(deduped) ? normalizeLineWhitespace(deduped) : normalizeWhitespace(deduped);
+    return hasMultipleLines(expanded) ? normalizeLineWhitespace(expanded) : normalizeWhitespace(expanded);
   }
 
-  const fillered = removeFillers(expanded, [
-    ...(settings.fillerWords ?? []),
-    ...(settings.extraFillerWords ?? []),
-  ]);
-  const deduped = collapseAdjacentDuplicateWords(fillered);
-  const numbered = normalizeCommonNumbers(deduped);
+  const fillered = removeFillers(expanded, activeFillerWords(settings));
+  const numbered = normalizeCommonNumbers(fillered);
   if (hasMultipleLines(numbered)) {
     return applySpokenLayout(formatMultilineText(numbered, settings), settings);
   }
@@ -482,11 +488,15 @@ export function cleanupText({ rawText, settings, trace, skipCorrections = false,
 
 // Deterministic formatting without requiring full Settings — used as LLM fallback.
 export function deterministicFormat(text: string): string {
-  const deduped = collapseAdjacentDuplicateWords(text);
-  const numbered = normalizeCommonNumbers(deduped);
+  const numbered = normalizeCommonNumbers(text);
   const capitalized = capitalizeSentences(numbered);
   const ensured = /[.?!]$/.test(capitalized.trim()) ? capitalized : `${capitalized}.`;
   return applySpokenLayout(normalizeWhitespace(ensured), {
     smartPunctuation: true,
   });
+}
+
+// True when the text has a letter or number, so it is worth inserting or copying.
+export function hasSpokenContent(text: string): boolean {
+  return /[\p{L}\p{N}]/u.test(text);
 }

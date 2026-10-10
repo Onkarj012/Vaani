@@ -1,5 +1,7 @@
 [
-  { "name": "duplicate product word", "rawText": "github github should only appear once", "settingsOverrides": {}, "expected": "Github should only appear once." },
-  { "name": "duplicate is removed", "rawText": "please please send the message", "settingsOverrides": {}, "expected": "Please send the message." },
-  { "name": "triple duplicate one-pass caveat", "rawText": "want want want this", "settingsOverrides": {}, "expected": "Want this." }
+  { "name": "repeated product word is kept", "rawText": "github github should only appear once", "settingsOverrides": {}, "expected": "Github github should only appear once." },
+  { "name": "repeated word is kept", "rawText": "please please send the message", "settingsOverrides": {}, "expected": "Please please send the message." },
+  { "name": "triple repeat is kept", "rawText": "want want want this", "settingsOverrides": {}, "expected": "Want want want this." },
+  { "name": "had had is kept", "rawText": "I had had enough", "settingsOverrides": {}, "expected": "I had had enough." },
+  { "name": "repeated word is kept with cleanup disabled", "rawText": "please please send the message", "settingsOverrides": { "cleanupEnabled": false }, "expected": "please please send the message" }
 ]

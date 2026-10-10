@@ -1,20 +1,32 @@
 import Groq from "groq-sdk";
-import { addedContentWords, missingContentWords } from "@shared/contentGuard";
-import type { FormattingProvider } from "../types";
-import { FORMATTING_PROMPT, MIN_WORDS_FOR_FORMATTING, STRICT_FORMATTING_PROMPT } from "../formatting-constants";
+import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
+import type { FormattingProvider, FormattingResult } from "../types";
+import { formatterErrorReason, formatterResult } from "../types";
+import {
+  CHANGED_WORDS_REASON,
+  EMPTY_REPLY_REASON,
+  EMPTY_TRANSCRIPT_REASON,
+  FORMATTED_REASON,
+  FORMATTING_PROMPT,
+  MIN_WORDS_FOR_FORMATTING,
+  NO_API_KEY_REASON,
+  STRICT_FORMATTING_PROMPT,
+  TOO_SHORT_REASON,
+} from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
 import { createCancellationScope, isAbortError } from "@main/cancellation";
+import { defaultModelFor, providerModels } from "@shared/modelList";
 
-const FORMATTING_MODEL = "llama-3.1-8b-instant";
+const FORMATTING_MODEL = defaultModelFor("cleanup", "groq-llm");
 
 const FORMATTING_TIMEOUT_MS = 20_000;
 const ADDED_CONTENT_WORD_SLACK = 3;
 
-function hasSuspiciousContentChange(rawText: string, candidate: string): boolean {
-  return (
-    missingContentWords(rawText, candidate).length > 0
-    || addedContentWords(rawText, candidate).length > ADDED_CONTENT_WORD_SLACK
-  );
+// Why the formatter reply must be rejected, or null when its words check out.
+function contentRejection(rawText: string, candidate: string, fillers: readonly string[]): string | null {
+  const diff = diffContentWords(rawText, candidate, fillers);
+  if (diff.rejection) return diff.rejection;
+  return diff.missing.length > 0 || diff.added.length > ADDED_CONTENT_WORD_SLACK ? CHANGED_WORDS_REASON : null;
 }
 
 async function requestFormatting(apiKey: string, text: string, prompt: string, model: string, signal?: AbortSignal): Promise<string | null> {
@@ -31,7 +43,7 @@ async function requestFormatting(apiKey: string, text: string, prompt: string, m
       ],
     }, { signal: scope.signal });
     if (scope.signal.aborted) throw new Error("Groq formatting request timed out.");
-    return response.choices[0]?.message?.content?.trim() || null;
+    return stripReasoningBlocks(response.choices[0]?.message?.content ?? "") || null;
   } catch (err) {
     if (signal?.aborted) throw err;
     if (scope.signal.aborted) throw new Error("Groq formatting request timed out.");
@@ -46,32 +58,31 @@ export const GroqLlmProvider: FormattingProvider = {
   id: "groq-llm",
   name: "Groq Llama",
   requiresApiKey: true,
-  models: [
-    { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant" },
-    { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
-  ],
+  models: providerModels("cleanup", "groq-llm"),
 
-  async format(rawText, options): Promise<string> {
+  async format(rawText, options): Promise<FormattingResult> {
     const text = rawText.trim();
-    if (!text) return text;
-    if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) return text;
-    if (!options.apiKey) return text;
+    if (!text) return formatterResult("skipped", text, EMPTY_TRANSCRIPT_REASON);
+    if (text.split(/\s+/).length < MIN_WORDS_FOR_FORMATTING) return formatterResult("skipped", text, TOO_SHORT_REASON);
+    if (!options.apiKey) return formatterResult("skipped", text, NO_API_KEY_REASON);
 
     try {
       const model = options.model || FORMATTING_MODEL;
-      const formatted = await requestFormatting(options.apiKey, text, FORMATTING_PROMPT, model, options.signal);
-      if (!formatted) return text;
+      const formatted = await requestFormatting(options.apiKey, text, options.systemPrompt || FORMATTING_PROMPT, model, options.signal);
+      if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
 
-      if (hasSuspiciousContentChange(text, formatted)) {
+      if (contentRejection(text, formatted, options.fillerWords)) {
         const strictFormatted = await requestFormatting(options.apiKey, text, STRICT_FORMATTING_PROMPT, model, options.signal);
-        if (!strictFormatted || hasSuspiciousContentChange(text, strictFormatted)) return text;
-        return strictFormatted;
+        if (!strictFormatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
+        const strictRejection = contentRejection(text, strictFormatted, options.fillerWords);
+        if (strictRejection) return formatterResult("rejected", text, strictRejection);
+        return formatterResult("ran", strictFormatted, FORMATTED_REASON);
       }
 
-      return formatted;
+      return formatterResult("ran", formatted, FORMATTED_REASON);
     } catch (error) {
       if (options.signal?.aborted || isAbortError(error)) throw error;
-      return text;
+      return formatterResult("failed", text, formatterErrorReason(error));
     }
   },
 

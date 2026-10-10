@@ -29,6 +29,7 @@ import type {
   TranscriptionResult
 } from "@shared/types";
 import { ERROR_RESET_MS, SUCCESS_RESET_MS } from "@shared/defaults";
+import { resolveSessionModels } from "@shared/modelList";
 import { IpcChannel } from "@shared/ipc";
 import { trimSilence, isValidClip } from "./audio/vad";
 import { evaluateSpeechGate } from "./audio/speechGate";
@@ -42,12 +43,13 @@ import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
-import { applyDictionary, cleanupText } from "./text/cleanup";
+import { applyDictionary, cleanupText, hasSpokenContent } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
+import { NO_API_KEY_REASON, NO_PROVIDER_REASON } from "./providers/formatting-constants";
 import { formatBuildIdentifier } from "@shared/buildIdentifier";
 import { evaluateInsertionAcceptance } from "@shared/insertionAcceptance";
 import { resolveProfileLanguage } from "@main/providers/language";
@@ -248,8 +250,7 @@ export class DictationService {
     const profile = resolveAppProfile(settings.appProfiles ?? [], this.activeTarget?.appBundleId);
     this.activeSessionSettings = captureSessionSettings({
       ...settings,
-      transcriptionProvider: profile?.transcriptionProvider ?? settings.transcriptionProvider,
-      formattingProvider: profile?.formattingProvider ?? settings.formattingProvider,
+      ...resolveSessionModels(settings, profile),
       language: resolveProfileLanguage(profile?.language, settings.language),
       customPrompt: profile?.customPrompt ?? settings.customPrompt,
     });
@@ -544,8 +545,8 @@ export class DictationService {
         if (operationSignal?.aborted) return;
         if (error instanceof TranscriptionDeadlineExceededError) {
           formattedText = correctedText;
-          formatTrace = { text: correctedText, formatterUsed: "none" };
-          void this.patchTrace(payload.sessionId, { stages: { formatterReason: "timeout" } });
+          formatTrace = { text: correctedText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: "Formatting timed out." };
+          void this.patchTrace(payload.sessionId, { stages: { formatterStatus: "failed", formatterStatusReason: "Formatting timed out.", formatterReason: "timeout" } });
         } else {
           if (error instanceof TranscriptionCancelledError) return;
           formattedText = correctedText;
@@ -554,18 +555,25 @@ export class DictationService {
       }
 
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
+      const formatNotice = formatNoticeFor(formatTrace);
       const cleanedText = cleanupText({ rawText: formattedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
       void this.patchTrace(payload.sessionId, {
         formatDoneAt: new Date().toISOString(),
         stages: {
           cleanedText,
           formatterUsed: formatTrace.formatterUsed,
+          formatterStatus: formatTrace.formatterStatus,
+          formatterStatusReason: formatTrace.formatterStatusReason,
           contentGuardVerdict: formatTrace.contentGuardVerdict,
           correctionsApplied: cleanupTrace.correctionsApplied,
         },
       });
       if (!this.isCurrentSession(payload.sessionId)) return;
       if (operationSignal?.aborted) return;
+      if (!hasSpokenContent(cleanedText)) {
+        this.failSession(payload.sessionId, NOTHING_TO_INSERT_MESSAGE, "fragment");
+        return;
+      }
       const initialTarget = this.activeTarget;
       const initialSelection = this.activeSelection;
       const initialTargetValue = this.activeTargetValue;
@@ -596,7 +604,7 @@ export class DictationService {
         const copied = await this.copyText(cleanedText).catch(() => false);
         await this.finishActiveInsertion(payload.sessionId, copied ? "copy-only" : "failed", {
           ...entryBase, injectionStatus: "saved", injectionMethod: null,
-        }, { injectionMethod: null, stages: { injectionStrategy: "none" } }, copied ? undefined : "insertion_failed", transcription.detectedLanguage || transcription.language, undefined, "Clipboard");
+        }, { injectionMethod: null, stages: { injectionStrategy: "none" } }, copied ? undefined : "insertion_failed", transcription.detectedLanguage || transcription.language, undefined, "Clipboard", false, formatNotice);
         return;
       }
 
@@ -677,7 +685,7 @@ export class DictationService {
           await this.finishActiveInsertion(payload.sessionId, "verified", { ...entryBase, injectionStatus: "injected", injectionMethod: injection.method }, {
             injectionMethod: injection.method,
             stages: { injectedText: cleanedText, injectionStrategy: injection.method, insertionVerification: verification },
-          }, undefined, transcription.detectedLanguage || transcription.language, "delivered");
+          }, undefined, transcription.detectedLanguage || transcription.language, "delivered", "Insertion", false, formatNotice);
           debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         } else {
@@ -685,7 +693,7 @@ export class DictationService {
           await this.finishActiveInsertion(payload.sessionId, "unconfirmed", { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
             injectionMethod: null,
             stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: verification },
-          }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome);
+          }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome, "Insertion", false, formatNotice);
           debug("editwatch", "arming-unverified-injection", { reason: verification.reason, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         }
@@ -697,7 +705,7 @@ export class DictationService {
         await this.finishActiveInsertion(payload.sessionId, outcome, { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
           injectionMethod: null,
           stages: { injectedText: cleanedText, injectionStrategy: "none" },
-        }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome, "Insertion", failure.copied);
+        }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome, "Insertion", failure.copied, formatNotice);
       }
     } catch (error) {
       if (!this.isCurrentSession(payload.sessionId)) return;
@@ -753,8 +761,9 @@ export class DictationService {
 
   async reinjectEntry(id: string): Promise<void> {
     if (this.rejectManualInsertionWhileActive()) return;
+    const generation = this.sessionGeneration;
     const entry = await this.history.getById(id);
-    if (!entry) return;
+    if (!entry || generation !== this.sessionGeneration) return;
     const result = await this.performManualInsertion(entry.cleanedText, this.currentInjectionTarget(entry));
     if (!result) return;
     const sessionId = this.createSessionId();
@@ -766,8 +775,9 @@ export class DictationService {
     if (this.rejectManualInsertionWhileActive() || this.manualRetriesInProgress.has(id)) return;
     this.manualRetriesInProgress.add(id);
     try {
+    const generation = this.sessionGeneration;
     const entry = await this.history.getById(id);
-    if (!entry) return;
+    if (!entry || generation !== this.sessionGeneration) return;
     const result = await this.performManualInsertion(entry.cleanedText, this.currentInjectionTarget(entry));
     if (!result) return;
     await this.history.updateById(id, (current) => ({
@@ -800,13 +810,27 @@ export class DictationService {
     return this.traces?.getById(traceId);
   }
 
+  // Shows the empty-text error and returns true when text has nothing to insert or copy.
+  private refuseEmptyManualText(text: string): boolean {
+    if (hasSpokenContent(text)) return false;
+    this.setState({ status: "error", sessionId: null, message: NOTHING_TO_INSERT_MESSAGE });
+    this.scheduleReset(ERROR_RESET_MS);
+    return true;
+  }
+
   async copyRecoveryEntry(id: string): Promise<boolean> {
     if (!this.recovery || !this.recoveryReady()) return false;
+    const generation = this.sessionGeneration;
     const entry = await this.recovery.getById(id);
-    if (!entry || entry.terminal) return false;
+    if (!entry || entry.terminal || generation !== this.sessionGeneration) return false;
     if (entry.state !== "transcript_ready" && entry.state !== "text_ready" && entry.state !== "recoverable") return false;
     const text = selectRecoveryText(entry.text);
     if (!text) return false;
+    if (!hasSpokenContent(text)) {
+      // A live dictation keeps its state; an idle copy still shows why nothing was copied.
+      if (!this.isLiveSession()) this.refuseEmptyManualText(text);
+      return false;
+    }
     const copied = await this.copyText(text);
     if (!copied) return false;
     await this.recordRecoveryInsertionOutcome(entry.sessionId, "copied", entry.insertion?.method ?? null, undefined, "Explicit recovery copy.", entry.id);
@@ -930,6 +954,7 @@ export class DictationService {
     try {
       if (!this.recovery) return false;
       const entry = await this.recovery.getById(id);
+      if (action.signal.aborted || actionGeneration !== this.sessionGeneration) return false;
       if (!entry || entry.terminal) return false;
       recoverySessionId = entry.sessionId;
       if (entry.state !== "text_ready" && entry.state !== "recoverable") return false;
@@ -937,7 +962,7 @@ export class DictationService {
       if (isUnresolvedInsertion(entry.insertion)) return false;
       const text = selectRecoveryText(entry.text);
       const target = this.currentInjectionTarget({ appBundleId: entry.target.appBundleId, appName: entry.target.appName });
-      if (!text || !target) return false;
+      if (!text || !target || this.refuseEmptyManualText(text)) return false;
       const baseline = sameTarget(target, this.appDetector.getContext()) ? safeFocusedValue() : null;
       const identity = safeFocusedElementIdentity();
       if (identity === null) {
@@ -1004,7 +1029,9 @@ export class DictationService {
 
     this.pasteLatestInProgress = true;
     try {
+      const generation = this.sessionGeneration;
       const latest = await this.history.getLatest();
+      if (generation !== this.sessionGeneration) return;
       if (!latest) {
         this.setState({ status: "error", sessionId: null, message: "No previous dictation is available yet." });
         this.scheduleReset(ERROR_RESET_MS);
@@ -1177,8 +1204,13 @@ export class DictationService {
     return undefined;
   }
 
+  // True while a dictation is starting, recording, finalizing, or transcribing.
+  private isLiveSession(): boolean {
+    return this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing" || this.state.status === "transcribing";
+  }
+
   private rejectManualInsertionWhileActive(): boolean {
-    if (this.state.status !== "starting" && this.state.status !== "recording" && this.state.status !== "finalizing" && this.state.status !== "transcribing") return false;
+    if (!this.isLiveSession()) return false;
     this.overlay.setError();
     return true;
   }
@@ -1193,6 +1225,7 @@ export class DictationService {
     expectedIdentity?: string | null,
   ): Promise<{ method: "ax" | "clipboard" } | null> {
     if (signal?.aborted || expectedGeneration !== this.sessionGeneration) return null;
+    if (this.refuseEmptyManualText(text)) return null;
     if (!target || !isExternalTarget(target)) {
       this.setState({ status: "error", sessionId: null, message: "Focus an external text field before retrying insertion." });
       this.scheduleReset(ERROR_RESET_MS);
@@ -1395,10 +1428,12 @@ export class DictationService {
     recoveryOutcome?: RecoveryInsertionTerminalOutcome,
     failedStage = "Insertion",
     copied = false,
+    formatNotice: string | null = null,
   ): Promise<void> {
     const historySaved = await this.persistHistoryOnce(sessionId, entry);
     if (!this.isCurrentSession(sessionId)) return;
-    const message = insertionStatusText(outcome, historySaved, historySaved ? failedStage : "History", copied);
+    const statusText = insertionStatusText(outcome, historySaved, historySaved ? failedStage : "History", copied);
+    const message = formatNotice ? `${statusText} ${formatNotice}` : statusText;
     void this.finishTrace(sessionId, outcome, reason, message, tracePatch);
     this.completeSession(sessionId, outcome === "verified" ? "injected" : historySaved ? "saved" : "failed", entry.cleanedText, message, detectedLanguage, recoveryOutcome, outcome);
     if (outcome === "unconfirmed") {
@@ -1889,10 +1924,7 @@ export class DictationService {
       return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt, sessionSettings });
     }
     const text = await this.transcription.formatTranscript(rawText, { signal, deadlineAt, sessionSettings });
-    return {
-      text,
-      formatterUsed: text === rawText ? "none" : "llm",
-    };
+    return { text, formatterUsed: "none" };
   }
 
   private async verifyInsertion(
@@ -2028,6 +2060,17 @@ function sameTarget(left: Pick<AppContextResult, "appBundleId" | "appName" | "pi
 }
 
 const OUTCOME_UNCERTAIN_DETAIL = "outcome_uncertain";
+const NOTHING_TO_INSERT_MESSAGE = "Nothing to insert. The transcript was empty after cleanup.";
+const FORMAT_NOTICE = "Formatting did not apply. Inserted the unformatted text.";
+const FORMAT_PARTIAL_NOTICE = "Formatting applied only in part. Some text was inserted unformatted.";
+
+// Short warning added to the insert message when formatting did not apply. Offline and too-short skips get no warning.
+function formatNoticeFor(trace: FormatTranscriptTraceResult): string | null {
+  if (trace.partiallyFormatted) return FORMAT_PARTIAL_NOTICE;
+  if (trace.formatterStatus === "failed" || trace.formatterStatus === "rejected") return FORMAT_NOTICE;
+  const formatterUnavailable = trace.formatterStatusReason === NO_API_KEY_REASON || trace.formatterStatusReason === NO_PROVIDER_REASON;
+  return trace.formatterStatus === "skipped" && formatterUnavailable ? FORMAT_NOTICE : null;
+}
 
 function insertionStatusText(outcome: DictationInsertionOutcome, historySaved: boolean, stage: string, copied = false): string {
   switch (outcome) {

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { autoUpdater } from "electron-updater";
 import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
-import { KNOWN_PROVIDERS } from "@shared/defaults";
+import { defaultModelFor } from "@shared/modelList";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioVisualFrame,
@@ -21,6 +21,7 @@ import type {
 } from "@shared/types";
 import { toRecoveryEntryView, type RecoveryEntryView, type RecoveryRestoredNotice, type RecoveryStorageUsage } from "@shared/recovery";
 import { DictationService } from "./dictation";
+import { hasSpokenContent } from "./text/cleanup";
 import { HistoryStore } from "./store/history";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore, sanitizeSettingsForRenderer } from "./store/credentials";
@@ -251,6 +252,7 @@ const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) =
   dictionaryOnboarded: (value) => typeof value === "boolean",
   snippetsOnboarded: (value) => typeof value === "boolean",
   setupChecklistDismissed: (value) => typeof value === "boolean",
+  openRouterKeyPromptShown: (value) => typeof value === "boolean",
   appProfiles: (value) => value === undefined || (Array.isArray(value) && value.length <= 100 && value.every(isAppProfile)),
 };
 
@@ -596,7 +598,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   });
   ipcMain.handle(IpcChannel.CopyText, (event, text: unknown) => {
     requireAllowedSender(event, [mainWindow]);
-    if (!isBoundedString(text, MAX_TEXT_LENGTH)) return false;
+    if (!isBoundedString(text, MAX_TEXT_LENGTH) || !hasSpokenContent(text)) return false;
     clipboard.writeText(text);
     return true;
   });
@@ -626,11 +628,12 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
       });
     }
 
+    // A provider change without a model gets that provider's default, so provider and model always match.
+    if ("transcriptionProvider" in settingsPatch && typeof settingsPatch.transcriptionProvider === "string" && !("transcriptionModel" in settingsPatch)) {
+      settingsPatch = { ...settingsPatch, transcriptionModel: defaultModelFor("transcription", settingsPatch.transcriptionProvider) };
+    }
     if ("formattingProvider" in settingsPatch && typeof settingsPatch.formattingProvider === "string" && !("formattingModel" in settingsPatch)) {
-      const provider = KNOWN_PROVIDERS.find((candidate) => candidate.id === settingsPatch.formattingProvider);
-      if (provider?.type === "llm") {
-        settingsPatch = { ...settingsPatch, formattingModel: provider.defaultModel };
-      }
+      settingsPatch = { ...settingsPatch, formattingModel: defaultModelFor("cleanup", settingsPatch.formattingProvider) };
     }
 
     if (Array.isArray(settingsPatch.customCorrections)) {

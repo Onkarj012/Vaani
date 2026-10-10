@@ -225,6 +225,10 @@ function normalizeStages(value: unknown): DictationTrace["stages"] {
     stages.formatterUsed = value.formatterUsed;
   }
   if (value.formatterReason === "timeout") stages.formatterReason = value.formatterReason;
+  if (value.formatterStatus === "ran" || value.formatterStatus === "skipped" || value.formatterStatus === "failed" || value.formatterStatus === "rejected") {
+    stages.formatterStatus = value.formatterStatus;
+  }
+  if (typeof value.formatterStatusReason === "string") stages.formatterStatusReason = truncateTraceText(value.formatterStatusReason);
   if (value.staleStage === "starting" || value.staleStage === "recording" || value.staleStage === "finalizing" || value.staleStage === "transcribing") {
     stages.staleStage = value.staleStage;
   }

@@ -1,6 +1,7 @@
 import { app } from "electron";
 import { join } from "node:path";
-import { APP_DATA_DIR, DEFAULT_SETTINGS } from "@shared/defaults";
+import { APP_DATA_DIR, DEFAULT_SETTINGS, isHiddenProvider } from "@shared/defaults";
+import { modelEntries, modelForProvider } from "@shared/modelList";
 import type { Settings } from "@shared/types";
 import { error } from "@main/log";
 import { readJsonFile, writeJsonFile } from "./base";
@@ -100,6 +101,42 @@ export class SettingsStore {
       changed = true;
     }
 
+    // Transcription moves to OpenRouter. Any other saved provider gets OpenRouter's default model. Repeat loads change nothing.
+    if (next.transcriptionProvider !== undefined && next.transcriptionProvider !== DEFAULT_SETTINGS.transcriptionProvider) {
+      next.transcriptionProvider = DEFAULT_SETTINGS.transcriptionProvider;
+      next.transcriptionModel = DEFAULT_SETTINGS.transcriptionModel;
+      changed = true;
+    }
+
+    // Always Offline only ever routed to the hidden local provider, so it moves to Auto.
+    if (next.offlineMode === "always-offline") {
+      next.offlineMode = DEFAULT_SETTINGS.offlineMode;
+      changed = true;
+    }
+
+    if (Array.isArray(next.appProfiles) && next.appProfiles.some((profile) => isHiddenProvider(profile.transcriptionProvider))) {
+      next.appProfiles = next.appProfiles.map((profile) => isHiddenProvider(profile.transcriptionProvider)
+        ? { ...profile, transcriptionProvider: DEFAULT_SETTINGS.transcriptionProvider }
+        : profile);
+      changed = true;
+    }
+
+    // Retired or unlisted models move to the provider's default. Files with no model settings are left alone.
+    if (next.transcriptionProvider !== undefined || next.transcriptionModel !== undefined) {
+      const transcriptionModel = modelForProvider("transcription", next.transcriptionProvider ?? DEFAULT_SETTINGS.transcriptionProvider, next.transcriptionModel ?? "");
+      if (transcriptionModel !== next.transcriptionModel) {
+        next.transcriptionModel = transcriptionModel;
+        changed = true;
+      }
+    }
+
+    // Cleanup moves to the default provider only when its saved provider or model is retired or missing.
+    if ((next.formattingProvider !== undefined || next.formattingModel !== undefined) && !isListedCleanupChoice(next.formattingProvider, next.formattingModel)) {
+      next.formattingProvider = DEFAULT_SETTINGS.formattingProvider;
+      next.formattingModel = DEFAULT_SETTINGS.formattingModel;
+      changed = true;
+    }
+
     if (changed) {
       await writeJsonFile(this.filePath, next);
     }
@@ -151,6 +188,11 @@ export class SettingsStore {
   async init(): Promise<void> {
     await this.load();
   }
+}
+
+// True when the provider lists this cleanup model. A missing provider never matches.
+function isListedCleanupChoice(provider: string | undefined, model: string | undefined): boolean {
+  return provider !== undefined && modelEntries("cleanup", provider).some((entry) => entry.modelId === model);
 }
 
 function arraysEqual(left: unknown, right: string[]): left is string[] {

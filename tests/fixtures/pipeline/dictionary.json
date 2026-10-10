@@ -6,5 +6,9 @@
   { "name": "correction with cleanup disabled", "rawText": "my name is Om Kar", "settingsOverrides": { "cleanupEnabled": false, "customCorrections": [{ "spoken": "Om Kar", "written": "Onkar" }] }, "expected": "my name is Onkar" },
   { "name": "unknown word unchanged", "rawText": "send this to llmn", "settingsOverrides": {}, "expected": "Send this to llmn." },
   { "name": "correction at sentence start", "rawText": "bani is ready", "settingsOverrides": { "customCorrections": [{ "spoken": "bani", "written": "Vaani" }] }, "expected": "Vaani is ready." },
-  { "name": "correction boundary misses closing quote", "rawText": "say bani\" now", "settingsOverrides": { "customCorrections": [{ "spoken": "bani", "written": "Vaani" }] }, "expected": "Say Vaani\" now." }
+  { "name": "correction boundary misses closing quote", "rawText": "say bani\" now", "settingsOverrides": { "customCorrections": [{ "spoken": "bani", "written": "Vaani" }] }, "expected": "Say Vaani\" now." },
+  { "name": "fuzzy rule is off by default", "rawText": "call the fone shop", "settingsOverrides": { "customCorrections": [{ "spoken": "phone", "written": "Phone" }] }, "expected": "Call the fone shop." },
+  { "name": "fuzzy rule matches when opted in", "rawText": "call the fone shop", "settingsOverrides": { "customCorrections": [{ "spoken": "phone", "written": "Phone", "fuzzy": true }] }, "expected": "Call the Phone shop." },
+  { "name": "exact match wins over an overlapping fuzzy rule", "rawText": "call the fone shop", "settingsOverrides": { "customCorrections": [{ "spoken": "phone", "written": "Phone", "fuzzy": true }, { "spoken": "fone", "written": "Fax" }] }, "expected": "Call the Fax shop." },
+  { "name": "case-sensitive fuzzy rule ignores a case-only difference", "rawText": "the app is bani", "settingsOverrides": { "customCorrections": [{ "spoken": "BANI", "written": "Vaani", "caseSensitive": true, "fuzzy": true }] }, "expected": "The app is bani." }
 ]

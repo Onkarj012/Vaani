@@ -14,6 +14,7 @@ export function buildTraceStageSnapshot(snapshot: DictationStageSnapshot): Dicta
   if (next.rawTranscript !== undefined) next.rawTranscript = truncateTraceText(next.rawTranscript);
   if (next.cleanedText !== undefined) next.cleanedText = truncateTraceText(next.cleanedText);
   if (next.injectedText !== undefined) next.injectedText = truncateTraceText(next.injectedText);
+  if (next.formatterStatusReason !== undefined) next.formatterStatusReason = truncateTraceText(next.formatterStatusReason);
   if (next.qualityDecision) next.qualityDecision = { ...next.qualityDecision, reason: truncateTraceText(next.qualityDecision.reason) };
   if (next.correctionsApplied) {
     next.correctionsApplied = next.correctionsApplied

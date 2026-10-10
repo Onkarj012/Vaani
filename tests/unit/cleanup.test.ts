@@ -84,13 +84,13 @@ describe("cleanupText", () => {
     expect(result).toBe("I like this.");
   });
 
-  it("collapses accidental adjacent duplicate words", () => {
+  it("keeps adjacent repeated words", () => {
     const result = cleanupText({
       rawText: "github github should only appear once",
       settings: createSettings()
     });
 
-    expect(result).toBe("Github should only appear once.");
+    expect(result).toBe("Github github should only appear once.");
   });
 
   it("does not normalize product names without dictionary rules", () => {
@@ -196,6 +196,12 @@ describe("cleanupText", () => {
       rawText: "The budget is ten dollars",
       settings: createSettings()
     })).toBe("The budget is $10.");
+  });
+
+  it("keeps the whole amount when converting a dollar phrase with a decimal or grouping", () => {
+    expect(cleanupText({ rawText: "The price is 1.5 dollars", settings: createSettings() })).toBe("The price is $1.5.");
+    expect(cleanupText({ rawText: "The total is 1,000 dollars", settings: createSettings() })).toBe("The total is $1,000.");
+    expect(cleanupText({ rawText: "The tip is .5 dollars", settings: createSettings() })).toBe("The tip is $.5.");
   });
 
   it("leaves the idiomatic standalone 'one' as a word", () => {

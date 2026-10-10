@@ -349,7 +349,8 @@ function ProviderApiSlide({
   onLanguageChange: (v: string) => void;
 }) {
   const isValid = apiKey.trim().length > 0 || hasConfiguredApiKey;
-  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === "stt" || p.type === "local-stt");
+  // Transcription runs only through OpenRouter. Its type is llm, so it is picked here by id.
+  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.id === "openrouter");
   const activeProvider = sttProviders.find((p) => p.id === settings.transcriptionProvider);
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === "llm");
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider);
@@ -359,7 +360,7 @@ function ProviderApiSlide({
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Plug size={24} /></SlideIcon>
       <h2 className="text-display mb-1 text-3xl text-ink">Choose Providers &amp; Add Keys</h2>
-      <p className="mb-5 text-sm text-muted">Your keys stay on your device. Start with Groq — it&apos;s fast and free.</p>
+      <p className="mb-5 text-sm text-muted">Your keys stay on your device. One OpenRouter key covers transcription and cleanup.</p>
 
       <div className="w-full space-y-3 text-left">
         <div>
@@ -378,7 +379,7 @@ function ProviderApiSlide({
             <label className="mb-1 block text-xs font-medium text-muted">{activeProvider?.name ?? "Provider"} API Key</label>
             <div className="relative">
               <Input type={showApiKey ? "text" : "password"} value={apiKey} onChange={(e) => onKeyChange(e.target.value)} onBlur={onKeyBlur} autoComplete="off" spellCheck={false}
-                placeholder={activeProvider?.id === "openai" ? "sk-..." : activeProvider?.id === "deepgram" ? "Token..." : "gsk_..."} className="pr-11 font-mono" />
+                placeholder="sk-or-..." className="pr-11 font-mono" />
               <button type="button" onClick={onToggleShow} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
                 {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
@@ -413,11 +414,11 @@ function ProviderApiSlide({
         )}
 
         <div className="rounded-xl border border-line bg-surface p-4">
-          <p className="mb-2 text-xs font-semibold text-ink">How to get a Groq key (free)</p>
+          <p className="mb-2 text-xs font-semibold text-ink">How to get an OpenRouter key</p>
           <ol className="list-inside list-decimal space-y-1 text-xs text-muted">
-            <li>Go to <span className="font-medium text-ink">console.groq.com</span></li>
+            <li>Go to <span className="font-medium text-ink">openrouter.ai/keys</span></li>
             <li>Sign up or log in</li>
-            <li>Navigate to <span className="font-medium text-ink">API Keys</span> and create one</li>
+            <li>Create a key</li>
             <li>Paste it above</li>
           </ol>
         </div>

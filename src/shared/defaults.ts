@@ -1,4 +1,5 @@
 import type { Settings } from "./types";
+import { defaultModelFor } from "./modelList";
 
 export const DEFAULT_FILLER_WORDS = [
   "um", "uh"
@@ -37,12 +38,13 @@ export const DEFAULT_SETTINGS: Settings = {
   recoveryRetentionDays: 3,
   retainFailedAudio: false,
   // Phase 1
-  transcriptionProvider: "groq",
-  transcriptionModel: "",
-  formattingProvider: "groq-llm",
-  formattingModel: "llama-3.1-8b-instant",
+  transcriptionProvider: "openrouter",
+  transcriptionModel: defaultModelFor("transcription", "openrouter"),
+  formattingProvider: "openrouter",
+  formattingModel: defaultModelFor("cleanup", "openrouter"),
   providerApiKeys: [],
   failoverEnabled: true,
+  openRouterKeyPromptShown: false,
   // Phase 2
   localWhisperModel: "tiny.en",
   offlineMode: "auto",
@@ -134,94 +136,65 @@ export interface ProviderInfo {
   id: string;
   name: string;
   type: "stt" | "llm" | "local-stt";
-  models: { id: string; name: string }[];
   requiresApiKey: boolean;
-  defaultModel: string;
   locality?: "cloud" | "local";
   estimatedCost?: "free-local" | "low" | "medium" | "varies";
   privacyLevel?: "local-only" | "cloud-audio" | "cloud-text";
   supportsConfidence?: boolean;
   latencyClass?: "fast" | "medium" | "slow";
+  /** Code stays in the repo, but the option is not offered and saved settings move off it. */
+  hidden?: boolean;
 }
 
 export const KNOWN_PROVIDERS: ProviderInfo[] = [
   {
     id: "groq", name: "Groq Whisper", type: "stt",
-    models: [
-      { id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" },
-      { id: "whisper-large-v3", name: "Whisper Large v3" },
-    ],
-    requiresApiKey: true, defaultModel: "whisper-large-v3-turbo",
+    requiresApiKey: true,
     locality: "cloud", estimatedCost: "low", privacyLevel: "cloud-audio", supportsConfidence: true, latencyClass: "fast",
   },
   {
     id: "openai", name: "OpenAI Whisper", type: "stt",
-    models: [{ id: "whisper-1", name: "Whisper v1" }],
-    requiresApiKey: true, defaultModel: "whisper-1",
+    requiresApiKey: true,
     locality: "cloud", estimatedCost: "medium", privacyLevel: "cloud-audio", supportsConfidence: true, latencyClass: "medium",
   },
   {
     id: "deepgram", name: "Deepgram", type: "stt",
-    models: [
-      { id: "nova-2", name: "Nova 2" },
-      { id: "nova-3", name: "Nova 3" },
-    ],
-    requiresApiKey: true, defaultModel: "nova-3",
+    requiresApiKey: true,
     locality: "cloud", estimatedCost: "medium", privacyLevel: "cloud-audio", supportsConfidence: true, latencyClass: "fast",
   },
   {
     id: "openai-compatible", name: "OpenAI Compatible", type: "stt",
-    models: [{ id: "whisper-1", name: "Whisper v1 (compatible)" }],
-    requiresApiKey: true, defaultModel: "whisper-1",
+    requiresApiKey: true, hidden: true,
     locality: "cloud", estimatedCost: "varies", privacyLevel: "cloud-audio", supportsConfidence: false, latencyClass: "medium",
   },
   {
     id: "local-whisper", name: "Local Whisper (Offline)", type: "local-stt",
-    models: [
-      { id: "tiny.en", name: "Tiny English (78 MB)" },
-      { id: "base.en", name: "Base English (147 MB)" },
-      { id: "small.en", name: "Small English (488 MB)" },
-      { id: "medium.en", name: "Medium English (1.5 GB)" },
-    ],
-    requiresApiKey: false, defaultModel: "tiny.en",
+    requiresApiKey: false, hidden: true,
     locality: "local", estimatedCost: "free-local", privacyLevel: "local-only", supportsConfidence: false, latencyClass: "slow",
   },
   {
     id: "groq-llm", name: "Groq Llama", type: "llm",
-    models: [
-      { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant" },
-      { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
-    ],
-    requiresApiKey: true, defaultModel: "llama-3.1-8b-instant",
+    requiresApiKey: true,
     locality: "cloud", estimatedCost: "low", privacyLevel: "cloud-text", latencyClass: "fast",
   },
   {
     id: "openai-llm", name: "OpenAI GPT", type: "llm",
-    models: [
-      { id: "gpt-4o-mini", name: "GPT-4o Mini" },
-      { id: "gpt-4o", name: "GPT-4o" },
-    ],
-    requiresApiKey: true, defaultModel: "gpt-4o-mini",
+    requiresApiKey: true,
     locality: "cloud", estimatedCost: "medium", privacyLevel: "cloud-text", latencyClass: "medium",
   },
   {
     id: "anthropic", name: "Anthropic Claude", type: "llm",
-    models: [
-      { id: "claude-3-5-haiku-latest", name: "Claude 3.5 Haiku" },
-      { id: "claude-3-5-sonnet-latest", name: "Claude 3.5 Sonnet" },
-    ],
-    requiresApiKey: true, defaultModel: "claude-3-5-haiku-latest",
+    requiresApiKey: true,
     locality: "cloud", estimatedCost: "medium", privacyLevel: "cloud-text", latencyClass: "medium",
   },
   {
     id: "openrouter", name: "OpenRouter", type: "llm",
-    models: [
-      { id: "openai/gpt-4o-mini", name: "GPT-4o Mini" },
-      { id: "anthropic/claude-3.5-haiku", name: "Claude 3.5 Haiku" },
-      { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B" },
-      { id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash" },
-    ],
-    requiresApiKey: true, defaultModel: "openai/gpt-4o-mini",
+    requiresApiKey: true,
     locality: "cloud", estimatedCost: "varies", privacyLevel: "cloud-text", latencyClass: "medium",
   },
 ];
+
+/** True for a provider flagged hidden. Hidden providers are never offered or used automatically. */
+export function isHiddenProvider(providerId: string | undefined): boolean {
+  return KNOWN_PROVIDERS.some((provider) => provider.id === providerId && provider.hidden === true);
+}

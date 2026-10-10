@@ -10,6 +10,7 @@ import { useColorMode } from '../context/color-mode'
 import { HotkeyCapture } from './HotkeyCapture'
 import { KNOWN_PROVIDERS, SUPPORTED_LANGUAGES, getLanguageLabel, isLanguageSupportedByProvider, resolveProfileLanguage } from '@shared/defaults'
 import { Select } from '@renderer/components/ui/Select'
+import { ModelPicker } from './ModelPicker'
 import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
@@ -112,10 +113,12 @@ function OptionButton({ active, onClick, label, description }: { active: boolean
   )
 }
 
-function providerSummary(provider: typeof KNOWN_PROVIDERS[number] | undefined): string {
+function providerSummary(provider: typeof KNOWN_PROVIDERS[number] | undefined, role: 'transcription' | 'cleanup'): string {
   if (!provider) return ''
   const locality = provider.locality === 'local' ? 'Local' : 'Cloud'
-  const privacy = provider.privacyLevel === 'local-only' ? 'audio stays on device' : provider.privacyLevel === 'cloud-text' ? 'sends text to provider' : 'sends audio to provider'
+  // Transcription always uploads audio, so only a cleanup provider's text-only metadata changes the wording.
+  const sendsText = role === 'cleanup' && provider.privacyLevel === 'cloud-text'
+  const privacy = provider.privacyLevel === 'local-only' ? 'audio stays on device' : sendsText ? 'sends text to provider' : 'sends audio to provider'
   const cost = provider.estimatedCost === 'free-local' ? 'free after model download' : `${provider.estimatedCost ?? 'varies'} cost`
   const confidence = provider.supportsConfidence ? 'confidence signals' : 'no confidence signals'
   return `${locality} · ${privacy} · ${cost} · ${confidence}`
@@ -342,15 +345,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     URL.revokeObjectURL(url)
   }
 
-  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'stt' || p.type === 'local-stt')
+  const sttProviders = KNOWN_PROVIDERS.filter((p) => !p.hidden && (p.type === 'stt' || p.type === 'local-stt'))
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === 'llm')
   const appLanguageOptions = [
     { value: '', label: `Use global (${getLanguageLabel(settings.language) ?? settings.language})` },
     ...languages.filter((language) => language.value !== 'auto'),
   ]
-  const activeStt = sttProviders.find((p) => p.id === settings.transcriptionProvider)
+  const activeStt = KNOWN_PROVIDERS.find((p) => p.id === settings.transcriptionProvider)
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider)
-  const activeLlmModels = activeLlm?.models ?? []
   const physicalAudioDevices = audioDevices.filter((device) => device.isPhysical)
   const microphoneOptions = [
     { value: '', label: 'Automatic built-in microphone' },
@@ -365,21 +367,15 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       {activeSection === 'api' && (
         <div className="space-y-5">
           <div>
-            <FieldLabel>Transcription Provider</FieldLabel>
-            <Select value={settings.transcriptionProvider} onChange={(v) => updateSettings({ transcriptionProvider: v })} options={sttProviders.map((p) => ({ value: p.id, label: p.name }))} />
-            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeStt)}</p>
+            <FieldLabel>Transcription Model</FieldLabel>
+            <ModelPicker
+              role="transcription"
+              provider={settings.transcriptionProvider}
+              modelId={settings.transcriptionModel}
+              onChange={(provider, modelId) => updateSettings({ transcriptionProvider: provider, transcriptionModel: modelId })}
+            />
+            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeStt, 'transcription')}</p>
           </div>
-
-          {activeStt && activeStt.models.length > 0 && (
-            <div>
-              <FieldLabel>Transcription Model</FieldLabel>
-              <Select
-                value={settings.transcriptionModel}
-                onChange={(v) => updateSettings({ transcriptionModel: v })}
-                options={[{ value: '', label: 'Provider default' }, ...activeStt.models.map((m) => ({ value: m.id, label: m.name }))]}
-              />
-            </div>
-          )}
 
           {activeStt?.requiresApiKey && (
             <div>
@@ -389,7 +385,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 onChange={setSttKey}
                 onBlur={() => { if (decideProviderKeyDraft(sttKey, "blur") === "save") void saveProviderKey(settings.transcriptionProvider, sttKey) }}
                 onCancel={() => setSttKey('')}
-                placeholder={activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
+                placeholder={activeStt.id === 'openrouter' ? 'sk-or-...' : activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
                 hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.hasKey}
                 lastValidation={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.lastValidation}
                 onClear={() => { void clearProviderKey(settings.transcriptionProvider) }}
@@ -402,9 +398,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="h-px bg-line" />
 
           <div>
-            <FieldLabel>Formatting Provider</FieldLabel>
-            <Select value={settings.formattingProvider} onChange={(v) => updateSettings({ formattingProvider: v })} options={llmProviders.map((p) => ({ value: p.id, label: p.name }))} />
-            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeLlm)}</p>
+            <FieldLabel>Formatting Model</FieldLabel>
+            <ModelPicker
+              role="cleanup"
+              provider={settings.formattingProvider}
+              modelId={settings.formattingModel}
+              onChange={(provider, modelId) => updateSettings({ formattingProvider: provider, formattingModel: modelId })}
+            />
+            <p className="mt-1.5 text-xs text-faint">{providerSummary(activeLlm, 'cleanup')}</p>
           </div>
 
           {activeLlm?.requiresApiKey && (
@@ -425,36 +426,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
           )}
 
-          {activeLlmModels.length > 0 && (
-            <div>
-              <FieldLabel>Formatting Model</FieldLabel>
-              <Select value={settings.formattingModel} onChange={(v) => updateSettings({ formattingModel: v })} options={activeLlmModels.map((m) => ({ value: m.id, label: m.name }))} />
-            </div>
-          )}
-
           <div className="h-px bg-line" />
           <Row title="Provider Failover" desc="Try next provider on failure">
             <Toggle checked={settings.failoverEnabled} onChange={(v) => updateSettings({ failoverEnabled: v })} />
           </Row>
-          <div>
-            <FieldLabel>Offline Mode</FieldLabel>
-            <Select value={settings.offlineMode} onChange={(v) => updateSettings({ offlineMode: v as 'auto' | 'always-offline' | 'always-online' })}
-              options={[{ value: 'auto', label: 'Auto' }, { value: 'always-offline', label: 'Always Offline' }, { value: 'always-online', label: 'Always Online' }]} dropUp />
-          </div>
-
-          {settings.transcriptionProvider === 'local-whisper' && (
-            <div>
-              <FieldLabel>Local Whisper Model</FieldLabel>
-              <Select value={settings.localWhisperModel} onChange={(v) => updateSettings({ localWhisperModel: v })}
-                options={[
-                  { value: 'tiny.en', label: 'Tiny English (78 MB, fastest)' },
-                  { value: 'base.en', label: 'Base English (147 MB)' },
-                  { value: 'small.en', label: 'Small English (488 MB)' },
-                  { value: 'medium.en', label: 'Medium English (1.5 GB, most accurate)' },
-                ]} dropUp />
-              <p className="mt-1.5 text-xs text-faint">Models download on first use. Larger models are more accurate but slower.</p>
-            </div>
-          )}
         </div>
       )}
 
@@ -464,9 +439,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           {!isLanguageSupportedByProvider(settings.language, settings.transcriptionProvider, settings.localWhisperModel) && (
             <p className="flex items-start gap-2 text-xs text-amber-500">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-              {settings.transcriptionProvider === 'local-whisper'
-                ? 'The selected local model is English-only. Choose a cloud transcription provider for this language.'
-                : 'The selected transcription provider does not support this language. Vaani will fall back to auto-detect.'}
+              The selected transcription provider does not support this language. Vaani will fall back to auto-detect.
             </p>
           )}
 

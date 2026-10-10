@@ -1,112 +1,200 @@
 import { describe, expect, it } from "vitest";
-import { addedContentWords, missingContentWords, preservesContentWords, preservesFinalWords } from "../../src/shared/contentGuard";
+import { addedContentWords, diffContentWords, missingContentWords, preservesContentWords, stripReasoningBlocks } from "../../src/shared/contentGuard";
 
 describe("preservesContentWords", () => {
-  it("accepts faithful punctuation/capitalization changes", () => {
-    expect(preservesContentWords("hello world", "Hello, world.")).toBe(true);
+  it("accepts punctuation and capitalization changes", () => {
+    expect(preservesContentWords("hello world", "Hello, world.", [])).toBe(true);
   });
 
-  it("rejects dropped sentence (condensed output)", () => {
-    expect(preservesContentWords(
-      "the quick brown fox jumped over the lazy dog",
-      "The quick brown fox."
-    )).toBe(false);
+  it("rejects an added negation that flips the meaning", () => {
+    expect(preservesContentWords("send the report today", "Do not send the report today.", [])).toBe(false);
+    expect(addedContentWords("send the report today", "Do not send the report today.", [])).toEqual(["do", "not"]);
   });
 
-  it("accepts list reorder with visible list markers", () => {
-    expect(preservesContentWords(
-      "first item do this second item do that",
-      "1. do that\n2. do this"
-    )).toBe(true);
+  it("rejects a dropped Devanagari word", () => {
+    expect(missingContentWords("मुझे कल ऑफिस जाना है", "मुझे ऑफिस जाना है।", [])).toEqual(["कल"]);
   });
 
-  it("preserves ordinals used as ordinary content words", () => {
-    expect(preservesContentWords(
-      "my first goal is X my second goal is Y",
-      "My goal is X. My goal is Y."
-    )).toBe(false);
+  it("accepts Devanagari punctuation and keeps combining marks with their letters", () => {
+    expect(preservesContentWords("मुझे कल ऑफिस जाना है", "मुझे, कल ऑफिस जाना है।", [])).toBe(true);
+  });
+
+  it("rejects words moved out of order", () => {
+    expect(preservesContentWords("we ship it Tuesday", "Tuesday, we ship it.", [])).toBe(false);
+    expect(preservesContentWords("we ship it Tuesday", "We ship it Tuesday.", [])).toBe(true);
+  });
+
+  it("rejects a dropped word", () => {
+    expect(preservesContentWords("contact Anthropic support", "contact support", [])).toBe(false);
+  });
+
+  it("detects a repeated word that was collapsed", () => {
+    expect(missingContentWords("this is very very good", "This is very good.", [])).toEqual(["very"]);
+  });
+
+  it("accepts dropping a listed filler", () => {
+    expect(preservesContentWords("um hello uh world", "Hello, world.", ["um", "uh"])).toBe(true);
+    expect(preservesContentWords("I have twenty um one item", "I have twenty one item.", ["um"])).toBe(true);
+    expect(preservesContentWords("you know hello world", "Hello world.", ["you know"])).toBe(true);
+  });
+
+  it("rejects dropping a filler that is not listed", () => {
+    expect(preservesContentWords("um hello uh world", "Hello, world.", [])).toBe(false);
+    expect(missingContentWords("um hello uh world", "Hello, world.", [])).toEqual(["um", "uh"]);
+  });
+
+  it("rejects a filler the output adds", () => {
+    expect(preservesContentWords("hello world", "Um, hello world.", ["um"])).toBe(false);
+    expect(addedContentWords("hello world", "Um, hello world.", ["um"])).toEqual(["um"]);
   });
 
   it("accepts number-word to digit conversion", () => {
-    expect(preservesContentWords("I have twenty items", "I have 20 items.")).toBe(true);
+    expect(preservesContentWords("I have twenty items", "I have 20 items.", [])).toBe(true);
   });
 
-  it("accepts minimal filler removal", () => {
-    expect(preservesContentWords("um hello uh world", "Hello, world.")).toBe(true);
+  it("rejects output words when the raw text is empty", () => {
+    expect(preservesContentWords("", "anything", [])).toBe(false);
+    expect(preservesContentWords("", "...", [])).toBe(true);
   });
 
-  it("protects conversational words as content", () => {
-    expect(preservesContentWords(
-      "you know so well right okay like",
-      "You know so well."
-    )).toBe(false);
+  it("accepts a dictated new paragraph turned into a line break", () => {
+    expect(preservesContentWords("hello there new paragraph how are you", "Hello there.\n\nHow are you?", [])).toBe(true);
   });
 
-  it("returns true for empty raw text", () => {
-    expect(preservesContentWords("", "anything")).toBe(true);
+  it("requires the cue words when there is no line break", () => {
+    expect(missingContentWords("hello there new paragraph how are you", "Hello there how are you", [])).toEqual(["new", "paragraph"]);
   });
 
-  it("rejects when a content word disappears", () => {
-    expect(preservesContentWords("contact Anthropic support", "contact support")).toBe(false);
-  });
-
-  it("detects a duplicate word drop", () => {
-    expect(missingContentWords("this is very very good", "This is very good.")).toEqual(["very"]);
-  });
-
-  it("rejects final words moved earlier even when word counts still match", () => {
-    expect(preservesFinalWords("we ship it Tuesday", "Tuesday, we ship it.")).toBe(false);
-    expect(preservesFinalWords("we ship it Tuesday", "We ship it Tuesday.")).toBe(true);
-  });
-
-  it("forgives enumeration cues only when output has list markers", () => {
+  it("accepts a dictated enumeration formatted as a list", () => {
     expect(preservesContentWords(
       "point one write the report point two send the update",
-      "Write the report. Send the update."
-    )).toBe(false);
-
-    expect(preservesContentWords(
-      "point one write the report point two send the update",
-      "1. Write the report.\n2. Send the update."
+      "1. Write the report.\n2. Send the update.",
+      [],
     )).toBe(true);
   });
 
-  it("requires spoken cue words when no list marker is present", () => {
-    expect(missingContentWords("bullet point write the report", "Write the report.")).toEqual(["bullet", "point"]);
+  it("requires enumeration cue words when the output has no list", () => {
+    expect(preservesContentWords(
+      "point one write the report point two send the update",
+      "Write the report. Send the update.",
+      [],
+    )).toBe(false);
   });
 
-  it("forgives line-break cues when output contains a newline", () => {
-    expect(missingContentWords(
-      "hello there new paragraph how are you",
-      "Hello there.\n\nHow are you?"
-    )).toEqual([]);
-  });
-
-  it("requires line-break cue words when output has no newline", () => {
-    expect(missingContentWords(
-      "hello there new paragraph how are you",
-      "Hello there how are you"
-    )).toEqual(["new", "paragraph"]);
-  });
-
-  it("detects added non-numeric answer content", () => {
+  it("reports added content words that are not in the raw text", () => {
     expect(addedContentWords(
       "what is the status",
-      "What is the status. The answer to your question is 42 because it is ready."
-    )).toEqual(["the", "answer", "to", "your", "question", "is", "42", "because", "it", "is", "ready"]);
+      "What is the status. The answer is 42.",
+      [],
+    )).toEqual(["the", "answer", "is", "42"]);
   });
 
-  it("forgives digits introduced by enumeration cue conversion", () => {
-    expect(addedContentWords(
-      "point one change provider point two restart",
-      "1. Change provider\n2. Restart"
-    )).toEqual([]);
+  it("rejects a decimal number split into two numbers", () => {
+    expect(preservesContentWords("set ratio to 1.5", "Set ratio to 1.5.", [])).toBe(true);
+    expect(preservesContentWords("set ratio to 1.5", "Set ratio to 1 5.", [])).toBe(false);
+    expect(missingContentWords("set ratio to 1.5", "Set ratio to 1 5.", [])).toEqual(["1.5"]);
   });
 
-  it("counts newly added standalone numbers outside enumeration conversion", () => {
-    expect(addedContentWords(
-      "change provider and restart",
-      "Change provider and restart. 2"
-    )).toEqual(["2"]);
+  it("keeps thousands separators and times whole", () => {
+    expect(preservesContentWords("pay 1,000 at 10:30", "Pay 1,000 at 10:30.", [])).toBe(true);
+    expect(preservesContentWords("pay 1,000 at 10:30", "Pay 1 000 at 10:30.", [])).toBe(false);
+  });
+
+  it("rejects a compound spelled number split into digits", () => {
+    expect(preservesContentWords("I have twenty one items", "I have twenty one items.", [])).toBe(true);
+    expect(preservesContentWords("I have twenty one items", "I have 20 1 items.", [])).toBe(false);
+  });
+
+  it("rejects a dictated number dropped from a list that the output numbers", () => {
+    const raw = "I bought a number two pencil point one write the report point two send it";
+    expect(preservesContentWords(raw, "I bought a pencil.\n1. Write the report.\n2. Send it.", [])).toBe(false);
+    expect(missingContentWords(raw, "I bought a pencil.\n1. Write the report.\n2. Send it.", [])).toEqual(["number", "two"]);
+  });
+
+  it("accepts dictated bullet points formatted as a bullet list", () => {
+    expect(preservesContentWords(
+      "bullet point milk bullet point eggs",
+      "- Milk\n- Eggs",
+      [],
+    )).toBe(true);
+  });
+
+  it("rejects a line break the output places away from the cue", () => {
+    expect(preservesContentWords("hello there new paragraph how are you", "Hello there how are you?\n\n", [])).toBe(false);
+  });
+
+  it("does not read a version number split by a list marker as a cue", () => {
+    expect(preservesContentWords("use version number 1.5", "Use version\n1. 5.", [])).toBe(false);
+    expect(preservesContentWords("use version number 1.5", "Use version number 1.5.", [])).toBe(true);
+  });
+
+  it("keeps a sign in a number", () => {
+    expect(preservesContentWords("temperature is -10", "Temperature is 10.", [])).toBe(false);
+    expect(preservesContentWords("temperature is -10", "Temperature is -10.", [])).toBe(true);
+  });
+
+  it("keeps a leading decimal point in a number", () => {
+    expect(preservesContentWords("dose is .5 mg", "Dose is 5 mg.", [])).toBe(false);
+    expect(preservesContentWords("dose is .5 mg", "Dose is .5 mg.", [])).toBe(true);
+  });
+
+  it("does not treat a word hyphen as a sign", () => {
+    expect(preservesContentWords("the COVID-19 rule", "The COVID -19 rule.", [])).toBe(false);
+    expect(preservesContentWords("the COVID-19 rule", "The COVID-19 rule.", [])).toBe(true);
+  });
+
+  it("accepts a spoken cue that the output keeps as words", () => {
+    expect(preservesContentWords("I bought a number two pencil", "I bought a number two pencil.", [])).toBe(true);
+    expect(preservesContentWords("hello there new paragraph how are you", "Hello there new paragraph how are you.", [])).toBe(true);
+  });
+
+  it("exempts a filler phrase only when the output drops all of it", () => {
+    expect(preservesContentWords("you know the answer", "You the answer.", ["you know"])).toBe(false);
+    expect(missingContentWords("you know the answer", "You the answer.", ["you know"])).toEqual(["know"]);
+    expect(preservesContentWords("you know the answer", "You know the answer.", ["you know"])).toBe(true);
+    expect(preservesContentWords("you know hello world", "Hello world.", ["you know"])).toBe(true);
+  });
+
+  it("accepts a dropped filler phrase that shares a word with the kept text", () => {
+    expect(preservesContentWords("you know you are right", "You are right.", ["you know"])).toBe(true);
+  });
+
+  it("keeps the fast path for a long transcript with fillers at both ends", () => {
+    const body = Array.from({ length: 1_100 }, (_, index) => `word${index}`).join(" ");
+    const raw = `um you know ${body} uh`;
+    const formatted = `Um you know ${body} uh.`.replace("word0", "Word0");
+    expect(diffContentWords(raw, formatted, ["um", "uh", "you know"])).toEqual({ missing: [], added: [] });
+    expect(preservesContentWords(`you know ${body} you know`, `${body}.`, ["you know"])).toBe(true);
+  });
+
+  it("keeps the minus sign on a currency amount", () => {
+    expect(preservesContentWords("the balance is -$10", "The balance is $10.", [])).toBe(false);
+    expect(preservesContentWords("the balance is $10", "The balance is $10.", [])).toBe(true);
+    expect(preservesContentWords("the balance is $-10", "The balance is -$10.", [])).toBe(true);
+  });
+
+  it("verifies a long unchanged transcript without a full alignment table", () => {
+    const words = Array.from({ length: 5_000 }, (_, index) => `word${index}`).join(" ");
+    expect(preservesContentWords(words, words, [])).toBe(true);
+    const changed = [...words.split(" ").slice(0, 2_500), "changed", ...words.split(" ").slice(2_501)].join(" ");
+    expect(missingContentWords(words, changed, [])).toEqual(["word2500"]);
+    expect(addedContentWords(words, changed, [])).toEqual(["changed"]);
+  });
+
+  it("rejects a diff too large to align", () => {
+    const raw = Array.from({ length: 1_001 }, (_, index) => `alpha${index}`).join(" ");
+    const candidate = Array.from({ length: 1_001 }, (_, index) => `beta${index}`).join(" ");
+    expect(diffContentWords(raw, candidate, []).rejection).toBe("Transcript too long to verify formatting.");
+    expect(preservesContentWords(raw, candidate, [])).toBe(false);
+  });
+});
+
+describe("stripReasoningBlocks", () => {
+  it("removes closed reasoning blocks", () => {
+    expect(stripReasoningBlocks("<think>I will drop words</think>Send the report today.")).toBe("Send the report today.");
+  });
+
+  it("removes an unclosed reasoning block to the end", () => {
+    expect(stripReasoningBlocks("Send the report <thinking>maybe")).toBe("Send the report");
   });
 });

@@ -6,6 +6,7 @@ import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLang
 import { validateBearerEndpoint } from "../validation";
 import { createWavBuffer } from "@main/providers/shared/audioUtils";
 import { createCancellationScope, isAbortError, waitWithAbort } from "@main/cancellation";
+import { defaultModelFor, providerModels } from "@shared/modelList";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
@@ -15,10 +16,7 @@ export const GroqSttProvider: TranscriptionProvider = {
   id: "groq",
   name: "Groq Whisper",
   requiresApiKey: true,
-  models: [
-    { id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" },
-    { id: "whisper-large-v3", name: "Whisper Large v3" },
-  ],
+  models: providerModels("transcription", "groq"),
 
   async transcribe(clip, options): Promise<TranscriptionResult> {
     debug("groq", `transcribe called: hasApiKey=${!!options.apiKey}, clipDuration=${clip.durationSeconds.toFixed(2)}s, samples=${clip.pcmData.length}`);
@@ -47,7 +45,7 @@ export const GroqSttProvider: TranscriptionProvider = {
         const groq = new Groq({ apiKey: options.apiKey });
         const response = await groq.audio.transcriptions.create({
           file,
-          model: options.model || "whisper-large-v3-turbo",
+          model: options.model || defaultModelFor("transcription", "groq"),
           language: whisperLang,
           temperature: options.temperature ?? 0,
           response_format: "verbose_json",
