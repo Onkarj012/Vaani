@@ -101,8 +101,8 @@ export class SettingsStore {
       changed = true;
     }
 
-    // Hidden transcription options move to the default provider. Its model is normalized below.
-    if (isHiddenProvider(next.transcriptionProvider)) {
+    // Transcription moves to OpenRouter. Any other saved provider gets OpenRouter's default model. Repeat loads change nothing.
+    if (next.transcriptionProvider !== undefined && next.transcriptionProvider !== DEFAULT_SETTINGS.transcriptionProvider) {
       next.transcriptionProvider = DEFAULT_SETTINGS.transcriptionProvider;
       next.transcriptionModel = DEFAULT_SETTINGS.transcriptionModel;
       changed = true;

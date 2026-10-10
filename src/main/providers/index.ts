@@ -6,6 +6,7 @@ import { OpenAILlmProvider } from "./openai/openaiLlm";
 import { DeepgramSttProvider } from "./deepgram/deepgramStt";
 import { AnthropicLlmProvider } from "./anthropic/anthropicLlm";
 import { OpenRouterLlmProvider } from "./openrouter/openRouterLlm";
+import { OpenRouterSttProvider } from "./openrouter/openRouterStt";
 import { LocalWhisperProvider } from "./local/whisperCpp";
 
 let registry: ProviderRegistry | null = null;
@@ -13,6 +14,7 @@ let registry: ProviderRegistry | null = null;
 export function getProviderRegistry(): ProviderRegistry {
   if (!registry) {
     registry = new ProviderRegistry();
+    registry.registerTranscription(OpenRouterSttProvider);
     registry.registerTranscription(GroqSttProvider);
     registry.registerTranscription(OpenAISttProvider);
     registry.registerTranscription(OpenAISttCompatibleProvider);

@@ -38,12 +38,13 @@ export const DEFAULT_SETTINGS: Settings = {
   recoveryRetentionDays: 3,
   retainFailedAudio: false,
   // Phase 1
-  transcriptionProvider: "groq",
-  transcriptionModel: "",
+  transcriptionProvider: "openrouter",
+  transcriptionModel: defaultModelFor("transcription", "openrouter"),
   formattingProvider: "openrouter",
   formattingModel: defaultModelFor("cleanup", "openrouter"),
   providerApiKeys: [],
   failoverEnabled: true,
+  openRouterKeyPromptShown: false,
   // Phase 2
   localWhisperModel: "tiny.en",
   offlineMode: "auto",

@@ -251,6 +251,7 @@ const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) =
   dictionaryOnboarded: (value) => typeof value === "boolean",
   snippetsOnboarded: (value) => typeof value === "boolean",
   setupChecklistDismissed: (value) => typeof value === "boolean",
+  openRouterKeyPromptShown: (value) => typeof value === "boolean",
   appProfiles: (value) => value === undefined || (Array.isArray(value) && value.length <= 100 && value.every(isAppProfile)),
 };
 

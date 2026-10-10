@@ -299,7 +299,7 @@ describe("DictationService", () => {
   it("passes the same start-time route through STT and formatting despite settings edits", async () => {
     const fixture = createInsertionRecovery("snapshot-session");
     const { service, settings, transcription } = createDictationService({ recovery: fixture.recovery, recoveryReady: () => true });
-    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, language: "hi", groqApiKey: "secret-canary" });
+    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, transcriptionProvider: "groq", language: "hi", groqApiKey: "secret-canary" });
     service.beginHotkeySession();
     const sessionId = (service.getState() as { sessionId: string }).sessionId;
     service.reportRecorderStarted(sessionId);

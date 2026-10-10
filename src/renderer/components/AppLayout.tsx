@@ -17,6 +17,7 @@ import { useColorMode } from '../context/color-mode'
 import { useUpdateNotification } from '@renderer/hooks/useUpdateNotification'
 import SettingsModal from '@renderer/components/SettingsModal'
 import OnboardingModal from '@renderer/components/OnboardingModal'
+import OpenRouterKeyPrompt from '@renderer/components/OpenRouterKeyPrompt'
 import PermissionGuard from '@renderer/components/PermissionGuard'
 import UpdateBanner from '@renderer/components/UpdateBanner'
 import devanagariLightUrl from '../../../assets/iconset/devanagari/devanagari_light.svg?url'
@@ -118,6 +119,8 @@ export default function AppLayout() {
   const { settings, settingsLoading, updateSettings } = useVaaniUi()
   const { notification, dismiss } = useUpdateNotification()
   const onboardingOpen = !settingsLoading && !settings.onboardingCompleted
+  const showOpenRouterPrompt = !settingsLoading && settings.onboardingCompleted && !settings.openRouterKeyPromptShown &&
+    !(settings.providerApiKeys ?? []).some((pk) => pk.providerId === 'openrouter' && pk.hasKey)
 
   useEffect(() => {
     void window.vaani.getRecoveryRestoredNotice().then((notice) => {
@@ -176,6 +179,7 @@ export default function AppLayout() {
             onComplete={() => updateSettings({ onboardingCompleted: true })}
           />
         )}
+        {showOpenRouterPrompt && <OpenRouterKeyPrompt updateSettings={updateSettings} />}
       </div>
       <PermissionGuard onBlockingChange={setPermissionsBlocked} />
     </div>

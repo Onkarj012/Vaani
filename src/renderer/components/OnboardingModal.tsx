@@ -349,7 +349,8 @@ function ProviderApiSlide({
   onLanguageChange: (v: string) => void;
 }) {
   const isValid = apiKey.trim().length > 0 || hasConfiguredApiKey;
-  const sttProviders = KNOWN_PROVIDERS.filter((p) => !p.hidden && (p.type === "stt" || p.type === "local-stt"));
+  // Transcription runs only through OpenRouter. Its type is llm, so it is picked here by id.
+  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.id === "openrouter");
   const activeProvider = sttProviders.find((p) => p.id === settings.transcriptionProvider);
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === "llm");
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider);
@@ -359,7 +360,7 @@ function ProviderApiSlide({
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Plug size={24} /></SlideIcon>
       <h2 className="text-display mb-1 text-3xl text-ink">Choose Providers &amp; Add Keys</h2>
-      <p className="mb-5 text-sm text-muted">Your keys stay on your device. Start with Groq — it&apos;s fast and free.</p>
+      <p className="mb-5 text-sm text-muted">Your keys stay on your device. One OpenRouter key covers transcription and cleanup.</p>
 
       <div className="w-full space-y-3 text-left">
         <div>

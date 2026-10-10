@@ -123,6 +123,8 @@ export interface TranscriptionQualityMetadata {
   chunkCount?: number;
   chunkDurationsSeconds?: number[];
   chunkOverlapSeconds?: number;
+  /** True when the request carried vocabulary hints. Models without hint support report false. */
+  vocabularyHintsSent?: boolean;
   decision?: TranscriptQualityDecision;
 }
 
@@ -144,6 +146,10 @@ export interface ProviderAttemptTrace {
   completedAt?: string;
   deadlineAt?: string | null;
   quality?: TranscriptionQualityMetadata;
+  /** Model the attempt asked for. */
+  model?: string;
+  /** Why this provider ran after an earlier one failed or was skipped. */
+  fallbackReason?: string;
 }
 
 export interface InjectionAttemptTrace {
@@ -405,6 +411,8 @@ export interface Settings {
   formattingModel: string;
   providerApiKeys: ProviderApiKey[];
   failoverEnabled: boolean;
+  /** Set once the user has seen the OpenRouter key prompt, so it is not shown again. */
+  openRouterKeyPromptShown: boolean;
   // Phase 2: Local model settings
   localWhisperModel: string;
   offlineMode: "auto" | "always-offline" | "always-online";
@@ -444,6 +452,8 @@ export interface TranscriptionOptions {
   model?: string;
   language?: string;
   prompt?: string;
+  /** Dictionary terms to send as vocabulary hints. Providers decide whether their model takes them. */
+  vocabularyHints?: string[];
   temperature?: number;
   streaming?: boolean;
   signal?: AbortSignal;

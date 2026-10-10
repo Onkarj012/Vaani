@@ -66,7 +66,7 @@ describe("TranscriptionService failover chain", () => {
   });
 
   it("keeps the captured route and language while resolving the current credential", async () => {
-    const settings = { ...DEFAULT_SETTINGS, language: "hi", groqApiKey: "old-key", failoverEnabled: false };
+    const settings = { ...DEFAULT_SETTINGS, transcriptionProvider: "groq", language: "hi", groqApiKey: "old-key", failoverEnabled: false };
     const snapshot = captureSessionSettings(settings);
     settings.transcriptionProvider = "openai";
     settings.language = "en";
@@ -82,7 +82,7 @@ describe("TranscriptionService failover chain", () => {
   });
 
   it("keeps the captured formatter model and prompt", async () => {
-    const settings = { ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "key", formattingModel: "original-model", customPrompt: "original-prompt" };
+    const settings = { ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "key", formattingModel: "original-model", customPrompt: "original-prompt" };
     const snapshot = captureSessionSettings(settings);
     settings.formattingProvider = "openai-llm";
     settings.formattingModel = "new-model";
@@ -95,7 +95,7 @@ describe("TranscriptionService failover chain", () => {
   });
 
   it("keeps the live session route after offline mode is enabled during a request", async () => {
-    const settings = { ...DEFAULT_SETTINGS, groqApiKey: "key", failoverEnabled: true, providerApiKeys: [{ providerId: "openai", key: "other-key" }] };
+    const settings = { ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "key", failoverEnabled: true, providerApiKeys: [{ providerId: "openai", key: "other-key" }] };
     const other = vi.fn(async () => ({ rawText: "fallback", formattedText: "fallback", language: "en" }));
     registryState.providers.set("groq", provider("groq", vi.fn(async () => {
       settings.offlineMode = "always-offline";
@@ -113,12 +113,12 @@ describe("TranscriptionService failover chain", () => {
     const { TranscriptionService } = await import("@main/transcription");
     const controller = new AbortController();
     controller.abort();
-    await expect(new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "key" })).transcribe(clip, { signal: controller.signal })).rejects.toThrow();
+    await expect(new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "key" })).transcribe(clip, { signal: controller.signal })).rejects.toThrow();
     expect(transcribe).not.toHaveBeenCalled();
   });
 
   it("skips captured cloud formatting when current consent requires offline", async () => {
-    const settings = { ...DEFAULT_SETTINGS, groqApiKey: "key" };
+    const settings = { ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "key" };
     const snapshot = captureSessionSettings(settings);
     settings.offlineMode = "always-offline";
     const format = vi.fn();
@@ -158,6 +158,7 @@ describe("TranscriptionService failover chain", () => {
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
       customPrompt: "Turn this into bullet points and clean up grammar.",
       customCorrections: [{ spoken: "get hub", written: "GitHub" }],
       snippets: [{ trigger: "email", content: "onkar@example.com" }],
@@ -185,6 +186,7 @@ describe("TranscriptionService failover chain", () => {
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
       customCorrections: [
         { spoken: "get hub", written: "GitHub" },
         { spoken: "it", written: "1 It" },
@@ -210,6 +212,7 @@ describe("TranscriptionService failover chain", () => {
     const { TranscriptionService, buildSpeechContextPrompt } = await import("@main/transcription");
     const settings = {
       ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
       groqApiKey: "groq-key",
       customCorrections: [{ spoken: "get hub", written: "GitHub" }],
       snippets: [{ trigger: "email", content: "private snippet content" }],
@@ -413,7 +416,7 @@ describe("TranscriptionService failover chain", () => {
   });
 
   it("uses the captured local model on live transcription and reserves the restore error for recovery", async () => {
-    const settings = { ...DEFAULT_SETTINGS, offlineMode: "always-offline" as const, localWhisperModel: "small.en" };
+    const settings = { ...DEFAULT_SETTINGS, transcriptionProvider: "groq", offlineMode: "always-offline" as const, localWhisperModel: "small.en" };
     const snapshot = captureSessionSettings(settings);
     settings.localWhisperModel = "base.en";
     const local = vi.fn(async () => ({ rawText: "captured", formattedText: "captured", language: "en" }));
@@ -435,6 +438,7 @@ describe("TranscriptionService failover chain", () => {
     const { TranscriptionService } = await import("@main/transcription");
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
       offlineMode: "always-offline",
       failoverEnabled: true,
       groqApiKey: "groq-key",
@@ -454,6 +458,7 @@ describe("TranscriptionService failover chain", () => {
       const { TranscriptionService } = await import("@main/transcription");
       const service = new TranscriptionService(() => ({
         ...DEFAULT_SETTINGS,
+        transcriptionProvider: "groq",
         offlineMode: "always-offline",
         formattingProvider: formattingId,
       }), new CredentialsStore(new MemoryCredentialBackend()));
@@ -474,7 +479,7 @@ describe("TranscriptionService failover chain", () => {
     const format = vi.fn(async (text: string) => text);
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", offlineMode, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", offlineMode, groqApiKey: "groq-key" }));
 
     await expect(service.formatTranscriptDetailed("Keep this text unchanged")).resolves.toMatchObject({ formatterUsed: "llm" });
     expect(format).toHaveBeenCalledTimes(1);
@@ -482,7 +487,7 @@ describe("TranscriptionService failover chain", () => {
 
   it("honors cancellation when skipping offline formatting", async () => {
     const { TranscriptionService, TranscriptionCancelledError } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, offlineMode: "always-offline" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", offlineMode: "always-offline" }));
     const controller = new AbortController();
     controller.abort();
 
@@ -708,6 +713,7 @@ describe("TranscriptionService failover chain", () => {
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
       formattingProvider: "groq-llm",
       groqApiKey: "groq-key",
     }));
@@ -726,7 +732,7 @@ describe("TranscriptionService failover chain", () => {
   it("falls back to corrected raw text when the formatter omits the last word", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "We ship it.")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("we ship it Tuesday")).toEqual({
       text: "we ship it Tuesday",
@@ -740,7 +746,7 @@ describe("TranscriptionService failover chain", () => {
   it("rejects a formatter reply that adds a negation and inserts the literal text", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "Do not send the report today.")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("send the report today")).toMatchObject({
       text: "send the report today",
@@ -752,7 +758,7 @@ describe("TranscriptionService failover chain", () => {
   it("rejects a dropped Devanagari word", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "मुझे ऑफिस जाना है।")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("मुझे कल ऑफिस जाना है")).toMatchObject({
       text: "मुझे कल ऑफिस जाना है",
@@ -763,7 +769,7 @@ describe("TranscriptionService failover chain", () => {
   it("removes reasoning text from an accepted formatter reply", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "<think>I will format this.</think>Send the report today.")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("send the report today")).toEqual({
       text: "Send the report today.",
@@ -777,7 +783,7 @@ describe("TranscriptionService failover chain", () => {
   it("treats a formatter reply that is only reasoning as failed", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "<thinking>no answer yet")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("send the report today")).toMatchObject({
       text: "send the report today",
@@ -796,6 +802,7 @@ describe("TranscriptionService failover chain", () => {
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
       formattingProvider: "groq-llm",
       groqApiKey: "groq-key",
     }));
@@ -823,6 +830,7 @@ describe("TranscriptionService failover chain", () => {
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
       formattingProvider: "groq-llm",
       groqApiKey: "groq-key",
     }));
@@ -845,7 +853,7 @@ describe("TranscriptionService failover chain", () => {
       .mockResolvedValueOnce({ rawText: "retry result", formattedText: "retry result", language: "en" } satisfies TranscriptionResult);
     registryState.providers.set("groq", provider("groq", transcribe));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "groq-key" }));
 
     const result = await service.transcribe(clip, { recovery: true });
 
@@ -886,7 +894,7 @@ describe("TranscriptionService failover chain", () => {
     const transcribe = vi.fn(async () => { throw new Error(message); });
     registryState.providers.set("groq", provider("groq", transcribe));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "groq-key" }));
 
     await expect(service.transcribe(clip, { recovery: true })).rejects.toThrow(message);
     expect(transcribe).toHaveBeenCalledTimes(1);
@@ -913,7 +921,7 @@ describe("TranscriptionService failover chain", () => {
     registryState.providers.set("groq", provider("groq", transcribe));
     registryState.providers.set("openai", provider("openai", fallback));
     const { TranscriptionCancelledError, TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key", failoverEnabled: true, providerApiKeys: [{ providerId: "openai", key: "openai-key" }] }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "groq-key", failoverEnabled: true, providerApiKeys: [{ providerId: "openai", key: "openai-key" }] }));
 
     const pending = service.transcribe(clip, { signal: controller.signal, recovery: true });
     await vi.waitFor(() => expect(transcribe).toHaveBeenCalledOnce());
@@ -932,7 +940,7 @@ describe("TranscriptionService failover chain", () => {
     });
     registryState.providers.set("groq", provider("groq", transcribe));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "groq-key" }));
     const longClip: AudioClip = { pcmData: new Array(61 * 16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 61, rmsFrames: [] };
 
     await service.transcribe(longClip, { recovery: true });
@@ -951,7 +959,7 @@ describe("TranscriptionService failover chain", () => {
       });
     })));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     const pending = service.formatTranscriptDetailed("alpha beta", { signal: controller.signal });
     controller.abort();
@@ -963,7 +971,7 @@ describe("TranscriptionService failover chain", () => {
     const transcribe = vi.fn();
     registryState.providers.set("groq", provider("groq", transcribe));
     const { RecoveryYieldedError, TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "groq-key" }));
 
     await expect(service.transcribe(clip, { recovery: true, shouldYieldToActiveDictation: () => true })).rejects.toBeInstanceOf(RecoveryYieldedError);
     expect(transcribe).not.toHaveBeenCalled();
@@ -1002,6 +1010,7 @@ describe("formatter outcome at the transcription seam", () => {
     const { TranscriptionService } = await import("@main/transcription");
     return new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
       formattingProvider,
       customPrompt,
       providerApiKeys: withKey ? [{ providerId: formattingProvider, key: "test-key" }] : [],

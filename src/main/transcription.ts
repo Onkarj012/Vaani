@@ -2,6 +2,7 @@ import { captureSessionSettings, restoreSessionSettings, type SessionSettingsSna
 import type { DictationContentGuardVerdict, DictationFormatterStatus, DictationFormatterUsed, ProviderAttemptTrace, Settings, AudioClip, TranscriptionResult } from "@shared/types";
 import type { RecoveryErrorClass } from "@shared/recovery";
 import { getProviderRegistry } from "./providers";
+import { defaultModelFor } from "@shared/modelList";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { formatterErrorReason } from "./providers/types";
 import { CHANGED_WORDS_REASON, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
@@ -16,6 +17,8 @@ const TRANSCRIPTION_BASE_TIMEOUT_MS = 30_000;
 const TRANSCRIPTION_PER_ADDITIONAL_CHUNK_TIMEOUT_MS = 10_000;
 export const MAX_TRANSCRIPTION_TIMEOUT_MS = 300_000;
 const LOW_LOGPROB_THRESHOLD = -1.2;
+// Time kept back from the deadline so a fallback provider still gets to run.
+const FALLBACK_RESERVE_MS = 10_000;
 
 const STRONGER_STT_MODELS: Record<string, string> = {
   groq: "whisper-large-v3",
@@ -107,6 +110,13 @@ function throwIfTranscriptionDeadlineExceeded(deadlineAt?: number, signal?: Abor
   throwIfAborted(signal);
 }
 
+// Deadline for a provider that has a fallback after it. Keeps FALLBACK_RESERVE_MS, but never less than half the time left.
+function reserveFallbackDeadline(deadlineAt: number | undefined): number | undefined {
+  if (deadlineAt === undefined) return undefined;
+  const now = Date.now();
+  return Math.max(deadlineAt - FALLBACK_RESERVE_MS, now + (deadlineAt - now) / 2);
+}
+
 export interface FormatTranscriptTraceResult {
   text: string;
   formatterUsed: DictationFormatterUsed;
@@ -137,7 +147,9 @@ export class TranscriptionService {
         throw new Error(`Restore local model "${settings.localWhisperModel}" to retry this session, or start a new dictation.`);
       }
       const speechContextPrompt = buildSpeechContextPrompt(settings, options?.speechContext);
-      const chain = await this.buildSttChain(settings, primaryId, registry);
+      // OpenRouter gets hints on every clip. The Groq prompt keeps its speech gate and 2-second minimum.
+      const vocabularyHints = buildVocabularyTerms(settings);
+      const { chain, skipReasons } = await this.buildSttChain(settings, primaryId, registry);
       if (chain.length === 0) throw new Error(messageForEmptyChain(settings, primaryId));
 
       debug("transcription", `Chain: ${chain.map(c => c.id).join(" → ")}`);
@@ -153,11 +165,23 @@ export class TranscriptionService {
           const firstAttempt = attempts[0];
           attempts.splice(0, attempts.length, ...(firstAttempt ? [firstAttempt] : []));
         }
+        // Why this provider runs: the primary was skipped, or the previous provider failed or was rejected.
+        const providerFallbackReason = providerIndex === 0
+          ? (id === primaryId ? undefined : skipReasons.get(primaryId))
+          : (providerAttempts[providerAttempts.length - 1]?.error ?? "The previous provider returned a suspicious transcript.");
+        const providerDeadlineAt = providerIndex < chain.length - 1 ? reserveFallbackDeadline(options?.deadlineAt) : options?.deadlineAt;
         for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
           if (options?.shouldYieldToActiveDictation?.()) throw new RecoveryYieldedError();
           const attempt = attempts[attemptIndex]!;
           const startedAt = Date.now();
           const startedAtIso = new Date(startedAt).toISOString();
+          const model = id === "local-whisper" ? settings.localWhisperModel : attempt.model || undefined;
+          // Fields every attempt record shares. The fallback reason belongs to the provider's first attempt only.
+          const traceFields = {
+            model: model ?? (defaultModelFor("transcription", id) || undefined),
+            fallbackReason: attemptIndex === 0 ? providerFallbackReason : undefined,
+          };
+          const providerScope = createCancellationScope(scope.signal, providerDeadlineAt);
           try {
             if (options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt) {
               throw new TranscriptionDeadlineExceededError();
@@ -165,12 +189,13 @@ export class TranscriptionService {
             const result = await transcribePossiblyChunked(provider, attempt.clip, {
               apiKey,
               language,
-              model: id === "local-whisper" ? settings.localWhisperModel : attempt.model || undefined,
+              model,
               prompt: attempt.clip.durationSeconds >= 2 ? speechContextPrompt : undefined,
+              vocabularyHints,
               temperature: 0,
-              signal: scope.signal,
+              signal: providerScope.signal,
               recovery: options?.recovery,
-            }, options?.deadlineAt, scope.signal, options?.shouldYieldToActiveDictation, () => {
+            }, options?.deadlineAt, providerScope.signal, options?.shouldYieldToActiveDictation, () => {
               const current = this.settingsProvider();
               if (options?.recovery && ((id !== "local-whisper" && current.offlineMode === "always-offline") ||
                   (id === "local-whisper" && current.localWhisperModel !== settings.localWhisperModel))) {
@@ -187,6 +212,7 @@ export class TranscriptionService {
             };
             const withQuality: TranscriptionResult = { ...result, quality };
             providerAttempts.push({
+              ...traceFields,
               provider: id,
               success: true,
               attempt: providerAttempts.length + 1,
@@ -211,18 +237,20 @@ export class TranscriptionService {
             }
             return { ...withQuality, quality: { ...quality, attemptCount: providerAttempts.length }, providerAttempts };
           } catch (error) {
+            // The provider's own deadline fired, so this is a timeout the chain can fall back from.
+            const providerTimedOut = providerScope.signal.aborted && !scope.signal.aborted;
             const deadlineExceeded = options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt;
             if (deadlineExceeded || error instanceof TranscriptionDeadlineExceededError) {
-              providerAttempts.push({ provider: id, success: false, attempt: providerAttempts.length + 1, latencyMs: Date.now() - startedAt, error: "Transcription deadline exceeded.", outcome: "cancelled", errorClass: "timeout", startedAt: startedAtIso, completedAt: new Date().toISOString(), deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null });
+              providerAttempts.push({ ...traceFields, provider: id, success: false, attempt: providerAttempts.length + 1, latencyMs: Date.now() - startedAt, error: "Transcription deadline exceeded.", outcome: "cancelled", errorClass: "timeout", startedAt: startedAtIso, completedAt: new Date().toISOString(), deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null });
               throw new TranscriptionDeadlineExceededError(providerAttempts);
             }
-            if (scope.signal.aborted || error instanceof TranscriptionCancelledError || isAbortError(error)) {
-              providerAttempts.push({ provider: id, success: false, attempt: providerAttempts.length + 1, latencyMs: Date.now() - startedAt, error: "Transcription was cancelled.", outcome: "cancelled", errorClass: "aborted", startedAt: startedAtIso, completedAt: new Date().toISOString(), deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null });
+            if (scope.signal.aborted || (!providerTimedOut && (error instanceof TranscriptionCancelledError || isAbortError(error)))) {
+              providerAttempts.push({ ...traceFields, provider: id, success: false, attempt: providerAttempts.length + 1, latencyMs: Date.now() - startedAt, error: "Transcription was cancelled.", outcome: "cancelled", errorClass: "aborted", startedAt: startedAtIso, completedAt: new Date().toISOString(), deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null });
               throw new TranscriptionCancelledError(providerAttempts);
             }
-            lastError = error instanceof Error ? error : new Error(String(error));
-            const failure = classifyTranscriptionError(error);
-            providerAttempts.push({ provider: id, success: false, attempt: providerAttempts.length + 1, latencyMs: Date.now() - startedAt, error: lastError.message, outcome: "failed", errorClass: failure.class, startedAt: startedAtIso, completedAt: new Date().toISOString(), deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null });
+            lastError = providerTimedOut ? new Error("Request timed out.") : error instanceof Error ? error : new Error(String(error));
+            const failure = providerTimedOut ? { class: "timeout" as const, retryable: false, permanent: false } : classifyTranscriptionError(error);
+            providerAttempts.push({ ...traceFields, provider: id, success: false, attempt: providerAttempts.length + 1, latencyMs: Date.now() - startedAt, error: lastError.message, outcome: "failed", errorClass: failure.class, startedAt: startedAtIso, completedAt: new Date().toISOString(), deadlineAt: options?.deadlineAt ? new Date(options.deadlineAt).toISOString() : null });
             warn("transcription", `Provider "${id}" failed: ${lastError.message}`);
             if (options?.recovery) {
               if (failure.permanent) throw new TranscriptionChainError(lastError.message, providerAttempts, failure.class);
@@ -237,6 +265,8 @@ export class TranscriptionService {
               throw options?.recovery ? new TranscriptionChainError(lastError.message, providerAttempts, providerAttempts[providerAttempts.length - 1]?.errorClass ?? "transcription_error") : lastError;
             }
             break;
+          } finally {
+            providerScope.dispose();
           }
         }
       }
@@ -254,8 +284,9 @@ export class TranscriptionService {
     settings: Settings,
     primaryId: string,
     registry: ReturnType<typeof getProviderRegistry>
-  ): Promise<{ id: string; provider: TranscriptionProvider; apiKey: string }[]> {
+  ): Promise<{ chain: { id: string; provider: TranscriptionProvider; apiKey: string }[]; skipReasons: Map<string, string> }> {
     const chain: { id: string; provider: TranscriptionProvider; apiKey: string }[] = [];
+    const skipReasons = new Map<string, string>();
     const offlineMode = settings.offlineMode ?? "auto";
 
     const tryAdd = async (id: string) => {
@@ -268,6 +299,7 @@ export class TranscriptionService {
       }
       const apiKey = await this.resolveApiKey(this.settingsProvider(), id);
       if (provider.requiresApiKey && !apiKey) {
+        skipReasons.set(id, `No API key saved for "${id}".`);
         return;
       }
       if (id === "local-whisper" && !(await provider.isAvailable())) return;
@@ -276,18 +308,20 @@ export class TranscriptionService {
 
     if (offlineMode === "always-offline") {
       await tryAdd("local-whisper");
-      return chain;
+      return { chain, skipReasons };
     }
 
     await tryAdd(primaryId);
 
     if (settings.failoverEnabled) {
-      for (const fallbackId of ["groq", "openai", "deepgram"]) {
+      // OpenRouter falls back only to Groq direct. Other primaries keep the older chain.
+      const fallbackIds = primaryId === "openrouter" ? ["groq"] : ["groq", "openai", "deepgram"];
+      for (const fallbackId of fallbackIds) {
         if (fallbackId !== primaryId) await tryAdd(fallbackId);
       }
     }
 
-    return chain;
+    return { chain, skipReasons };
   }
 
   async formatTranscript(rawText: string, options?: FormattingOptions): Promise<string> {
@@ -476,10 +510,7 @@ async function transcribePossiblyChunked(
     throwIfTranscriptionDeadlineExceeded(deadlineAt, signal);
     debug("transcription", `Transcribing chunk ${index + 1}/${chunks.length}: ${chunk.durationSeconds.toFixed(2)}s`);
     beforeProviderCall?.();
-    results.push(await provider.transcribe(chunk, {
-      ...options,
-      prompt: chunk.durationSeconds >= 2 ? options.prompt : undefined,
-    }));
+    results.push(await provider.transcribe(chunk, options));
   }
 
   return mergeChunkedTranscriptionResults(results, chunks);
@@ -704,29 +735,32 @@ export function buildSpeechContextPrompt(
   speechContext?: { trimmedDurationSeconds: number; speechGatePassed: boolean },
 ): string | undefined {
   if (!speechContext?.speechGatePassed || !(speechContext.trimmedDurationSeconds >= 2)) return undefined;
+  return buildVocabularyTerms(settings).join(", ") || undefined;
+}
+
+// Enabled dictionary spellings, used as vocabulary hints on every clip, short ones included.
+export function buildVocabularyTerms(settings: Pick<Settings, "customCorrections">): string[] {
   const terms: string[] = [];
   const seen = new Set<string>();
-  const add = (value: string | undefined) => {
-    const term = normalizeSpeechContextTerm(value);
-    if (!term) return;
+  for (const correction of settings.customCorrections ?? []) {
+    if (correction.enabled === false) continue;
+    const term = normalizeSpeechContextTerm(correction.written);
+    if (!term) continue;
     const key = term.toLowerCase();
-    if (seen.has(key)) return;
+    if (seen.has(key)) continue;
     seen.add(key);
     terms.push(term);
-  };
-
-  for (const correction of settings.customCorrections ?? []) {
-    add(correction.written);
   }
 
-  let prompt = "";
+  const capped: string[] = [];
+  let length = 0;
   for (const term of terms.slice(0, MAX_SPEECH_CONTEXT_ITEMS)) {
-    const next = prompt ? `${prompt}, ${term}` : term;
-    if (next.length > MAX_SPEECH_CONTEXT_CHARS) break;
-    prompt = next;
+    const nextLength = length === 0 ? term.length : length + ", ".length + term.length;
+    if (nextLength > MAX_SPEECH_CONTEXT_CHARS) break;
+    capped.push(term);
+    length = nextLength;
   }
-
-  return prompt || undefined;
+  return capped;
 }
 
 function normalizeSpeechContextTerm(value: string | undefined): string | null {
