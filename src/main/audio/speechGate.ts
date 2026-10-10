@@ -1,4 +1,5 @@
 import type { SpeechGateDecision, SpeechGateTrace } from "@shared/types";
+import { toPcm16 } from "@main/providers/shared/audioUtils";
 
 export type SpeechGateResult = SpeechGateTrace & { decision: SpeechGateDecision };
 
@@ -8,8 +9,6 @@ export type SpeechGateResult = SpeechGateTrace & { decision: SpeechGateDecision 
 // frames of the samples that get sent, so gain is already applied. It never trims audio.
 
 export const SPEECH_GATE_FRAME_MS = 20;
-// A clip is digitally silent when every sample rounds to zero in 16-bit PCM.
-export const DIGITAL_SILENCE_PEAK = 0.5 / 32768;
 
 const MIN_ENTER_THRESHOLD = 0.003;
 const MIN_EXIT_THRESHOLD = 0.0018;
@@ -24,22 +23,20 @@ const MIN_TOTAL_SPEECH_MS = 160;
 // passes outright.
 const SPEECH_DOMINANT_FLOOR = 0.008;
 
-// Largest absolute sample in a clip.
-export function clipPeak(pcmData: number[]): number {
-  let peak = 0;
-  for (const sample of pcmData) peak = Math.max(peak, Math.abs(sample));
-  return peak;
+// True when every sample encodes to 0 in the WAV that gets sent, so the clip is silent to the STT provider.
+export function isDigitallySilent(pcmData: number[]): boolean {
+  return pcmData.every((sample) => toPcm16(sample) === 0);
 }
 
-// Labels a clip's frames as silent, speech, or uncertain from the clip's own noise floor. `peak` is the clip's largest sample.
-export function evaluateSpeechGate(rmsFrames: number[], peak: number, frameMs = SPEECH_GATE_FRAME_MS): SpeechGateResult {
+// Labels a clip's frames as silent, speech, or uncertain from the clip's own noise floor.
+export function evaluateSpeechGate(rmsFrames: number[], pcmData: number[], frameMs = SPEECH_GATE_FRAME_MS): SpeechGateResult {
   const sorted = [...rmsFrames].sort((a, b) => a - b);
   const noiseFloor = sorted[Math.floor(sorted.length * 0.2)] ?? 0;
 
   if (rmsFrames.length === 0) {
     return { pass: false, decision: "silent", reason: "no-frames", noiseFloor: 0, enterThreshold: MIN_ENTER_THRESHOLD, longestRunMs: 0, totalSpeechMs: 0 };
   }
-  if (peak < DIGITAL_SILENCE_PEAK) {
+  if (isDigitallySilent(pcmData)) {
     return { pass: false, decision: "silent", reason: "digital-silence", noiseFloor, enterThreshold: MIN_ENTER_THRESHOLD, longestRunMs: 0, totalSpeechMs: 0 };
   }
 

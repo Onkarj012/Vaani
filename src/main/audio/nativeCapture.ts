@@ -360,6 +360,8 @@ export class NativeCaptureService implements RecorderCommands {
 export class CaptureBackendController implements RecorderCommands {
   private nativeUnavailable = false;
   private activeBackend: "native" | "renderer" | null = null;
+  // Set at suspend so resume returns to the same backend, even if config changed meanwhile.
+  private suspendedBackend: "native" | "renderer" | null = null;
 
   constructor(
     private readonly getConfig: () => RecorderConfig,
@@ -398,17 +400,20 @@ export class CaptureBackendController implements RecorderCommands {
   }
 
   suspendForLifecycle(): CaptureSuspendResult | Promise<CaptureSuspendResult> {
-    if (this.activeBackend === "renderer" || !prefersNativeCapture(this.getConfig())) {
+    this.suspendedBackend = this.lifecycleBackend();
+    if (this.suspendedBackend === "renderer") {
       return this.rendererRecorder.suspendForLifecycle?.() ?? { wasRunning: false, sessionId: null };
     }
     return this.nativeCapture.suspendForLifecycle();
   }
 
   resumeAfterLifecycle(): CaptureResumeResult {
-    if (this.activeBackend === "renderer" || !prefersNativeCapture(this.getConfig())) {
-      return this.rendererRecorder.resumeAfterLifecycle?.() ?? { ok: true, selectedDeviceUid: null };
-    }
-    return this.nativeCapture.resumeAfterLifecycle();
+    const backend = this.suspendedBackend ?? this.lifecycleBackend();
+    const result = backend === "renderer"
+      ? this.rendererRecorder.resumeAfterLifecycle?.() ?? { ok: true, selectedDeviceUid: null }
+      : this.nativeCapture.resumeAfterLifecycle();
+    if (result.ok) this.suspendedBackend = null;
+    return result;
   }
 
   abortRecording(sessionId: string): void {
@@ -444,6 +449,12 @@ export class CaptureBackendController implements RecorderCommands {
     if ("destroy" in this.rendererRecorder && typeof this.rendererRecorder.destroy === "function") {
       this.rendererRecorder.destroy();
     }
+  }
+
+  // The backend that owns the session, or the configured one when idle.
+  private lifecycleBackend(): "native" | "renderer" {
+    if (this.activeBackend) return this.activeBackend;
+    return prefersNativeCapture(this.getConfig()) ? "native" : "renderer";
   }
 
   private markNativeUnavailable(reason: string): void {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AudioInputDevice, RecorderConfig, RecorderSubmission } from "@shared/types";
+import type { AudioClip, AudioInputDevice, RecorderConfig, RecorderSubmission } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { CaptureBackendController, NativeCaptureService, selectNativeInputDevice, shouldUseNativeBackend, type NativeCaptureSink } from "@main/audio/nativeCapture";
 
@@ -174,6 +174,66 @@ describe("CaptureBackendController", () => {
     expect(renderer.startRecording).toHaveBeenCalledWith("s2");
     expect(controller.suspendForLifecycle()).toEqual({ wasRunning: true, sessionId: "s2" });
     expect(native.suspendForLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("keeps suspension and resume on the native backend when processing changes mid-session", () => {
+    const config: RecorderConfig = { preWarmMic: false, captureBackend: "native", captureProcessing: "default" };
+    const partialClip: AudioClip = { pcmData: [0.1, 0.2], sampleRate: 16_000, durationSeconds: 2 / 16_000, rmsFrames: [0.1] };
+    const native = {
+      isReady: vi.fn(() => true),
+      startRecording: vi.fn(() => true),
+      stopRecording: vi.fn(() => true),
+      shutdown: vi.fn(),
+      suspendForLifecycle: vi.fn(() => ({ wasRunning: true, sessionId: "s3", partialClip })),
+      resumeAfterLifecycle: vi.fn(() => ({ ok: true as const, selectedDeviceUid: "built-in" })),
+    } as unknown as NativeCaptureService;
+    const renderer = {
+      isReady: vi.fn(() => true),
+      startRecording: vi.fn(() => true),
+      stopRecording: vi.fn(() => true),
+      suspendForLifecycle: vi.fn(() => ({ wasRunning: false, sessionId: null })),
+      resumeAfterLifecycle: vi.fn(() => ({ ok: true as const, selectedDeviceUid: null })),
+    };
+    const controller = new CaptureBackendController(() => config, native, renderer);
+
+    expect(controller.startRecording("s3")).toBe(true);
+    config.captureProcessing = "unprocessed";
+    expect(controller.suspendForLifecycle()).toEqual({ wasRunning: true, sessionId: "s3", partialClip });
+    expect(native.suspendForLifecycle).toHaveBeenCalledTimes(1);
+    expect(renderer.suspendForLifecycle).not.toHaveBeenCalled();
+    expect(controller.resumeAfterLifecycle()).toMatchObject({ ok: true, selectedDeviceUid: "built-in" });
+    expect(native.resumeAfterLifecycle).toHaveBeenCalledTimes(1);
+    expect(renderer.resumeAfterLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("follows the configured backend for lifecycle calls when idle", () => {
+    const config: RecorderConfig = { preWarmMic: false, captureBackend: "native", captureProcessing: "unprocessed" };
+    const native = {
+      isReady: vi.fn(() => true),
+      startRecording: vi.fn(() => true),
+      stopRecording: vi.fn(() => true),
+      shutdown: vi.fn(),
+      suspendForLifecycle: vi.fn(() => ({ wasRunning: false, sessionId: null })),
+      resumeAfterLifecycle: vi.fn(() => ({ ok: true as const, selectedDeviceUid: "built-in" })),
+    } as unknown as NativeCaptureService;
+    const renderer = {
+      isReady: vi.fn(() => true),
+      startRecording: vi.fn(() => true),
+      stopRecording: vi.fn(() => true),
+      suspendForLifecycle: vi.fn(() => ({ wasRunning: false, sessionId: null })),
+      resumeAfterLifecycle: vi.fn(() => ({ ok: true as const, selectedDeviceUid: null })),
+    };
+    const controller = new CaptureBackendController(() => config, native, renderer);
+
+    expect(controller.suspendForLifecycle()).toEqual({ wasRunning: false, sessionId: null });
+    expect(renderer.suspendForLifecycle).toHaveBeenCalledTimes(1);
+    expect(native.suspendForLifecycle).not.toHaveBeenCalled();
+    expect(controller.resumeAfterLifecycle()).toMatchObject({ ok: true });
+    expect(renderer.resumeAfterLifecycle).toHaveBeenCalledTimes(1);
+
+    config.captureProcessing = "default";
+    controller.suspendForLifecycle();
+    expect(native.suspendForLifecycle).toHaveBeenCalledTimes(1);
   });
 });
 

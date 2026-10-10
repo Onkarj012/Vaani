@@ -77,6 +77,20 @@ describe("trimSilence", () => {
     expect(trimmed.pcmData).toHaveLength(0);
   });
 
+  it("empties a clip of -0.5 steps, which the encoder writes as zero", () => {
+    const trimmed = trimSilence(constantClip(-0.5 / 32767, 20), 0.005);
+
+    expect(trimmed.pcmData).toHaveLength(0);
+  });
+
+  it("keeps a clip whose samples encode to 1 in 16-bit PCM", () => {
+    const clip = constantClip(1 / 32767, 20);
+
+    const trimmed = trimSilence(clip, 0.005);
+
+    expect(trimmed.pcmData).toHaveLength(clip.pcmData.length);
+  });
+
   it("keeps quiet opening and closing words around louder speech", () => {
     const leadingSilence = Array(60).fill(0.001);
     const quietOpeningWord = Array(8).fill(0.003);
