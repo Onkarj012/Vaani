@@ -147,7 +147,7 @@ export class TranscriptionService {
         throw new Error(`Restore local model "${settings.localWhisperModel}" to retry this session, or start a new dictation.`);
       }
       const speechContextPrompt = buildSpeechContextPrompt(settings, options?.speechContext);
-      // OpenRouter gets hints on every clip. The Groq prompt keeps its speech gate and 2-second minimum.
+      // Hints go on every clip, short ones included. The Groq prompt still needs a passed speech gate.
       const vocabularyHints = buildVocabularyTerms(settings);
       const { chain, skipReasons } = await this.buildSttChain(settings, primaryId, registry);
       if (chain.length === 0) throw new Error(messageForEmptyChain(settings, primaryId));
@@ -190,7 +190,7 @@ export class TranscriptionService {
               apiKey,
               language,
               model,
-              prompt: attempt.clip.durationSeconds >= 2 ? speechContextPrompt : undefined,
+              prompt: speechContextPrompt,
               vocabularyHints,
               temperature: 0,
               signal: providerScope.signal,
@@ -258,7 +258,8 @@ export class TranscriptionService {
                 attempts.push(attempt);
                 continue;
               }
-            } else if (isAuthError(error)) {
+            } else if (isAuthError(error) && id !== "openrouter") {
+              // A rejected OpenRouter key falls back to Groq, so a revoked key does not stop dictation.
               throw lastError;
             }
             if (!settings.failoverEnabled || chain.length === 1) {
@@ -391,8 +392,8 @@ export class TranscriptionService {
 
     const usedFormatter = blockResults.some(r => r.formatterUsed === "llm");
     const usedFallback = blockResults.some(r => r.formatterUsed === "guard-fallback");
-    // The block that decided the outcome supplies the trace status. Falls back to the first block.
-    const summary = blockResults.find(r => r.formatterUsed === "guard-fallback")
+    // A failed or rejected block sets the trace status, so one bad paragraph is never hidden behind a good one.
+    const summary = blockResults.find(r => r.formatterStatus === "failed" || r.formatterStatus === "rejected")
       ?? blockResults.find(r => r.formatterUsed === "llm")
       ?? blockResults[0];
     const text = formattedParts.join("").trim();
@@ -734,7 +735,7 @@ export function buildSpeechContextPrompt(
   settings: Pick<Settings, "customCorrections">,
   speechContext?: { trimmedDurationSeconds: number; speechGatePassed: boolean },
 ): string | undefined {
-  if (!speechContext?.speechGatePassed || !(speechContext.trimmedDurationSeconds >= 2)) return undefined;
+  if (!speechContext?.speechGatePassed) return undefined;
   return buildVocabularyTerms(settings).join(", ") || undefined;
 }
 

@@ -9,8 +9,7 @@ import {
   NO_API_KEY_REASON,
   TOO_SHORT_REASON,
 } from "../formatting-constants";
-import { OPENROUTER_ATTRIBUTION_HEADERS, OPENROUTER_BASE_URL, openRouterPostJson } from "./client";
-import { validateBearerEndpoint } from "../validation";
+import { openRouterPostJson, validateOpenRouterKey } from "./client";
 import { isAbortError } from "@main/cancellation";
 import { defaultModelFor, providerModels } from "@shared/modelList";
 
@@ -61,6 +60,6 @@ export const OpenRouterLlmProvider: FormattingProvider = {
   },
 
   async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
-    return validateBearerEndpoint("OpenRouter", `${OPENROUTER_BASE_URL}/models`, apiKey, "Bearer", OPENROUTER_ATTRIBUTION_HEADERS);
+    return validateOpenRouterKey(apiKey);
   },
 };

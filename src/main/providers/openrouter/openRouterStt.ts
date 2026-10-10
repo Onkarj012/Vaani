@@ -3,7 +3,7 @@ import type { TranscriptionProvider } from "../types";
 import { normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
 import { createWavBuffer } from "@main/providers/shared/audioUtils";
 import { defaultModelFor, modelEntries, providerModels } from "@shared/modelList";
-import { openRouterPostJson } from "./client";
+import { openRouterPostJson, validateOpenRouterKey } from "./client";
 
 interface TranscriptionReply {
   text?: string;
@@ -71,6 +71,10 @@ export const OpenRouterSttProvider: TranscriptionProvider = {
 
   async isAvailable(): Promise<boolean> {
     return true;
+  },
+
+  async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
+    return validateOpenRouterKey(apiKey);
   },
 };
 

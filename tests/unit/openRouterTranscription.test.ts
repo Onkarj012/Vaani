@@ -139,6 +139,36 @@ describe("OpenRouter transcription through the service", () => {
     expect(result.providerAttempts?.[1]?.fallbackReason).toBe("OpenRouter API request failed with status 402.");
   });
 
+  it.each([401, 403])("falls back to Groq when OpenRouter rejects the key with status %i", async (status) => {
+    fetchMock.mockResolvedValueOnce(jsonReply({ error: "invalid key" }, status));
+
+    const result = await transcribeWith(settingsWith());
+
+    expect(result.rawText).toBe("from groq");
+    expect(result.providerAttempts?.map((attempt) => attempt.provider)).toEqual(["openrouter", "groq"]);
+    expect(result.providerAttempts?.[1]?.fallbackReason).toBe(`OpenRouter API request failed with status ${status}.`);
+    expect(groqTranscribe).toHaveBeenCalledOnce();
+  });
+
+  it("sends dictionary hints to the Groq fallback on a clip under 2 seconds", async () => {
+    fetchMock.mockResolvedValueOnce(jsonReply({ error: "boom" }, 500));
+
+    await transcribeWith(settingsWith({ customCorrections: [{ spoken: "get hub", written: "GitHub" }] }), {
+      speechContext: { trimmedDurationSeconds: 1, speechGatePassed: true },
+    });
+
+    expect(groqTranscribe.mock.calls[0]?.[1].prompt).toBe("GitHub");
+  });
+
+  it("validates the saved OpenRouter key through the transcription adapter", async () => {
+    fetchMock.mockResolvedValueOnce(jsonReply({ error: "invalid key" }, 401));
+
+    const result = await OpenRouterSttProvider.validateApiKey?.("or-key");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/models");
+    expect(result).toEqual({ valid: false, message: "OpenRouter rejected the API key." });
+  });
+
   it("falls back to Groq when OpenRouter times out, with time left for Groq", async () => {
     fetchMock.mockImplementationOnce((_url, init) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));

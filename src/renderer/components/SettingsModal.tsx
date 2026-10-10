@@ -349,7 +349,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     { value: '', label: `Use global (${getLanguageLabel(settings.language) ?? settings.language})` },
     ...languages.filter((language) => language.value !== 'auto'),
   ]
-  const activeStt = sttProviders.find((p) => p.id === settings.transcriptionProvider)
+  const activeStt = KNOWN_PROVIDERS.find((p) => p.id === settings.transcriptionProvider)
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider)
   const physicalAudioDevices = audioDevices.filter((device) => device.isPhysical)
   const microphoneOptions = [
@@ -383,7 +383,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 onChange={setSttKey}
                 onBlur={() => { if (decideProviderKeyDraft(sttKey, "blur") === "save") void saveProviderKey(settings.transcriptionProvider, sttKey) }}
                 onCancel={() => setSttKey('')}
-                placeholder={activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
+                placeholder={activeStt.id === 'openrouter' ? 'sk-or-...' : activeStt.id === 'openai' || activeStt.id === 'openai-compatible' ? 'sk-...' : activeStt.id === 'deepgram' ? 'Token...' : 'gsk_...'}
                 hasKey={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.hasKey}
                 lastValidation={(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.transcriptionProvider)?.lastValidation}
                 onClear={() => { void clearProviderKey(settings.transcriptionProvider) }}

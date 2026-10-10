@@ -1,4 +1,6 @@
 import { createCancellationScope } from "@main/cancellation";
+import type { ApiKeyValidationResult } from "../types";
+import { validateBearerEndpoint } from "../validation";
 
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const OPENROUTER_ATTRIBUTION_HEADERS: Record<string, string> = {
@@ -39,4 +41,9 @@ export async function openRouterPostJson<T>(request: OpenRouterPostRequest): Pro
   } finally {
     scope.dispose();
   }
+}
+
+// Checks a key against OpenRouter's models endpoint. Both OpenRouter adapters use it.
+export function validateOpenRouterKey(apiKey: string): Promise<ApiKeyValidationResult> {
+  return validateBearerEndpoint("OpenRouter", `${OPENROUTER_BASE_URL}/models`, apiKey, "Bearer", OPENROUTER_ATTRIBUTION_HEADERS);
 }

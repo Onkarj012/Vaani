@@ -204,7 +204,7 @@ describe("TranscriptionService failover chain", () => {
     }));
   });
 
-  it("omits vocabulary context for a short trimmed clip or a failed speech gate", async () => {
+  it("sends vocabulary context on short clips and omits it when the speech gate fails", async () => {
     const primaryTranscribe = vi.fn<TranscriptionProvider["transcribe"]>(async (): Promise<TranscriptionResult> => ({
       rawText: "hello", formattedText: "hello", language: "en",
     }));
@@ -219,15 +219,13 @@ describe("TranscriptionService failover chain", () => {
     };
     const service = new TranscriptionService(() => settings);
 
-    expect(buildSpeechContextPrompt(settings, { trimmedDurationSeconds: 1.99, speechGatePassed: true })).toBeUndefined();
+    expect(buildSpeechContextPrompt(settings, { trimmedDurationSeconds: 1.99, speechGatePassed: true })).toBe("GitHub");
     expect(buildSpeechContextPrompt(settings, { trimmedDurationSeconds: 2, speechGatePassed: false })).toBeUndefined();
-    expect(buildSpeechContextPrompt(settings, { trimmedDurationSeconds: 2, speechGatePassed: true })).toBe("GitHub");
 
-    await service.transcribe(contextClip, { speechContext: { trimmedDurationSeconds: 1.99, speechGatePassed: true } });
+    await service.transcribe(clip, { speechContext: { trimmedDurationSeconds: 1, speechGatePassed: true } });
     await service.transcribe(contextClip, { speechContext: { trimmedDurationSeconds: 2, speechGatePassed: false } });
-    await service.transcribe(clip, { speechContext: { trimmedDurationSeconds: 2, speechGatePassed: true } });
     await service.transcribe(contextClip);
-    for (const call of primaryTranscribe.mock.calls) expect(call[1].prompt).toBeUndefined();
+    expect(primaryTranscribe.mock.calls.map(([, options]) => options.prompt)).toEqual(["GitHub", undefined, undefined]);
   });
 
   it("falls through from a failing primary provider to the next configured fallback", async () => {
@@ -483,6 +481,22 @@ describe("TranscriptionService failover chain", () => {
 
     await expect(service.formatTranscriptDetailed("Keep this text unchanged")).resolves.toMatchObject({ formatterUsed: "llm" });
     expect(format).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["failed", "rejected"] as const)("reports a %s paragraph even when another paragraph formatted", async (status) => {
+    const format = vi.fn<FormattingProvider["format"]>()
+      .mockResolvedValueOnce({ status: "ran", text: "First paragraph.", reason: "Formatted." })
+      .mockResolvedValueOnce({ status, text: "Second paragraph.", reason: "Formatter problem." });
+    registryState.formattingProviders.set("groq-llm", { id: "groq-llm", name: "groq-llm", requiresApiKey: true, models: [], format, isAvailable: vi.fn(async () => true) });
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
+
+    await expect(service.formatTranscriptDetailed("First paragraph.\n\nSecond paragraph.")).resolves.toMatchObject({
+      formatterUsed: "llm",
+      formatterStatus: status,
+      formatterStatusReason: "Formatter problem.",
+    });
+    expect(format).toHaveBeenCalledTimes(2);
   });
 
   it("honors cancellation when skipping offline formatting", async () => {
