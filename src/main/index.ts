@@ -446,6 +446,7 @@ async function bootstrap(): Promise<void> {
     micDeviceId: settings.get().micDeviceId,
     preWarmMic: settings.get().preWarmMic,
     captureBackend: settings.get().captureBackend,
+    captureProcessing: settings.get().captureProcessing,
   }));
   configureMediaPermissions(() => [
     mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null,
@@ -467,6 +468,7 @@ async function bootstrap(): Promise<void> {
       micDeviceId: settings.get().micDeviceId,
       preWarmMic: settings.get().preWarmMic,
       captureBackend: settings.get().captureBackend,
+      captureProcessing: settings.get().captureProcessing,
     }),
     {
       reportRecorderStarted: (sessionId) => dictation.reportRecorderStarted(sessionId),
@@ -486,6 +488,7 @@ async function bootstrap(): Promise<void> {
       micDeviceId: settings.get().micDeviceId,
       preWarmMic: settings.get().preWarmMic,
       captureBackend: settings.get().captureBackend,
+      captureProcessing: settings.get().captureProcessing,
     }),
     nativeCapture,
     rendererRecorder
@@ -592,11 +595,12 @@ async function bootstrap(): Promise<void> {
       }
       if ("capsuleDesign" in patch && patch.capsuleDesign) overlayController?.setCapsuleDesign(patch.capsuleDesign);
       if ("showInDock" in patch) syncAppPresentation();
-      if ("micDeviceId" in patch || "preWarmMic" in patch || "captureBackend" in patch) {
+      if ("micDeviceId" in patch || "preWarmMic" in patch || "captureBackend" in patch || "captureProcessing" in patch) {
         recorderController?.updateConfig({
           micDeviceId: settings.get().micDeviceId,
           preWarmMic: settings.get().preWarmMic,
           captureBackend: settings.get().captureBackend,
+          captureProcessing: settings.get().captureProcessing,
         });
       }
       if ("offlineMode" in patch) trayController.setOfflineMode(patch.offlineMode === "always-offline");

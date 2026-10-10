@@ -1,4 +1,4 @@
-import type { AudioInputDevice, MacOSPermissionState } from "@shared/types";
+import type { AudioInputDevice, CaptureProcessing, MacOSPermissionState } from "@shared/types";
 
 export type AudioInputLike = Pick<MediaDeviceInfo, "kind" | "deviceId" | "label">;
 type NativeInputLike = Pick<AudioInputDevice, "uid" | "name" | "transportType" | "isPhysical"> & Partial<Pick<AudioInputDevice, "isDefault">>;
@@ -166,4 +166,16 @@ export async function chooseRecorderDeviceId(access: RecorderDeviceAccess, prefe
   const selected = selectRecorderDevice(devices, preferredDeviceId, nativeDevices);
   if (!selected.ok) throw new Error(selected.message);
   return selected.deviceId;
+}
+
+export interface CaptureProcessingConstraints {
+  echoCancellation: boolean;
+  autoGainControl: boolean;
+  noiseSuppression: boolean;
+}
+
+// Browser mic processing for a capture mode. "default" keeps echo cancellation and auto gain on.
+export function captureProcessingConstraints(mode: CaptureProcessing = "default"): CaptureProcessingConstraints {
+  if (mode === "unprocessed") return { echoCancellation: false, autoGainControl: false, noiseSuppression: false };
+  return { echoCancellation: true, autoGainControl: true, noiseSuppression: false };
 }

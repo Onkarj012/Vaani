@@ -24,3 +24,5 @@ prd/
 .wayfinder/
 COMPARISON_REPORT.md
 VAANI_IMPROVEMENT_PLAN.md
+# A/B transcription test clips and results (dev only)
+ab-test/

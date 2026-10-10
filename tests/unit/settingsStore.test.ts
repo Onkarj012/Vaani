@@ -271,4 +271,33 @@ describe("SettingsStore", () => {
       lastValidation: validation,
     }]);
   });
+
+  it("defaults capture processing to the current browser behavior", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-capture-test-"));
+    const { SettingsStore } = await import("@main/store/settings");
+    const store = new SettingsStore(join(tempDir, "settings.json"));
+    await store.init();
+    expect(store.get().captureProcessing).toBe("default");
+  });
+
+  it("normalizes an unknown capture processing value in the settings file to the default", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-capture-test-"));
+    const filePath = join(tempDir, "settings.json");
+    await writeFile(filePath, JSON.stringify({ captureProcessing: "raw" }));
+    const { SettingsStore } = await import("@main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+    expect(store.get().captureProcessing).toBe("default");
+    expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject({ captureProcessing: "default" });
+  });
+
+  it("keeps an unprocessed capture mode from the settings file", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-capture-test-"));
+    const filePath = join(tempDir, "settings.json");
+    await writeFile(filePath, JSON.stringify({ captureProcessing: "unprocessed" }));
+    const { SettingsStore } = await import("@main/store/settings");
+    const store = new SettingsStore(filePath);
+    await store.init();
+    expect(store.get().captureProcessing).toBe("unprocessed");
+  });
 });

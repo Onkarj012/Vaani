@@ -437,7 +437,7 @@ const spawnWavFile: PlaybackSpawner = (command, args, options) => spawn(command,
 
 export function shouldRetainVoicedAudio(clip: AudioClip, silenceThreshold: number): boolean {
   if (clip.pcmData.length === 0 || clip.durationSeconds < RECOVERY_MIN_VOICED_DURATION_MS / 1000) return false;
-  return evaluateSpeechGate(clip.rmsFrames).totalSpeechMs >= RECOVERY_MIN_VOICED_DURATION_MS
+  return evaluateSpeechGate(clip.rmsFrames, clip.pcmData).totalSpeechMs >= RECOVERY_MIN_VOICED_DURATION_MS
     && clip.rmsFrames.some((frame) => frame >= silenceThreshold);
 }
 

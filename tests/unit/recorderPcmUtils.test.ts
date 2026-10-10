@@ -23,22 +23,33 @@ describe("PcmRingBuffer", () => {
 });
 
 describe("trimLeadingSilence", () => {
-  it("drops leading silent pre-roll but keeps speech and trailing samples", () => {
+  it("keeps a 250 ms lead pad before the detected onset and drops the rest of the silence", () => {
     const sampleRate = 1_000;
-    const silent = new Float32Array(40).fill(0);
+    const silent = new Float32Array(1_000).fill(0);
     const speech = new Float32Array(80).fill(0.02);
     const combined = new Float32Array([...silent, ...speech]);
 
     const trimmed = trimLeadingSilence(combined, sampleRate, 0.0015);
 
-    expect(trimmed.length).toBe(80);
-    expect(trimmed[0]).toBeCloseTo(0.02);
+    expect(trimmed.length).toBe(250 + 80);
+    expect(trimmed[249]).toBe(0);
+    expect(trimmed[250]).toBeCloseTo(0.02);
   });
 
-  it("returns an empty buffer for pure silence", () => {
+  it("keeps the whole pre-roll when no onset is found", () => {
     const trimmed = trimLeadingSilence(new Float32Array(100).fill(0), 1_000, 0.0015);
 
-    expect(trimmed.length).toBe(0);
+    expect(trimmed.length).toBe(100);
+  });
+
+  it("keeps a soft opening word that sits inside the lead pad", () => {
+    const sampleRate = 1_000;
+    const combined = new Float32Array([...new Float32Array(100).fill(0), ...new Float32Array(20).fill(0.002), ...new Float32Array(200).fill(0.2)]);
+
+    const trimmed = trimLeadingSilence(combined, sampleRate, 0.0015);
+
+    expect(trimmed.length).toBe(combined.length);
+    expect(trimmed[100]).toBeCloseTo(0.002);
   });
 });
 
@@ -57,12 +68,17 @@ describe("pcmToAudioClip", () => {
     expect(resampleToTargetRate(new Float32Array(), 48_000, 16_000)).toHaveLength(0);
   });
 
-  it("computes rms frames from pre-normalization samples", () => {
+  it("computes rms frames from the gain-adjusted samples that get sent", () => {
     const input = new Float32Array(320).fill(0.03);
     const clip = pcmToAudioClip(input, 16_000);
 
     expect(Math.max(...clip.pcmData)).toBeCloseTo(0.3);
-    expect(clip.rmsFrames[0]).toBeCloseTo(0.03);
+    expect(clip.rmsFrames[0]).toBeCloseTo(0.3);
+  });
+
+  it("reports the gain applied to a quiet clip and 1 for a loud one", () => {
+    expect(pcmToAudioClip(new Float32Array(320).fill(0.03), 16_000).gain).toBeCloseTo(10);
+    expect(pcmToAudioClip(new Float32Array(320).fill(0.5), 16_000).gain).toBe(1);
   });
 });
 

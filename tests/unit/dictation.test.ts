@@ -7,6 +7,7 @@ import { captureSessionSettings } from "@shared/sessionSettings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
+import { pcmToAudioClip } from "@shared/pcmUtils";
 import type { AudioClip, AudioVisualFrame, DictationEntry, DictationTrace, InjectionResult, Settings, TranscriptionResult } from "@shared/types";
 import type { DictationTraceStore } from "@main/store/dictationTrace";
 import type { RecoveryJournalStore } from "@main/store/recoveryJournal";
@@ -106,7 +107,8 @@ function createDictationService(deps: {
   const recorder = {
     isReady: vi.fn(() => true),
     startRecording: vi.fn(() => true),
-    stopRecording: vi.fn(() => true)
+    stopRecording: vi.fn(() => true),
+    abortRecording: vi.fn()
   };
 
   const transcription = {
@@ -207,6 +209,19 @@ function makeSettingsMutable(settings: MockedSettingsStore, initial: Settings = 
     return current;
   });
   return { current: () => current };
+}
+
+// Alternating samples at a fixed amplitude, run through the same conversion the recorder uses.
+function steadyClip(amplitude: number): AudioClip {
+  return pcmToAudioClip(new Float32Array(16_000).map((_, index) => (index % 2 === 0 ? amplitude : -amplitude)), 16_000);
+}
+
+async function submitClip(service: ReturnType<typeof createDictationService>["service"], clip: AudioClip): Promise<void> {
+  service.beginHotkeySession();
+  const sessionId = (service.getState() as { sessionId: string }).sessionId;
+  service.reportRecorderStarted(sessionId);
+  service.endHotkeySession();
+  await service.submitAudioClip({ sessionId, clip });
 }
 
 async function submitHelloWorld(service: ReturnType<typeof createDictationService>["service"]): Promise<void> {
@@ -538,6 +553,34 @@ describe("DictationService", () => {
     expect(overlay.setError).toHaveBeenCalledTimes(1);
   });
 
+  it("stays starting, with no recording indicator, until the recorder reports the first frame", () => {
+    const { service, overlay } = createDictationService();
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    vi.advanceTimersByTime(4_000);
+
+    expect(service.getState()).toMatchObject({ status: "starting", sessionId });
+    expect(overlay.setRecording).not.toHaveBeenCalled();
+
+    service.reportRecorderStarted(sessionId);
+
+    expect(service.getState()).toMatchObject({ status: "recording", sessionId });
+    expect(overlay.setRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the recorder and errors when no frame arrives before the start deadline", () => {
+    const { service, overlay, recorder } = createDictationService();
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    vi.advanceTimersByTime(5_000);
+
+    expect(recorder.abortRecording).toHaveBeenCalledWith(sessionId);
+    expect(overlay.setRecording).not.toHaveBeenCalled();
+    expect(overlay.setError).toHaveBeenCalledTimes(1);
+  });
+
   it("scales the demo transcription timeout for long clips", async () => {
     const { service, transcription } = createDictationService();
     transcription.transcribe.mockImplementation(() => new Promise((resolve) => {
@@ -686,7 +729,49 @@ describe("DictationService", () => {
     });
 
     expect(service.getState()).toMatchObject({ status: "error", message: noSpeechMessage });
-    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", userMessage: noSpeechMessage });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", userMessage: noSpeechMessage, speechGate: { decision: "silent" } });
+  });
+
+  it("sends a one-second clip of nonzero 16-bit samples to transcription", async () => {
+    const { service, transcription } = createDictationService();
+
+    await submitClip(service, steadyClip(0.00005));
+
+    expect(transcription.transcribe).toHaveBeenCalledTimes(1);
+    expect(transcription.transcribe.mock.calls[0]?.[0].pcmData).toHaveLength(16_000);
+  });
+
+  it("sends a valid-length quiet clip to transcription and inserts the text", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
+
+    await submitClip(service, steadyClip(0.004));
+
+    expect(transcription.transcribe).toHaveBeenCalledOnce();
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", speechGate: { pass: true, decision: "speech", reason: "speech-dominant" } });
+  });
+
+  it("sends nonzero audio with no speech contrast to transcription as uncertain", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
+
+    await submitClip(service, steadyClip(0.0005));
+
+    expect(transcription.transcribe).toHaveBeenCalledOnce();
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", speechGate: { pass: true, decision: "uncertain", reason: "no-speech-contrast" } });
+  });
+
+  it("rejects an empty clip before transcription", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription } = createDictationService({ traces: traceDeps.traces });
+
+    await submitClip(service, { pcmData: [], sampleRate: 16_000, durationSeconds: 0, rmsFrames: [] });
+
+    expect(transcription.transcribe).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "error", message: "No speech detected. Try speaking louder or closer to the microphone." });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "rejected", rejectionReason: "no_speech", speechGate: { decision: "silent" } });
   });
 
   it("keeps quiet but nonzero audio on the no-speech path when microphone access is not granted", async () => {
@@ -935,6 +1020,58 @@ describe("DictationService", () => {
       outcome: "verified",
     });
     expect(trace?.stopRequestedAt).toBe(trace?.hotkeyReleasedAt);
+  });
+
+  it("records the build, capture settings, pre-gain levels, and speech gate on the trace", async () => {
+    const traceDeps = createTraceDeps();
+    const { service } = createDictationService({ traces: traceDeps.traces });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.025], gain: 4 },
+      captureSettings: { echoCancellation: true, autoGainControl: true, noiseSuppression: false },
+    });
+    await vi.waitFor(() => expect(traceDeps.getTrace()?.completedAt).toBeDefined());
+    const trace = traceDeps.getTrace();
+    expect(trace?.buildIdentifier).toMatch(/^1\.1\.3\+/);
+    expect(trace?.captureSettings).toEqual({ echoCancellation: true, autoGainControl: true, noiseSuppression: false });
+    expect(trace?.rawAudio?.peakAmplitude).toBeCloseTo(0.1);
+    expect(trace?.captureLevels?.gain).toBe(4);
+    expect(trace?.captureLevels?.preGainPeak).toBeCloseTo(0.025);
+    expect(trace?.captureLevels?.preGainRms).toBeCloseTo(0.025);
+    expect(trace?.speechGate).toMatchObject({ pass: true, decision: "speech", reason: "speech-dominant" });
+  });
+
+  it("records each segment's no-speech value from the transcription provider", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, settings, transcription } = createDictationService({ traces: traceDeps.traces });
+    makeSettingsMutable(settings, { ...DEFAULT_SETTINGS, transcriptionProvider: "groq" });
+    transcription.transcribe.mockResolvedValueOnce({
+      rawText: "open get hub",
+      formattedText: "open get hub",
+      language: "en",
+      quality: {
+        provider: "groq",
+        attemptCount: 1,
+        supportsConfidence: true,
+        noSpeechProbability: 0.2,
+        transcriptLength: 13,
+        segmentNoSpeechProbabilities: [0.1, 0.2],
+      },
+    });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] },
+    });
+    await vi.waitFor(() => expect(traceDeps.getTrace()?.completedAt).toBeDefined());
+    expect(traceDeps.getTrace()?.quality?.segmentNoSpeechProbabilities).toEqual([0.1, 0.2]);
   });
 
   it("keeps the original release time when stop waits for recorder startup", async () => {

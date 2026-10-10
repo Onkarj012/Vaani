@@ -23,6 +23,7 @@ import type {
   InjectionFailureReason,
   ProviderAttemptTrace,
   RecorderFailure,
+  CaptureLevels,
   RecorderSubmission,
   SelectionRange,
   Settings,
@@ -272,8 +273,10 @@ export class DictationService {
     }
 
     this.clearRecorderStartTimer();
+    // This budget covers the first audio frame, so a mic that stays silent is released here.
     this.timers.setTimeout("recorderStart", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "starting") {
+        this.recorder?.abortRecording?.(sessionId);
         this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.", "recorder_unavailable");
       }
     }, RECORDER_START_TIMEOUT_MS);
@@ -386,9 +389,13 @@ export class DictationService {
     const settings = restoreSessionSettings(snapshot);
     const validationClip = trimSilence(payload.clip, settings.silenceThreshold);
     const rawAudio = analyzeAudioQuality(payload.clip, settings.silenceThreshold);
+    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames, payload.clip.pcmData);
     const tracePatch: Partial<DictationTrace> = {
       rawAudio,
+      captureLevels: captureLevelsFor(rawAudio, payload.clip.gain),
+      speechGate,
       trimmedAudio: analyzeAudioQuality(validationClip, settings.silenceThreshold),
+      ...(payload.captureSettings ? { captureSettings: payload.captureSettings } : {}),
       ...(payload.tailMetrics ? payload.tailMetrics : {}),
     };
 
@@ -414,8 +421,7 @@ export class DictationService {
       return;
     }
 
-    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames);
-    if (!speechGate.pass) {
+    if (speechGate.decision === "silent") {
       debug("dictation", `submitAudioClip: speech gate rejected clip (${speechGate.reason}, floor=${speechGate.noiseFloor.toFixed(4)}, longest=${speechGate.longestRunMs}ms, total=${speechGate.totalSpeechMs}ms)`);
       this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.", "no_speech");
       return;
@@ -441,19 +447,20 @@ export class DictationService {
       const sttStartedAt = Date.now();
       const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip);
       const transcriptionDeadlineAt = sttStartedAt + transcriptionTimeoutMs;
+      const qualityClip = preGainClip(payload.clip);
       const transcription = await this.transcription.transcribe(payload.clip, {
         sessionSettings: snapshot,
-        speechContext: { trimmedDurationSeconds: validationClip.durationSeconds, speechGatePassed: speechGate.pass },
+        speechContext: { trimmedDurationSeconds: validationClip.durationSeconds, speechGatePassed: speechGate.decision === "speech" },
         languageOverride: language,
         ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
           retryClip: validationClip,
           deadlineAt: transcriptionDeadlineAt,
           signal: operationSignal,
-        rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, payload.clip, result.quality).action === "retry",
+        rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, qualityClip, result.quality).action === "retry",
       });
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
       void this.patchTrace(payload.sessionId, { sttDoneAt: new Date().toISOString() });
-      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, payload.clip, transcription.quality));
+      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, qualityClip, transcription.quality));
       await this.transitionRecovery(payload.sessionId, "transcript_ready", {
         text: { rawTranscript: transcription.rawText },
         providerAttempts: transcription.providerAttempts?.map(mapProviderAttempt),
@@ -2010,6 +2017,22 @@ function getElectronAppVersion(): string {
 
 function clippedCopy(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] } {
   return { pcmData: [...clip.pcmData], sampleRate: clip.sampleRate, durationSeconds: clip.durationSeconds, rmsFrames: [...clip.rmsFrames] };
+}
+
+// Undoes the boost on frame levels, so transcript heuristics keep judging the mic's own level.
+function preGainClip(clip: AudioClip): Pick<AudioClip, "rmsFrames"> {
+  const gain = clip.gain ?? 1;
+  return { rmsFrames: clip.rmsFrames.map((frame) => frame / gain) };
+}
+
+// Recovers pre-gain peak and RMS from the gain-adjusted clip, since the boost is a single multiplier.
+function captureLevelsFor(sent: AudioQualityMetrics, gain: number | undefined): CaptureLevels {
+  const appliedGain = gain ?? 1;
+  return {
+    preGainPeak: sent.peakAmplitude / appliedGain,
+    preGainRms: sent.rmsAverage / appliedGain,
+    gain: appliedGain,
+  };
 }
 
 function analyzeAudioQuality(clip: AudioClip, silenceThreshold: number): AudioQualityMetrics {
