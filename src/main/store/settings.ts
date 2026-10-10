@@ -1,7 +1,7 @@
 import { app } from "electron";
 import { join } from "node:path";
 import { APP_DATA_DIR, DEFAULT_SETTINGS, isHiddenProvider } from "@shared/defaults";
-import { modelForProvider } from "@shared/modelList";
+import { modelEntries, modelForProvider } from "@shared/modelList";
 import type { Settings } from "@shared/types";
 import { error } from "@main/log";
 import { readJsonFile, writeJsonFile } from "./base";
@@ -130,12 +130,11 @@ export class SettingsStore {
       }
     }
 
-    if (next.formattingProvider !== undefined || next.formattingModel !== undefined) {
-      const formattingModel = modelForProvider("cleanup", next.formattingProvider ?? DEFAULT_SETTINGS.formattingProvider, next.formattingModel ?? "");
-      if (formattingModel !== next.formattingModel) {
-        next.formattingModel = formattingModel;
-        changed = true;
-      }
+    // Cleanup moves to the default provider only when its saved provider or model is retired or missing.
+    if ((next.formattingProvider !== undefined || next.formattingModel !== undefined) && !isListedCleanupChoice(next.formattingProvider, next.formattingModel)) {
+      next.formattingProvider = DEFAULT_SETTINGS.formattingProvider;
+      next.formattingModel = DEFAULT_SETTINGS.formattingModel;
+      changed = true;
     }
 
     if (changed) {
@@ -189,6 +188,11 @@ export class SettingsStore {
   async init(): Promise<void> {
     await this.load();
   }
+}
+
+// True when the provider lists this cleanup model. A missing provider never matches.
+function isListedCleanupChoice(provider: string | undefined, model: string | undefined): boolean {
+  return provider !== undefined && modelEntries("cleanup", provider).some((entry) => entry.modelId === model);
 }
 
 function arraysEqual(left: unknown, right: string[]): left is string[] {

@@ -5,7 +5,7 @@ import type { AudioClip, FormattingOptions, TranscriptionResult } from "@shared/
 import type { FormattingProvider, TranscriptionProvider } from "@main/providers/types";
 import { createCancellationScope } from "@main/cancellation";
 import { AnthropicLlmProvider } from "@main/providers/anthropic/anthropicLlm";
-import { OpenRouterLlmProvider } from "@main/providers/anthropic/openRouterLlm";
+import { OpenRouterLlmProvider } from "@main/providers/openrouter/openRouterLlm";
 import { OpenAILlmProvider } from "@main/providers/openai/openaiLlm";
 import { GroqLlmProvider } from "@main/providers/groq/groqLlm";
 
@@ -82,7 +82,7 @@ describe("TranscriptionService failover chain", () => {
   });
 
   it("keeps the captured formatter model and prompt", async () => {
-    const settings = { ...DEFAULT_SETTINGS, groqApiKey: "key", formattingModel: "original-model", customPrompt: "original-prompt" };
+    const settings = { ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "key", formattingModel: "original-model", customPrompt: "original-prompt" };
     const snapshot = captureSessionSettings(settings);
     settings.formattingProvider = "openai-llm";
     settings.formattingModel = "new-model";
@@ -474,7 +474,7 @@ describe("TranscriptionService failover chain", () => {
     const format = vi.fn(async (text: string) => text);
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, offlineMode, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", offlineMode, groqApiKey: "groq-key" }));
 
     await expect(service.formatTranscriptDetailed("Keep this text unchanged")).resolves.toMatchObject({ formatterUsed: "llm" });
     expect(format).toHaveBeenCalledTimes(1);
@@ -708,6 +708,7 @@ describe("TranscriptionService failover chain", () => {
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      formattingProvider: "groq-llm",
       groqApiKey: "groq-key",
     }));
 
@@ -725,7 +726,7 @@ describe("TranscriptionService failover chain", () => {
   it("falls back to corrected raw text when the formatter omits the last word", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "We ship it.")));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("we ship it Tuesday")).toEqual({
       text: "We ship it Tuesday.",
@@ -745,6 +746,7 @@ describe("TranscriptionService failover chain", () => {
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      formattingProvider: "groq-llm",
       groqApiKey: "groq-key",
     }));
 
@@ -771,6 +773,7 @@ describe("TranscriptionService failover chain", () => {
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
+      formattingProvider: "groq-llm",
       groqApiKey: "groq-key",
     }));
 
@@ -898,7 +901,7 @@ describe("TranscriptionService failover chain", () => {
       });
     })));
     const { TranscriptionService } = await import("@main/transcription");
-    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     const pending = service.formatTranscriptDetailed("alpha beta", { signal: controller.signal });
     controller.abort();
@@ -945,11 +948,12 @@ describe("formatter outcome at the transcription seam", () => {
     groqCreate.mockReset();
   });
 
-  async function serviceFor(formattingProvider: string, withKey = true) {
+  async function serviceFor(formattingProvider: string, withKey = true, customPrompt = "") {
     const { TranscriptionService } = await import("@main/transcription");
     return new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
       formattingProvider,
+      customPrompt,
       providerApiKeys: withKey ? [{ providerId: formattingProvider, key: "test-key" }] : [],
     }));
   }
@@ -1029,6 +1033,64 @@ describe("formatter outcome at the transcription seam", () => {
       formatterStatus: "failed",
       formatterStatusReason: "Request timed out.",
     });
+  });
+
+  it("records a timed-out OpenRouter call as failed", async () => {
+    const service = await serviceFor("openrouter");
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")));
+    })));
+
+    const pending = service.formatTranscriptDetailed(rawText);
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await expect(pending).resolves.toEqual({
+      text: rawText,
+      formatterUsed: "none",
+      formatterStatus: "failed",
+      formatterStatusReason: "Request timed out.",
+    });
+  });
+
+  it("records an OpenRouter reply that stalls while the body is read as failed", async () => {
+    const service = await serviceFor("openrouter");
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => Promise.resolve(new Response(new ReadableStream({
+      start(controller) {
+        init.signal?.addEventListener("abort", () => controller.error(new DOMException("The operation was aborted.", "AbortError")));
+      },
+    }), { status: 200 }))));
+
+    const pending = service.formatTranscriptDetailed(rawText);
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await expect(pending).resolves.toEqual({
+      text: rawText,
+      formatterUsed: "none",
+      formatterStatus: "failed",
+      formatterStatusReason: "Request timed out.",
+    });
+  });
+
+  it.each(["groq-llm", "openai-llm", "anthropic", "openrouter"])("sends the custom prompt to %s", async (id) => {
+    const customPrompt = "Turn this into bullet points.";
+    groqCreate.mockResolvedValue({ choices: [{ message: { content: "We ship it Tuesday." } }] });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse(id === "anthropic"
+      ? { content: [{ type: "text", text: "We ship it Tuesday." }] }
+      : { choices: [{ message: { content: "We ship it Tuesday." } }] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await (await serviceFor(id, true, customPrompt)).formatTranscriptDetailed(rawText);
+
+    if (id === "groq-llm") {
+      expect(groqCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ messages: [{ role: "system", content: customPrompt }, expect.anything()] }),
+        expect.anything(),
+      );
+    } else {
+      expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ body: expect.stringContaining(customPrompt) }));
+    }
   });
 
   it("records an assistant-style OpenAI reply as rejected and keeps the raw text", async () => {

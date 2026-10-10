@@ -5,7 +5,7 @@ import { OpenAISttProvider, OpenAISttCompatibleProvider } from "./openai/openaiS
 import { OpenAILlmProvider } from "./openai/openaiLlm";
 import { DeepgramSttProvider } from "./deepgram/deepgramStt";
 import { AnthropicLlmProvider } from "./anthropic/anthropicLlm";
-import { OpenRouterLlmProvider } from "./anthropic/openRouterLlm";
+import { OpenRouterLlmProvider } from "./openrouter/openRouterLlm";
 import { LocalWhisperProvider } from "./local/whisperCpp";
 
 let registry: ProviderRegistry | null = null;

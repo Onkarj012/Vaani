@@ -31,7 +31,7 @@ async function loadWithStoredSettings(stored: Record<string, unknown>) {
 }
 
 describe("model settings migration", () => {
-  it("swaps retired saved model IDs for the provider's current default", async () => {
+  it("moves a retired cleanup model to OpenRouter and swaps a retired transcription model for its default", async () => {
     const { store, filePath } = await loadWithStoredSettings({
       formattingProvider: "groq-llm",
       formattingModel: "llama-3.1-8b-instant",
@@ -40,23 +40,45 @@ describe("model settings migration", () => {
     });
 
     expect(store.get()).toMatchObject({
-      formattingProvider: "groq-llm",
-      formattingModel: "openai/gpt-oss-20b",
+      formattingProvider: "openrouter",
+      formattingModel: "anthropic/claude-haiku-5.5",
       transcriptionModel: "whisper-large-v3-turbo",
     });
     expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject({
-      formattingModel: "openai/gpt-oss-20b",
+      formattingProvider: "openrouter",
+      formattingModel: "anthropic/claude-haiku-5.5",
       transcriptionModel: "whisper-large-v3-turbo",
     });
   });
 
-  it("swaps a retired Anthropic model for its current default", async () => {
+  it("moves a retired Anthropic cleanup model to OpenRouter", async () => {
     const { store } = await loadWithStoredSettings({
       formattingProvider: "anthropic",
       formattingModel: "claude-3-5-sonnet-latest",
     });
 
-    expect(store.get()).toMatchObject({ formattingProvider: "anthropic", formattingModel: "claude-haiku-5-5" });
+    expect(store.get()).toMatchObject({ formattingProvider: "openrouter", formattingModel: "anthropic/claude-haiku-5.5" });
+  });
+
+  it("moves a cleanup choice with a missing provider to OpenRouter", async () => {
+    const { store } = await loadWithStoredSettings({ formattingModel: "openai/gpt-6-luna" });
+
+    expect(store.get()).toMatchObject({ formattingProvider: "openrouter", formattingModel: "anthropic/claude-haiku-5.5" });
+  });
+
+  it("keeps a valid OpenRouter cleanup choice", async () => {
+    const { store } = await loadWithStoredSettings({
+      formattingProvider: "openrouter",
+      formattingModel: "openai/gpt-6-luna",
+    });
+
+    expect(store.get()).toMatchObject({ formattingProvider: "openrouter", formattingModel: "openai/gpt-6-luna" });
+  });
+
+  it("gives a new install OpenRouter cleanup with Haiku 5.5", async () => {
+    const { store } = await loadWithStoredSettings({});
+
+    expect(store.get()).toMatchObject({ formattingProvider: "openrouter", formattingModel: "anthropic/claude-haiku-5.5" });
   });
 
   it("keeps a current model that its provider lists", async () => {
@@ -88,7 +110,7 @@ describe("model settings migration", () => {
     const reloaded = new SettingsStore(filePath);
     await reloaded.init();
 
-    expect(reloaded.get()).toMatchObject({ formattingModel: "openai/gpt-oss-20b" });
+    expect(reloaded.get()).toMatchObject({ formattingProvider: "openrouter", formattingModel: "anthropic/claude-haiku-5.5" });
     expect(await readFile(filePath, "utf8")).toBe(afterFirstLoad);
   });
 

@@ -40,8 +40,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // Phase 1
   transcriptionProvider: "groq",
   transcriptionModel: "",
-  formattingProvider: "groq-llm",
-  formattingModel: defaultModelFor("cleanup", "groq-llm"),
+  formattingProvider: "openrouter",
+  formattingModel: defaultModelFor("cleanup", "openrouter"),
   providerApiKeys: [],
   failoverEnabled: true,
   // Phase 2

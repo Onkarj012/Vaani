@@ -68,7 +68,7 @@ export const GroqLlmProvider: FormattingProvider = {
 
     try {
       const model = options.model || FORMATTING_MODEL;
-      const formatted = await requestFormatting(options.apiKey, text, FORMATTING_PROMPT, model, options.signal);
+      const formatted = await requestFormatting(options.apiKey, text, options.systemPrompt || FORMATTING_PROMPT, model, options.signal);
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
 
       if (hasSuspiciousContentChange(text, formatted)) {

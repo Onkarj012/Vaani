@@ -9,9 +9,14 @@ import {
   NO_API_KEY_REASON,
   TOO_SHORT_REASON,
 } from "../formatting-constants";
+import { OPENROUTER_ATTRIBUTION_HEADERS, OPENROUTER_BASE_URL, openRouterPostJson } from "./client";
 import { validateBearerEndpoint } from "../validation";
 import { isAbortError } from "@main/cancellation";
 import { defaultModelFor, providerModels } from "@shared/modelList";
+
+interface ChatCompletionReply {
+  choices: { message: { content: string | null } }[];
+}
 
 export const OpenRouterLlmProvider: FormattingProvider = {
   id: "openrouter",
@@ -19,6 +24,7 @@ export const OpenRouterLlmProvider: FormattingProvider = {
   requiresApiKey: true,
   models: providerModels("cleanup", "openrouter"),
 
+  // Formats one transcript through OpenRouter chat completions.
   async format(rawText, options): Promise<FormattingResult> {
     const text = rawText.trim();
     if (!text) return formatterResult("skipped", text, EMPTY_TRANSCRIPT_REASON);
@@ -26,15 +32,10 @@ export const OpenRouterLlmProvider: FormattingProvider = {
     if (!options.apiKey) return formatterResult("skipped", text, NO_API_KEY_REASON);
 
     try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${options.apiKey}`,
-          "HTTP-Referer": "https://vaani.app",
-          "X-Title": "Vaani",
-        },
-        signal: options.signal,
+      const reply = await openRouterPostJson<ChatCompletionReply>({
+        path: "/chat/completions",
+        apiKey: options.apiKey,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: options.model || defaultModelFor("cleanup", "openrouter"),
           temperature: 0,
@@ -44,11 +45,9 @@ export const OpenRouterLlmProvider: FormattingProvider = {
             { role: "user", content: `<transcript>\n${text}\n</transcript>` },
           ],
         }),
+        signal: options.signal,
       });
-
-      if (!response.ok) throw new Error(`OpenRouter API request failed with status ${response.status}.`);
-      const data = await response.json() as { choices: { message: { content: string } }[] };
-      const formatted = data.choices[0]?.message?.content?.trim();
+      const formatted = reply.choices[0]?.message?.content?.trim();
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
       return formatterResult("ran", formatted, FORMATTED_REASON);
     } catch (error) {
@@ -62,9 +61,6 @@ export const OpenRouterLlmProvider: FormattingProvider = {
   },
 
   async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
-    return validateBearerEndpoint("OpenRouter", "https://openrouter.ai/api/v1/models", apiKey, "Bearer", {
-      "HTTP-Referer": "https://vaani.app",
-      "X-Title": "Vaani",
-    });
+    return validateBearerEndpoint("OpenRouter", `${OPENROUTER_BASE_URL}/models`, apiKey, "Bearer", OPENROUTER_ATTRIBUTION_HEADERS);
   },
 };
