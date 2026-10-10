@@ -668,8 +668,8 @@ export class DictationService {
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
 
       if (injection.success) {
-        const verification = await this.verifyInsertion(cleanedText, verificationBaseline, verificationTarget,
-          () => this.isCurrentSession(payload.sessionId) && !operationSignal?.aborted);
+        const verification = await this.verifyInsertion(cleanedText, verificationBaseline, currentSelection, verificationTarget,
+          () => this.isCurrentSession(payload.sessionId) && !operationSignal?.aborted && this.isSameFocusedTarget(target, initialTargetIdentity));
         void this.patchTrace(payload.sessionId, { verifyDoneAt: new Date().toISOString() });
         const finalAttempt = injectionAttempts[injectionAttempts.length - 1];
         if (finalAttempt) finalAttempt.verification = verification;
@@ -680,7 +680,7 @@ export class DictationService {
         });
         const weakEvidence = initialTargetIdentity === null || currentTargetIdentity === null
           || initialTargetValue === null || currentValue === null || initialSelection === null || currentSelection === null;
-        if (verification.passed && !weakEvidence) {
+        if (verification.passed && !weakEvidence && this.isSameFocusedTarget(target, initialTargetIdentity)) {
           await this.recordRecoveryInsertionOutcome(payload.sessionId, "delivered", injection.method, undefined, undefined);
           await this.finishActiveInsertion(payload.sessionId, "verified", { ...entryBase, injectionStatus: "injected", injectionMethod: injection.method }, {
             injectionMethod: injection.method,
@@ -1233,6 +1233,7 @@ export class DictationService {
     }
     const baselineFocus = this.appDetector.getContext();
     const baseline = sameTarget(target, baselineFocus) ? safeFocusedValue() : null;
+    const baselineSelection = this.captureSelection(target);
     const identity = expectedIdentity === undefined ? safeFocusedElementIdentity() : expectedIdentity;
     if (identity === null) {
       this.setState({ status: "error", sessionId: null, message: "Not inserted: target changed." });
@@ -1264,8 +1265,8 @@ export class DictationService {
       this.scheduleReset(ERROR_RESET_MS);
       return null;
     }
-    const verification = await this.verifyInsertion(text, baseline, target,
-      () => this.sessionGeneration === expectedGeneration && !signal?.aborted);
+    const verification = await this.verifyInsertion(text, baseline, baselineSelection, target,
+      () => this.sessionGeneration === expectedGeneration && !signal?.aborted && this.isSameFocusedTarget(target, identity));
     if (this.sessionGeneration !== expectedGeneration || signal?.aborted) return null;
     if (!verification.passed) {
       onUncertain?.();
@@ -1930,6 +1931,7 @@ export class DictationService {
   private async verifyInsertion(
     expectedText: string,
     baseline: string | null,
+    selection: SelectionRange | null,
     target: Pick<AppContextResult, "appBundleId" | "appName"> | null,
     isValid: () => boolean = () => true,
   ): Promise<InsertionVerificationTrace> {
@@ -1938,7 +1940,11 @@ export class DictationService {
       return { readable: false, passed: false, repaired: false, reason: "baseline-unreadable" };
     }
     const baselineOccurrenceCount = countLiteralOccurrences(baseline, expectedText);
-    const initialPoll = await this.pollInsertionValue(expectedText, baselineOccurrenceCount, target, isValid);
+    // A replacement that leaves the field unchanged shows no write, so it never counts as inserted.
+    const replacedValue = selection ? replaceSelectedText(baseline, selection, expectedText) : null;
+    const isInserted = (value: string): boolean => countLiteralOccurrences(value, expectedText) > baselineOccurrenceCount
+      || (replacedValue !== null && replacedValue !== baseline && value === replacedValue);
+    const initialPoll = await this.pollInsertionValue(isInserted, target, isValid);
     if (!isValid()) return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
     if (initialPoll.reason === "not-at-target") {
       return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
@@ -1952,7 +1958,7 @@ export class DictationService {
     if (currentValue === null) {
       return { readable: false, passed: false, repaired: false, reason: "unreadable" };
     }
-    if (countLiteralOccurrences(currentValue, expectedText) > baselineOccurrenceCount) {
+    if (isInserted(currentValue)) {
       return { readable: true, passed: true, repaired: false, reason: "expected-present" };
     }
 
@@ -1961,8 +1967,7 @@ export class DictationService {
   }
 
   private async pollInsertionValue(
-    expectedText: string,
-    baselineOccurrenceCount: number,
+    isInserted: (value: string) => boolean,
     target: Pick<AppContextResult, "appBundleId" | "appName"> | null,
     isValid: () => boolean,
   ): Promise<{ value: string | null; reason?: "not-at-target" | "timeout" }> {
@@ -1978,7 +1983,7 @@ export class DictationService {
       const currentValue = safeFocusedValue();
       if (currentValue !== null) {
         lastReadableValue = currentValue;
-        if (countLiteralOccurrences(currentValue, expectedText) > baselineOccurrenceCount) return { value: currentValue };
+        if (isInserted(currentValue)) return { value: currentValue };
       }
 
       const remainingMs = deadline - this.verifierNow();
@@ -2156,6 +2161,13 @@ function safeFocusedElementIdentity(): string | null {
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 500);
+}
+
+// Returns the value with the selected range replaced by text.
+function replaceSelectedText(value: string, selection: SelectionRange, text: string): string {
+  const start = Math.min(selection.location, value.length);
+  const end = Math.min(start + selection.length, value.length);
+  return value.slice(0, start) + text + value.slice(end);
 }
 
 function countLiteralOccurrences(value: string, expectedText: string): number {

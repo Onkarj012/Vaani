@@ -146,6 +146,16 @@ describe("TextInjector strategy selection", () => {
     expect(injectorMocks.clipboardInject).not.toHaveBeenCalled();
   });
 
+  it("falls back to clipboard when AX reports no editable target before writing", async () => {
+    injectorMocks.axInject.mockResolvedValueOnce({ success: false, reason: "no_editable_target" });
+    const { TextInjector } = await import("@main/injection");
+    const injector = new TextInjector(() => settings({ injectionMode: "auto" }));
+
+    await expect(injector.inject("hello", { appBundleId: "com.apple.TextEdit", appName: "TextEdit" }))
+      .resolves.toEqual({ success: true, method: "clipboard" });
+    expect(injectorMocks.clipboardInject).toHaveBeenCalledTimes(1);
+  });
+
   it("does not fall through to clipboard after an uncertain AX dispatch", async () => {
     injectorMocks.axInject.mockResolvedValueOnce({ success: false, reason: "outcome_uncertain" });
     const { TextInjector } = await import("@main/injection");

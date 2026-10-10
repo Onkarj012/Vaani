@@ -1583,6 +1583,42 @@ describe("DictationService", () => {
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "injected", injectionMethod: "clipboard" }));
   });
 
+  it("passes when a correct selection replacement keeps the expected text count unchanged", async () => {
+    const { service, history, injector, transcription } = createDictationService();
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    let value = "Hello world. Extra words";
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => value);
+    (nativeBridge as { getFocusedSelection?: () => { location: number; length: number } | null }).getFocusedSelection = vi.fn(() => ({ location: 0, length: 24 }));
+    injector.inject.mockImplementation(async () => {
+      value = "Hello world.";
+      return { success: true, method: "clipboard" };
+    });
+
+    await submitHelloWorld(service);
+
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "injected", injectionMethod: "clipboard" }));
+  });
+
+  it("does not confirm text that lands in a different field of the same app", async () => {
+    const traceDeps = createTraceDeps();
+    let fieldIdentity = "field-a";
+    let value = "";
+    const { service, history, injector, transcription } = createDictationService({ traces: traceDeps.traces, focusedIdentity: () => fieldIdentity });
+    transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
+    (nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = vi.fn(() => value);
+    injector.inject.mockImplementation(async () => {
+      fieldIdentity = "field-b";
+      value = "Hello world.";
+      return { success: true, method: "clipboard" };
+    });
+
+    await submitHelloWorld(service);
+    await Promise.resolve();
+
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
+    expect(traceDeps.getTrace()?.stages?.insertionVerification).toMatchObject({ passed: false, reason: "not-at-target" });
+  });
+
   it("does not pass when unrelated field changes leave the occurrence count unchanged", async () => {
     const { service, history, injector, transcription } = createDictationService();
     transcription.transcribe.mockResolvedValue({ rawText: "hello world", formattedText: "hello world", language: "en" });
