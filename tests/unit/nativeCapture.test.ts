@@ -184,6 +184,7 @@ describe("CaptureBackendController", () => {
       startRecording: vi.fn(() => true),
       stopRecording: vi.fn(() => true),
       shutdown: vi.fn(),
+      hasActiveSession: vi.fn(() => true),
       suspendForLifecycle: vi.fn(() => ({ wasRunning: true, sessionId: "s3", partialClip })),
       resumeAfterLifecycle: vi.fn(() => ({ ok: true as const, selectedDeviceUid: "built-in" })),
     } as unknown as NativeCaptureService;
@@ -235,7 +236,77 @@ describe("CaptureBackendController", () => {
     controller.suspendForLifecycle();
     expect(native.suspendForLifecycle).toHaveBeenCalledTimes(1);
   });
+
+  it("routes lifecycle by config once a native session has fully stopped", () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, native, renderer, sink, config, emit } = liveNativeController();
+      expect(controller.startRecording("s4")).toBe(true);
+      emit(new Float32Array(16_000).fill(0.02));
+      expect(controller.stopRecording("s4")).toBe(true);
+      vi.advanceTimersByTime(10_000);
+      expect(sink.submitAudioClip).toHaveBeenCalledTimes(1);
+
+      config.captureProcessing = "unprocessed";
+      const nativeSuspend = vi.spyOn(native, "suspendForLifecycle");
+      controller.suspendForLifecycle();
+      expect(renderer.suspendForLifecycle).toHaveBeenCalledTimes(1);
+      expect(nativeSuspend).not.toHaveBeenCalled();
+      expect(controller.resumeAfterLifecycle()).toMatchObject({ ok: true });
+      expect(renderer.resumeAfterLifecycle).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a native session still draining after stop on the native backend", () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, native, renderer, config } = liveNativeController();
+      expect(controller.startRecording("s5")).toBe(true);
+      expect(controller.stopRecording("s5")).toBe(true);
+
+      config.captureProcessing = "unprocessed";
+      const nativeSuspend = vi.spyOn(native, "suspendForLifecycle");
+      controller.suspendForLifecycle();
+      expect(nativeSuspend).toHaveBeenCalledTimes(1);
+      expect(renderer.suspendForLifecycle).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
+// Builds a controller over a real NativeCaptureService with a mock mic bridge.
+function liveNativeController() {
+  const config: RecorderConfig = { preWarmMic: true, captureBackend: "native", captureProcessing: "default" };
+  let onData: ((samples: Float32Array) => void) | undefined;
+  const bridge = {
+    audioCaptureStart: vi.fn((options: { onData: (samples: Float32Array) => void }) => {
+      onData = options.onData;
+      return true;
+    }),
+    audioCaptureStop: vi.fn(),
+    audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+    audioCaptureIsRunning: vi.fn(() => false),
+  };
+  const sink: NativeCaptureSink = {
+    reportRecorderStarted: vi.fn(),
+    submitAudioClip: vi.fn(),
+    updateAudioLevel: vi.fn(),
+    handleRecorderFailure: vi.fn(),
+  };
+  const native = new NativeCaptureService(() => config, sink, bridge);
+  const renderer = {
+    isReady: vi.fn(() => true),
+    startRecording: vi.fn(() => true),
+    stopRecording: vi.fn(() => true),
+    suspendForLifecycle: vi.fn(() => ({ wasRunning: false, sessionId: null })),
+    resumeAfterLifecycle: vi.fn(() => ({ ok: true as const, selectedDeviceUid: null })),
+  };
+  const controller = new CaptureBackendController(() => config, native, renderer);
+  return { controller, native, renderer, sink, config, emit: (samples: Float32Array) => onData?.(samples) };
+}
 
 describe("NativeCaptureService", () => {
   it("submits last-frame timing and final 300 ms loudness with the clip", async () => {

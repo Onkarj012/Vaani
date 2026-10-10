@@ -109,6 +109,11 @@ export class NativeCaptureService implements RecorderCommands {
     return typeof this.bridge.audioCaptureStart === "function";
   }
 
+  // True from start until the clip is finalized, including the stop drain.
+  hasActiveSession(): boolean {
+    return this.activeSessionId !== null;
+  }
+
   warm(): boolean {
     this.currentConfig = this.normalizeConfig(this.getConfig());
     if (!this.currentConfig.preWarmMic) return true;
@@ -451,9 +456,10 @@ export class CaptureBackendController implements RecorderCommands {
     }
   }
 
-  // The backend that owns the session, or the configured one when idle.
+  // A live native session keeps lifecycle on native; otherwise the last renderer session or the configured backend decides.
   private lifecycleBackend(): "native" | "renderer" {
-    if (this.activeBackend) return this.activeBackend;
+    if (this.activeBackend === "renderer") return "renderer";
+    if (this.activeBackend === "native" && this.nativeCapture.hasActiveSession()) return "native";
     return prefersNativeCapture(this.getConfig()) ? "native" : "renderer";
   }
 
