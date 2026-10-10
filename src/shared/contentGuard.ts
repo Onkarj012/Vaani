@@ -1,12 +1,19 @@
 // Word guard for LLM formatting. Compares the words of the formatter input and output,
 // in order and in any script. Punctuation, capitals, and line placement are ignored.
-// Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one") may
-// disappear only when the output has a line break or a list item with the same number there, or keeps the cue words.
+// A Devanagari word may come back in Roman letters when it sounds alike ("कैंसल" → "cancel").
+// Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one",
+// a sentence-opening "First,") may disappear only when the output has a line break or a list item with the same number there,
+// or keeps the cue words.
+
+import { isDevanagariWord, soundsAlike } from "./scriptMatch";
 
 const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
 const NUMBER_WORD_SOURCE = String.raw`one|two|three|four|five|six|seven|eight|nine|ten|\d+`;
+const ORDINAL_SOURCE = String.raw`first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth`;
+// An ordinal that opens a sentence ("First, Siddharth should…") is a list cue on its own.
+const BARE_ORDINAL_SOURCE = String.raw`(?<=(?:^|[.!?:;\n])[ \t]*)(?:${ORDINAL_SOURCE}|firstly|secondly|thirdly)`;
 // A cue whose number starts a longer literal such as "1.5" is not a cue.
-const ENUM_CUE_SOURCE = String.raw`(?:bullet\s*point|number\s+(?:${NUMBER_WORD_SOURCE})|no\.\s*\d+|point\s+(?:${NUMBER_WORD_SOURCE})|item\s+(?:${NUMBER_WORD_SOURCE})|(?:first|second|third|fourth|fifth)\s+(?:item|bullet|point|step))(?![.,:/]\p{N})`;
+const ENUM_CUE_SOURCE = String.raw`(?:bullet\s*point|number\s+(?:${NUMBER_WORD_SOURCE})|no\.\s*\d+|point\s+(?:${NUMBER_WORD_SOURCE})|item\s+(?:${NUMBER_WORD_SOURCE})|(?:${ORDINAL_SOURCE})\s+(?:item|bullet|point|step)|${BARE_ORDINAL_SOURCE})(?![.,:/]\p{N})`;
 // A sign, with a currency symbol before or after it, or a leading dot is part of the literal only when no letter or digit comes right before it.
 const NUMERIC_LITERAL_SOURCE = String.raw`(?<![\p{L}\p{M}\p{N}])(?:[+-]\p{Sc}?|\p{Sc}[+-])\p{N}+(?:[.,:/]\p{N}+)*|(?<![\p{L}\p{M}\p{N}])[+-]?\.\p{N}+|\p{N}+(?:[.,:/]\p{N}+)+`;
 const WORD_SOURCE = String.raw`[\p{L}\p{M}\p{N}]+`;
@@ -35,6 +42,8 @@ const NUMBER_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
 
 const ORDINAL_NUMBERS: ReadonlyMap<string, string> = new Map([
   ["first", "1"], ["second", "2"], ["third", "3"], ["fourth", "4"], ["fifth", "5"],
+  ["sixth", "6"], ["seventh", "7"], ["eighth", "8"], ["ninth", "9"], ["tenth", "10"],
+  ["firstly", "1"], ["secondly", "2"], ["thirdly", "3"],
 ]);
 
 // Largest alignment table the guard builds. Longer diffs are rejected instead of aligned.
@@ -79,6 +88,11 @@ function cueValue(cue: string): string | null {
     if (number) return number;
   }
   return null;
+}
+
+// True when an output word is the input word, or the same Devanagari word written in Roman letters.
+function sameWord(source: string, output: string): boolean {
+  return output === source || (isDevanagariWord(source) && soundsAlike(source, output));
 }
 
 // True when a unit is a spelled-out number word.
@@ -159,24 +173,28 @@ function showsLayout(cue: Unit, output: Unit): boolean {
 }
 
 // Number of output units that the cue words fill when they appear unchanged just before end, or 0.
-function cueWordsCountAt(words: string[], output: Unit[], end: number): number {
+// A list item with the cue's number right before the kept words ("1. First, …") is part of the match.
+function cueWordsCountAt(cue: Unit & { words: string[] }, output: Unit[], end: number): number {
+  const { words } = cue;
   const start = end - words.length;
   if (words.length === 0 || start < 0) return 0;
   const matches = words.every((word, offset) => {
     const unit = output[start + offset];
     return unit?.kind === "word" && sameCueWord(word, unit.text);
   });
-  return matches ? words.length : 0;
+  if (!matches) return 0;
+  const before = output[start - 1];
+  return before && showsLayout(cue, before) ? words.length + 1 : words.length;
 }
 
 // Number of output units, ending just before end, that a source unit accounts for. Zero means no match there.
 function consumedBy(source: Unit, output: Unit[], end: number): number {
   const last = output[end - 1];
   if (!last) return 0;
-  if (source.kind === "word" || source.kind === "filler") return last.kind === "word" && last.text === source.text ? 1 : 0;
+  if (source.kind === "word" || source.kind === "filler") return last.kind === "word" && sameWord(source.text, last.text) ? 1 : 0;
   if (source.kind !== "line" && source.kind !== "enum") return 0;
   if (showsLayout(source, last)) return 1;
-  return cueWordsCountAt(source.words, output, end);
+  return cueWordsCountAt(source, output, end);
 }
 
 // Words a unit contributes to the missing or added list. Line breaks have none.
@@ -193,7 +211,7 @@ function unitWords(unit: Unit): string[] {
 
 // True when a source unit and an output unit are the same single word, so pairing them never costs a match.
 function sameWordUnit(source: Unit | undefined, output: Unit | undefined): boolean {
-  return (source?.kind === "word" || source?.kind === "filler") && output?.kind === "word" && output.text === source.text;
+  return (source?.kind === "word" || source?.kind === "filler") && output?.kind === "word" && sameWord(source.text, output.text);
 }
 
 // Unmatched source indices and added output units for two sections, or null when the table would exceed MAX_ALIGN_CELLS.
