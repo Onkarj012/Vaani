@@ -11,17 +11,13 @@ import {
 } from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
 import { isAbortError } from "@main/cancellation";
+import { defaultModelFor, providerModels } from "@shared/modelList";
 
 export const OpenRouterLlmProvider: FormattingProvider = {
   id: "openrouter",
   name: "OpenRouter",
   requiresApiKey: true,
-  models: [
-    { id: "openai/gpt-4o-mini", name: "GPT-4o Mini" },
-    { id: "anthropic/claude-3.5-haiku", name: "Claude 3.5 Haiku" },
-    { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B" },
-    { id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash" },
-  ],
+  models: providerModels("cleanup", "openrouter"),
 
   async format(rawText, options): Promise<FormattingResult> {
     const text = rawText.trim();
@@ -40,7 +36,7 @@ export const OpenRouterLlmProvider: FormattingProvider = {
         },
         signal: options.signal,
         body: JSON.stringify({
-          model: options.model || "openai/gpt-4o-mini",
+          model: options.model || defaultModelFor("cleanup", "openrouter"),
           temperature: 0,
           max_tokens: Math.max(256, text.length * 2),
           messages: [

@@ -15,8 +15,9 @@ import {
 } from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
 import { createCancellationScope, isAbortError } from "@main/cancellation";
+import { defaultModelFor, providerModels } from "@shared/modelList";
 
-const FORMATTING_MODEL = "llama-3.1-8b-instant";
+const FORMATTING_MODEL = defaultModelFor("cleanup", "groq-llm");
 
 const FORMATTING_TIMEOUT_MS = 20_000;
 const ADDED_CONTENT_WORD_SLACK = 3;
@@ -57,10 +58,7 @@ export const GroqLlmProvider: FormattingProvider = {
   id: "groq-llm",
   name: "Groq Llama",
   requiresApiKey: true,
-  models: [
-    { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant" },
-    { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
-  ],
+  models: providerModels("cleanup", "groq-llm"),
 
   async format(rawText, options): Promise<FormattingResult> {
     const text = rawText.trim();

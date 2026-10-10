@@ -1,6 +1,7 @@
 import type { FormattingProvider, FormattingResult } from "../types";
 import { formatterErrorReason, formatterResult } from "../types";
 import { addedContentWords, missingContentWords } from "@shared/contentGuard";
+import { defaultModelFor, providerModels } from "@shared/modelList";
 import {
   CHANGED_WORDS_REASON,
   CHAT_REPLY_REASON,
@@ -53,7 +54,7 @@ async function requestFormatting(text: string, options: Parameters<FormattingPro
       Authorization: `Bearer ${options.apiKey}`,
     },
     body: JSON.stringify({
-      model: options.model || "gpt-4o-mini",
+      model: options.model || defaultModelFor("cleanup", "openai-llm"),
       temperature: 0,
       max_completion_tokens: Math.max(256, text.length * 2),
       messages: [
@@ -73,10 +74,7 @@ export const OpenAILlmProvider: FormattingProvider = {
   id: "openai-llm",
   name: "OpenAI GPT",
   requiresApiKey: true,
-  models: [
-    { id: "gpt-4o-mini", name: "GPT-4o Mini" },
-    { id: "gpt-4o", name: "GPT-4o" },
-  ],
+  models: providerModels("cleanup", "openai-llm"),
 
   async format(rawText, options): Promise<FormattingResult> {
     const text = rawText.trim();

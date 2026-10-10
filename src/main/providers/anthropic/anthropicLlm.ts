@@ -11,15 +11,13 @@ import {
 } from "../formatting-constants";
 import { validateBearerEndpoint } from "../validation";
 import { isAbortError } from "@main/cancellation";
+import { defaultModelFor, providerModels } from "@shared/modelList";
 
 export const AnthropicLlmProvider: FormattingProvider = {
   id: "anthropic",
   name: "Anthropic Claude",
   requiresApiKey: true,
-  models: [
-    { id: "claude-3-5-haiku-latest", name: "Claude 3.5 Haiku" },
-    { id: "claude-3-5-sonnet-latest", name: "Claude 3.5 Sonnet" },
-  ],
+  models: providerModels("cleanup", "anthropic"),
 
   async format(rawText, options): Promise<FormattingResult> {
     const text = rawText.trim();
@@ -37,7 +35,7 @@ export const AnthropicLlmProvider: FormattingProvider = {
         },
         signal: options.signal,
         body: JSON.stringify({
-          model: options.model || "claude-3-5-haiku-latest",
+          model: options.model || defaultModelFor("cleanup", "anthropic"),
           max_tokens: Math.max(256, text.length * 2),
           temperature: 0,
           system: options.systemPrompt || FORMATTING_PROMPT,

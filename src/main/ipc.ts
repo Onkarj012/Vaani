@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { autoUpdater } from "electron-updater";
 import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
-import { KNOWN_PROVIDERS } from "@shared/defaults";
+import { defaultModelFor } from "@shared/modelList";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioVisualFrame,
@@ -626,11 +626,12 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
       });
     }
 
+    // A provider change without a model gets that provider's default, so provider and model always match.
+    if ("transcriptionProvider" in settingsPatch && typeof settingsPatch.transcriptionProvider === "string" && !("transcriptionModel" in settingsPatch)) {
+      settingsPatch = { ...settingsPatch, transcriptionModel: defaultModelFor("transcription", settingsPatch.transcriptionProvider) };
+    }
     if ("formattingProvider" in settingsPatch && typeof settingsPatch.formattingProvider === "string" && !("formattingModel" in settingsPatch)) {
-      const provider = KNOWN_PROVIDERS.find((candidate) => candidate.id === settingsPatch.formattingProvider);
-      if (provider?.type === "llm") {
-        settingsPatch = { ...settingsPatch, formattingModel: provider.defaultModel };
-      }
+      settingsPatch = { ...settingsPatch, formattingModel: defaultModelFor("cleanup", settingsPatch.formattingProvider) };
     }
 
     if (Array.isArray(settingsPatch.customCorrections)) {

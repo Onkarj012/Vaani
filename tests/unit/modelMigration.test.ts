@@ -1,0 +1,92 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("electron", () => ({
+  app: {
+    getPath: (name: string) => `/tmp/vaani-test/${name}`,
+  },
+}));
+
+let tempDir: string | null = null;
+
+afterEach(async () => {
+  if (tempDir) {
+    await rm(tempDir, { recursive: true, force: true });
+    tempDir = null;
+  }
+});
+
+async function loadWithStoredSettings(stored: Record<string, unknown>) {
+  tempDir = await mkdtemp(join(tmpdir(), "vaani-model-migration-"));
+  const filePath = join(tempDir, "settings.json");
+  await writeFile(filePath, JSON.stringify(stored));
+  const { SettingsStore } = await import("@main/store/settings");
+  const store = new SettingsStore(filePath);
+  await store.init();
+  return { store, filePath };
+}
+
+describe("model settings migration", () => {
+  it("swaps retired saved model IDs for the provider's current default", async () => {
+    const { store, filePath } = await loadWithStoredSettings({
+      formattingProvider: "groq-llm",
+      formattingModel: "llama-3.1-8b-instant",
+      transcriptionProvider: "groq",
+      transcriptionModel: "whisper-large-v3",
+    });
+
+    expect(store.get()).toMatchObject({
+      formattingProvider: "groq-llm",
+      formattingModel: "openai/gpt-oss-20b",
+      transcriptionModel: "whisper-large-v3-turbo",
+    });
+    expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject({
+      formattingModel: "openai/gpt-oss-20b",
+      transcriptionModel: "whisper-large-v3-turbo",
+    });
+  });
+
+  it("swaps a retired Anthropic model for its current default", async () => {
+    const { store } = await loadWithStoredSettings({
+      formattingProvider: "anthropic",
+      formattingModel: "claude-3-5-sonnet-latest",
+    });
+
+    expect(store.get()).toMatchObject({ formattingProvider: "anthropic", formattingModel: "claude-haiku-5-5" });
+  });
+
+  it("keeps a current model that its provider lists", async () => {
+    const { store } = await loadWithStoredSettings({
+      formattingProvider: "openai-llm",
+      formattingModel: "gpt-6-luna",
+    });
+
+    expect(store.get()).toMatchObject({ formattingProvider: "openai-llm", formattingModel: "gpt-6-luna" });
+  });
+
+  it("leaves a provider without a model list alone", async () => {
+    const { store } = await loadWithStoredSettings({
+      transcriptionProvider: "deepgram",
+      transcriptionModel: "nova-2",
+    });
+
+    expect(store.get()).toMatchObject({ transcriptionProvider: "deepgram", transcriptionModel: "nova-2" });
+  });
+
+  it("is idempotent: a second load changes nothing and does not rewrite the file", async () => {
+    const { filePath } = await loadWithStoredSettings({
+      formattingProvider: "groq-llm",
+      formattingModel: "llama-3.3-70b-versatile",
+    });
+    const afterFirstLoad = await readFile(filePath, "utf8");
+
+    const { SettingsStore } = await import("@main/store/settings");
+    const reloaded = new SettingsStore(filePath);
+    await reloaded.init();
+
+    expect(reloaded.get()).toMatchObject({ formattingModel: "openai/gpt-oss-20b" });
+    expect(await readFile(filePath, "utf8")).toBe(afterFirstLoad);
+  });
+});

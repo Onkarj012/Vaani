@@ -29,6 +29,7 @@ import type {
   TranscriptionResult
 } from "@shared/types";
 import { ERROR_RESET_MS, SUCCESS_RESET_MS } from "@shared/defaults";
+import { resolveSessionModels } from "@shared/modelList";
 import { IpcChannel } from "@shared/ipc";
 import { trimSilence, isValidClip } from "./audio/vad";
 import { evaluateSpeechGate } from "./audio/speechGate";
@@ -248,8 +249,7 @@ export class DictationService {
     const profile = resolveAppProfile(settings.appProfiles ?? [], this.activeTarget?.appBundleId);
     this.activeSessionSettings = captureSessionSettings({
       ...settings,
-      transcriptionProvider: profile?.transcriptionProvider ?? settings.transcriptionProvider,
-      formattingProvider: profile?.formattingProvider ?? settings.formattingProvider,
+      ...resolveSessionModels(settings, profile),
       language: resolveProfileLanguage(profile?.language, settings.language),
       customPrompt: profile?.customPrompt ?? settings.customPrompt,
     });

@@ -10,6 +10,7 @@ import { useColorMode } from '../context/color-mode'
 import { HotkeyCapture } from './HotkeyCapture'
 import { KNOWN_PROVIDERS, SUPPORTED_LANGUAGES, getLanguageLabel, isLanguageSupportedByProvider, resolveProfileLanguage } from '@shared/defaults'
 import { Select } from '@renderer/components/ui/Select'
+import { ModelPicker } from './ModelPicker'
 import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
@@ -350,7 +351,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   ]
   const activeStt = sttProviders.find((p) => p.id === settings.transcriptionProvider)
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider)
-  const activeLlmModels = activeLlm?.models ?? []
   const physicalAudioDevices = audioDevices.filter((device) => device.isPhysical)
   const microphoneOptions = [
     { value: '', label: 'Automatic built-in microphone' },
@@ -365,21 +365,15 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       {activeSection === 'api' && (
         <div className="space-y-5">
           <div>
-            <FieldLabel>Transcription Provider</FieldLabel>
-            <Select value={settings.transcriptionProvider} onChange={(v) => updateSettings({ transcriptionProvider: v })} options={sttProviders.map((p) => ({ value: p.id, label: p.name }))} />
+            <FieldLabel>Transcription Model</FieldLabel>
+            <ModelPicker
+              role="transcription"
+              provider={settings.transcriptionProvider}
+              modelId={settings.transcriptionModel}
+              onChange={(provider, modelId) => updateSettings({ transcriptionProvider: provider, transcriptionModel: modelId })}
+            />
             <p className="mt-1.5 text-xs text-faint">{providerSummary(activeStt)}</p>
           </div>
-
-          {activeStt && activeStt.models.length > 0 && (
-            <div>
-              <FieldLabel>Transcription Model</FieldLabel>
-              <Select
-                value={settings.transcriptionModel}
-                onChange={(v) => updateSettings({ transcriptionModel: v })}
-                options={[{ value: '', label: 'Provider default' }, ...activeStt.models.map((m) => ({ value: m.id, label: m.name }))]}
-              />
-            </div>
-          )}
 
           {activeStt?.requiresApiKey && (
             <div>
@@ -402,8 +396,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="h-px bg-line" />
 
           <div>
-            <FieldLabel>Formatting Provider</FieldLabel>
-            <Select value={settings.formattingProvider} onChange={(v) => updateSettings({ formattingProvider: v })} options={llmProviders.map((p) => ({ value: p.id, label: p.name }))} />
+            <FieldLabel>Formatting Model</FieldLabel>
+            <ModelPicker
+              role="cleanup"
+              provider={settings.formattingProvider}
+              modelId={settings.formattingModel}
+              onChange={(provider, modelId) => updateSettings({ formattingProvider: provider, formattingModel: modelId })}
+            />
             <p className="mt-1.5 text-xs text-faint">{providerSummary(activeLlm)}</p>
           </div>
 
@@ -422,13 +421,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 onTest={() => { void testProviderKey(settings.formattingProvider, llmKey) }}
                 testing={testingProvider === settings.formattingProvider}
               />
-            </div>
-          )}
-
-          {activeLlmModels.length > 0 && (
-            <div>
-              <FieldLabel>Formatting Model</FieldLabel>
-              <Select value={settings.formattingModel} onChange={(v) => updateSettings({ formattingModel: v })} options={activeLlmModels.map((m) => ({ value: m.id, label: m.name }))} />
             </div>
           )}
 
