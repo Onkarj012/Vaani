@@ -1,12 +1,15 @@
 // Sound check for a Devanagari word the formatter rewrote in Roman letters ("कैंसल" → "cancel").
-// Both words become a rough consonant shape; vowels, aspiration, and doubled letters drop out.
+// Both words become consonant shapes; vowels, aspiration, and doubled letters drop out. The shapes must match exactly.
+// Only known Roman spelling variants add extra shapes: a nasal mark, a nukta letter, a final h ("toh"), an h after a
+// consonant ("achha"), a y after a vowel ("gayi"), z written for j ("cheez"), a soft g ("message"), and "cch" for ch ("acchi").
 
-const DEVANAGARI_WORD_RE = /^[ऀ-ॿ]+$/u;
+const DEVANAGARI_WORD_RE = /^[\u0900-\u097F]+$/u;
 const LATIN_WORD_RE = /^[a-z]+$/u;
-const NUKTA = "़";
-const NASALS = new Set(["ँ", "ं"]);
-const VISARGA = "ः";
-const VOCALIC_R = new Set(["ऋ", "ृ"]);
+const NUKTA = "\u093C";
+const NASALS = new Set(["\u0901", "\u0902"]);
+const VISARGA = "\u0903";
+const VOCALIC_R = new Set(["\u090B", "\u0943"]);
+const VOWELS = new Set(["a", "e", "i", "o", "u"]);
 
 // Consonant classes. "C" is the ch sound, kept apart from the k/s sounds of English c.
 const CONSONANTS: Readonly<Record<string, string>> = {
@@ -24,9 +27,9 @@ const NUKTA_SOUNDS: Readonly<Record<string, string[]>> = {
   "ज": ["s", "j"], "ड": ["r", "d"], "ढ": ["r", "d"], "फ": ["f"], "क": ["k"], "ख": ["k"], "ग": ["g"],
 };
 
-const LATIN_DIGRAPHS: readonly [string, string][] = [
-  ["ch", "C"], ["sh", "s"], ["ph", "f"], ["kh", "k"], ["gh", "g"], ["th", "t"], ["dh", "d"], ["bh", "b"], ["jh", "j"], ["ck", "k"],
-];
+const LATIN_DIGRAPHS: Readonly<Record<string, string>> = {
+  ch: "C", sh: "s", ph: "f", kh: "k", gh: "g", th: "t", dh: "d", bh: "b", jh: "j", ck: "k",
+};
 
 const MAX_SHAPES = 32;
 const SHAPE_CACHE_LIMIT = 5_000;
@@ -37,72 +40,74 @@ export function isDevanagariWord(word: string): boolean {
   return DEVANAGARI_WORD_RE.test(word);
 }
 
-// Drops repeated letters and the soft h, y, v sounds after the first letter, which Roman spellings add or skip freely.
+// Drops repeated letters, which Roman spellings double or not freely.
 function settleShape(shape: string): string {
-  const collapsed = shape.replace(/(.)\1+/g, "$1");
-  return (collapsed[0] ?? "") + collapsed.slice(1).replace(/[hyv]/g, "");
+  return shape.replace(/(.)\1+/g, "$1");
 }
 
-// Every consonant shape a Devanagari word can take. Nasal marks and nukta letters allow more than one.
+// Appends each option to each shape so far, keeping the list bounded.
+function extendShapes(shapes: string[], options: readonly string[]): string[] {
+  return shapes.flatMap(shape => options.map(option => shape + option)).slice(0, MAX_SHAPES);
+}
+
+// Caches a word's shapes, clearing the cache when it grows large.
+function remember(word: string, shapes: string[]): string[] {
+  if (shapeCache.size >= SHAPE_CACHE_LIMIT) shapeCache.clear();
+  shapeCache.set(word, shapes);
+  return shapes;
+}
+
+// Every consonant shape a Devanagari word can take.
 function devanagariShapes(word: string): string[] {
-  const cached = shapeCache.get(word);
+  const key = `d:${word}`;
+  const cached = shapeCache.get(key);
   if (cached) return cached;
   let shapes = [""];
   const letters = [...word.normalize("NFC")];
-  const extend = (options: string[]): void => {
-    shapes = shapes.flatMap(shape => options.map(option => shape + option)).slice(0, MAX_SHAPES);
-  };
   letters.forEach((letter, index) => {
     if (letter === NUKTA) return;
     const consonant = CONSONANTS[letter];
-    if (consonant) extend(letters[index + 1] === NUKTA ? NUKTA_SOUNDS[letter] ?? [consonant] : [consonant]);
-    else if (NASALS.has(letter)) extend(["n", ""]);
-    else if (letter === VISARGA) extend(["h"]);
-    else if (VOCALIC_R.has(letter)) extend(["r"]);
+    if (consonant) shapes = extendShapes(shapes, letters[index + 1] === NUKTA ? NUKTA_SOUNDS[letter] ?? [consonant] : [consonant]);
+    else if (NASALS.has(letter)) shapes = extendShapes(shapes, ["n", ""]);
+    else if (letter === VISARGA) shapes = extendShapes(shapes, ["h"]);
+    else if (VOCALIC_R.has(letter)) shapes = extendShapes(shapes, ["r"]);
   });
-  const settled = [...new Set(shapes.map(settleShape))];
-  if (shapeCache.size >= SHAPE_CACHE_LIMIT) shapeCache.clear();
-  shapeCache.set(word, settled);
-  return settled;
+  return remember(key, [...new Set(shapes.map(settleShape))]);
 }
 
-// The consonant shape of a lowercase Roman word.
-function latinShape(word: string): string {
-  let text = word;
-  for (const [digraph, sound] of LATIN_DIGRAPHS) text = text.replaceAll(digraph, sound);
-  text = text
-    .replace(/c(?=[eiy])/g, "s")
-    .replace(/c/g, "k")
-    .replace(/q/g, "k")
-    .replace(/x/g, "ks")
-    .replace(/w/g, "v")
-    .replace(/z/g, "s")
-    .replace(/[aeiou]/g, "");
-  return settleShape(text);
-}
-
-// Edit distance of at most one between two short strings.
-function withinOneEdit(a: string, b: string): boolean {
-  if (Math.abs(a.length - b.length) > 1) return false;
-  let i = 0;
-  let j = 0;
-  let edits = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) { i += 1; j += 1; continue; }
-    edits += 1;
-    if (edits > 1) return false;
-    if (a.length > b.length) i += 1;
-    else if (b.length > a.length) j += 1;
-    else { i += 1; j += 1; }
+// Every consonant shape a lowercase Roman word can take.
+function latinShapes(word: string): string[] {
+  const key = `l:${word}`;
+  const cached = shapeCache.get(key);
+  if (cached) return cached;
+  let shapes = [""];
+  for (let index = 0; index < word.length; index += 1) {
+    const letter = word[index] ?? "";
+    const next = word[index + 1] ?? "";
+    const digraph = LATIN_DIGRAPHS[letter + next];
+    if (digraph) { shapes = extendShapes(shapes, [digraph]); index += 1; continue; }
+    if (VOWELS.has(letter)) continue;
+    if (letter === "c" && next === "c" && word[index + 2] === "h") continue;
+    const previous = word[index - 1] ?? "";
+    const afterVowel = VOWELS.has(previous);
+    let options: string[];
+    if (letter === "c") options = [/[eiy]/.test(next) ? "s" : "k"];
+    else if (letter === "g") options = /[ei]/.test(next) ? ["g", "j"] : ["g"];
+    else if (letter === "q") options = ["k"];
+    else if (letter === "x") options = ["ks"];
+    else if (letter === "w") options = ["v"];
+    else if (letter === "z") options = ["s", "j"];
+    else if (letter === "y") options = index > 0 && afterVowel ? ["y", ""] : ["y"];
+    else if (letter === "h") options = (index === word.length - 1 && afterVowel) || (index > 0 && !afterVowel) ? ["h", ""] : ["h"];
+    else options = [letter];
+    shapes = extendShapes(shapes, options);
   }
-  return edits + (a.length - i) + (b.length - j) <= 1;
+  return remember(key, [...new Set(shapes.map(settleShape))]);
 }
 
 // True when a lowercase Roman word plausibly spells the same spoken word as a Devanagari one.
-// Longer shapes may differ by one sound, since Roman Hindi spelling varies.
 export function soundsAlike(devanagariWord: string, latinWord: string): boolean {
   if (!isDevanagariWord(devanagariWord) || !LATIN_WORD_RE.test(latinWord)) return false;
-  const roman = latinShape(latinWord);
-  return devanagariShapes(devanagariWord).some(shape =>
-    shape === roman || (Math.min(shape.length, roman.length) >= 3 && withinOneEdit(shape, roman)));
+  const roman = new Set(latinShapes(latinWord));
+  return devanagariShapes(devanagariWord).some(shape => roman.has(shape));
 }

@@ -71,7 +71,7 @@ export const OpenAILlmProvider: FormattingProvider = {
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
       if (ASSISTANT_REPLY_PATTERN.test(formatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
       if (contentRejection(text, formatted, options.fillerWords)) {
-        const strictFormatted = await requestFormatting(text, options, STRICT_FORMATTING_PROMPT);
+        const strictFormatted = await requestFormatting(text, options, options.strictSystemPrompt || STRICT_FORMATTING_PROMPT);
         if (!strictFormatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
         if (ASSISTANT_REPLY_PATTERN.test(strictFormatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
         const strictRejection = contentRejection(text, strictFormatted, options.fillerWords);

@@ -49,6 +49,11 @@ describe("renderer stop drain", () => {
     expect(quietThresholdFromNoise([])).toBe(STOP_QUIET_RMS);
   });
 
+  it("counts digital silence at the start as the quietest room, not as missing data", () => {
+    const openingZerosThenSpeech = [...new Array(10).fill(0), ...new Array(10).fill(0.02)];
+    expect(quietThresholdFromNoise(openingZerosThenSpeech)).toBe(STOP_QUIET_RMS);
+  });
+
   it("finishes early when the tail settles to room noise", async () => {
     vi.useFakeTimers();
     const threshold = quietThresholdFromNoise(new Array(20).fill(0.004));

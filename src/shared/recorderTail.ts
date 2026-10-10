@@ -12,7 +12,8 @@ export const NOISE_SAMPLE_MS = 500;
 
 // Quiet level for the stop tail, from the opening frames' RMS. Speech at the press only raises it up to the cap.
 export function quietThresholdFromNoise(openingFrameRms: readonly number[]): number {
-  const sorted = openingFrameRms.filter((rms) => Number.isFinite(rms) && rms > 0).sort((a, b) => a - b);
+  // Digital silence (RMS 0) counts as the quietest room, so a device that opens with zeros keeps the low level.
+  const sorted = openingFrameRms.filter((rms) => Number.isFinite(rms) && rms >= 0).sort((a, b) => a - b);
   const floor = sorted[Math.floor((sorted.length - 1) * 0.2)] ?? 0;
   return Math.min(STOP_QUIET_MAX_RMS, Math.max(STOP_QUIET_RMS, floor * 2));
 }

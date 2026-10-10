@@ -56,16 +56,17 @@ function scriptRule(language: string | undefined, text: string): string | null {
 }
 
 export interface FormattingPromptInput {
-  /** The user's custom prompt. Empty means Vaani's own prompt. */
+  /** The user's custom prompt. Empty means Vaani's own prompt. A strict retry always uses the strict prompt. */
   customPrompt?: string;
+  strict?: boolean;
   language?: string;
   text: string;
   fillerWords: readonly string[];
 }
 
-// System prompt for one cleanup request: the base or custom prompt, then the script rule and the filler words that apply.
-export function buildFormattingPrompt({ customPrompt, language, text, fillerWords }: FormattingPromptInput): string {
-  const sections = [customPrompt?.trim() || FORMATTING_PROMPT];
+// System prompt for one cleanup request: the base, custom, or strict prompt, then the script rule and the filler words that apply.
+export function buildFormattingPrompt({ customPrompt, strict, language, text, fillerWords }: FormattingPromptInput): string {
+  const sections = [strict ? STRICT_FORMATTING_PROMPT : customPrompt?.trim() || FORMATTING_PROMPT];
   const script = scriptRule(language, text);
   if (script) sections.push(script);
   if (fillerWords.length > 0) sections.push(`Filler words you may delete wherever they occur: ${fillerWords.join(", ")}.`);

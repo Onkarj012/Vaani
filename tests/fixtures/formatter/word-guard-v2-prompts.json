@@ -79,5 +79,45 @@
     "raw": "I had had enough of moving it around and no no no that is not what I meant",
     "reply": "I had had enough of moving it around, and no, no, no, that is not what I meant.",
     "passes": true
+  },
+  {
+    "name": "Transliteration that turns send into sell is rejected",
+    "raw": "मैं पैसे भेजूंगा।",
+    "reply": "Main paise bechunga.",
+    "passes": false,
+    "source": "Codex review round 1"
+  },
+  {
+    "name": "Transliteration that turns nahin into nayi is rejected",
+    "raw": "मीटिंग नहीं होगी।",
+    "reply": "Meeting nayi hogi.",
+    "passes": false,
+    "source": "Codex review round 1"
+  },
+  {
+    "name": "Negation transliterated faithfully passes",
+    "raw": "मीटिंग नहीं होगी।",
+    "reply": "Meeting nahi hogi.",
+    "passes": true
+  },
+  {
+    "name": "z spelling for ज passes (cheez)",
+    "raw": "यह चीज अच्छी है।",
+    "reply": "Yeh cheez acchi hai.",
+    "passes": true,
+    "source": "Codex review round 1"
+  },
+  {
+    "name": "Soft g in an English loanword passes (message)",
+    "raw": "मैसेज भेज दो।",
+    "reply": "Message bhej do.",
+    "passes": true
+  },
+  {
+    "name": "Ordinal after a Devanagari danda is a list cue",
+    "raw": "काम करो। First, check the logs. Second, send the mail.",
+    "reply": "काम करो।\n1. Check the logs.\n2. Send the mail.",
+    "passes": true,
+    "source": "Codex review round 1"
   }
 ]

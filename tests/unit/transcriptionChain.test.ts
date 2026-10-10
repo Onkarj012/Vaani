@@ -1128,6 +1128,18 @@ describe("formatter outcome at the transcription seam", () => {
     expect(sentBody(fetchMock).messages[0]?.content).not.toContain("Script:");
   });
 
+  it("keeps the script rule on the strict retry after the guard rejects a reply", async () => {
+    groqCreate
+      .mockResolvedValueOnce({ choices: [{ message: { content: "Kal meeting cancel ho gayi hai." } }] })
+      .mockResolvedValueOnce({ choices: [{ message: { content: "Kal subah ki meeting cancel ho gayi hai." } }] });
+
+    await (await serviceFor("groq-llm")).formatTranscriptDetailed("कल सुबह की मीटिंग कैंसल हो गई है", { language: "en" });
+
+    const retrySystemPrompt = groqCreate.mock.calls[1]?.[0]?.messages?.[0]?.content;
+    expect(retrySystemPrompt).toMatch(/^You format dictated transcripts\. Your previous reply changed the speaker's words/);
+    expect(retrySystemPrompt).toContain("Script: write every word in Roman letters.");
+  });
+
   it("leaves reasoning alone for a model that cannot turn it off", async () => {
     const fetchMock = stubFetch(jsonResponse({ choices: [{ message: { content: "We ship it Tuesday." } }] }));
     const { TranscriptionService } = await import("@main/transcription");

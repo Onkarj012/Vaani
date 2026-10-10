@@ -72,7 +72,7 @@ export const GroqLlmProvider: FormattingProvider = {
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
 
       if (contentRejection(text, formatted, options.fillerWords)) {
-        const strictFormatted = await requestFormatting(options.apiKey, text, STRICT_FORMATTING_PROMPT, model, options.signal);
+        const strictFormatted = await requestFormatting(options.apiKey, text, options.strictSystemPrompt || STRICT_FORMATTING_PROMPT, model, options.signal);
         if (!strictFormatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
         const strictRejection = contentRejection(text, strictFormatted, options.fillerWords);
         if (strictRejection) return formatterResult("rejected", text, strictRejection);

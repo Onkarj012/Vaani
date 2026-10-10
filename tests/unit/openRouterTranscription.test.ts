@@ -193,6 +193,12 @@ describe("OpenRouter transcription through the service", () => {
     expect(result).toEqual({ valid: false, message: PROVISIONING_KEY_MESSAGE });
   });
 
+  it("reports a failed check, not a valid key, when the key reply can't be read", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("not json", { status: 200 }));
+
+    expect(await OpenRouterSttProvider.validateApiKey?.("or-key")).toEqual({ valid: false, message: "OpenRouter validation failed." });
+  });
+
   it("accepts a regular key", async () => {
     fetchMock.mockResolvedValueOnce(jsonReply({ data: { is_provisioning_key: false } }, 200));
 

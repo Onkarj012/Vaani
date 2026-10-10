@@ -441,6 +441,7 @@ export class TranscriptionService {
       apiKey,
       model: settings.formattingModel,
       systemPrompt: buildFormattingPrompt({ customPrompt: settings.customPrompt, language, text: rawText, fillerWords }),
+      strictSystemPrompt: buildFormattingPrompt({ strict: true, language, text: rawText, fillerWords }),
       signal,
       fillerWords,
     });

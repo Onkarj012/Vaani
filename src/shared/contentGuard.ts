@@ -11,7 +11,7 @@ const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
 const NUMBER_WORD_SOURCE = String.raw`one|two|three|four|five|six|seven|eight|nine|ten|\d+`;
 const ORDINAL_SOURCE = String.raw`first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth`;
 // An ordinal that opens a sentence ("First, Siddharth should…") is a list cue on its own.
-const BARE_ORDINAL_SOURCE = String.raw`(?<=(?:^|[.!?:;\n])[ \t]*)(?:${ORDINAL_SOURCE}|firstly|secondly|thirdly)`;
+const BARE_ORDINAL_SOURCE = String.raw`(?<=(?:^|[.!?:;\n।॥])[ \t]*)(?:${ORDINAL_SOURCE}|firstly|secondly|thirdly)`;
 // A cue whose number starts a longer literal such as "1.5" is not a cue.
 const ENUM_CUE_SOURCE = String.raw`(?:bullet\s*point|number\s+(?:${NUMBER_WORD_SOURCE})|no\.\s*\d+|point\s+(?:${NUMBER_WORD_SOURCE})|item\s+(?:${NUMBER_WORD_SOURCE})|(?:${ORDINAL_SOURCE})\s+(?:item|bullet|point|step)|${BARE_ORDINAL_SOURCE})(?![.,:/]\p{N})`;
 // A sign, with a currency symbol before or after it, or a leading dot is part of the literal only when no letter or digit comes right before it.

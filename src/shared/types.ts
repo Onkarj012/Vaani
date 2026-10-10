@@ -506,6 +506,8 @@ export interface FormattingOptions {
   model?: string;
   style?: "default" | "strict" | "casual";
   systemPrompt?: string;
+  /** Prompt for the retry after the guard rejects a reply. Carries the same script and filler sections. */
+  strictSystemPrompt?: string;
   signal?: AbortSignal;
 }
 
