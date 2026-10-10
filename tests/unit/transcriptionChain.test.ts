@@ -702,7 +702,7 @@ describe("TranscriptionService failover chain", () => {
     await expect(service.transcribe(clip)).rejects.toThrow("last failure");
   });
 
-  it("marks content-guard rejection as raw cleanup fallback", async () => {
+  it("marks content-guard rejection as literal fallback", async () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "I this.")));
     const { TranscriptionService } = await import("@main/transcription");
 
@@ -715,7 +715,7 @@ describe("TranscriptionService failover chain", () => {
     const result = await service.formatTranscriptDetailed("um I like this");
 
     expect(result).toEqual({
-      text: "Um I like this.",
+      text: "um I like this",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
       formatterStatusReason: "The formatter changed words in the transcript.",
@@ -729,11 +729,61 @@ describe("TranscriptionService failover chain", () => {
     const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
     expect(await service.formatTranscriptDetailed("we ship it Tuesday")).toEqual({
-      text: "We ship it Tuesday.",
+      text: "we ship it Tuesday",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
       formatterStatusReason: "The formatter changed words in the transcript.",
       contentGuardVerdict: { passed: false, missingWords: ["tuesday"] },
+    });
+  });
+
+  it("rejects a formatter reply that adds a negation and inserts the literal text", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "Do not send the report today.")));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+
+    expect(await service.formatTranscriptDetailed("send the report today")).toMatchObject({
+      text: "send the report today",
+      formatterUsed: "guard-fallback",
+      formatterStatus: "rejected",
+    });
+  });
+
+  it("rejects a dropped Devanagari word", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "मुझे ऑफिस जाना है।")));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+
+    expect(await service.formatTranscriptDetailed("मुझे कल ऑफिस जाना है")).toMatchObject({
+      text: "मुझे कल ऑफिस जाना है",
+      formatterStatus: "rejected",
+    });
+  });
+
+  it("removes reasoning text from an accepted formatter reply", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "<think>I will format this.</think>Send the report today.")));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+
+    expect(await service.formatTranscriptDetailed("send the report today")).toEqual({
+      text: "Send the report today.",
+      formatterUsed: "llm",
+      formatterStatus: "ran",
+      formatterStatusReason: "Formatted.",
+      contentGuardVerdict: { passed: true },
+    });
+  });
+
+  it("treats a formatter reply that is only reasoning as failed", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "<thinking>no answer yet")));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+
+    expect(await service.formatTranscriptDetailed("send the report today")).toMatchObject({
+      text: "send the report today",
+      formatterUsed: "none",
+      formatterStatus: "failed",
+      formatterStatusReason: "The formatter returned an empty reply.",
     });
   });
 
@@ -781,7 +831,7 @@ describe("TranscriptionService failover chain", () => {
 
     expect(format).toHaveBeenCalledTimes(2);
     expect(result).toEqual({
-      text: "Alpha beta.\n\nGamma delta.",
+      text: "alpha beta\n\nGamma delta.",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
       formatterStatusReason: "The formatter changed words in the transcript.",

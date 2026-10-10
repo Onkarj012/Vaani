@@ -544,7 +544,7 @@ export class DictationService {
         if (operationSignal?.aborted) return;
         if (error instanceof TranscriptionDeadlineExceededError) {
           formattedText = correctedText;
-          formatTrace = { text: correctedText, formatterUsed: "none" };
+          formatTrace = { text: correctedText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: "Formatting timed out." };
           void this.patchTrace(payload.sessionId, { stages: { formatterStatus: "failed", formatterStatusReason: "Formatting timed out.", formatterReason: "timeout" } });
         } else {
           if (error instanceof TranscriptionCancelledError) return;
@@ -554,6 +554,7 @@ export class DictationService {
       }
 
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
+      const formatNotice = formatNoticeFor(formatTrace);
       const cleanedText = cleanupText({ rawText: formattedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
       void this.patchTrace(payload.sessionId, {
         formatDoneAt: new Date().toISOString(),
@@ -602,7 +603,7 @@ export class DictationService {
         const copied = await this.copyText(cleanedText).catch(() => false);
         await this.finishActiveInsertion(payload.sessionId, copied ? "copy-only" : "failed", {
           ...entryBase, injectionStatus: "saved", injectionMethod: null,
-        }, { injectionMethod: null, stages: { injectionStrategy: "none" } }, copied ? undefined : "insertion_failed", transcription.detectedLanguage || transcription.language, undefined, "Clipboard");
+        }, { injectionMethod: null, stages: { injectionStrategy: "none" } }, copied ? undefined : "insertion_failed", transcription.detectedLanguage || transcription.language, undefined, "Clipboard", false, formatNotice);
         return;
       }
 
@@ -683,7 +684,7 @@ export class DictationService {
           await this.finishActiveInsertion(payload.sessionId, "verified", { ...entryBase, injectionStatus: "injected", injectionMethod: injection.method }, {
             injectionMethod: injection.method,
             stages: { injectedText: cleanedText, injectionStrategy: injection.method, insertionVerification: verification },
-          }, undefined, transcription.detectedLanguage || transcription.language, "delivered");
+          }, undefined, transcription.detectedLanguage || transcription.language, "delivered", "Insertion", false, formatNotice);
           debug("editwatch", "arming", { method: injection.method, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         } else {
@@ -691,7 +692,7 @@ export class DictationService {
           await this.finishActiveInsertion(payload.sessionId, "unconfirmed", { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
             injectionMethod: null,
             stages: { injectedText: cleanedText, injectionStrategy: "none", insertionVerification: verification },
-          }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome);
+          }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome, "Insertion", false, formatNotice);
           debug("editwatch", "arming-unverified-injection", { reason: verification.reason, appBundleId: target.appBundleId, appName: target.appName });
           this.watchForManualEdits(cleanedText, target);
         }
@@ -703,7 +704,7 @@ export class DictationService {
         await this.finishActiveInsertion(payload.sessionId, outcome, { ...entryBase, injectionStatus: "saved", injectionMethod: null }, {
           injectionMethod: null,
           stages: { injectedText: cleanedText, injectionStrategy: "none" },
-        }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome, "Insertion", failure.copied);
+        }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome, "Insertion", failure.copied, formatNotice);
       }
     } catch (error) {
       if (!this.isCurrentSession(payload.sessionId)) return;
@@ -1401,10 +1402,12 @@ export class DictationService {
     recoveryOutcome?: RecoveryInsertionTerminalOutcome,
     failedStage = "Insertion",
     copied = false,
+    formatNotice: string | null = null,
   ): Promise<void> {
     const historySaved = await this.persistHistoryOnce(sessionId, entry);
     if (!this.isCurrentSession(sessionId)) return;
-    const message = insertionStatusText(outcome, historySaved, historySaved ? failedStage : "History", copied);
+    const statusText = insertionStatusText(outcome, historySaved, historySaved ? failedStage : "History", copied);
+    const message = formatNotice ? `${statusText} ${formatNotice}` : statusText;
     void this.finishTrace(sessionId, outcome, reason, message, tracePatch);
     this.completeSession(sessionId, outcome === "verified" ? "injected" : historySaved ? "saved" : "failed", entry.cleanedText, message, detectedLanguage, recoveryOutcome, outcome);
     if (outcome === "unconfirmed") {
@@ -2031,6 +2034,13 @@ function sameTarget(left: Pick<AppContextResult, "appBundleId" | "appName" | "pi
 }
 
 const OUTCOME_UNCERTAIN_DETAIL = "outcome_uncertain";
+
+// Short warning added to the insert message when formatting did not apply.
+function formatNoticeFor(trace: FormatTranscriptTraceResult): string | null {
+  return trace.formatterStatus === "failed" || trace.formatterStatus === "rejected"
+    ? "Formatting did not apply. Inserted the unformatted text."
+    : null;
+}
 
 function insertionStatusText(outcome: DictationInsertionOutcome, historySaved: boolean, stage: string, copied = false): string {
   switch (outcome) {

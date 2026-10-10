@@ -16,7 +16,7 @@ import { DictationService } from "./dictation.fixture";
 import { selectRecoveryText } from "@main/dictation";
 import { nativeBridge } from "@main/nativeBridge";
 import type { InjectionOptions, InjectionTarget } from "@main/injection";
-import { TranscriptionDeadlineExceededError, type TranscribeOptions } from "@main/transcription";
+import { TranscriptionDeadlineExceededError, TranscriptionService, type TranscribeOptions } from "@main/transcription";
 
 vi.mock("electron", () => ({
   app: {
@@ -41,6 +41,14 @@ vi.mock("electron", () => ({
     isTrustedAccessibilityClient: vi.fn(() => true),
     askForMediaAccess: vi.fn(async () => true)
   }
+}));
+
+const groqCreate = vi.hoisted(() => vi.fn());
+
+vi.mock("groq-sdk", () => ({
+  default: class {
+    chat = { completions: { create: groqCreate } };
+  },
 }));
 
 function createDictationService(deps: {
@@ -713,7 +721,7 @@ describe("DictationService", () => {
 
     expect(injector.inject).toHaveBeenCalledWith("Open GitHub.", expect.anything(), expect.anything());
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open GitHub.", injectionStatus: "injected" }));
-    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", userMessage: "Inserted.", stages: { formatterUsed: "none", formatterReason: "timeout" } });
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", userMessage: "Inserted. Formatting did not apply. Inserted the unformatted text.", stages: { formatterUsed: "none", formatterReason: "timeout" } });
   });
 
   it("forces the formatter deadline only with the development switch", async () => {
@@ -969,6 +977,35 @@ describe("DictationService", () => {
       contentGuardVerdict: { passed: false, missingWords: ["like"] },
     });
     expect(["1.1.3+unresolved", "unresolved+unresolved"]).toContain(updatedTrace?.buildIdentifier);
+  });
+
+  it("inserts the literal text and warns when the formatter drops a word", async () => {
+    groqCreate.mockResolvedValue({ choices: [{ message: { content: "Please send the report." } }] });
+    const traceDeps = createTraceDeps();
+    const { service, injector, transcription } = createDictationService({ traces: traceDeps.traces });
+    const formatter = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, groqApiKey: "groq-key" }));
+    Object.assign(transcription, { formatTranscriptDetailed: formatter.formatTranscriptDetailed.bind(formatter) });
+    transcription.transcribe.mockResolvedValue({ rawText: "please send the report today", formattedText: "please send the report today", language: "en" });
+
+    service.beginHotkeySession();
+    await Promise.resolve();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+    await Promise.resolve();
+
+    expect(injector.inject).toHaveBeenCalledWith("Please send the report today.", expect.anything(), expect.anything());
+    expect(service.getState()).toMatchObject({
+      status: "completed",
+      message: "Inserted. Formatting did not apply. Inserted the unformatted text.",
+    });
+    expect(traceDeps.getTrace()).toMatchObject({
+      stages: { formatterUsed: "none", formatterStatus: "rejected", formatterStatusReason: "The formatter changed words in the transcript." },
+    });
   });
 
   it("saves no-speech hallucinations when quality retries are exhausted", async () => {

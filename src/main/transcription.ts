@@ -4,12 +4,11 @@ import type { RecoveryErrorClass } from "@shared/recovery";
 import { getProviderRegistry } from "./providers";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { formatterErrorReason } from "./providers/types";
-import { CHANGED_WORDS_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
+import { CHANGED_WORDS_REASON, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
-import { missingContentWords, preservesFinalWords } from "@shared/contentGuard";
+import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
-import { deterministicFormat } from "@main/text/cleanup";
 
 export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
 const STT_CHUNK_OVERLAP_SECONDS = 2;
@@ -401,16 +400,19 @@ export class TranscriptionService {
     if (result.status !== "ran") {
       return { text: result.text, formatterUsed: "none", formatterStatus: result.status, formatterStatusReason: result.reason };
     }
-    const formatted = result.text;
-    const missingWords = missingContentWords(rawText, formatted);
-    if (missingWords.length > 0 || !preservesFinalWords(rawText, formatted)) {
+    const formatted = stripReasoningBlocks(result.text);
+    if (!formatted) {
+      return { text: rawText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: EMPTY_REPLY_REASON };
+    }
+    const { missing, added } = diffContentWords(rawText, formatted);
+    if (missing.length > 0 || added.length > 0) {
       debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
       return {
-        text: deterministicFormat(rawText),
+        text: rawText,
         formatterUsed: "guard-fallback",
         formatterStatus: "rejected",
         formatterStatusReason: CHANGED_WORDS_REASON,
-        contentGuardVerdict: { passed: false, missingWords },
+        contentGuardVerdict: { passed: false, missingWords: missing },
       };
     }
     return {
