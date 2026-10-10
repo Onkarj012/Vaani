@@ -263,10 +263,10 @@ export class TranscriptionService {
               }
             } else if (isAuthError(error) && id !== "openrouter") {
               // A rejected OpenRouter key falls back to Groq, so a revoked key does not stop dictation.
-              throw lastError;
+              throw new TranscriptionChainError(lastError.message, providerAttempts, failure.class);
             }
             if (!settings.failoverEnabled || chain.length === 1) {
-              throw options?.recovery ? new TranscriptionChainError(lastError.message, providerAttempts, providerAttempts[providerAttempts.length - 1]?.errorClass ?? "transcription_error") : lastError;
+              throw new TranscriptionChainError(lastError.message, providerAttempts, failure.class);
             }
             break;
           } finally {
@@ -276,9 +276,8 @@ export class TranscriptionService {
       }
 
       if (lastRejectedResult) return { ...lastRejectedResult, providerAttempts };
-      throw options?.recovery
-        ? new TranscriptionChainError(lastError.message, providerAttempts, providerAttempts[providerAttempts.length - 1]?.errorClass ?? "transcription_error")
-        : lastError;
+      // Every provider failed. The chain error carries each attempt so the trace shows all of them, not only the last.
+      throw new TranscriptionChainError(lastError.message, providerAttempts, providerAttempts[providerAttempts.length - 1]?.errorClass ?? "transcription_error");
     } finally {
       scope.dispose();
     }

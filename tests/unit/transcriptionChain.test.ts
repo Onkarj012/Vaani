@@ -722,7 +722,7 @@ describe("TranscriptionService failover chain", () => {
     registryState.providers.set("openai", provider("openai", vi.fn(async () => {
       throw new Error("last failure");
     })));
-    const { TranscriptionService } = await import("@main/transcription");
+    const { TranscriptionChainError, TranscriptionService } = await import("@main/transcription");
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
@@ -732,7 +732,14 @@ describe("TranscriptionService failover chain", () => {
       providerApiKeys: [{ providerId: "openai", key: "openai-key" }],
     }));
 
-    await expect(service.transcribe(clip)).rejects.toThrow("last failure");
+    const failure = await service.transcribe(clip).catch((error: unknown) => error);
+    if (!(failure instanceof TranscriptionChainError)) throw new Error("expected a TranscriptionChainError");
+    expect(failure.message).toBe("last failure");
+    // The trace needs every provider's error, not only the last one.
+    expect(failure.providerAttempts.map(a => [a.provider, a.error])).toEqual([
+      ["groq", "first failure"],
+      ["openai", "last failure"],
+    ]);
   });
 
   it("marks content-guard rejection as literal fallback", async () => {
