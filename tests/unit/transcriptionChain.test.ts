@@ -760,8 +760,9 @@ describe("TranscriptionService failover chain", () => {
 
     const result = await service.formatTranscriptDetailed("um I like this");
 
+    // The rejected reply is replaced by the transcript with speech noise removed by fixed rules.
     expect(result).toEqual({
-      text: "um I like this",
+      text: "I like this",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
       formatterStatusReason: "The formatter changed words in the transcript.",

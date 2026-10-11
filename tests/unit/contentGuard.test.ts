@@ -41,6 +41,33 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("Priyanka, run... Sorry. Priya, run the test again", "Priya, run the test again.", [])).toBe(true);
   });
 
+  it("rejects meaning changes that look like speech noise (Codex review)", () => {
+    expect(preservesContentWords("Do not notify Priya.", "Do notify Priya.", [])).toBe(false);
+    expect(preservesContentWords("Send no money today.", "Send money today.", [])).toBe(false);
+    expect(preservesContentWords("Do not send 500 to Priya. Sorry, I am late.", "I am late.", [])).toBe(false);
+    expect(preservesContentWords("What I mean is important.", "Important.", [])).toBe(false);
+    expect(preservesContentWords("Do not send, not today.", "Do send today.", [])).toBe(false);
+    expect(preservesContentWords("I am not ready, not yet.", "I am ready, not yet.", [])).toBe(false);
+    expect(preservesContentWords("Book 11- 12 seats.", "Book 12 seats.", [])).toBe(false);
+    expect(preservesContentWords("We met Priya— yesterday.", "We met yesterday.", [])).toBe(false);
+  });
+
+  it("accepts the owner's corrections and stutters", () => {
+    expect(preservesContentWords("Second, Arjun, sorry, Aditya needs to update the pricing page.", "Second, Aditya needs to update the pricing page.", [])).toBe(true);
+    expect(preservesContentWords("Second sorry, Aditya needs to update it.", "Second, Aditya needs to update it.", [])).toBe(true);
+    expect(preservesContentWords("send me the logs by by Friday no no no Thursday thanks", "Send me the logs by Thursday. Thanks.", [])).toBe(true);
+    expect(preservesContentWords("quick update on the, on the release and, and it looks good", "Quick update on the release and it looks good.", [])).toBe(true);
+    expect(preservesContentWords("there sh- there are certain times", "There are certain times.", [])).toBe(true);
+  });
+
+  it("keeps every word when speech noise is not allowed (cleanup off)", () => {
+    expect(diffContentWords("Please send the the report.", "Please send the report.", [], { speechNoise: false }).missing).toEqual(["the"]);
+  });
+
+  it("keeps a unit after a number even when it spells a hesitation sound", () => {
+    expect(preservesContentWords("Use 10 mm screws.", "Use 10 screws.", ["mm"])).toBe(false);
+  });
+
   it("rejects a dropped word that is not speech noise", () => {
     expect(missingContentWords("do not send the report", "Send the report.", [])).toEqual(["do", "not"]);
     expect(missingContentWords("send it to John and Mary", "Send it to Mary.", [])).toEqual(["john", "and"]);

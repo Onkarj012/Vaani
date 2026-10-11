@@ -1,9 +1,10 @@
 // Word guard for LLM formatting. Compares the words of the formatter input and output,
 // in order and in any script. Punctuation, capitals, and line placement are ignored.
 // A Devanagari word may come back in Roman letters when it sounds alike ("कैंसल" → "cancel").
-// Speech noise may be dropped: hesitation sounds, a word repeated within three words, a cut-off word ("ru-" or a prefix
-// of the next word), and a short run that ends in a correction cue ("Priyanka, run, sorry"). Any other dropped word,
-// and any added word, is a change.
+// With speech noise allowed, these may also be dropped: a stutter next to a kept copy ("the, the", "on the, on the"),
+// a cut-off word ("ru-", or a short fragment the next word starts with), and up to four words replaced right after a
+// correction cue ("Arjun, sorry, Aditya"). Negations and numbers are never cut-off words or bare cues. Any other dropped
+// word, and any added word, is a change.
 // Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one",
 // a sentence-opening "First,") may disappear only when the output has a line break or a list item with the same number there,
 // or keeps the cue words.
@@ -34,13 +35,21 @@ const WORD_RE = /[\p{L}\p{M}\p{N}]+/gu;
 const CURRENCY_RE = /\p{Sc}/gu;
 
 // Hesitation sounds. Cleanup adds them to the filler words it removes.
-export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "er", "ah", "hmm", "hm", "mm", "mmm", "mhm"];
-// Words that mark the speaker correcting what came just before.
-const CORRECTION_CUES: ReadonlySet<string> = new Set(["sorry", "mean", "wait", "actually", "rather", "scratch", "no"]);
-const REPEAT_WINDOW = 3;
-const MAX_CORRECTION_RUN = 8;
-// Cut-off marker right after a word: "ru- run", "trans-- uh", "po– bad".
-const CUT_OFF_RE = /^(?:-{1,2}|[–—])(?=[\s,.!?]|$)/u;
+// "er" and "ah" are left out: they are words in other languages ("Er ist da").
+export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "hm", "mm", "mmm", "mhm"];
+// Phrases that mark the speaker correcting what came just before, longest first.
+const CORRECTION_CUES: readonly (readonly string[])[] = [["scratch", "that"], ["or", "rather"], ["no", "wait"], ["i", "mean"], ["sorry"], ["wait"], ["actually"], ["rather"], ["no"]];
+const MAX_REPLACED_WORDS = 4;
+const MAX_STUTTER_PHRASE = 3;
+const MAX_CUT_FRAGMENT = 3;
+// Words whose loss flips meaning. They are never cut-off fragments or droppable lone cues.
+export const PROTECTED_WORDS: ReadonlySet<string> = new Set([
+  "no", "not", "nor", "never", "none", "nothing", "don", "didn", "doesn", "won", "can", "cannot", "isn", "aren", "wasn", "weren",
+  "shouldn", "wouldn", "couldn", "haven", "hasn", "hadn", "mustn", "nahi", "nahin", "na", "mat", "nako",
+  "नहीं", "नही", "न", "ना", "मत", "नाही", "नको",
+]);
+// Cut-off marker right after a word: "ru- run", "trans-- uh". Em and en dashes are punctuation, not cut-offs.
+const CUT_OFF_RE = /^-{1,2}(?=[\s,.!?]|$)/u;
 
 const NUMBER_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
   zero: "0", one: "1", two: "2", three: "3", four: "4",
@@ -156,11 +165,16 @@ function inputUnits(text: string, fillers: readonly string[]): { units: Unit[]; 
   const units = [...text.matchAll(INPUT_TOKEN_RE)].map((match): Unit => {
     if (match.groups?.line) return { kind: "line", words: wordsIn(match[0]) };
     if (match.groups?.enum) return { kind: "enum", value: cueValue(match[0]), words: wordsIn(match[0]) };
-    const cut = CUT_OFF_RE.test(text.slice((match.index ?? 0) + match[0].length));
-    return cut ? { kind: "word", text: tokenText(match[0]), cut } : { kind: "word", text: tokenText(match[0]) };
+    const word = tokenText(match[0]);
+    const cut = /\p{L}/u.test(word) && CUT_OFF_RE.test(text.slice((match.index ?? 0) + match[0].length));
+    return cut ? { kind: "word", text: word, cut } : { kind: "word", text: word };
   });
+  // A hesitation sound after a number is a unit ("10 mm"), so it is not offered as a filler.
   const marked = markFillers(units, fillers);
-  return { units: finishWords(marked.units), phrases: marked.phrases };
+  const unitAfterNumber = (index: number): boolean => /^\p{N}/u.test(unitText(units[index - 1]) ?? "");
+  const phrases = marked.phrases.filter(([start]) => !unitAfterNumber(start));
+  const markedUnits = marked.units.map((unit, index): Unit => (unit.kind === "filler" && unitAfterNumber(index) && !phrases.some(([start, end]) => start <= index && index < end) ? { kind: "word", text: unit.text } : unit));
+  return { units: finishWords(markedUnits), phrases };
 }
 
 // Output words, line breaks, and list items in order. Numeric literals such as 1.5 stay whole.
@@ -264,7 +278,7 @@ function alignSections(source: Unit[], output: Unit[]): { dropped: number[]; add
 }
 
 // Aligns input and output units in order. Unmatched input units are missing unless they belong to a filler phrase that was dropped whole; unmatched output units are added.
-function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[]): ContentWordDiff {
+function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[], allowSpeechNoise: boolean): ContentWordDiff {
   // Equal words at both ends align without a table, so a long transcript with small edits stays cheap.
   // Whole filler phrases the output drops are skipped there too.
   const skipped: number[] = [];
@@ -321,7 +335,7 @@ function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[])
     for (let index = start; index < end; index += 1) if (!dropped.has(index)) return false;
     return true;
   };
-  const noise = speechNoise(source, dropped);
+  const noise = allowSpeechNoise ? speechNoise(source, dropped, phrases) : new Set<number>();
   const isExempt = (index: number): boolean => noise.has(index) || phrases.some(phrase => phrase[0] <= index && index < phrase[1] && dropsWholePhrase(phrase));
   return {
     missing: source.filter((_, index) => dropped.has(index) && !isExempt(index)).flatMap(unitWords),
@@ -334,40 +348,92 @@ function unitText(unit: Unit | undefined): string | null {
   return unit?.kind === "word" || unit?.kind === "filler" ? unit.text : null;
 }
 
-// Dropped source indices that are speech noise: a word repeated nearby, a cut-off word, or a correction run.
-function speechNoise(source: Unit[], dropped: ReadonlySet<number>): Set<number> {
+// True when losing the word could flip meaning: a negation or a number.
+function isProtected(text: string): boolean {
+  return PROTECTED_WORDS.has(text) || /^\p{N}/u.test(text);
+}
+
+// True when words[start..start+phrase) equals the phrase.
+function startsWithPhrase(words: readonly (string | null)[], start: number, phrase: readonly (string | null)[]): boolean {
+  return phrase.length > 0 && phrase.every((word, offset) => word !== null && words[start + offset] === word);
+}
+
+// Dropped source indices that are speech noise: cut-off words, stutters next to a kept copy, and corrected phrases.
+function speechNoise(source: Unit[], dropped: ReadonlySet<number>, phrases: readonly [number, number][]): Set<number> {
   const noise = new Set<number>();
   for (const index of dropped) {
     const unit = source[index];
     const text = unitText(unit);
-    if (!text) continue;
-    const nearby = (offset: number): string | null => unitText(source[index + offset]);
-    let repeated = false;
-    for (let offset = 1; offset <= REPEAT_WINDOW && !repeated; offset += 1) repeated = nearby(offset) === text || nearby(-offset) === text;
-    // A cut-off word is marked with a dash, or is the start of one of the next two words ("bra" before "braces").
-    const startsNext = [1, 2].some(offset => { const next = nearby(offset); return next !== null && next.length > text.length && next.startsWith(text); });
-    if (repeated || (unit?.kind === "word" && unit.cut) || startsNext) noise.add(index);
+    if (!text || unit?.kind !== "word" || isProtected(text)) continue;
+    const next = unitText(source[index + 1]);
+    const fragment = next !== null && text.length <= MAX_CUT_FRAGMENT && next.length > text.length && next.startsWith(text);
+    if (unit.cut || fragment) noise.add(index);
   }
-  // A short dropped run ending in a correction cue is the phrase the speaker replaced. Something must follow it.
-  const sorted = [...dropped].sort((a, b) => a - b);
-  for (let start = 0; start < sorted.length;) {
+
+  // The core sequence skips filler phrases and cut-off words, so "the uh the" and "there sh- there" read as stutters.
+  const inPhrase = (index: number): boolean => phrases.some(([start, end]) => start <= index && index < end);
+  const core = source.map((_, index) => index).filter(index => !noise.has(index) && !inPhrase(index));
+  const words = core.map(index => unitText(source[index]));
+  const gone = core.map(index => dropped.has(index));
+  for (let start = 0; start < core.length;) {
+    if (!gone[start]) { start += 1; continue; }
     let end = start;
-    while (end + 1 < sorted.length && sorted[end + 1] === (sorted[end] ?? 0) + 1) end += 1;
-    const run = sorted.slice(start, end + 1);
-    const last = run[run.length - 1] ?? 0;
-    const tail = run.slice(-3).map(index => unitText(source[index]));
-    if (run.length <= MAX_CORRECTION_RUN && last < source.length - 1 && tail.some(word => word !== null && CORRECTION_CUES.has(word))) {
-      for (const index of run) noise.add(index);
+    while (end + 1 < core.length && gone[end + 1]) end += 1;
+    const run = words.slice(start, end + 1);
+    if (isStutter(run, words, gone, start, end) || isCorrection(run, gone, end)) {
+      for (let position = start; position <= end; position += 1) noise.add(core[position] ?? -1);
     }
     start = end + 1;
   }
   return noise;
 }
 
+// True when the dropped run is one phrase said again, next to a kept copy of it ("no, no, no" keeping one "no").
+function isStutter(run: readonly (string | null)[], words: readonly (string | null)[], gone: readonly boolean[], start: number, end: number): boolean {
+  for (let size = 1; size <= MAX_STUTTER_PHRASE && size <= run.length; size += 1) {
+    if (run.length % size !== 0) continue;
+    const phrase = run.slice(0, size);
+    let repeats = true;
+    for (let offset = 0; offset < run.length && repeats; offset += size) repeats = startsWithPhrase(run, offset, phrase);
+    if (!repeats) continue;
+    const keptAfter = startsWithPhrase(words, end + 1, phrase) && gone.slice(end + 1, end + 1 + size).every(value => !value);
+    const keptBefore = start - size >= 0 && startsWithPhrase(words, start - size, phrase) && gone.slice(start - size, start).every(value => !value);
+    if (keptAfter || keptBefore) return true;
+  }
+  return false;
+}
+
+// True when the dropped run ends in correction cues, replaces at most four words, and a kept replacement follows.
+// A lone cue may go only when it can't flip meaning ("sorry", not "no").
+function isCorrection(run: readonly (string | null)[], gone: readonly boolean[], end: number): boolean {
+  if (end + 1 >= gone.length || gone[end + 1]) return false;
+  let rest = run.length;
+  const cues: string[] = [];
+  for (let matched = true; matched && rest > 0;) {
+    matched = false;
+    for (const cue of CORRECTION_CUES) {
+      if (cue.length <= rest && startsWithPhrase(run, rest - cue.length, cue)) {
+        cues.push(...cue);
+        rest -= cue.length;
+        matched = true;
+        break;
+      }
+    }
+  }
+  if (cues.length === 0) return false;
+  if (rest === 0) return cues.length >= 2 || cues.every(word => !isProtected(word));
+  return rest <= MAX_REPLACED_WORDS;
+}
+
+export interface DiffOptions {
+  /** Allow dropping stutters, cut-off words, and corrected phrases. Off when cleanup is off. */
+  speechNoise?: boolean;
+}
+
 // Words the formatter dropped, reordered, or added. Listed fillers may be dropped but not added.
-export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = []): ContentWordDiff {
+export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): ContentWordDiff {
   const input = inputUnits(rawText, fillers);
-  return alignUnits(input.units, input.phrases, outputUnits(candidate));
+  return alignUnits(input.units, input.phrases, outputUnits(candidate), options.speechNoise ?? true);
 }
 
 // True only when the formatter kept every word, in order, and added none. Listed fillers may be dropped.

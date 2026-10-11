@@ -28,7 +28,8 @@ export interface FormattingProvider {
   readonly requiresApiKey: boolean;
   readonly models: { id: string; name: string }[];
   // fillerWords are the words the formatter may drop, and the only ones the content guard lets go.
-  format(rawText: string, options: FormattingOptions & { apiKey?: string; fillerWords: readonly string[] }): Promise<FormattingResult>;
+  // literal is true when cleanup is off: the reply must keep every word, stutters included.
+  format(rawText: string, options: FormattingOptions & { apiKey?: string; fillerWords: readonly string[]; literal?: boolean }): Promise<FormattingResult>;
   isAvailable(): Promise<boolean>;
   validateApiKey?(apiKey: string): Promise<ApiKeyValidationResult>;
 }

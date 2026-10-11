@@ -10,7 +10,7 @@ import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
-import { formatterDropWords } from "./text/cleanup";
+import { formatterDropWords, removeSpeechNoise } from "./text/cleanup";
 import { warmOpenRouterConnection } from "./providers/openrouter/client";
 
 export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
@@ -132,6 +132,11 @@ export interface FormatTranscriptTraceResult {
 }
 
 // Result for a formatter call that did not run, so the text stays as it was.
+// Text used when the cleanup model's result is not: speech noise removed by fixed rules, or literal when cleanup is off.
+function fallbackText(rawText: string, settings: Pick<Settings, "cleanupEnabled">): string {
+  return settings.cleanupEnabled ? removeSpeechNoise(rawText) : rawText;
+}
+
 function skippedFormat(text: string, reason: string): FormatTranscriptTraceResult {
   return { text, formatterUsed: "none", formatterStatus: "skipped", formatterStatusReason: reason };
 }
@@ -343,21 +348,22 @@ export class TranscriptionService {
 
   async formatTranscriptDetailed(rawText: string, options?: FormattingOptions): Promise<FormatTranscriptTraceResult> {
     const scope = createCancellationScope(options?.signal, options?.deadlineAt);
+    const settings = restoreSessionSettings(options?.sessionSettings ?? captureSessionSettings(this.settingsProvider()));
+    const fallback = fallbackText(rawText, settings);
     try {
-      const settings = restoreSessionSettings(options?.sessionSettings ?? captureSessionSettings(this.settingsProvider()));
       // Offline policy covers the entire pipeline, including LLM formatting.
       // The current formatting registry contains remote providers only.
       if (settings.offlineMode === "always-offline" || this.settingsProvider().offlineMode === "always-offline") {
         throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
-        return skippedFormat(rawText, OFFLINE_REASON);
+        return skippedFormat(fallback, OFFLINE_REASON);
       }
       const registry = getProviderRegistry();
       const llmId = settings.formattingProvider || "groq-llm";
       const provider = registry.getFormatting(llmId);
-      if (!provider) return skippedFormat(rawText, NO_PROVIDER_REASON);
+      if (!provider) return skippedFormat(fallback, NO_PROVIDER_REASON);
       const configuredApiKey = configuredApiKeyFor(this.settingsProvider(), llmId);
       const apiKey = configuredApiKey ?? (this.credentials ? await this.resolveApiKey(this.settingsProvider(), llmId) : null);
-      if (provider.requiresApiKey && !apiKey) return skippedFormat(rawText, NO_API_KEY_REASON);
+      if (provider.requiresApiKey && !apiKey) return skippedFormat(fallback, NO_API_KEY_REASON);
       throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
       const result = await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings, options?.language ?? settings.language, scope.signal);
       throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
@@ -365,7 +371,7 @@ export class TranscriptionService {
     } catch (error) {
       if (options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt) throw new TranscriptionDeadlineExceededError();
       if (scope.signal.aborted || isAbortError(error)) throw new TranscriptionCancelledError();
-      return { text: rawText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: formatterErrorReason(error) };
+      return { text: fallback, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: formatterErrorReason(error) };
     } finally {
       scope.dispose();
     }
@@ -443,28 +449,31 @@ export class TranscriptionService {
     signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
     if (signal.aborted) throw new TranscriptionCancelledError();
-    if (this.settingsProvider().offlineMode === "always-offline") return skippedFormat(rawText, OFFLINE_REASON);
+    const fallback = fallbackText(rawText, settings);
+    if (this.settingsProvider().offlineMode === "always-offline") return skippedFormat(fallback, OFFLINE_REASON);
     const fillerWords = formatterDropWords(settings);
+    const literal = !settings.cleanupEnabled;
     const result = await provider.format(rawText, {
       apiKey,
       model: settings.formattingModel,
-      systemPrompt: buildFormattingPrompt({ customPrompt: settings.customPrompt, language, text: rawText, fillerWords }),
-      strictSystemPrompt: buildFormattingPrompt({ strict: true, language, text: rawText, fillerWords }),
+      systemPrompt: buildFormattingPrompt({ customPrompt: settings.customPrompt, literal, language, text: rawText, fillerWords }),
+      strictSystemPrompt: buildFormattingPrompt({ strict: true, literal, language, text: rawText, fillerWords }),
       signal,
       fillerWords,
+      literal,
     });
     if (result.status !== "ran") {
-      return { text: result.text, formatterUsed: "none", formatterStatus: result.status, formatterStatusReason: result.reason };
+      return { text: fallback, formatterUsed: "none", formatterStatus: result.status, formatterStatusReason: result.reason };
     }
     const formatted = stripReasoningBlocks(result.text);
     if (!formatted) {
-      return { text: rawText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: EMPTY_REPLY_REASON };
+      return { text: fallback, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: EMPTY_REPLY_REASON };
     }
-    const { missing, added, rejection } = diffContentWords(rawText, formatted, fillerWords);
+    const { missing, added, rejection } = diffContentWords(rawText, formatted, fillerWords, { speechNoise: !literal });
     if (rejection || missing.length > 0 || added.length > 0) {
       debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
       return {
-        text: rawText,
+        text: fallback,
         formatterUsed: "guard-fallback",
         formatterStatus: "rejected",
         formatterStatusReason: rejection ?? CHANGED_WORDS_REASON,

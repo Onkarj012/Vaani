@@ -33,6 +33,21 @@ describe("removeSpeechNoise", () => {
     expect(removeSpeechNoise("would it ru- run")).toBe("would it run");
   });
 
+  it("removes the owner's stutters, including two-word ones", () => {
+    expect(removeSpeechNoise("quick update on the, on the release. So I checked the build and, and it looks good. Can you can you send me the logs by By Friday")).toBe("quick update on the release. So I checked the build and it looks good. Can you send me the logs by Friday");
+  });
+
+  it("leaves meaningful text the review flagged", () => {
+    expect(removeSpeechNoise("- Do not— send it.")).toBe("- Do not— send it.");
+    expect(removeSpeechNoise("मुझे मत— भेजो।")).toBe("मुझे मत— भेजो।");
+    expect(removeSpeechNoise("Er ist da.")).toBe("Er ist da.");
+    expect(removeSpeechNoise("Use 10 mm screws.")).toBe("Use 10 mm screws.");
+    expect(removeSpeechNoise("The code is 1 1 2.")).toBe("The code is 1 1 2.");
+    expect(removeSpeechNoise("वह घर घर जाता है।")).toBe("वह घर घर जाता है।");
+    expect(removeSpeechNoise("Book 11- 12 seats.")).toBe("Book 11- 12 seats.");
+    expect(removeSpeechNoise("I said not- never.")).toBe("I said not- never.");
+  });
+
   it("keeps doubles the grammar needs, clause-break repeats, and hyphenated words", () => {
     expect(removeSpeechNoise("I had had enough")).toBe("I had had enough");
     expect(removeSpeechNoise("If you look at it, it has problems")).toBe("If you look at it, it has problems");

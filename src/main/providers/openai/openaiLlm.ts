@@ -18,15 +18,14 @@ import {
 import { validateBearerEndpoint } from "../validation";
 import { isAbortError, runWithDeadline } from "@main/cancellation";
 
-const ADDED_CONTENT_WORD_SLACK = 3;
 
 const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will format|here['\u2019]s the|let me|as requested|i hope|i think|i believe|the answer is|based on|as an ai|sure!?|certainly!?|of course!?)\b/i;
 
-// Why the formatter reply must be rejected, or null when its words check out.
-function contentRejection(rawText: string, candidate: string, fillers: readonly string[]): string | null {
-  const diff = diffContentWords(rawText, candidate, fillers);
+// Why the formatter reply must be rejected, or null when its words check out. Matches the service's final guard.
+function contentRejection(rawText: string, candidate: string, fillers: readonly string[], literal: boolean | undefined): string | null {
+  const diff = diffContentWords(rawText, candidate, fillers, { speechNoise: !literal });
   if (diff.rejection) return diff.rejection;
-  return diff.missing.length > 0 || diff.added.length > ADDED_CONTENT_WORD_SLACK ? CHANGED_WORDS_REASON : null;
+  return diff.missing.length > 0 || diff.added.length > 0 ? CHANGED_WORDS_REASON : null;
 }
 
 async function requestFormatting(text: string, options: Parameters<FormattingProvider["format"]>[1], prompt: string): Promise<string | null> {
@@ -70,11 +69,11 @@ export const OpenAILlmProvider: FormattingProvider = {
       const formatted = await requestFormatting(text, options, options.systemPrompt || FORMATTING_PROMPT);
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
       if (ASSISTANT_REPLY_PATTERN.test(formatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
-      if (contentRejection(text, formatted, options.fillerWords)) {
+      if (contentRejection(text, formatted, options.fillerWords, options.literal)) {
         const strictFormatted = await requestFormatting(text, options, options.strictSystemPrompt || STRICT_FORMATTING_PROMPT);
         if (!strictFormatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
         if (ASSISTANT_REPLY_PATTERN.test(strictFormatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
-        const strictRejection = contentRejection(text, strictFormatted, options.fillerWords);
+        const strictRejection = contentRejection(text, strictFormatted, options.fillerWords, options.literal);
         if (strictRejection) return formatterResult("rejected", text, strictRejection);
         return formatterResult("ran", strictFormatted, FORMATTED_REASON);
       }
