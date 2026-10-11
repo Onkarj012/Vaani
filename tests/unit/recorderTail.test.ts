@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { STOP_MAX_WAIT_MS, STOP_QUIET_MAX_RMS, STOP_QUIET_RMS, quietThresholdFromNoise, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
+import { RENDERER_TAIL_GRACE_MS, STOP_MAX_WAIT_MS, STOP_QUIET_MAX_RMS, STOP_QUIET_RMS, quietThresholdFromNoise, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
 
 afterEach(() => vi.useRealTimers());
 
 describe("renderer stop drain", () => {
-  it("finishes after grace when audio has been quiet for 120 ms", async () => {
+  it("finishes after the 150 ms grace when audio was already quiet for 120 ms", async () => {
     vi.useFakeTimers();
     let finished = false;
     const drain = waitForRendererDrain(Date.now(), () => Date.now() - 200, () => true).then(() => { finished = true; });
-    await vi.advanceTimersByTimeAsync(299);
+    await vi.advanceTimersByTimeAsync(RENDERER_TAIL_GRACE_MS - 1);
     expect(finished).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await drain;
@@ -41,12 +41,18 @@ describe("renderer stop drain", () => {
     expect(trailingRms(new Float32Array([...new Array(700).fill(0.1), ...new Array(300).fill(0.02)]), 1000)).toBeCloseTo(0.02);
   });
 
-  it("sets the quiet level from the room noise at the start, between 0.002 and 0.01", () => {
-    // Room noise measured in Vaani Dev traces sat at 0.005 to 0.011, so a fixed 0.002 always ran to the cap.
+  it("sets the quiet level from the recording's room noise, between 0.002 and 0.02", () => {
+    // Room noise measured in Vaani Dev traces sat at 0.005 to 0.011 by the end of a clip, so a fixed 0.002 always ran to the cap.
     expect(quietThresholdFromNoise(new Array(20).fill(0.004))).toBeCloseTo(0.008);
     expect(quietThresholdFromNoise(new Array(20).fill(0.0001))).toBe(STOP_QUIET_RMS);
     expect(quietThresholdFromNoise(new Array(20).fill(0.05))).toBe(STOP_QUIET_MAX_RMS);
     expect(quietThresholdFromNoise([])).toBe(STOP_QUIET_RMS);
+  });
+
+  it("ends the tail at room noise that auto gain lifted to 0.011 during a dictation with pauses", () => {
+    const speechWithPauses = [...new Array(40).fill(0.05), ...new Array(15).fill(0.009)];
+    expect(quietThresholdFromNoise(speechWithPauses)).toBeGreaterThan(0.011);
+    expect(quietThresholdFromNoise(speechWithPauses)).toBeLessThan(0.05);
   });
 
   it("counts digital silence at the start as the quietest room, not as missing data", () => {

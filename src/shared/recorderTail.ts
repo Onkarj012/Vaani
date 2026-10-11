@@ -1,4 +1,6 @@
 export const STOP_TAIL_GRACE_MS = 300;
+// The renderer stream delivers frames within tens of milliseconds, so its first quiet check can come sooner than the native queue's.
+export const RENDERER_TAIL_GRACE_MS = 150;
 export const STOP_QUIET_MS = 120;
 // Auto gain lifts room noise at the end of a clip, so the tail rarely reads as quiet. The cap bounds the wait.
 export const STOP_MAX_WAIT_MS = 450;
@@ -6,21 +8,21 @@ export const STOP_POLL_MS = 40;
 
 // A continuous renderer stream cannot become callback-quiet like the native queue.
 // Frames below the room's noise level count as quiet. The level stays between these bounds.
+// Auto gain lifts room noise as a recording goes on (0.007-0.011 RMS at the end in Vaani Dev traces),
+// so the level comes from the whole recording, not its opening.
 export const STOP_QUIET_RMS = 0.002;
-export const STOP_QUIET_MAX_RMS = 0.01;
-// How much of the recording's opening is used to measure room noise.
-export const NOISE_SAMPLE_MS = 500;
+export const STOP_QUIET_MAX_RMS = 0.02;
 
-// Quiet level for the stop tail, from the opening frames' RMS. Speech at the press only raises it up to the cap.
-export function quietThresholdFromNoise(openingFrameRms: readonly number[]): number {
+// Quiet level for the stop tail: twice the quietest fifth of the recording's frames, within the bounds.
+export function quietThresholdFromNoise(frameRms: readonly number[]): number {
   // Digital silence (RMS 0) counts as the quietest room, so a device that opens with zeros keeps the low level.
-  const sorted = openingFrameRms.filter((rms) => Number.isFinite(rms) && rms >= 0).sort((a, b) => a - b);
+  const sorted = frameRms.filter((rms) => Number.isFinite(rms) && rms >= 0).sort((a, b) => a - b);
   const floor = sorted[Math.floor((sorted.length - 1) * 0.2)] ?? 0;
   return Math.min(STOP_QUIET_MAX_RMS, Math.max(STOP_QUIET_RMS, floor * 2));
 }
 
 export function shouldFinishRendererDrain(elapsedMs: number, quietForMs: number): boolean {
-  return elapsedMs >= STOP_MAX_WAIT_MS || (elapsedMs >= STOP_TAIL_GRACE_MS && quietForMs >= STOP_QUIET_MS);
+  return elapsedMs >= STOP_MAX_WAIT_MS || (elapsedMs >= RENDERER_TAIL_GRACE_MS && quietForMs >= STOP_QUIET_MS);
 }
 
 // Waits for the tail after stop, ending once audio has been quiet long enough or the cap is reached.
@@ -34,7 +36,7 @@ export async function waitForRendererDrain(stopRequestedAt: number, getLastLoudF
         setTimeout(poll, Math.min(STOP_POLL_MS, STOP_MAX_WAIT_MS - elapsed));
       }
     };
-    setTimeout(poll, STOP_TAIL_GRACE_MS);
+    setTimeout(poll, RENDERER_TAIL_GRACE_MS);
   });
 }
 
