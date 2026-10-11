@@ -36,8 +36,10 @@ describe("preservesContentWords", () => {
 
   it("accepts dropped hesitation sounds, cut-off words, and a corrected phrase", () => {
     expect(preservesContentWords("it went mm better hmm", "It went better.", ["mm", "hmm"])).toBe(true);
-    expect(preservesContentWords("the formatting is po-- bad", "The formatting is bad.", [])).toBe(true);
-    expect(preservesContentWords("would it ru run", "Would it run?", [])).toBe(true);
+    expect(preservesContentWords("the formatting is po-- uh, bad", "The formatting is bad.", ["uh"])).toBe(true);
+    expect(preservesContentWords("would it ru- run", "Would it run?", [])).toBe(true);
+    // Without a hyphen a short word stays: "her" before "here" is a word, not a cut-off.
+    expect(preservesContentWords("would it ru run", "Would it run?", [])).toBe(false);
     expect(preservesContentWords("Priyanka, run... Sorry. Priya, run the test again", "Priya, run the test again.", [])).toBe(true);
   });
 
@@ -50,6 +52,18 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("I am not ready, not yet.", "I am ready, not yet.", [])).toBe(false);
     expect(preservesContentWords("Book 11- 12 seats.", "Book 12 seats.", [])).toBe(false);
     expect(preservesContentWords("We met Priya— yesterday.", "We met yesterday.", [])).toBe(false);
+  });
+
+  it("rejects the meaning changes Codex found in round 2", () => {
+    expect(preservesContentWords("Do not pay 500. Sorry, call Priya.", "Call Priya.", [])).toBe(false);
+    expect(preservesContentWords("Write what I mean here.", "Write here.", [])).toBe(false);
+    expect(preservesContentWords("No, no, no, send it.", "Send it.", [])).toBe(false);
+    expect(preservesContentWords("He said no. No one agreed.", "He said no one agreed.", [])).toBe(false);
+    expect(preservesContentWords("Send her here today.", "Send here today.", [])).toBe(false);
+    expect(preservesContentWords("Please record values -1 -10 today.", "Please record values -10 today.", [])).toBe(false);
+    expect(preservesContentWords("The PIN is 1 1 2.", "The PIN is 1 2.", [])).toBe(false);
+    expect(preservesContentWords("Call Priya-- tomorrow.", "Call tomorrow.", [])).toBe(false);
+    expect(preservesContentWords("Use ten mm screws.", "Use ten screws.", ["mm"])).toBe(false);
   });
 
   it("accepts the owner's corrections and stutters", () => {

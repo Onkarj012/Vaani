@@ -48,6 +48,13 @@ describe("removeSpeechNoise", () => {
     expect(removeSpeechNoise("I said not- never.")).toBe("I said not- never.");
   });
 
+  it("leaves the text Codex flagged in round 2", () => {
+    expect(removeSpeechNoise("- Call Priya-- tomorrow.\n- Offer pre- and post-operative care.")).toBe("- Call Priya-- tomorrow.\n- Offer pre- and post-operative care.");
+    expect(removeSpeechNoise("The code is one one two.")).toBe("The code is one one two.");
+    expect(removeSpeechNoise("Use ten mm screws. Use 10  mm screws.")).toBe("Use ten mm screws. Use 10 mm screws.");
+    expect(removeSpeechNoise("there sh- there are times")).toBe("there are times");
+  });
+
   it("keeps doubles the grammar needs, clause-break repeats, and hyphenated words", () => {
     expect(removeSpeechNoise("I had had enough")).toBe("I had had enough");
     expect(removeSpeechNoise("If you look at it, it has problems")).toBe("If you look at it, it has problems");

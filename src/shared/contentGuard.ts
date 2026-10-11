@@ -80,7 +80,7 @@ export interface ContentWordDiff {
 
 // One piece of input or output: a word, a listed filler, a spoken layout cue, a line break, or a list item.
 type Unit =
-  | { kind: "word"; text: string; cut?: boolean }
+  | { kind: "word"; text: string; cut?: boolean; pause?: boolean; boundary?: boolean }
   | { kind: "filler"; text: string }
   | { kind: "line"; words: string[] }
   | { kind: "enum"; value: string | null; words: string[] }
@@ -165,13 +165,21 @@ function inputUnits(text: string, fillers: readonly string[]): { units: Unit[]; 
   const units = [...text.matchAll(INPUT_TOKEN_RE)].map((match): Unit => {
     if (match.groups?.line) return { kind: "line", words: wordsIn(match[0]) };
     if (match.groups?.enum) return { kind: "enum", value: cueValue(match[0]), words: wordsIn(match[0]) };
-    const word = tokenText(match[0]);
-    const cut = /\p{L}/u.test(word) && CUT_OFF_RE.test(text.slice((match.index ?? 0) + match[0].length));
-    return cut ? { kind: "word", text: word, cut } : { kind: "word", text: word };
+    const start = match.index ?? 0;
+    const after = text.slice(start + match[0].length);
+    const unit: Unit = { kind: "word", text: tokenText(match[0]) };
+    if (/\p{L}/u.test(unit.text) && CUT_OFF_RE.test(after)) unit.cut = true;
+    // A pause is punctuation right after the word; a boundary is a sentence end or line break right before it.
+    if (/^(?:[,;:.!?…।॥]|-{2})/u.test(after)) unit.pause = true;
+    if (/(?:^|[.!?।॥\n])[\s"'“‘(]*$/u.test(text.slice(0, start))) unit.boundary = true;
+    return unit;
   });
-  // A hesitation sound after a number is a unit ("10 mm"), so it is not offered as a filler.
+  // "mm" after a number is a unit ("10 mm"), so it is not offered as a filler there.
   const marked = markFillers(units, fillers);
-  const unitAfterNumber = (index: number): boolean => /^\p{N}/u.test(unitText(units[index - 1]) ?? "");
+  const unitAfterNumber = (index: number): boolean => {
+    const previous = unitText(units[index - 1]) ?? "";
+    return unitText(units[index]) === "mm" && (/^\p{N}/u.test(previous) || NUMBER_WORDS.has(previous));
+  };
   const phrases = marked.phrases.filter(([start]) => !unitAfterNumber(start));
   const markedUnits = marked.units.map((unit, index): Unit => (unit.kind === "filler" && unitAfterNumber(index) && !phrases.some(([start, end]) => start <= index && index < end) ? { kind: "word", text: unit.text } : unit));
   return { units: finishWords(markedUnits), phrases };
@@ -350,8 +358,23 @@ function unitText(unit: Unit | undefined): string | null {
 
 // True when losing the word could flip meaning: a negation or a number.
 function isProtected(text: string): boolean {
-  return PROTECTED_WORDS.has(text) || /^\p{N}/u.test(text);
+  return PROTECTED_WORDS.has(text) || isNumber(text);
 }
+
+// True for digits and spelled-out numbers.
+function isNumber(text: string): boolean {
+  return /^[+-]?\p{N}/u.test(text) || NUMBER_WORDS.has(text) || ORDINAL_NUMBERS.has(text);
+}
+
+// The core sequence the stutter and correction rules read: words with their pause and sentence-boundary marks.
+interface Core {
+  words: (string | null)[];
+  gone: boolean[];
+  pause: boolean[];
+  boundary: boolean[];
+}
+
+const AMBIGUOUS_CUES: ReadonlySet<string> = new Set(["mean", "actually", "rather", "wait"]);
 
 // True when words[start..start+phrase) equals the phrase.
 function startsWithPhrase(words: readonly (string | null)[], start: number, phrase: readonly (string | null)[]): boolean {
@@ -364,23 +387,35 @@ function speechNoise(source: Unit[], dropped: ReadonlySet<number>, phrases: read
   for (const index of dropped) {
     const unit = source[index];
     const text = unitText(unit);
-    if (!text || unit?.kind !== "word" || isProtected(text)) continue;
-    const next = unitText(source[index + 1]);
-    const fragment = next !== null && text.length <= MAX_CUT_FRAGMENT && next.length > text.length && next.startsWith(text);
-    if (unit.cut || fragment) noise.add(index);
+    if (!text || unit?.kind !== "word" || !unit.cut || isProtected(text)) continue;
+    // A hyphen alone can be a dash or a suspended prefix ("Priya-- tomorrow", "pre- and post-paid"). A cut-off also
+    // needs the speaker to restart: the next word starts with the fragment, a hesitation follows, or the word before repeats.
+    const next = source[index + 1];
+    const nextText = unitText(next);
+    const restarts = nextText !== null && (
+      (nextText.length > text.length && nextText.startsWith(text))
+      || next?.kind === "filler"
+      || (unitText(source[index - 1]) === nextText && text.length <= MAX_CUT_FRAGMENT)
+    );
+    if (restarts && nextText !== "and" && nextText !== "or") noise.add(index);
   }
 
   // The core sequence skips filler phrases and cut-off words, so "the uh the" and "there sh- there" read as stutters.
   const inPhrase = (index: number): boolean => phrases.some(([start, end]) => start <= index && index < end);
   const core = source.map((_, index) => index).filter(index => !noise.has(index) && !inPhrase(index));
-  const words = core.map(index => unitText(source[index]));
-  const gone = core.map(index => dropped.has(index));
+  const info: Core = {
+    words: core.map(index => unitText(source[index])),
+    gone: core.map(index => dropped.has(index)),
+    pause: core.map(index => { const unit = source[index]; return unit?.kind === "word" && unit.pause === true; }),
+    boundary: core.map(index => { const unit = source[index]; return unit?.kind !== "word" || unit.boundary === true; }),
+  };
+  const { gone } = info;
   for (let start = 0; start < core.length;) {
     if (!gone[start]) { start += 1; continue; }
     let end = start;
     while (end + 1 < core.length && gone[end + 1]) end += 1;
-    const run = words.slice(start, end + 1);
-    if (isStutter(run, words, gone, start, end) || isCorrection(run, gone, end)) {
+    const run = info.words.slice(start, end + 1);
+    if (isStutter(run, info, start, end) || isCorrection(run, info, start, end)) {
       for (let position = start; position <= end; position += 1) noise.add(core[position] ?? -1);
     }
     start = end + 1;
@@ -388,24 +423,34 @@ function speechNoise(source: Unit[], dropped: ReadonlySet<number>, phrases: read
   return noise;
 }
 
-// True when the dropped run is one phrase said again, next to a kept copy of it ("no, no, no" keeping one "no").
-function isStutter(run: readonly (string | null)[], words: readonly (string | null)[], gone: readonly boolean[], start: number, end: number): boolean {
+// True when no sentence starts at any core position in (from, to].
+function sameSentence(boundary: readonly boolean[], from: number, to: number): boolean {
+  for (let position = from + 1; position <= to; position += 1) if (boundary[position]) return false;
+  return true;
+}
+
+// True when the dropped run is one phrase said again, next to a kept copy of it in the same sentence
+// ("no, no, no" keeping one "no"). Numbers never count: "1 1 2" is a value.
+function isStutter(run: readonly (string | null)[], { words, gone, boundary }: Core, start: number, end: number): boolean {
+  if (run.some(word => word !== null && isNumber(word))) return false;
   for (let size = 1; size <= MAX_STUTTER_PHRASE && size <= run.length; size += 1) {
     if (run.length % size !== 0) continue;
     const phrase = run.slice(0, size);
     let repeats = true;
     for (let offset = 0; offset < run.length && repeats; offset += size) repeats = startsWithPhrase(run, offset, phrase);
     if (!repeats) continue;
-    const keptAfter = startsWithPhrase(words, end + 1, phrase) && gone.slice(end + 1, end + 1 + size).every(value => !value);
-    const keptBefore = start - size >= 0 && startsWithPhrase(words, start - size, phrase) && gone.slice(start - size, start).every(value => !value);
+    const keptAfter = startsWithPhrase(words, end + 1, phrase) && gone.slice(end + 1, end + 1 + size).every(value => !value) && sameSentence(boundary, start, end + size);
+    const keptBefore = start - size >= 0 && startsWithPhrase(words, start - size, phrase) && gone.slice(start - size, start).every(value => !value) && sameSentence(boundary, start - size, end);
     if (keptAfter || keptBefore) return true;
   }
   return false;
 }
 
-// True when the dropped run ends in correction cues, replaces at most four words, and a kept replacement follows.
-// A lone cue may go only when it can't flip meaning ("sorry", not "no").
-function isCorrection(run: readonly (string | null)[], gone: readonly boolean[], end: number): boolean {
+// True when the dropped run ends in correction cues, replaces at most four words of one sentence, and a kept
+// replacement follows. The replaced words hold no negation or number. A lone cue may go only when it can't flip
+// meaning ("sorry", not "no"). "I mean", "actually", "rather", and "wait" count only with a pause next to them,
+// so "what I mean here" stays.
+function isCorrection(run: readonly (string | null)[], { gone, pause, boundary }: Core, start: number, end: number): boolean {
   if (end + 1 >= gone.length || gone[end + 1]) return false;
   let rest = run.length;
   const cues: string[] = [];
@@ -421,8 +466,13 @@ function isCorrection(run: readonly (string | null)[], gone: readonly boolean[],
     }
   }
   if (cues.length === 0) return false;
-  if (rest === 0) return cues.length >= 2 || cues.every(word => !isProtected(word));
-  return rest <= MAX_REPLACED_WORDS;
+  if (rest === 0) return cues.every(word => !isProtected(word));
+  const replaced = run.slice(0, rest);
+  if (rest > MAX_REPLACED_WORDS || replaced.some(word => word !== null && isProtected(word))) return false;
+  if (!sameSentence(boundary, start, start + rest - 1)) return false;
+  const firstCue = start + rest;
+  const ambiguous = run.slice(rest).some(word => word !== null && AMBIGUOUS_CUES.has(word));
+  return !ambiguous || pause[firstCue - 1] === true || pause[end] === true;
 }
 
 export interface DiffOptions {
