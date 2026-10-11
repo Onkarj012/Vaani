@@ -658,10 +658,13 @@ export class DictationService {
         }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome);
         return;
       }
-      void this.patchTrace(payload.sessionId, { dispatchAt: new Date().toISOString() });
       const injection = await this.injector.inject(cleanedText, finalInjectionTarget, {
         signal: operationSignal,
-        onDispatch: () => { if (this.isCurrentSession(payload.sessionId)) this.activeInsertionDispatched = true; },
+        // dispatchAt marks the paste or keystrokes leaving Vaani, after the injector's preparation.
+        onDispatch: () => {
+          void this.patchTrace(payload.sessionId, { dispatchAt: new Date().toISOString() });
+          if (this.isCurrentSession(payload.sessionId)) this.activeInsertionDispatched = true;
+        },
         isTargetValid: () => this.isCurrentSession(payload.sessionId)
           && this.isSameFocusedTarget(finalInjectionTarget, initialTargetIdentity)
           && (this.activeInsertionDispatched || this.matchesFocusedAX(finalInjectionTarget, initialTargetValue, initialSelection)),

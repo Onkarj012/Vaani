@@ -54,8 +54,8 @@ export class ClipboardTextInjector {
     const markDispatch = (): void => { dispatchStarted = true; onDispatch?.(); };
     const dispatchGuard: InjectionGuard = () => guard() ?? (ownedChangeCount !== null && clipboardChangeCount() !== ownedChangeCount ? "cancelled" : null);
     try {
-      await activateTargetApp(target);
-      await delay(180);
+      // Settle only after switching apps. A target already in front takes the clipboard write at once.
+      if (await activateTargetApp(target)) await delay(180);
       const blockedBeforeWrite = dispatchGuard();
       if (blockedBeforeWrite) return { success: false, reason: blockedBeforeWrite };
       generation = ++restoreGeneration;
@@ -150,7 +150,7 @@ export class ClipboardTextInjector {
     if (!nativeBridge.pasteText) return "failed";
     let dispatched = false;
     try {
-      const blocked = await prepareDispatch(target, guard, true);
+      const blocked = await prepareDispatch(target, guard);
       if (blocked) return blocked;
       const changeCount = expectedChangeCount();
       if (changeCount === null) return "failed";
@@ -166,7 +166,7 @@ export class ClipboardTextInjector {
     if (!nativeBridge.typeText) return "failed";
     let dispatched = false;
     try {
-      const blocked = await prepareDispatch(target, guard, true);
+      const blocked = await prepareDispatch(target, guard);
       if (blocked) return blocked;
       onDispatch?.();
       dispatched = true;
@@ -181,14 +181,11 @@ export class ClipboardTextInjector {
   }
 }
 
-async function prepareDispatch(target: InjectionTarget | undefined, guard: InjectionGuard, release: boolean): Promise<InjectionBlockReason | null> {
+// Brings the target forward before a native paste or typing. The native call releases held modifier keys itself.
+async function prepareDispatch(target: InjectionTarget | undefined, guard: InjectionGuard): Promise<InjectionBlockReason | null> {
   const blockedBeforeActivation = guard();
   if (blockedBeforeActivation) return blockedBeforeActivation;
   await ensureTargetReady(target);
-  if (release) {
-    await releaseModifiers();
-    await delay(60);
-  }
   return guard();
 }
 
@@ -231,17 +228,6 @@ function modifierReleaseLines(): string[] {
 function prefersSystemEventsPaste(target?: InjectionTarget): boolean {
   const haystack = `${target?.appBundleId ?? ""} ${target?.appName ?? ""}`.toLowerCase();
   return haystack.includes("whatsapp") || haystack.includes("messages") || haystack.includes("telegram") || haystack.includes("signal");
-}
-
-async function releaseModifiers(): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      await exec("osascript", modifierReleaseLines().flatMap(line => ["-e", line]));
-      await delay(60);
-    } catch {
-      // best-effort only
-    }
-  }
 }
 
 async function readClipboardText(): Promise<string> {

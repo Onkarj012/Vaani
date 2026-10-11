@@ -117,7 +117,8 @@ function createDictationService(deps: {
   };
 
   const injector = {
-    inject: vi.fn(async (text: string, _target?: InjectionTarget, _options?: InjectionOptions): Promise<InjectionResult> => {
+    inject: vi.fn(async (text: string, _target?: InjectionTarget, options?: InjectionOptions): Promise<InjectionResult> => {
+      options?.onDispatch?.();
       focusedValue += text;
       return { success: true, method: "clipboard" };
     })
