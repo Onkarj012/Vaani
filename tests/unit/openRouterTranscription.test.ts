@@ -5,6 +5,7 @@ import type { TranscribeOptions } from "@main/transcription";
 import type { TranscriptionProvider } from "@main/providers/types";
 import { OpenRouterSttProvider } from "@main/providers/openrouter/openRouterStt";
 import { PROVISIONING_KEY_MESSAGE } from "@main/providers/openrouter/client";
+import { openRouterSttTimeoutMs } from "@main/providers/openrouter/openRouterStt";
 
 const DICTATION_CONTEXT = "Voice dictation by an Indian speaker, mostly in English, sometimes in Hindi or Marathi, often mixing them.";
 
@@ -97,6 +98,12 @@ describe("OpenRouter transcription through the service", () => {
     }));
 
     expect(sentBody().provider).toEqual({ options: { openai: { prompt: `${DICTATION_CONTEXT} Names and terms: GitHub.` } } });
+  });
+
+  it("gives a short clip a short deadline and a long clip a longer one, up to 30 s", () => {
+    expect(openRouterSttTimeoutMs(5)).toBe(7_000);
+    expect(openRouterSttTimeoutMs(105)).toBe(27_000);
+    expect(openRouterSttTimeoutMs(600)).toBe(30_000);
   });
 
   it("sends the dictation context alone when the dictionary is empty", async () => {

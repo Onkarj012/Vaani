@@ -44,7 +44,7 @@ import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
-import { applyDictionary, cleanupText, hasSpokenContent } from "./text/cleanup";
+import { applyDictionary, cleanupText, hasSpokenContent, stripSoundTags } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
@@ -91,7 +91,7 @@ type DictationTraceDeps = Pick<DictationTraceStore, "upsert" | "updateById" | "g
   & Partial<Pick<DictationTraceStore, "getAll">>;
 
 interface DictationServiceDeps {
-  transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
+  transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed" | "warmUp">>;
   injector?: Pick<TextInjector, "inject">;
   appDetector?: Pick<AppDetector, "getContext">;
   getMicrophonePermission?: () => string;
@@ -109,7 +109,7 @@ interface DictationServiceDeps {
 
 export class DictationService {
   private state: DictationState = { status: "idle" };
-  private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
+  private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed" | "warmUp">>;
   private readonly injector: Pick<TextInjector, "inject">;
   private readonly appDetector: Pick<AppDetector, "getContext">;
   private readonly getMicrophonePermission: () => string;
@@ -334,6 +334,7 @@ export class DictationService {
     void this.patchTrace(sessionId, { stopRequestedAt, hotkeyReleasedAt: stopRequestedAt });
     void this.transitionRecovery(sessionId, "interrupted_recording", { error: { class: "interrupted", detail: "Recording finalized." } });
     this.setState({ status: "finalizing", sessionId });
+    this.transcription.warmUp?.();
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
     if (!this.recorder?.stopRecording(sessionId)) {
@@ -503,7 +504,7 @@ export class DictationService {
       if (qualityDecision.action === "save") {
         debug("dictation", `submitAudioClip: transcript saved instead of inserted (${qualityDecision.reason}): "${transcription.rawText}"`);
         const cleanupTrace = { correctionsApplied: [] };
-        const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
+        const correctedText = applyDictionary(stripSoundTags(transcription.rawText), settings, cleanupTrace);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
         const cleanedText = cleanupText({ rawText: correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
         void this.patchTrace(payload.sessionId, { formatDoneAt: new Date().toISOString() });
@@ -537,7 +538,7 @@ export class DictationService {
 
       // Apply dictionary terms before the formatter so it sees the intended spelling.
       const cleanupTrace = { correctionsApplied: [] };
-      const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
+      const correctedText = applyDictionary(stripSoundTags(transcription.rawText), settings, cleanupTrace);
       let formattedText = correctedText;
       let formatTrace: FormatTranscriptTraceResult = { text: correctedText, formatterUsed: "none" };
       try {
@@ -910,7 +911,7 @@ export class DictationService {
       const settings = restoreSessionSettings(entry.settingsSnapshot);
       const appProfile = resolveAppProfile(settings.appProfiles ?? [], entry.target.appBundleId);
       const cleanupTrace = { correctionsApplied: [] };
-      const correctedText = applyDictionary(rawText, settings, cleanupTrace);
+      const correctedText = applyDictionary(stripSoundTags(rawText), settings, cleanupTrace);
       const formatted = await this.formatTranscriptWithTrace(correctedText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS, entry.settingsSnapshot);
       if (action.signal.aborted) return false;
       const cleanedText = cleanupText({ rawText: formatted.text, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
@@ -1475,7 +1476,9 @@ export class DictationService {
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
     this.setState({ status: "error", sessionId, message });
-    void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message, tracePatch);
+    // The trace keeps every provider attempt, so a failed dictation shows which provider failed and how.
+    const attemptsPatch = providerAttempts.length > 0 ? { providerAttempts } : {};
+    void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message, { ...attemptsPatch, ...tracePatch });
     this.scheduleReset(ERROR_RESET_MS);
   }
 

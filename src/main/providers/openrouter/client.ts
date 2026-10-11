@@ -21,6 +21,11 @@ export interface OpenRouterPostRequest {
   timeoutMs?: number;
 }
 
+// Opens a connection to OpenRouter ahead of the real request, so the clip upload skips the TCP and TLS setup.
+export function warmOpenRouterConnection(): void {
+  void fetch(`${OPENROUTER_BASE_URL}/models`, { method: "HEAD", headers: OPENROUTER_ATTRIBUTION_HEADERS }).catch(() => undefined);
+}
+
 // POSTs to OpenRouter and returns the parsed JSON reply. The timeout also covers reading the body.
 export function openRouterPostJson<T>(request: OpenRouterPostRequest): Promise<T> {
   return runWithDeadline(request.signal, request.timeoutMs ?? OPENROUTER_TIMEOUT_MS, async (signal) => {

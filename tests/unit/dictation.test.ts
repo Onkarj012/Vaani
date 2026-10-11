@@ -17,7 +17,7 @@ import { DictationService } from "./dictation.fixture";
 import { selectRecoveryText } from "@main/dictation";
 import { nativeBridge } from "@main/nativeBridge";
 import type { InjectionOptions, InjectionTarget } from "@main/injection";
-import { TranscriptionDeadlineExceededError, TranscriptionService, type TranscribeOptions } from "@main/transcription";
+import { TranscriptionChainError, TranscriptionDeadlineExceededError, TranscriptionService, type TranscribeOptions } from "@main/transcription";
 
 vi.mock("electron", () => ({
   app: {
@@ -906,6 +906,31 @@ describe("DictationService", () => {
 
     expect(service.getState()).toMatchObject({ status: "error", message: "Provider unavailable." });
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "transcription_error", userMessage: "Provider unavailable." });
+  });
+
+  it("writes every provider attempt to the trace when all providers fail", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription } = createDictationService({ traces: traceDeps.traces });
+    const attempts = [
+      { provider: "openrouter", success: false, attempt: 1, latencyMs: 9_000, error: "Request timed out.", errorClass: "timeout" as const },
+      { provider: "groq", success: false, attempt: 2, latencyMs: 300, error: "403 Access denied.", errorClass: "unknown" as const },
+    ];
+    transcription.transcribe.mockRejectedValue(new TranscriptionChainError("403 Access denied.", attempts, "unknown"));
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+    await Promise.resolve();
+
+    expect(traceDeps.getTrace()).toMatchObject({
+      outcome: "failed",
+      providerAttempts: [{ provider: "openrouter", error: "Request timed out." }, { provider: "groq", error: "403 Access denied." }],
+    });
   });
 
   it("does not inject one-letter no-speech hallucinations", async () => {

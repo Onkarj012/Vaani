@@ -20,6 +20,17 @@ function escapeRegExp(v: string): string {
   return v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Removes sound tags such as "[coughs]" or "[background noise]" that some transcription models add.
+// They run before cleanup, so the formatter and the word guard only see spoken words.
+export function stripSoundTags(text: string): string {
+  return text
+    .replace(/\[[^\]\n]{1,40}\]/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .replace(/[ \t]+([,.!?;:])/g, "$1")
+    .trim();
+}
+
 // Filler words the cleanup stage removes. Empty when cleanup is off.
 export function activeFillerWords(settings: Settings): string[] {
   if (!settings.cleanupEnabled) return [];

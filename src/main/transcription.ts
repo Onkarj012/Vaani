@@ -11,6 +11,7 @@ import { debug, warn } from "@main/log";
 import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
 import { activeFillerWords } from "./text/cleanup";
+import { warmOpenRouterConnection } from "./providers/openrouter/client";
 
 export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
 const STT_CHUNK_OVERLAP_SECONDS = 2;
@@ -140,6 +141,13 @@ export class TranscriptionService {
     private readonly settingsProvider: () => Settings,
     private readonly credentials?: CredentialsStore
   ) {}
+
+  // Opens the OpenRouter connection while the recording tail drains, when either stage will use it.
+  warmUp(): void {
+    const settings = this.settingsProvider();
+    if (settings.offlineMode === "always-offline") return;
+    if (settings.transcriptionProvider === "openrouter" || settings.formattingProvider === "openrouter") warmOpenRouterConnection();
+  }
 
   async transcribe(clip: AudioClip, options?: TranscribeOptions): Promise<TranscriptionResult> {
     const scope = createCancellationScope(options?.signal, options?.deadlineAt);

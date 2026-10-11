@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Settings } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
-import { cleanupText } from "@main/text/cleanup";
+import { cleanupText, stripSoundTags } from "@main/text/cleanup";
 
 function createSettings(overrides: Partial<Settings> = {}): Settings {
   return {
@@ -25,6 +25,15 @@ function createSettings(overrides: Partial<Settings> = {}): Settings {
     ...overrides
   };
 }
+
+describe("stripSoundTags", () => {
+  it("removes sound tags a transcription model adds, keeping the spoken words", () => {
+    expect(stripSoundTags("Grok's [coughs] Grok's Whisper is faster.")).toBe("Grok's Grok's Whisper is faster.");
+    expect(stripSoundTags("That is all [laughs].")).toBe("That is all.");
+    expect(stripSoundTags("[background noise]")).toBe("");
+    expect(stripSoundTags("Ship it.\n[music]\nThanks.")).toBe("Ship it.\n\nThanks.");
+  });
+});
 
 describe("cleanupText", () => {
   it("leaves contraction apostrophes alone and curls only real single quotes", () => {

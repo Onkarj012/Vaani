@@ -5,6 +5,12 @@ import { createWavBuffer } from "@main/providers/shared/audioUtils";
 import { defaultModelFor, modelEntries, providerModels } from "@shared/modelList";
 import { openRouterPostJson, validateOpenRouterKey } from "./client";
 
+// Request deadline that grows with the clip, so a stalled short clip falls back in seconds instead of 20.
+// Measured replies: 0.9-4.8 s for clips under 6 s, 7-7.5 s for 67-104 s clips.
+export function openRouterSttTimeoutMs(durationSeconds: number): number {
+  return Math.min(30_000, Math.round(6_000 + durationSeconds * 200));
+}
+
 interface TranscriptionReply {
   text?: string;
   usage?: { cost?: number };
@@ -61,6 +67,7 @@ export async function transcribeWithOpenRouter(request: OpenRouterTranscriptionR
       ...(hints ? { provider: { options: hints } } : {}),
     }),
     signal: request.signal,
+    timeoutMs: openRouterSttTimeoutMs(request.clip.durationSeconds),
   });
   return { text: (reply.text ?? "").trim(), hintsSent: hints !== null, usage: reply.usage };
 }
