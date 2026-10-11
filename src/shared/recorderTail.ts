@@ -1,6 +1,7 @@
 export const STOP_TAIL_GRACE_MS = 300;
 export const STOP_QUIET_MS = 120;
-export const STOP_MAX_WAIT_MS = 1200;
+// Auto gain lifts room noise at the end of a clip, so the tail rarely reads as quiet. The cap bounds the wait.
+export const STOP_MAX_WAIT_MS = 450;
 export const STOP_POLL_MS = 40;
 
 // A continuous renderer stream cannot become callback-quiet like the native queue.

@@ -15,7 +15,7 @@ describe("renderer stop drain", () => {
     expect(finished).toBe(true);
   });
 
-  it("waits for quiet after grace but never exceeds the 1200 ms cap", async () => {
+  it("waits for quiet after grace but never exceeds the cap", async () => {
     vi.useFakeTimers();
     const startedAt = Date.now();
     let lastLoudAt = startedAt;
@@ -28,7 +28,7 @@ describe("renderer stop drain", () => {
 
     const cappedAt = Date.now();
     const cappedDrain = waitForRendererDrain(cappedAt, () => Date.now(), () => true);
-    await vi.advanceTimersByTimeAsync(1199);
+    await vi.advanceTimersByTimeAsync(STOP_MAX_WAIT_MS - 1);
     let done = false;
     void cappedDrain.then(() => { done = true; });
     expect(done).toBe(false);
@@ -67,7 +67,7 @@ describe("renderer stop drain", () => {
       if (roomNoiseRms >= threshold) lastLoudAt = Date.now();
     }
     await drain;
-    expect(finishedAt - startedAt).toBeLessThan(500);
+    expect(finishedAt - startedAt).toBeLessThan(STOP_MAX_WAIT_MS);
   });
 
   it("keeps draining while a soft ending stays above the fixed level", async () => {
@@ -75,12 +75,13 @@ describe("renderer stop drain", () => {
     const softEndingRms = 0.004;
     const startedAt = Date.now();
     let lastLoudAt = startedAt;
-    const drain = waitForRendererDrain(startedAt, () => lastLoudAt, () => true);
-    for (let elapsed = 0; elapsed < STOP_MAX_WAIT_MS; elapsed += 40) {
-      await vi.advanceTimersByTimeAsync(40);
+    let finishedAt = 0;
+    const drain = waitForRendererDrain(startedAt, () => lastLoudAt, () => true).then(() => { finishedAt = Date.now(); });
+    for (let elapsed = 0; elapsed < STOP_MAX_WAIT_MS && !finishedAt; elapsed += 10) {
+      await vi.advanceTimersByTimeAsync(10);
       if (softEndingRms >= STOP_QUIET_RMS) lastLoudAt = Date.now();
     }
     await drain;
-    expect(Date.now() - startedAt).toBe(STOP_MAX_WAIT_MS);
+    expect(finishedAt - startedAt).toBe(STOP_MAX_WAIT_MS);
   });
 });
