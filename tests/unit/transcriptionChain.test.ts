@@ -715,6 +715,11 @@ describe("TranscriptionService failover chain", () => {
     expect(openaiTranscribe).not.toHaveBeenCalled();
   });
 
+  it("treats a request deadline as a retryable network failure, not a permanent one", async () => {
+    const { classifyTranscriptionError } = await import("@main/transcription");
+    expect(classifyTranscriptionError(new Error("Request timed out."))).toEqual({ class: "transient_network", retryable: true, permanent: false });
+  });
+
   it("surfaces the last provider error when every configured provider fails", async () => {
     registryState.providers.set("groq", provider("groq", vi.fn(async () => {
       throw new Error("first failure");

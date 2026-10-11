@@ -719,7 +719,7 @@ export function classifyTranscriptionError(error: unknown): { class: RecoveryErr
   if (message.includes("malformed") || message.includes("invalid audio") || message.includes("unsupported audio")) return { class: "malformed_audio", retryable: false, permanent: true };
   if (status === 429 || message.includes("rate limit") || message.includes("too many requests")) return { class: "rate_limit", retryable: true, permanent: false };
   if ((status !== null && status >= 500) || message.includes("temporarily unavailable") || message.includes("service unavailable")) return { class: "provider_5xx", retryable: true, permanent: false };
-  if (message.includes("network") || message.includes("fetch failed") || message.includes("econn") || message.includes("timeout") || message.includes("temporar")) return { class: "transient_network", retryable: true, permanent: false };
+  if (message.includes("network") || message.includes("fetch failed") || message.includes("econn") || message.includes("timeout") || message.includes("timed out") || message.includes("temporar")) return { class: "transient_network", retryable: true, permanent: false };
   return { class: "transcription_error", retryable: false, permanent: true };
 }
 
