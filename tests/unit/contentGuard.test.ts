@@ -59,6 +59,7 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("Write what I mean here.", "Write here.", [])).toBe(false);
     expect(preservesContentWords("No, no, no, send it.", "Send it.", [])).toBe(false);
     expect(preservesContentWords("He said no. No one agreed.", "He said no one agreed.", [])).toBe(false);
+    expect(preservesContentWords("Ship it. He said no. No one argued.", "Ship it. No one argued.", [])).toBe(false);
     expect(preservesContentWords("Send her here today.", "Send here today.", [])).toBe(false);
     expect(preservesContentWords("Please record values -1 -10 today.", "Please record values -10 today.", [])).toBe(false);
     expect(preservesContentWords("The PIN is 1 1 2.", "The PIN is 1 2.", [])).toBe(false);

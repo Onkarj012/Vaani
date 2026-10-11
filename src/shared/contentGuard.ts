@@ -471,6 +471,9 @@ function isCorrection(run: readonly (string | null)[], { gone, pause, boundary }
   if (rest > MAX_REPLACED_WORDS || replaced.some(word => word !== null && isProtected(word))) return false;
   if (!sameSentence(boundary, start, start + rest - 1)) return false;
   const firstCue = start + rest;
+  // A replacement in the next sentence needs the cue to stand as its own sentence ("Priyanka, run... Sorry. Priya").
+  // Otherwise "He said no. No one agreed." would read as a correction.
+  if (boundary[end + 1] && !boundary[firstCue]) return false;
   const ambiguous = run.slice(rest).some(word => word !== null && AMBIGUOUS_CUES.has(word));
   return !ambiguous || pause[firstCue - 1] === true || pause[end] === true;
 }
