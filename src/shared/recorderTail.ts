@@ -1,6 +1,6 @@
 export const STOP_TAIL_GRACE_MS = 300;
-// The renderer stream delivers frames within tens of milliseconds, so its first quiet check can come sooner than the native queue's.
-export const RENDERER_TAIL_GRACE_MS = 150;
+// First quiet check for the renderer stream. A word still being said after release needs this long to show up as loud.
+export const RENDERER_TAIL_GRACE_MS = 300;
 export const STOP_QUIET_MS = 120;
 // Auto gain lifts room noise at the end of a clip, so the tail rarely reads as quiet. The cap bounds the wait.
 export const STOP_MAX_WAIT_MS = 450;
@@ -13,12 +13,13 @@ export const STOP_POLL_MS = 40;
 export const STOP_QUIET_RMS = 0.002;
 export const STOP_QUIET_MAX_RMS = 0.02;
 
-// Quiet level for the stop tail: twice the quietest fifth of the recording's frames, within the bounds.
+// Quiet level for the stop tail: 1.5x the quietest fifth of the recording's frames, within the bounds.
+// The low multiplier keeps a soft final word above the level.
 export function quietThresholdFromNoise(frameRms: readonly number[]): number {
   // Digital silence (RMS 0) counts as the quietest room, so a device that opens with zeros keeps the low level.
   const sorted = frameRms.filter((rms) => Number.isFinite(rms) && rms >= 0).sort((a, b) => a - b);
   const floor = sorted[Math.floor((sorted.length - 1) * 0.2)] ?? 0;
-  return Math.min(STOP_QUIET_MAX_RMS, Math.max(STOP_QUIET_RMS, floor * 2));
+  return Math.min(STOP_QUIET_MAX_RMS, Math.max(STOP_QUIET_RMS, floor * 1.5));
 }
 
 export function shouldFinishRendererDrain(elapsedMs: number, quietForMs: number): boolean {

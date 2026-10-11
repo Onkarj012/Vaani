@@ -155,11 +155,11 @@ async function stopRecording(sessionId: string): Promise<void> {
   const chunksAtStop = sessionChunks.slice();
   const lastFrameAfterStopMs = lastFrameAt ? lastFrameAt - stopRequestedAt : 0;
   const captureSettings = readCaptureSettings(stream);
-  const keepMicWarm = currentConfig.preWarmMic;
   // Mic teardown runs while the clip is finalized and sent. The submit call waits for the whole dictation, so it can't go first.
+  // The warm-mic setting is read after cleanup, so a change made meanwhile still closes the mic.
   teardown = (async () => {
     await cleanupSession();
-    if (!keepMicWarm) await shutdownWarmCapture();
+    if (!currentConfig.preWarmMic) await shutdownWarmCapture();
   })().catch(() => undefined);
 
   const clip = finalizeClip(chunksAtStop, inputRate);
@@ -252,7 +252,11 @@ async function reportFailure(sessionId: string, message: string): Promise<void> 
 }
 
 async function rebuildWarmCapture(): Promise<void> {
-  if (!currentConfig.preWarmMic || activeSessionId) {
+  await teardown;
+  if (activeSessionId) return;
+  // Turning the warm mic off closes an idle one instead of leaving it open.
+  if (!currentConfig.preWarmMic) {
+    await shutdownWarmCapture();
     return;
   }
 

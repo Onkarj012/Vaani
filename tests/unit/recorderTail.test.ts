@@ -4,7 +4,7 @@ import { RENDERER_TAIL_GRACE_MS, STOP_MAX_WAIT_MS, STOP_QUIET_MAX_RMS, STOP_QUIE
 afterEach(() => vi.useRealTimers());
 
 describe("renderer stop drain", () => {
-  it("finishes after the 150 ms grace when audio was already quiet for 120 ms", async () => {
+  it("finishes after the 300 ms grace when audio was already quiet for 120 ms", async () => {
     vi.useFakeTimers();
     let finished = false;
     const drain = waitForRendererDrain(Date.now(), () => Date.now() - 200, () => true).then(() => { finished = true; });
@@ -43,16 +43,17 @@ describe("renderer stop drain", () => {
 
   it("sets the quiet level from the recording's room noise, between 0.002 and 0.02", () => {
     // Room noise measured in Vaani Dev traces sat at 0.005 to 0.011 by the end of a clip, so a fixed 0.002 always ran to the cap.
-    expect(quietThresholdFromNoise(new Array(20).fill(0.004))).toBeCloseTo(0.008);
+    expect(quietThresholdFromNoise(new Array(20).fill(0.004))).toBeCloseTo(0.006);
     expect(quietThresholdFromNoise(new Array(20).fill(0.0001))).toBe(STOP_QUIET_RMS);
     expect(quietThresholdFromNoise(new Array(20).fill(0.05))).toBe(STOP_QUIET_MAX_RMS);
     expect(quietThresholdFromNoise([])).toBe(STOP_QUIET_RMS);
   });
 
   it("ends the tail at room noise that auto gain lifted to 0.011 during a dictation with pauses", () => {
-    const speechWithPauses = [...new Array(40).fill(0.05), ...new Array(15).fill(0.009)];
+    const speechWithPauses = [...new Array(40).fill(0.05), ...new Array(15).fill(0.008)];
     expect(quietThresholdFromNoise(speechWithPauses)).toBeGreaterThan(0.011);
-    expect(quietThresholdFromNoise(speechWithPauses)).toBeLessThan(0.05);
+    // A soft final word at twice the room noise stays loud.
+    expect(quietThresholdFromNoise(speechWithPauses)).toBeLessThan(0.016);
   });
 
   it("counts digital silence at the start as the quietest room, not as missing data", () => {
@@ -63,7 +64,7 @@ describe("renderer stop drain", () => {
   it("finishes early when the tail settles to room noise", async () => {
     vi.useFakeTimers();
     const threshold = quietThresholdFromNoise(new Array(20).fill(0.004));
-    const roomNoiseRms = 0.006;
+    const roomNoiseRms = 0.005;
     const startedAt = Date.now();
     let lastLoudAt = startedAt;
     let finishedAt = 0;
