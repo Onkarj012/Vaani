@@ -2,6 +2,7 @@ import type { CustomCorrection, DictationCorrectionTrace, Settings, Snippet } fr
 import { NUMBER_WORDS, parseNumberWords } from "@shared/numberWords";
 import { editDistance, normalizedEditDistance } from "@shared/textDistance";
 import { phoneticKeysEqual } from "@shared/phonetics";
+import { HESITATION_WORDS } from "@shared/contentGuard";
 
 interface TextCleanupInput {
   rawText: string;
@@ -31,10 +32,44 @@ export function stripSoundTags(text: string): string {
     .trim();
 }
 
+const HESITATION_RE = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${HESITATION_WORDS.join("|")})(?![\p{L}\p{N}])[,.]?`, "giu");
+// A word cut off with a dash before a space: "po- bad", "trans-- uh". Hyphenated words such as "re-release" have no space.
+const CUT_OFF_WORD_RE = /(?<![\p{L}\p{N}])[\p{L}\p{M}]+(?:-{1,2}|[–—])(?=\s)/gu;
+// The same word said twice or more in a row: "the the". Across commas only at three or more ("no, no, no"),
+// since "look at it, it has" is a clause break, not a stutter.
+const REPEATED_WORD_RE = /(?<![\p{L}\p{M}\p{N}])([\p{L}\p{M}\p{N}']+)(?:\s+\1)+(?![\p{L}\p{M}\p{N}])/giu;
+const COMMA_REPEATED_WORD_RE = /(?<![\p{L}\p{M}\p{N}])([\p{L}\p{M}\p{N}']+)(?:,\s+\1){2,}(?![\p{L}\p{M}\p{N}])/giu;
+// Doubles the grammar needs.
+const GRAMMATICAL_DOUBLES: ReadonlySet<string> = new Set(["had", "that"]);
+
+// Removes speech noise with fixed rules: hesitation sounds, cut-off words, and words said twice in a row.
+// Used when the cleanup model did not run or its result was rejected, so the pasted text is still clean.
+export function removeSpeechNoise(text: string): string {
+  return text
+    .split("\n")
+    .map(line => line
+      .replace(HESITATION_RE, " ")
+      .replace(CUT_OFF_WORD_RE, " ")
+      .replace(REPEATED_WORD_RE, (match: string, word: string) => (GRAMMATICAL_DOUBLES.has(word.toLowerCase()) ? match : word))
+      .replace(COMMA_REPEATED_WORD_RE, "$1")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/[ \t]+([,.!?;:])/g, "$1")
+      .replace(/([,;:])(?:\s*[,;:])+/g, "$1")
+      .replace(/(^|[.!?]\s+),\s*/g, "$1")
+      .trim())
+    .join("\n");
+}
+
 // Filler words the cleanup stage removes. Empty when cleanup is off.
 export function activeFillerWords(settings: Settings): string[] {
   if (!settings.cleanupEnabled) return [];
   return [...(settings.fillerWords ?? []), ...(settings.extraFillerWords ?? [])];
+}
+
+// Words the cleanup model may drop: the filler words plus hesitation sounds. Empty when cleanup is off.
+export function formatterDropWords(settings: Settings): string[] {
+  if (!settings.cleanupEnabled) return [];
+  return [...new Set([...activeFillerWords(settings), ...HESITATION_WORDS])];
 }
 
 function removeFillers(text: string, fillers: string[]): string {

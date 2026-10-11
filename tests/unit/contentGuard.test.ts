@@ -28,8 +28,24 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("contact Anthropic support", "contact support", [])).toBe(false);
   });
 
-  it("detects a repeated word that was collapsed", () => {
-    expect(missingContentWords("this is very very good", "This is very good.", [])).toEqual(["very"]);
+  it("accepts a stutter or repeat that was collapsed, and the repeat kept", () => {
+    expect(preservesContentWords("this is very very good", "This is very good.", [])).toBe(true);
+    expect(preservesContentWords("so I I tested it", "So I tested it.", [])).toBe(true);
+    expect(preservesContentWords("I had had enough", "I had had enough.", [])).toBe(true);
+  });
+
+  it("accepts dropped hesitation sounds, cut-off words, and a corrected phrase", () => {
+    expect(preservesContentWords("it went mm better hmm", "It went better.", ["mm", "hmm"])).toBe(true);
+    expect(preservesContentWords("the formatting is po-- bad", "The formatting is bad.", [])).toBe(true);
+    expect(preservesContentWords("would it ru run", "Would it run?", [])).toBe(true);
+    expect(preservesContentWords("Priyanka, run... Sorry. Priya, run the test again", "Priya, run the test again.", [])).toBe(true);
+  });
+
+  it("rejects a dropped word that is not speech noise", () => {
+    expect(missingContentWords("do not send the report", "Send the report.", [])).toEqual(["do", "not"]);
+    expect(missingContentWords("send it to John and Mary", "Send it to Mary.", [])).toEqual(["john", "and"]);
+    // A correction cue at the very end has no replacement after it, so the run before it stays.
+    expect(preservesContentWords("send it to John sorry", "Send it to", [])).toBe(false);
   });
 
   it("accepts dropping a listed filler", () => {
@@ -39,8 +55,8 @@ describe("preservesContentWords", () => {
   });
 
   it("rejects dropping a filler that is not listed", () => {
-    expect(preservesContentWords("um hello uh world", "Hello, world.", [])).toBe(false);
-    expect(missingContentWords("um hello uh world", "Hello, world.", [])).toEqual(["um", "uh"]);
+    expect(preservesContentWords("basically hello world", "Hello, world.", [])).toBe(false);
+    expect(missingContentWords("basically hello world", "Hello, world.", [])).toEqual(["basically"]);
   });
 
   it("rejects a filler the output adds", () => {

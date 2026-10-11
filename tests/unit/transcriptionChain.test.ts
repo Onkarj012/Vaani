@@ -1141,7 +1141,7 @@ describe("formatter outcome at the transcription seam", () => {
     await (await serviceFor("groq-llm")).formatTranscriptDetailed("कल सुबह की मीटिंग कैंसल हो गई है", { language: "en" });
 
     const retrySystemPrompt = groqCreate.mock.calls[1]?.[0]?.messages?.[0]?.content;
-    expect(retrySystemPrompt).toMatch(/^You format dictated transcripts\. Your previous reply changed the speaker's words/);
+    expect(retrySystemPrompt).toMatch(/^You clean up dictated text\. Your previous reply added, reworded, or dropped words/);
     expect(retrySystemPrompt).toContain("Script: write every word in Roman letters.");
   });
 

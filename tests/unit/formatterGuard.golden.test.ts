@@ -3,6 +3,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { diffContentWords } from "@shared/contentGuard";
+import { DEFAULT_SETTINGS } from "@shared/defaults";
+import { formatterDropWords } from "@main/text/cleanup";
 
 interface GuardCase {
   name: string;
@@ -25,7 +27,7 @@ describe("formatter word guard golden fixtures", () => {
 
   for (const { file, testCase } of cases) {
     it(`${file}: ${testCase.name}`, () => {
-      const diff = diffContentWords(testCase.raw, testCase.reply, ["um", "uh"]);
+      const diff = diffContentWords(testCase.raw, testCase.reply, formatterDropWords(DEFAULT_SETTINGS));
       const passed = !diff.rejection && diff.missing.length === 0 && diff.added.length === 0;
       expect({ passed, diff }).toMatchObject({ passed: testCase.passes });
     });

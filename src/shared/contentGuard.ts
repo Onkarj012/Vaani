@@ -1,6 +1,9 @@
 // Word guard for LLM formatting. Compares the words of the formatter input and output,
 // in order and in any script. Punctuation, capitals, and line placement are ignored.
 // A Devanagari word may come back in Roman letters when it sounds alike ("कैंसल" → "cancel").
+// Speech noise may be dropped: hesitation sounds, a word repeated within three words, a cut-off word ("ru-" or a prefix
+// of the next word), and a short run that ends in a correction cue ("Priyanka, run, sorry"). Any other dropped word,
+// and any added word, is a change.
 // Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one",
 // a sentence-opening "First,") may disappear only when the output has a line break or a list item with the same number there,
 // or keeps the cue words.
@@ -29,6 +32,15 @@ const REASONING_BLOCK_RE = /<(think|thinking|reasoning|thought)>[\s\S]*?<\/\1>/g
 const UNCLOSED_REASONING_RE = /<(think|thinking|reasoning|thought)>[\s\S]*$/i;
 const WORD_RE = /[\p{L}\p{M}\p{N}]+/gu;
 const CURRENCY_RE = /\p{Sc}/gu;
+
+// Hesitation sounds. Cleanup adds them to the filler words it removes.
+export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "er", "ah", "hmm", "hm", "mm", "mmm", "mhm"];
+// Words that mark the speaker correcting what came just before.
+const CORRECTION_CUES: ReadonlySet<string> = new Set(["sorry", "mean", "wait", "actually", "rather", "scratch", "no"]);
+const REPEAT_WINDOW = 3;
+const MAX_CORRECTION_RUN = 8;
+// Cut-off marker right after a word: "ru- run", "trans-- uh", "po– bad".
+const CUT_OFF_RE = /^(?:-{1,2}|[–—])(?=[\s,.!?]|$)/u;
 
 const NUMBER_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
   zero: "0", one: "1", two: "2", three: "3", four: "4",
@@ -59,7 +71,7 @@ export interface ContentWordDiff {
 
 // One piece of input or output: a word, a listed filler, a spoken layout cue, a line break, or a list item.
 type Unit =
-  | { kind: "word"; text: string }
+  | { kind: "word"; text: string; cut?: boolean }
   | { kind: "filler"; text: string }
   | { kind: "line"; words: string[] }
   | { kind: "enum"; value: string | null; words: string[] }
@@ -144,7 +156,8 @@ function inputUnits(text: string, fillers: readonly string[]): { units: Unit[]; 
   const units = [...text.matchAll(INPUT_TOKEN_RE)].map((match): Unit => {
     if (match.groups?.line) return { kind: "line", words: wordsIn(match[0]) };
     if (match.groups?.enum) return { kind: "enum", value: cueValue(match[0]), words: wordsIn(match[0]) };
-    return { kind: "word", text: tokenText(match[0]) };
+    const cut = CUT_OFF_RE.test(text.slice((match.index ?? 0) + match[0].length));
+    return cut ? { kind: "word", text: tokenText(match[0]), cut } : { kind: "word", text: tokenText(match[0]) };
   });
   const marked = markFillers(units, fillers);
   return { units: finishWords(marked.units), phrases: marked.phrases };
@@ -308,11 +321,47 @@ function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[])
     for (let index = start; index < end; index += 1) if (!dropped.has(index)) return false;
     return true;
   };
-  const isExempt = (index: number): boolean => phrases.some(phrase => phrase[0] <= index && index < phrase[1] && dropsWholePhrase(phrase));
+  const noise = speechNoise(source, dropped);
+  const isExempt = (index: number): boolean => noise.has(index) || phrases.some(phrase => phrase[0] <= index && index < phrase[1] && dropsWholePhrase(phrase));
   return {
     missing: source.filter((_, index) => dropped.has(index) && !isExempt(index)).flatMap(unitWords),
     added: middle.added.flatMap(unitWords),
   };
+}
+
+// The word a source unit holds, or null for layout cues.
+function unitText(unit: Unit | undefined): string | null {
+  return unit?.kind === "word" || unit?.kind === "filler" ? unit.text : null;
+}
+
+// Dropped source indices that are speech noise: a word repeated nearby, a cut-off word, or a correction run.
+function speechNoise(source: Unit[], dropped: ReadonlySet<number>): Set<number> {
+  const noise = new Set<number>();
+  for (const index of dropped) {
+    const unit = source[index];
+    const text = unitText(unit);
+    if (!text) continue;
+    const nearby = (offset: number): string | null => unitText(source[index + offset]);
+    let repeated = false;
+    for (let offset = 1; offset <= REPEAT_WINDOW && !repeated; offset += 1) repeated = nearby(offset) === text || nearby(-offset) === text;
+    // A cut-off word is marked with a dash, or is the start of one of the next two words ("bra" before "braces").
+    const startsNext = [1, 2].some(offset => { const next = nearby(offset); return next !== null && next.length > text.length && next.startsWith(text); });
+    if (repeated || (unit?.kind === "word" && unit.cut) || startsNext) noise.add(index);
+  }
+  // A short dropped run ending in a correction cue is the phrase the speaker replaced. Something must follow it.
+  const sorted = [...dropped].sort((a, b) => a - b);
+  for (let start = 0; start < sorted.length;) {
+    let end = start;
+    while (end + 1 < sorted.length && sorted[end + 1] === (sorted[end] ?? 0) + 1) end += 1;
+    const run = sorted.slice(start, end + 1);
+    const last = run[run.length - 1] ?? 0;
+    const tail = run.slice(-3).map(index => unitText(source[index]));
+    if (run.length <= MAX_CORRECTION_RUN && last < source.length - 1 && tail.some(word => word !== null && CORRECTION_CUES.has(word))) {
+      for (const index of run) noise.add(index);
+    }
+    start = end + 1;
+  }
+  return noise;
 }
 
 // Words the formatter dropped, reordered, or added. Listed fillers may be dropped but not added.

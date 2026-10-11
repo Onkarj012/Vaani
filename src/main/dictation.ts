@@ -44,7 +44,7 @@ import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
-import { applyDictionary, cleanupText, hasSpokenContent, stripSoundTags } from "./text/cleanup";
+import { applyDictionary, cleanupText, hasSpokenContent, removeSpeechNoise, stripSoundTags } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
@@ -506,7 +506,7 @@ export class DictationService {
         const cleanupTrace = { correctionsApplied: [] };
         const correctedText = applyDictionary(stripSoundTags(transcription.rawText), settings, cleanupTrace);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
-        const cleanedText = cleanupText({ rawText: correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
+        const cleanedText = cleanupText({ rawText: settings.cleanupEnabled ? removeSpeechNoise(correctedText) : correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
         void this.patchTrace(payload.sessionId, { formatDoneAt: new Date().toISOString() });
         void this.patchTrace(payload.sessionId, {
           stages: {
@@ -564,7 +564,9 @@ export class DictationService {
 
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
       const formatNotice = formatNoticeFor(formatTrace);
-      const cleanedText = cleanupText({ rawText: formattedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
+      // The model's own cleanup is kept as is. Without it, fixed rules remove the speech noise.
+      const cleanupInput = formatTrace.formatterUsed === "llm" || !settings.cleanupEnabled ? formattedText : removeSpeechNoise(formattedText);
+      const cleanedText = cleanupText({ rawText: cleanupInput, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
       void this.patchTrace(payload.sessionId, {
         formatDoneAt: new Date().toISOString(),
         stages: {
@@ -917,7 +919,7 @@ export class DictationService {
       const correctedText = applyDictionary(stripSoundTags(rawText), settings, cleanupTrace);
       const formatted = await this.formatTranscriptWithTrace(correctedText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS, entry.settingsSnapshot);
       if (action.signal.aborted) return false;
-      const cleanedText = cleanupText({ rawText: formatted.text, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
+      const cleanedText = cleanupText({ rawText: formatted.formatterUsed === "llm" || !settings.cleanupEnabled ? formatted.text : removeSpeechNoise(formatted.text), settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
       const current = await this.recovery.getById(id);
       if (!current) return false;
       if (!await this.transitionRecoveryEntry(current, "text_ready", { text: { formattedText: formatted.text, cleanedText }, error: { class: "none" } }, action.signal)) return false;

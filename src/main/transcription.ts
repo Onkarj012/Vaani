@@ -10,7 +10,7 @@ import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
-import { activeFillerWords } from "./text/cleanup";
+import { formatterDropWords } from "./text/cleanup";
 import { warmOpenRouterConnection } from "./providers/openrouter/client";
 
 export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
@@ -444,7 +444,7 @@ export class TranscriptionService {
   ): Promise<FormatTranscriptTraceResult> {
     if (signal.aborted) throw new TranscriptionCancelledError();
     if (this.settingsProvider().offlineMode === "always-offline") return skippedFormat(rawText, OFFLINE_REASON);
-    const fillerWords = activeFillerWords(settings);
+    const fillerWords = formatterDropWords(settings);
     const result = await provider.format(rawText, {
       apiKey,
       model: settings.formattingModel,

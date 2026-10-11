@@ -69,10 +69,10 @@
     "passes": false
   },
   {
-    "name": "Repeated words collapsed is rejected",
+    "name": "Repeated words collapsed passes (owner wants stutters and repeats removed)",
     "raw": "I had had enough of moving it around, and no, no, no, that is not what I meant.",
     "reply": "I had enough of moving it around, and no, that is not what I meant.",
-    "passes": false
+    "passes": true
   },
   {
     "name": "Repeated words kept with punctuation passes",

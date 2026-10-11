@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Settings } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
-import { cleanupText, stripSoundTags } from "@main/text/cleanup";
+import { cleanupText, removeSpeechNoise, stripSoundTags } from "@main/text/cleanup";
 
 function createSettings(overrides: Partial<Settings> = {}): Settings {
   return {
@@ -25,6 +25,20 @@ function createSettings(overrides: Partial<Settings> = {}): Settings {
     ...overrides
   };
 }
+
+describe("removeSpeechNoise", () => {
+  it("removes hesitation sounds, cut-off words, and stutters", () => {
+    expect(removeSpeechNoise("It went, mm, honestly better. The formatting is po-- uh, bad.")).toBe("It went, honestly better. The formatting is bad.");
+    expect(removeSpeechNoise("the the report and no, no, no that is wrong")).toBe("the report and no that is wrong");
+    expect(removeSpeechNoise("would it ru- run")).toBe("would it run");
+  });
+
+  it("keeps doubles the grammar needs, clause-break repeats, and hyphenated words", () => {
+    expect(removeSpeechNoise("I had had enough")).toBe("I had had enough");
+    expect(removeSpeechNoise("If you look at it, it has problems")).toBe("If you look at it, it has problems");
+    expect(removeSpeechNoise("the re-release passed")).toBe("the re-release passed");
+  });
+});
 
 describe("stripSoundTags", () => {
   it("removes sound tags a transcription model adds, keeping the spoken words", () => {
