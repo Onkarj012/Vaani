@@ -533,7 +533,8 @@ async function transcribePossiblyChunked(
   shouldYieldToActiveDictation?: () => boolean,
   beforeProviderCall?: () => void,
 ): Promise<TranscriptionResult> {
-  if (clip.durationSeconds <= MAX_SINGLE_STT_CLIP_SECONDS) {
+  // Live attempts upload the whole recording so chunking cannot exceed the two-request cap.
+  if (!options.recovery || clip.durationSeconds <= MAX_SINGLE_STT_CLIP_SECONDS) {
     if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
       throw new TranscriptionDeadlineExceededError();
     }

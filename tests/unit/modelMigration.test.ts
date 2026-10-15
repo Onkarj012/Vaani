@@ -31,7 +31,7 @@ async function loadWithStoredSettings(stored: Record<string, unknown>) {
 }
 
 describe("model settings migration", () => {
-  it("moves a retired cleanup model to OpenRouter and resets the transcription choice to Groq", async () => {
+  it("moves a retired cleanup model to OpenRouter and preserves the saved transcription provider", async () => {
     const { store, filePath } = await loadWithStoredSettings({
       formattingProvider: "groq-llm",
       formattingModel: "llama-3.1-8b-instant",
@@ -42,14 +42,14 @@ describe("model settings migration", () => {
     expect(store.get()).toMatchObject({
       formattingProvider: "openrouter",
       formattingModel: "anthropic/claude-haiku-5.5",
-      transcriptionProvider: "groq",
-      transcriptionModel: "whisper-large-v3-turbo",
+      transcriptionProvider: "openrouter",
+      transcriptionModel: "openai/gpt-transcribe",
     });
     expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject({
       formattingProvider: "openrouter",
       formattingModel: "anthropic/claude-haiku-5.5",
-      transcriptionProvider: "groq",
-      transcriptionModel: "whisper-large-v3-turbo",
+      transcriptionProvider: "openrouter",
+      transcriptionModel: "openai/gpt-transcribe",
       sttDefaultVersion: 2,
     });
   });
@@ -93,13 +93,13 @@ describe("model settings migration", () => {
     expect(store.get()).toMatchObject({ formattingProvider: "openai-llm", formattingModel: "gpt-6-luna" });
   });
 
-  it("moves a saved Deepgram transcription provider to Groq", async () => {
+  it("keeps a saved Deepgram transcription provider", async () => {
     const { store } = await loadWithStoredSettings({
       transcriptionProvider: "deepgram",
       transcriptionModel: "nova-2",
     });
 
-    expect(store.get()).toMatchObject({ transcriptionProvider: "groq", transcriptionModel: "whisper-large-v3-turbo" });
+    expect(store.get()).toMatchObject({ transcriptionProvider: "deepgram", transcriptionModel: "nova-2" });
   });
 
   it("keeps a valid OpenRouter transcription model the user chose after the default has moved", async () => {
@@ -113,9 +113,10 @@ describe("model settings migration", () => {
     expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject({ transcriptionModel: "google/gemini-3.5-transcribe" });
   });
 
-  it("moves the transcription default once and keeps a later OpenRouter choice on reload", async () => {
-    const { store, filePath } = await loadWithStoredSettings({ transcriptionProvider: "openrouter", transcriptionModel: "openai/gpt-transcribe" });
-    expect(store.get()).toMatchObject({ transcriptionProvider: "groq", transcriptionModel: "whisper-large-v3-turbo" });
+  it("keeps a saved OpenRouter choice with failover disabled across migration and reload", async () => {
+    const { store, filePath } = await loadWithStoredSettings({ transcriptionProvider: "openrouter", transcriptionModel: "openai/gpt-transcribe", failoverEnabled: false });
+    expect(store.get()).toMatchObject({ transcriptionProvider: "openrouter", transcriptionModel: "openai/gpt-transcribe", failoverEnabled: false, sttDefaultVersion: 2 });
+    expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject({ sttDefaultVersion: 2, transcriptionProvider: "openrouter" });
 
     store.update({ transcriptionProvider: "openrouter", transcriptionModel: "openai/gpt-transcribe" });
     await store.flush();

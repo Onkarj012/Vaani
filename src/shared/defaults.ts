@@ -5,7 +5,7 @@ export const DEFAULT_FILLER_WORDS = [
   "um", "uh"
 ];
 
-// Bumped when the default transcription provider changes. Settings below this version are moved to the default once.
+// Bumped when transcription defaults change. Existing visible provider choices are preserved.
 export const STT_DEFAULT_VERSION = 2;
 
 export const DEFAULT_SETTINGS: Settings = {

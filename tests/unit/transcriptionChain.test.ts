@@ -567,7 +567,34 @@ describe("TranscriptionService failover chain", () => {
     expect(groqTranscribe).not.toHaveBeenCalled();
   });
 
-  it("chunks long recordings at silence-snapped boundaries and merges the full transcript in order", async () => {
+  // Long live recordings must retain every sample without sending extra chunk requests.
+  it("caps long live dictation at two whole-recording requests including fallback", async () => {
+    const groqTranscribe = vi.fn(async (): Promise<TranscriptionResult> => {
+      throw new Error("Request timed out.");
+    });
+    const fallbackTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
+      rawText: "full recording", formattedText: "full recording", language: "en",
+    }));
+    registryState.providers.set("groq", provider("groq", groqTranscribe));
+    registryState.providers.set("openrouter", provider("openrouter", fallbackTranscribe));
+    const { TranscriptionService } = await import("@main/transcription");
+    const longClip: AudioClip = {
+      pcmData: new Array(60 * 16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 60, rmsFrames: [],
+    };
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS, groqApiKey: "groq-key",
+      providerApiKeys: [{ providerId: "openrouter", key: "router-key" }],
+    }));
+
+    const result = await service.transcribe(longClip);
+
+    expect(groqTranscribe).toHaveBeenCalledExactlyOnceWith(longClip, expect.anything());
+    expect(fallbackTranscribe).toHaveBeenCalledExactlyOnceWith(longClip, expect.anything());
+    expect(result).toMatchObject({ rawText: "full recording" });
+    expect(result.providerAttempts).toHaveLength(2);
+  });
+
+  it("chunks long recovery recordings at silence-snapped boundaries and merges the full transcript in order", async () => {
     const groqTranscribe = vi.fn(async (nextClip: AudioClip): Promise<TranscriptionResult> => {
       const chunkNumber = groqTranscribe.mock.calls.length;
       return {
@@ -600,7 +627,7 @@ describe("TranscriptionService failover chain", () => {
       groqApiKey: "groq-key",
     }));
 
-    const result = await service.transcribe(longClip);
+    const result = await service.transcribe(longClip, { recovery: true });
 
     expect(groqTranscribe).toHaveBeenCalledTimes(6);
     expect(groqTranscribe.mock.calls.map(([candidate]) => Math.round(candidate.durationSeconds))).toEqual([28, 28, 28, 28, 28, 20]);
@@ -630,7 +657,7 @@ describe("TranscriptionService failover chain", () => {
         groqApiKey: "groq-key",
       }));
       const deadlineAt = Date.now() + getTranscriptionTimeoutMs(longClip);
-      const result = service.transcribe(longClip, { deadlineAt });
+      const result = service.transcribe(longClip, { deadlineAt, recovery: true });
       const timedOut = expect(result).rejects.toThrow("Transcription deadline exceeded.");
 
       await vi.advanceTimersByTimeAsync(50_000);
@@ -652,7 +679,7 @@ describe("TranscriptionService failover chain", () => {
     expect(getTranscriptionTimeoutMs(clip)).toBe(50_000);
   });
 
-  it("deduplicates overlapped words when merging long-recording chunks", async () => {
+  it("deduplicates overlapped words when merging recovery chunks", async () => {
     const transcripts = [
       "alpha beta gamma delta",
       "beta gamma delta epsilon zeta",
@@ -691,7 +718,7 @@ describe("TranscriptionService failover chain", () => {
       groqApiKey: "groq-key",
     }));
 
-    const result = await service.transcribe(longClip);
+    const result = await service.transcribe(longClip, { recovery: true });
 
     expect(groqTranscribe).toHaveBeenCalledTimes(3);
     expect(result.rawText).toBe("alpha beta gamma delta epsilon zeta eta");

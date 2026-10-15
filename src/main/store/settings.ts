@@ -107,14 +107,15 @@ export class SettingsStore {
       changed = true;
     }
 
-    // Runs once per settings version, so a later user choice is kept. A file with no saved choice needs no write.
+    // Retire hidden providers once, while preserving saved providers and their credentials.
     if ((next.sttDefaultVersion ?? 0) < STT_DEFAULT_VERSION) {
-      if (next.transcriptionProvider !== undefined) {
+      if (isHiddenProvider(next.transcriptionProvider)) {
         next.transcriptionProvider = DEFAULT_SETTINGS.transcriptionProvider;
         next.transcriptionModel = DEFAULT_SETTINGS.transcriptionModel;
         changed = true;
       }
       next.sttDefaultVersion = STT_DEFAULT_VERSION;
+      if (next.transcriptionProvider !== undefined) changed = true;
     }
 
     // Always Offline only ever routed to the hidden local provider, so it moves to Auto.

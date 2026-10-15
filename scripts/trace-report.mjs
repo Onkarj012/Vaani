@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Prints outcome counts, timings, and STT request counts from the dictation trace file. Never prints transcript text.
+// Prints outcome counts, timings, and STT attempt counts from the dictation trace file. Never prints transcript text.
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const DEFAULT_TRACES = join(homedir(), ".vaani-dev", "dictation-traces.json");
+const DEFAULT_TRACES = join(homedir(), ".vaani", "dictation-traces.json");
 const USAGE = "Usage: node scripts/trace-report.mjs [tracesFile] [--last N] [--since ISO]";
 
 // Prints an error and exits. Never includes trace content.
@@ -115,7 +115,7 @@ function outcomeRows(traces) {
     .map(([outcome, count]) => `  ${cell(outcome, 14)} ${cell(count, 5, true)}  ${cell(((count / total) * 100).toFixed(1), 5, true)}%`);
 }
 
-// How many STT requests each dictation made, as a distribution.
+// Counts whole-recording attempts; older traces and recovery may send multiple chunk requests per attempt.
 function requestRows(traces) {
   const counts = new Map();
   for (const trace of traces) {
@@ -125,7 +125,7 @@ function requestRows(traces) {
   }
   return [...counts.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([requests, dictations]) => `  ${cell(`${requests} request(s)`, 14)} ${cell(dictations, 5, true)} dictations`);
+    .map(([requests, dictations]) => `  ${cell(`${requests} attempt(s)`, 14)} ${cell(dictations, 5, true)} dictations`);
 }
 
 // Successful provider attempts grouped by provider and model, with p50 latency.
@@ -167,7 +167,7 @@ function printReport(file, traces) {
   console.log(outcomeRows(traces).join("\n") || "  none");
   console.log("\nTimings:");
   console.log(latencyRows(traces).join("\n"));
-  console.log("\nSTT requests per dictation:");
+  console.log("\nSTT provider attempts per dictation:");
   console.log(requestRows(traces).join("\n") || "  none");
   console.log("\nSuccessful attempts by provider and model:");
   console.log(successRows(traces).join("\n") || "  none");
