@@ -254,7 +254,7 @@ describe("TranscriptionService failover chain", () => {
     expect(groqTranscribe).toHaveBeenCalledTimes(1);
   });
 
-  it("stops at two STT requests when both primary attempts come back suspicious", async () => {
+  it("sends the second STT request to the fallback when the primary comes back suspicious", async () => {
     const openaiTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
       rawText: "thank you",
       formattedText: "thank you",
@@ -289,12 +289,11 @@ describe("TranscriptionService failover chain", () => {
       retryClip: { ...clip, durationSeconds: 2 },
     });
 
-    // The cap is reached, so the fallback never runs and the last suspicious result is returned.
-    expect(result.rawText).toBe("thank you");
-    expect(openaiTranscribe).toHaveBeenCalledTimes(2);
-    expect(openaiTranscribe).toHaveBeenNthCalledWith(1, clip, expect.anything());
-    expect(openaiTranscribe).toHaveBeenNthCalledWith(2, expect.objectContaining({ durationSeconds: 2 }), expect.anything());
-    expect(groqTranscribe).not.toHaveBeenCalled();
+    // The primary gets one attempt because a fallback is left, so the second request goes to the fallback.
+    expect(result.rawText).toBe("real fallback");
+    expect(openaiTranscribe).toHaveBeenCalledTimes(1);
+    expect(openaiTranscribe).toHaveBeenCalledWith(clip, expect.anything());
+    expect(groqTranscribe).toHaveBeenCalledTimes(1);
     expect(result.providerAttempts).toHaveLength(2);
   });
 
@@ -331,7 +330,7 @@ describe("TranscriptionService failover chain", () => {
     expect(result.providerAttempts).toHaveLength(2);
   });
 
-  it("returns the same provider retry result without calling fallback when retry succeeds", async () => {
+  it("retries the same provider when no fallback is enabled", async () => {
     const openaiTranscribe = vi.fn()
       .mockResolvedValueOnce({
         rawText: "thank you",
@@ -362,7 +361,7 @@ describe("TranscriptionService failover chain", () => {
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
       transcriptionProvider: "openai",
-      failoverEnabled: true,
+      failoverEnabled: false,
       groqApiKey: "groq-key",
       providerApiKeys: [{ providerId: "openai", key: "openai-key" }],
     }));

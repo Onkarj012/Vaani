@@ -190,7 +190,8 @@ export class TranscriptionService {
         const { id, provider, apiKey } = chain[providerIndex]!;
         const clips = options?.retryClip ? [clip, options.retryClip] : [clip];
         const attempts = buildTranscriptionAttempts(id, provider.models, clips, settings.transcriptionModel, language);
-        if (options?.recovery) {
+        // Recovery gets one attempt. A live dictation with a fallback left also gets one, so the second request goes to the fallback.
+        if (options?.recovery || providerIndex < chain.length - 1) {
           const firstAttempt = attempts[0];
           attempts.splice(0, attempts.length, ...(firstAttempt ? [firstAttempt] : []));
         }
