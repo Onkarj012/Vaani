@@ -12,6 +12,7 @@ import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
 import { formatterDropWords, removeSpeechNoise } from "./text/cleanup";
 import { warmOpenRouterConnection } from "./providers/openrouter/client";
+import { warmGroqConnection } from "./providers/groq/groqStt";
 
 export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
 const STT_CHUNK_OVERLAP_SECONDS = 2;
@@ -24,6 +25,14 @@ const FALLBACK_RESERVE_MS = 10_000;
 
 const STRONGER_STT_MODELS: Record<string, string> = {
   groq: "whisper-large-v3",
+};
+// Languages where the stronger model is the first choice, not only the low-confidence retry.
+const STRONGER_FIRST_LANGUAGES = new Set(["hi", "mr"]);
+// Hard cap on STT requests per dictation across the whole chain. Recovery keeps its own rules.
+const MAX_DICTATION_STT_REQUESTS = 2;
+const STT_FALLBACKS: Record<string, string[]> = {
+  groq: ["openrouter"],
+  openrouter: ["groq"],
 };
 
 export interface TranscriptionAttempt {
@@ -151,6 +160,7 @@ export class TranscriptionService {
   warmUp(): void {
     const settings = this.settingsProvider();
     if (settings.offlineMode === "always-offline") return;
+    if (settings.transcriptionProvider === "groq") warmGroqConnection();
     if (settings.transcriptionProvider === "openrouter" || settings.formattingProvider === "openrouter") warmOpenRouterConnection();
   }
 
@@ -175,10 +185,11 @@ export class TranscriptionService {
       let lastError: Error = new Error("All transcription providers failed.");
       let lastRejectedResult: TranscriptionResult | null = null;
       const providerAttempts: ProviderAttemptTrace[] = [];
-      for (let providerIndex = 0; providerIndex < chain.length; providerIndex += 1) {
+      let sttRequestCount = 0;
+      providerLoop: for (let providerIndex = 0; providerIndex < chain.length; providerIndex += 1) {
         const { id, provider, apiKey } = chain[providerIndex]!;
         const clips = options?.retryClip ? [clip, options.retryClip] : [clip];
-        const attempts = buildTranscriptionAttempts(id, provider.models, clips, settings.transcriptionModel);
+        const attempts = buildTranscriptionAttempts(id, provider.models, clips, settings.transcriptionModel, language);
         if (options?.recovery) {
           const firstAttempt = attempts[0];
           attempts.splice(0, attempts.length, ...(firstAttempt ? [firstAttempt] : []));
@@ -190,6 +201,8 @@ export class TranscriptionService {
         const providerDeadlineAt = providerIndex < chain.length - 1 ? reserveFallbackDeadline(options?.deadlineAt) : options?.deadlineAt;
         for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
           if (options?.shouldYieldToActiveDictation?.()) throw new RecoveryYieldedError();
+          if (!options?.recovery && sttRequestCount >= MAX_DICTATION_STT_REQUESTS) break providerLoop;
+          sttRequestCount += 1;
           const attempt = attempts[attemptIndex]!;
           const startedAt = Date.now();
           const startedAtIso = new Date(startedAt).toISOString();
@@ -276,8 +289,8 @@ export class TranscriptionService {
                 attempts.push(attempt);
                 continue;
               }
-            } else if (isAuthError(error) && id !== "openrouter") {
-              // A rejected OpenRouter key falls back to Groq, so a revoked key does not stop dictation.
+            } else if (isAuthError(error) && id !== "openrouter" && id !== "groq") {
+              // A rejected Groq or OpenRouter key falls back to the other, so a revoked key does not stop dictation.
               throw new TranscriptionChainError(lastError.message, providerAttempts, failure.class);
             }
             if (!settings.failoverEnabled || chain.length === 1) {
@@ -332,8 +345,8 @@ export class TranscriptionService {
     await tryAdd(primaryId);
 
     if (settings.failoverEnabled) {
-      // OpenRouter falls back only to Groq direct. Other primaries keep the older chain.
-      const fallbackIds = primaryId === "openrouter" ? ["groq"] : ["groq", "openai", "deepgram"];
+      // Groq and OpenRouter fall back only to each other. Other primaries keep the older chain.
+      const fallbackIds = STT_FALLBACKS[primaryId] ?? ["groq", "openai", "deepgram"];
       for (const fallbackId of fallbackIds) {
         if (fallbackId !== primaryId) await tryAdd(fallbackId);
       }
@@ -547,16 +560,19 @@ async function transcribePossiblyChunked(
   return mergeChunkedTranscriptionResults(results, chunks);
 }
 
+// The first attempt's model, then a retry with the stronger model when the provider has one.
 export function buildTranscriptionAttempts(
   providerId: string,
   providerModels: TranscriptionProvider["models"],
   clips: AudioClip[],
   configuredModel: string,
+  language?: string,
 ): TranscriptionAttempt[] {
-  const model = providerModels.some((candidate) => candidate.id === configuredModel) ? configuredModel : "";
-  const attempts = clips.map((clip) => ({ clip, model }));
   const strongerModel = STRONGER_STT_MODELS[providerId];
-  if (strongerModel && configuredModel !== strongerModel) {
+  const configured = providerModels.some((candidate) => candidate.id === configuredModel) ? configuredModel : "";
+  const model = strongerModel && STRONGER_FIRST_LANGUAGES.has(language ?? "") ? strongerModel : configured;
+  const attempts = clips.map((clip) => ({ clip, model }));
+  if (strongerModel && model !== strongerModel) {
     const firstClip = clips[0];
     if (firstClip) attempts.push({ clip: firstClip, model: strongerModel });
   }
@@ -712,6 +728,7 @@ function messageForEmptyChain(settings: Settings, primaryId: string): string {
 }
 
 function isAuthError(error: unknown): boolean {
+  if (isRecord(error) && (error.status === 401 || error.status === 403)) return true;
   if (!(error instanceof Error)) return false;
   const msg = error.message.toLowerCase();
   return msg.includes("401") || msg.includes("403") || msg.includes("unauthorized") || msg.includes("authentication") || msg.includes("invalid api key") || msg.includes("incorrect api key");
@@ -728,7 +745,7 @@ export function classifyTranscriptionError(error: unknown): { class: RecoveryErr
   if (message.includes("malformed") || message.includes("invalid audio") || message.includes("unsupported audio")) return { class: "malformed_audio", retryable: false, permanent: true };
   if (status === 429 || message.includes("rate limit") || message.includes("too many requests")) return { class: "rate_limit", retryable: true, permanent: false };
   if ((status !== null && status >= 500) || message.includes("temporarily unavailable") || message.includes("service unavailable")) return { class: "provider_5xx", retryable: true, permanent: false };
-  if (message.includes("network") || message.includes("fetch failed") || message.includes("econn") || message.includes("timeout") || message.includes("timed out") || message.includes("temporar")) return { class: "transient_network", retryable: true, permanent: false };
+  if (message.includes("network") || message.includes("fetch failed") || message.includes("econn") || message.includes("timeout") || message.includes("timed out") || message.includes("did not answer in time") || message.includes("temporar")) return { class: "transient_network", retryable: true, permanent: false };
   return { class: "transcription_error", retryable: false, permanent: true };
 }
 

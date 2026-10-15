@@ -39,8 +39,10 @@ export function fetchWithTimeout(
   return (async () => {
     try {
       const response = await fetch(input, { ...init, signal: scope.signal });
+      // Reading the body inside the scope keeps a stalled reply under the same deadline.
+      const body = await response.arrayBuffer();
       if (scope.signal.aborted && !init.signal?.aborted) throw new Error("Request timed out.");
-      return response;
+      return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
     } catch (error) {
       if (scope.signal.aborted && !init.signal?.aborted) throw new Error("Request timed out.");
       throw error;
