@@ -83,6 +83,12 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("Use 10 mm screws.", "Use 10 screws.", ["mm"])).toBe(false);
   });
 
+  it("keeps a plain negation out of the correction cues", () => {
+    expect(preservesContentWords("There is no need to restart the server.", "Need to restart the server.", [])).toBe(false);
+    expect(missingContentWords("There is no need to restart the server.", "Need to restart the server.", [])).toEqual(["there", "is", "no"]);
+    expect(preservesContentWords("Meet at Pune, no, Mumbai.", "Meet at Mumbai.", [])).toBe(true);
+  });
+
   it("rejects a dropped word that is not speech noise", () => {
     expect(missingContentWords("do not send the report", "Send the report.", [])).toEqual(["do", "not"]);
     expect(missingContentWords("send it to John and Mary", "Send it to Mary.", [])).toEqual(["john", "and"]);

@@ -449,15 +449,19 @@ function isStutter(run: readonly (string | null)[], { words, gone, boundary }: C
 // True when the dropped run ends in correction cues, replaces at most four words of one sentence, and a kept
 // replacement follows. The replaced words hold no negation or number. A lone cue may go only when it can't flip
 // meaning ("sorry", not "no"). "I mean", "actually", "rather", and "wait" count only with a pause next to them,
-// so "what I mean here" stays.
+// so "what I mean here" stays. A bare "no" counts only with a pause next to it ("Monday, no Tuesday") or another
+// "no" beside it ("no no no"), so "there is no need" stays a negation.
 function isCorrection(run: readonly (string | null)[], { gone, pause, boundary }: Core, start: number, end: number): boolean {
   if (end + 1 >= gone.length || gone[end + 1]) return false;
   let rest = run.length;
   const cues: string[] = [];
+  const bareNoIsCue = (position: number): boolean =>
+    pause[start + position] === true || pause[start + position - 1] === true || run[position - 1] === "no" || run[position + 1] === "no";
   for (let matched = true; matched && rest > 0;) {
     matched = false;
     for (const cue of CORRECTION_CUES) {
-      if (cue.length <= rest && startsWithPhrase(run, rest - cue.length, cue)) {
+      const bareNo = cue.length === 1 && cue[0] === "no";
+      if (cue.length <= rest && startsWithPhrase(run, rest - cue.length, cue) && (!bareNo || bareNoIsCue(rest - 1))) {
         cues.push(...cue);
         rest -= cue.length;
         matched = true;
