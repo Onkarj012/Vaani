@@ -19,6 +19,16 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("मुझे कल ऑफिस जाना है", "मुझे, कल ऑफिस जाना है।", [])).toBe(true);
   });
 
+  it("keeps Hindi compound numbers distinct when written in Roman letters", () => {
+    expect(preservesContentWords("तेईस रुपये भेजो।", "Teis rupaye bhejo.")).toBe(true);
+    expect(preservesContentWords("तेईस रुपये भेजो।", "Tees rupaye bhejo.")).toBe(false);
+    expect(preservesContentWords("पच्चीस रुपये भेजो।", "Pachas rupaye bhejo.")).toBe(false);
+    expect(preservesContentWords("सत्ताईस रुपये भेजो।", "Sattais rupaye bhejo.")).toBe(true);
+    expect(preservesContentWords("पचहत्तर रुपये भेजो।", "Pachhattar rupaye bhejo.")).toBe(true);
+    expect(preservesContentWords("निन्यानवे रुपये भेजो।", "Ninyanve rupaye bhejo.")).toBe(true);
+    expect(preservesContentWords("तेईस रुपये भेजो।", "तेईस रुपये भेजो।")).toBe(true);
+  });
+
   it("rejects words moved out of order", () => {
     expect(preservesContentWords("we ship it Tuesday", "Tuesday, we ship it.", [])).toBe(false);
     expect(preservesContentWords("we ship it Tuesday", "We ship it Tuesday.", [])).toBe(true);
