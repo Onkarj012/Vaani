@@ -73,6 +73,11 @@ describe("stripSoundTags", () => {
     expect(stripSoundTags("That is all [laughs].")).toBe("That is all.");
     expect(stripSoundTags("[background noise]")).toBe("");
     expect(stripSoundTags("Ship it.\n[music]\nThanks.")).toBe("Ship it.\n\nThanks.");
+    expect(stripSoundTags("Ship it (Applause) now.")).toBe("Ship it now.");
+  });
+
+  it("keeps bracketed text that is not a sound tag", () => {
+    expect(stripSoundTags("Use items[0] and keep [draft] in the title.")).toBe("Use items[0] and keep [draft] in the title.");
   });
 });
 

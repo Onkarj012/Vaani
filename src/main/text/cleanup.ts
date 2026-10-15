@@ -21,11 +21,17 @@ function escapeRegExp(v: string): string {
   return v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Non-speech tags that some transcription models write in square or round brackets. Other bracketed text is the speaker's.
+const SOUND_TAG_WORDS = ["music", "applause", "laughter", "laughs", "noise", "silence", "inaudible", "blank_audio", "background noise", "cough", "coughs", "sigh", "breathing", "static", "crosstalk"];
+const SOUND_TAG_ALTERNATION = SOUND_TAG_WORDS.join("|");
+// A whole tag only, case-insensitive. "[draft]" and "items[0]" are not tags.
+const SOUND_TAG_RE = new RegExp(String.raw`\[\s*(?:${SOUND_TAG_ALTERNATION})\s*\]|\(\s*(?:${SOUND_TAG_ALTERNATION})\s*\)`, "gi");
+
 // Removes sound tags such as "[coughs]" or "[background noise]" that some transcription models add.
 // They run before cleanup, so the formatter and the word guard only see spoken words.
 export function stripSoundTags(text: string): string {
   return text
-    .replace(/\[[^\]\n]{1,40}\]/g, " ")
+    .replace(SOUND_TAG_RE, " ")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/[ \t]*\n[ \t]*/g, "\n")
     .replace(/[ \t]+([,.!?;:])/g, "$1")
