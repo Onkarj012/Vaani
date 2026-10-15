@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, powerMonitor, session, systemPreferences } from "electron";
 import { autoUpdater } from "electron-updater";
 import { appendFileSync, existsSync, renameSync } from "node:fs";
+import { setDefaultAutoSelectFamilyAttemptTimeout } from "node:net";
 import { dirname, join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,10 @@ import { RecoveryLifecycleCoordinator } from "./recoveryLifecycle";
 import { subscribeNativeLoadFailure } from "./nativeBridge";
 import { consumeRestoredRecoveryNotice } from "./recoveryStartup";
 import { createQuitHandler } from "./quitCleanup";
+
+// Node gives each address 250 ms to connect. A VPN with a ~270 ms handshake then fails every
+// provider call with ETIMEDOUT, while curl on the same network works.
+setDefaultAutoSelectFamilyAttemptTimeout(2_000);
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mutableApp = app as typeof app & { isQuitting?: boolean };
@@ -446,6 +451,7 @@ async function bootstrap(): Promise<void> {
     micDeviceId: settings.get().micDeviceId,
     preWarmMic: settings.get().preWarmMic,
     captureBackend: settings.get().captureBackend,
+    captureProcessing: settings.get().captureProcessing,
   }));
   configureMediaPermissions(() => [
     mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null,
@@ -467,6 +473,7 @@ async function bootstrap(): Promise<void> {
       micDeviceId: settings.get().micDeviceId,
       preWarmMic: settings.get().preWarmMic,
       captureBackend: settings.get().captureBackend,
+      captureProcessing: settings.get().captureProcessing,
     }),
     {
       reportRecorderStarted: (sessionId) => dictation.reportRecorderStarted(sessionId),
@@ -486,6 +493,7 @@ async function bootstrap(): Promise<void> {
       micDeviceId: settings.get().micDeviceId,
       preWarmMic: settings.get().preWarmMic,
       captureBackend: settings.get().captureBackend,
+      captureProcessing: settings.get().captureProcessing,
     }),
     nativeCapture,
     rendererRecorder
@@ -592,11 +600,12 @@ async function bootstrap(): Promise<void> {
       }
       if ("capsuleDesign" in patch && patch.capsuleDesign) overlayController?.setCapsuleDesign(patch.capsuleDesign);
       if ("showInDock" in patch) syncAppPresentation();
-      if ("micDeviceId" in patch || "preWarmMic" in patch || "captureBackend" in patch) {
+      if ("micDeviceId" in patch || "preWarmMic" in patch || "captureBackend" in patch || "captureProcessing" in patch) {
         recorderController?.updateConfig({
           micDeviceId: settings.get().micDeviceId,
           preWarmMic: settings.get().preWarmMic,
           captureBackend: settings.get().captureBackend,
+          captureProcessing: settings.get().captureProcessing,
         });
       }
       if ("offlineMode" in patch) trayController.setOfflineMode(patch.offlineMode === "always-offline");

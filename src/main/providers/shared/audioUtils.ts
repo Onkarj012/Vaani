@@ -3,6 +3,11 @@ import { createCancellationScope } from "@main/cancellation";
 
 export const STT_TIMEOUT_MS = 20_000;
 
+// Quantizes one float sample to the 16-bit PCM value the WAV encoder writes.
+export function toPcm16(sample: number): number {
+  return Math.round(Math.max(-1, Math.min(1, sample)) * 32767);
+}
+
 export function createWavBuffer(audio: AudioClip): Buffer {
   const dataSize = audio.pcmData.length * 2;
   const buf = Buffer.alloc(44 + dataSize);
@@ -20,8 +25,7 @@ export function createWavBuffer(audio: AudioClip): Buffer {
   buf.write("data", 36);
   buf.writeUInt32LE(dataSize, 40);
   for (let i = 0; i < audio.pcmData.length; i++) {
-    const s = Math.max(-1, Math.min(1, audio.pcmData[i] ?? 0));
-    buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
+    buf.writeInt16LE(toPcm16(audio.pcmData[i] ?? 0), 44 + i * 2);
   }
   return buf;
 }

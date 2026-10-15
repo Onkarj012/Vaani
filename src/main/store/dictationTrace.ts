@@ -1,8 +1,8 @@
 import { app } from "electron";
 import { join } from "node:path";
 import { APP_DATA_DIR } from "@shared/defaults";
-import type { DictationTrace } from "@shared/types";
-import { buildTraceStageSnapshot } from "@main/dictationTraceSnapshot";
+import type { CaptureLevels, CaptureTrackSettings, DictationTrace, SpeechGateDecision, SpeechGateTrace, TranscriptionQualityMetadata } from "@shared/types";
+import { DICTATION_TRACE_SEGMENT_LIMIT, buildTraceStageSnapshot } from "@main/dictationTraceSnapshot";
 import { truncateTraceText } from "@main/dictationTraceSnapshot";
 import { readJsonFile, writeJsonFile } from "./base";
 
@@ -99,6 +99,9 @@ function normalizeTraces(raw: unknown): DictationTrace[] {
       targetAppName: typeof item.targetAppName === "string" ? truncateTraceText(item.targetAppName) : null,
       rawAudio: normalizeAudioQuality(item.rawAudio),
       trimmedAudio: normalizeAudioQuality(item.trimmedAudio),
+      captureLevels: normalizeCaptureLevels(item.captureLevels),
+      captureSettings: normalizeCaptureSettings(item.captureSettings),
+      speechGate: normalizeSpeechGate(item.speechGate),
       rawAudioPath: typeof item.rawAudioPath === "string" ? item.rawAudioPath : null,
       sttProvider: typeof item.sttProvider === "string" ? item.sttProvider : null,
       sttLatencyMs: typeof item.sttLatencyMs === "number" ? item.sttLatencyMs : undefined,
@@ -158,12 +161,48 @@ function normalizeQuality(value: unknown): DictationTrace["quality"] {
     avgLogprob: nullableNumber(value.avgLogprob),
     compressionRatio: nullableNumber(value.compressionRatio),
     segmentCount: finiteNumber(value.segmentCount),
+    segmentNoSpeechProbabilities: finiteNumberArray(value.segmentNoSpeechProbabilities),
     transcriptLength,
     chunkCount: finiteNumber(value.chunkCount),
     chunkDurationsSeconds: finiteNumberArray(value.chunkDurationsSeconds),
     chunkOverlapSeconds: finiteNumber(value.chunkOverlapSeconds),
     decision: normalizeQualityDecision(value.decision),
   };
+}
+
+// Keeps only the boolean capture flags the track reported.
+function normalizeCaptureSettings(value: unknown): CaptureTrackSettings | undefined {
+  if (!isObject(value)) return undefined;
+  const settings: CaptureTrackSettings = {};
+  if (typeof value.echoCancellation === "boolean") settings.echoCancellation = value.echoCancellation;
+  if (typeof value.autoGainControl === "boolean") settings.autoGainControl = value.autoGainControl;
+  if (typeof value.noiseSuppression === "boolean") settings.noiseSuppression = value.noiseSuppression;
+  return Object.keys(settings).length > 0 ? settings : undefined;
+}
+
+// Keeps capture levels only when all three numbers are finite.
+function normalizeCaptureLevels(value: unknown): CaptureLevels | undefined {
+  if (!isObject(value)) return undefined;
+  const preGainPeak = finiteNumber(value.preGainPeak);
+  const preGainRms = finiteNumber(value.preGainRms);
+  const gain = finiteNumber(value.gain);
+  if (preGainPeak === undefined || preGainRms === undefined || gain === undefined) return undefined;
+  return { preGainPeak, preGainRms, gain };
+}
+
+// Keeps the speech gate record only when its pass flag and all four measurements are valid.
+function normalizeSpeechGate(value: unknown): SpeechGateTrace | undefined {
+  if (!isObject(value) || typeof value.pass !== "boolean" || typeof value.reason !== "string") return undefined;
+  const noiseFloor = finiteNumber(value.noiseFloor);
+  const enterThreshold = finiteNumber(value.enterThreshold);
+  const longestRunMs = finiteNumber(value.longestRunMs);
+  const totalSpeechMs = finiteNumber(value.totalSpeechMs);
+  if (noiseFloor === undefined || enterThreshold === undefined || longestRunMs === undefined || totalSpeechMs === undefined) return undefined;
+  return { pass: value.pass, decision: normalizeSpeechDecision(value.decision), reason: truncateTraceText(value.reason), noiseFloor, enterThreshold, longestRunMs, totalSpeechMs };
+}
+
+function normalizeSpeechDecision(value: unknown): SpeechGateDecision | undefined {
+  return value === "speech" || value === "uncertain" || value === "silent" ? value : undefined;
 }
 
 function normalizeQualityDecision(value: unknown): DictationTrace["qualityDecision"] {
@@ -348,11 +387,11 @@ function sanitizeTraceForStorage(trace: DictationTrace): DictationTrace {
   if (next.sttProvider) next.sttProvider = truncateTraceText(next.sttProvider);
   if (next.userMessage) next.userMessage = truncateTraceText(next.userMessage);
   if (next.quality) {
-    next.quality = {
+    next.quality = boundSegmentValues({
       ...next.quality,
       provider: truncateTraceText(next.quality.provider),
       ...(next.quality.decision ? { decision: { ...next.quality.decision, reason: truncateTraceText(next.quality.decision.reason) } } : {}),
-    };
+    });
   }
   if (next.qualityDecision) next.qualityDecision = { ...next.qualityDecision, reason: truncateTraceText(next.qualityDecision.reason) };
   if (next.providerAttempts) {
@@ -360,7 +399,7 @@ function sanitizeTraceForStorage(trace: DictationTrace): DictationTrace {
       ...attempt,
       provider: truncateTraceText(attempt.provider),
       ...(attempt.error ? { error: truncateTraceText(attempt.error) } : {}),
-      ...(attempt.quality ? { quality: { ...attempt.quality, provider: truncateTraceText(attempt.quality.provider) } } : {}),
+      ...(attempt.quality ? { quality: boundSegmentValues({ ...attempt.quality, provider: truncateTraceText(attempt.quality.provider) }) } : {}),
     }));
   }
   if (next.injectionAttempts) {
@@ -374,6 +413,12 @@ function sanitizeTraceForStorage(trace: DictationTrace): DictationTrace {
   }
   if (next.stages) next.stages = buildTraceStageSnapshot(next.stages);
   return next;
+}
+
+// Caps the per-segment no-speech list so one long clip cannot grow a trace without bound.
+function boundSegmentValues(quality: TranscriptionQualityMetadata): TranscriptionQualityMetadata {
+  if (!quality.segmentNoSpeechProbabilities) return quality;
+  return { ...quality, segmentNoSpeechProbabilities: quality.segmentNoSpeechProbabilities.slice(0, DICTATION_TRACE_SEGMENT_LIMIT) };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

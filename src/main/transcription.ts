@@ -5,12 +5,13 @@ import { getProviderRegistry } from "./providers";
 import { defaultModelFor } from "@shared/modelList";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { formatterErrorReason } from "./providers/types";
-import { CHANGED_WORDS_REASON, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
+import { buildFormattingPrompt, CHANGED_WORDS_REASON, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
-import { activeFillerWords } from "./text/cleanup";
+import { formatterDropWords, removeSpeechNoise } from "./text/cleanup";
+import { warmOpenRouterConnection } from "./providers/openrouter/client";
 
 export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
 const STT_CHUNK_OVERLAP_SECONDS = 2;
@@ -34,6 +35,8 @@ export interface FormattingOptions {
   signal?: AbortSignal;
   deadlineAt?: number;
   sessionSettings?: SessionSettingsSnapshot;
+  /** Dictation language after any app profile override. Picks the cleanup script rule. */
+  language?: string;
 }
 
 export interface TranscribeOptions {
@@ -129,6 +132,11 @@ export interface FormatTranscriptTraceResult {
 }
 
 // Result for a formatter call that did not run, so the text stays as it was.
+// Text used when the cleanup model's result is not: speech noise removed by fixed rules, or literal when cleanup is off.
+function fallbackText(rawText: string, settings: Pick<Settings, "cleanupEnabled">): string {
+  return settings.cleanupEnabled ? removeSpeechNoise(rawText) : rawText;
+}
+
 function skippedFormat(text: string, reason: string): FormatTranscriptTraceResult {
   return { text, formatterUsed: "none", formatterStatus: "skipped", formatterStatusReason: reason };
 }
@@ -138,6 +146,13 @@ export class TranscriptionService {
     private readonly settingsProvider: () => Settings,
     private readonly credentials?: CredentialsStore
   ) {}
+
+  // Opens the OpenRouter connection while the recording tail drains, when either stage will use it.
+  warmUp(): void {
+    const settings = this.settingsProvider();
+    if (settings.offlineMode === "always-offline") return;
+    if (settings.transcriptionProvider === "openrouter" || settings.formattingProvider === "openrouter") warmOpenRouterConnection();
+  }
 
   async transcribe(clip: AudioClip, options?: TranscribeOptions): Promise<TranscriptionResult> {
     const scope = createCancellationScope(options?.signal, options?.deadlineAt);
@@ -263,10 +278,10 @@ export class TranscriptionService {
               }
             } else if (isAuthError(error) && id !== "openrouter") {
               // A rejected OpenRouter key falls back to Groq, so a revoked key does not stop dictation.
-              throw lastError;
+              throw new TranscriptionChainError(lastError.message, providerAttempts, failure.class);
             }
             if (!settings.failoverEnabled || chain.length === 1) {
-              throw options?.recovery ? new TranscriptionChainError(lastError.message, providerAttempts, providerAttempts[providerAttempts.length - 1]?.errorClass ?? "transcription_error") : lastError;
+              throw new TranscriptionChainError(lastError.message, providerAttempts, failure.class);
             }
             break;
           } finally {
@@ -276,9 +291,8 @@ export class TranscriptionService {
       }
 
       if (lastRejectedResult) return { ...lastRejectedResult, providerAttempts };
-      throw options?.recovery
-        ? new TranscriptionChainError(lastError.message, providerAttempts, providerAttempts[providerAttempts.length - 1]?.errorClass ?? "transcription_error")
-        : lastError;
+      // Every provider failed. The chain error carries each attempt so the trace shows all of them, not only the last.
+      throw new TranscriptionChainError(lastError.message, providerAttempts, providerAttempts[providerAttempts.length - 1]?.errorClass ?? "transcription_error");
     } finally {
       scope.dispose();
     }
@@ -334,29 +348,30 @@ export class TranscriptionService {
 
   async formatTranscriptDetailed(rawText: string, options?: FormattingOptions): Promise<FormatTranscriptTraceResult> {
     const scope = createCancellationScope(options?.signal, options?.deadlineAt);
+    const settings = restoreSessionSettings(options?.sessionSettings ?? captureSessionSettings(this.settingsProvider()));
+    const fallback = fallbackText(rawText, settings);
     try {
-      const settings = restoreSessionSettings(options?.sessionSettings ?? captureSessionSettings(this.settingsProvider()));
       // Offline policy covers the entire pipeline, including LLM formatting.
       // The current formatting registry contains remote providers only.
       if (settings.offlineMode === "always-offline" || this.settingsProvider().offlineMode === "always-offline") {
         throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
-        return skippedFormat(rawText, OFFLINE_REASON);
+        return skippedFormat(fallback, OFFLINE_REASON);
       }
       const registry = getProviderRegistry();
       const llmId = settings.formattingProvider || "groq-llm";
       const provider = registry.getFormatting(llmId);
-      if (!provider) return skippedFormat(rawText, NO_PROVIDER_REASON);
+      if (!provider) return skippedFormat(fallback, NO_PROVIDER_REASON);
       const configuredApiKey = configuredApiKeyFor(this.settingsProvider(), llmId);
       const apiKey = configuredApiKey ?? (this.credentials ? await this.resolveApiKey(this.settingsProvider(), llmId) : null);
-      if (provider.requiresApiKey && !apiKey) return skippedFormat(rawText, NO_API_KEY_REASON);
+      if (provider.requiresApiKey && !apiKey) return skippedFormat(fallback, NO_API_KEY_REASON);
       throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
-      const result = await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings, scope.signal);
+      const result = await this.formatTranscriptBlocks(rawText, provider, apiKey ?? "", settings, options?.language ?? settings.language, scope.signal);
       throwIfTranscriptionDeadlineExceeded(options?.deadlineAt, scope.signal);
       return result;
     } catch (error) {
       if (options?.deadlineAt !== undefined && Date.now() >= options.deadlineAt) throw new TranscriptionDeadlineExceededError();
       if (scope.signal.aborted || isAbortError(error)) throw new TranscriptionCancelledError();
-      return { text: rawText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: formatterErrorReason(error) };
+      return { text: fallback, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: formatterErrorReason(error) };
     } finally {
       scope.dispose();
     }
@@ -367,10 +382,11 @@ export class TranscriptionService {
     provider: FormattingProvider,
     apiKey: string,
     settings: Settings,
+    language: string,
     signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
     if (!hasParagraphBreak(rawText)) {
-      return this.formatTranscriptBlock(rawText, provider, apiKey, settings, signal);
+      return this.formatTranscriptBlock(rawText, provider, apiKey, settings, language, signal);
     }
 
     const parts = splitParagraphParts(rawText);
@@ -387,7 +403,7 @@ export class TranscriptionService {
       const text = part.value.trim();
       if (!text) continue;
       throwIfAborted(signal);
-      const result = await this.formatTranscriptBlock(text, provider, apiKey, settings, signal);
+      const result = await this.formatTranscriptBlock(text, provider, apiKey, settings, language, signal);
       blockResults.push(result);
       formattedParts.push(result.text.trim());
       if (result.contentGuardVerdict?.missingWords) missingWords.push(...result.contentGuardVerdict.missingWords);
@@ -429,30 +445,35 @@ export class TranscriptionService {
     provider: FormattingProvider,
     apiKey: string,
     settings: Settings,
+    language: string,
     signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
     if (signal.aborted) throw new TranscriptionCancelledError();
-    if (this.settingsProvider().offlineMode === "always-offline") return skippedFormat(rawText, OFFLINE_REASON);
-    const fillerWords = activeFillerWords(settings);
+    const fallback = fallbackText(rawText, settings);
+    if (this.settingsProvider().offlineMode === "always-offline") return skippedFormat(fallback, OFFLINE_REASON);
+    const fillerWords = formatterDropWords(settings);
+    const literal = !settings.cleanupEnabled;
     const result = await provider.format(rawText, {
       apiKey,
       model: settings.formattingModel,
-      systemPrompt: settings.customPrompt,
+      systemPrompt: buildFormattingPrompt({ customPrompt: settings.customPrompt, literal, language, text: rawText, fillerWords }),
+      strictSystemPrompt: buildFormattingPrompt({ strict: true, literal, language, text: rawText, fillerWords }),
       signal,
       fillerWords,
+      literal,
     });
     if (result.status !== "ran") {
-      return { text: result.text, formatterUsed: "none", formatterStatus: result.status, formatterStatusReason: result.reason };
+      return { text: fallback, formatterUsed: "none", formatterStatus: result.status, formatterStatusReason: result.reason };
     }
     const formatted = stripReasoningBlocks(result.text);
     if (!formatted) {
-      return { text: rawText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: EMPTY_REPLY_REASON };
+      return { text: fallback, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: EMPTY_REPLY_REASON };
     }
-    const { missing, added, rejection } = diffContentWords(rawText, formatted, fillerWords);
+    const { missing, added, rejection } = diffContentWords(rawText, formatted, fillerWords, { speechNoise: !literal });
     if (rejection || missing.length > 0 || added.length > 0) {
       debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
       return {
-        text: rawText,
+        text: fallback,
         formatterUsed: "guard-fallback",
         formatterStatus: "rejected",
         formatterStatusReason: rejection ?? CHANGED_WORDS_REASON,
@@ -599,6 +620,7 @@ function mergeChunkedTranscriptionResults(results: TranscriptionResult[], chunks
   const rawText = mergeTranscriptParts(results.map(result => result.rawText));
   const qualities = results.map(result => result.quality).filter((quality): quality is NonNullable<TranscriptionResult["quality"]> => !!quality);
   const segmentCount = qualities.reduce((sum, quality) => sum + (quality.segmentCount ?? 0), 0);
+  const segmentNoSpeechProbabilities = qualities.flatMap(quality => quality.segmentNoSpeechProbabilities ?? []);
   return {
     ...first,
     rawText,
@@ -611,6 +633,7 @@ function mergeChunkedTranscriptionResults(results: TranscriptionResult[], chunks
         compressionRatio: averageNullable(qualities.map(quality => quality.compressionRatio)),
         noSpeechProbability: maxNullable(qualities.map(quality => quality.noSpeechProbability)),
         segmentCount: segmentCount > 0 ? segmentCount : undefined,
+        segmentNoSpeechProbabilities: segmentNoSpeechProbabilities.length > 0 ? segmentNoSpeechProbabilities : undefined,
         transcriptLength: rawText.length,
         chunkCount: chunks.length,
         chunkDurationsSeconds: chunks.map(chunk => Number(chunk.durationSeconds.toFixed(3))),
@@ -705,7 +728,7 @@ export function classifyTranscriptionError(error: unknown): { class: RecoveryErr
   if (message.includes("malformed") || message.includes("invalid audio") || message.includes("unsupported audio")) return { class: "malformed_audio", retryable: false, permanent: true };
   if (status === 429 || message.includes("rate limit") || message.includes("too many requests")) return { class: "rate_limit", retryable: true, permanent: false };
   if ((status !== null && status >= 500) || message.includes("temporarily unavailable") || message.includes("service unavailable")) return { class: "provider_5xx", retryable: true, permanent: false };
-  if (message.includes("network") || message.includes("fetch failed") || message.includes("econn") || message.includes("timeout") || message.includes("temporar")) return { class: "transient_network", retryable: true, permanent: false };
+  if (message.includes("network") || message.includes("fetch failed") || message.includes("econn") || message.includes("timeout") || message.includes("timed out") || message.includes("temporar")) return { class: "transient_network", retryable: true, permanent: false };
   return { class: "transcription_error", retryable: false, permanent: true };
 }
 

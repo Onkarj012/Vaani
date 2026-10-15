@@ -2,6 +2,7 @@ import type { CustomCorrection, DictationCorrectionTrace, Settings, Snippet } fr
 import { NUMBER_WORDS, parseNumberWords } from "@shared/numberWords";
 import { editDistance, normalizedEditDistance } from "@shared/textDistance";
 import { phoneticKeysEqual } from "@shared/phonetics";
+import { HESITATION_WORDS, PROTECTED_WORDS } from "@shared/contentGuard";
 
 interface TextCleanupInput {
   rawText: string;
@@ -20,10 +21,92 @@ function escapeRegExp(v: string): string {
   return v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Non-speech tags that some transcription models write in square or round brackets. Other bracketed text is the speaker's.
+const SOUND_TAG_WORDS = ["music", "applause", "laughter", "laughs", "noise", "silence", "inaudible", "blank_audio", "background noise", "cough", "coughs", "sigh", "breathing", "static", "crosstalk"];
+const SOUND_TAG_ALTERNATION = SOUND_TAG_WORDS.join("|");
+// A whole tag only, case-insensitive. "[draft]" and "items[0]" are not tags.
+const SOUND_TAG_RE = new RegExp(String.raw`\[\s*(?:${SOUND_TAG_ALTERNATION})\s*\]|\(\s*(?:${SOUND_TAG_ALTERNATION})\s*\)`, "gi");
+
+// Removes sound tags such as "[coughs]" or "[background noise]" that some transcription models add.
+// They run before cleanup, so the formatter and the word guard only see spoken words.
+export function stripSoundTags(text: string): string {
+  return text
+    .replace(SOUND_TAG_RE, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .replace(/[ \t]+([,.!?;:])/g, "$1")
+    .trim();
+}
+
+// A hesitation sound as its own word.
+const HESITATION_RE = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${HESITATION_WORDS.join("|")})(?![\p{L}\p{N}])[,.]?`, "giu");
+// A number right before a position, so "10 mm" and "ten mm" keep their unit. Only "mm" is a unit.
+const NUMBER_BEFORE_RE = new RegExp(String.raw`(?:\p{N}|(?<![\p{L}])(?:${NUMBER_WORDS.join("|")}))\s*$`, "iu");
+// A Latin word followed by one or two hyphens and a space: "po- bad", "trans-- uh". "re-release" has no space.
+const HYPHEN_END_RE = /(?<![\p{L}\p{M}\p{N}])(\p{Script=Latin}+)-{1,2}(?=\s)/gu;
+// A Latin word said twice in a row: "the the". Digits ("1 1 2") and other scripts ("घर घर") are left alone.
+const REPEATED_WORD_RE = /(?<![\p{L}\p{M}\p{N}'])(\p{Script=Latin}[\p{Script=Latin}']*)(?:,?\s+\1)+(?![\p{L}\p{M}\p{N}'])/giu;
+// A two- or three-word Latin phrase said twice: "on the, on the".
+const REPEATED_PHRASE_RE = /(?<![\p{L}\p{M}\p{N}'])(\p{Script=Latin}+(?:\s+\p{Script=Latin}+){1,2}),?\s+\1(?![\p{L}\p{M}\p{N}'])/giu;
+// Doubles the grammar needs, and words a comma often separates on purpose ("look at it, it has").
+const KEPT_DOUBLES: ReadonlySet<string> = new Set(["had", "that", "it", "this", "them", "very", "really", "so", "yes"]);
+const SPELLED_NUMBERS: ReadonlySet<string> = new Set(NUMBER_WORDS);
+
+// Collapses a repeat unless it is a number or a kept double said only twice.
+function collapseRepeat(match: string, word: string): string {
+  const lower = word.toLowerCase();
+  if (SPELLED_NUMBERS.has(lower)) return match;
+  return KEPT_DOUBLES.has(lower) && match.split(/,?\s+/).length === 2 ? match : word;
+}
+
+// Collapses a repeated phrase unless one of its words is a spelled-out number ("one two one two" is a value).
+function collapsePhraseRepeat(match: string, phrase: string): string {
+  return phrase.split(/\s+/).some(word => SPELLED_NUMBERS.has(word.toLowerCase())) ? match : phrase;
+}
+
+// Removes a word ending in a hyphen only when the speaker restarts after it: the next word starts with it ("ru- run"),
+// a hesitation follows ("trans-- uh"), or the word before it comes again ("there sh- there"). Otherwise the hyphen is a
+// dash or a suspended prefix ("Priya-- tomorrow", "pre- and post-paid"). A spelled-out number keeps its hyphen ("twenty- five").
+function removeCutOffWords(line: string): string {
+  return line.replace(HYPHEN_END_RE, (match: string, word: string, offset: number) => {
+    const lower = word.toLowerCase();
+    if (PROTECTED_WORDS.has(lower) || SPELLED_NUMBERS.has(lower)) return match;
+    const next = (line.slice(offset + match.length).match(/^\s+([\p{L}\p{M}']+)/u)?.[1] ?? "").toLowerCase();
+    const previous = (line.slice(0, offset).match(/([\p{L}\p{M}']+)[\s,]*$/u)?.[1] ?? "").toLowerCase();
+    const restarts = (next.length > lower.length && next.startsWith(lower))
+      || HESITATION_WORDS.includes(next)
+      || (previous !== "" && previous === next && lower.length <= 3);
+    return restarts && next !== "and" && next !== "or" ? " " : match;
+  });
+}
+
+// Removes speech noise with fixed rules: cut-off words, hesitation sounds, and stutters.
+// Used when the cleanup model did not run or its result was rejected, so the pasted text is still clean.
+export function removeSpeechNoise(text: string): string {
+  return text
+    .split("\n")
+    .map(line => removeCutOffWords(line)
+      .replace(HESITATION_RE, (match: string, offset: number, whole: string) => (/^mm\b/i.test(match) && NUMBER_BEFORE_RE.test(whole.slice(0, offset)) ? match : " "))
+      .replace(REPEATED_PHRASE_RE, collapsePhraseRepeat)
+      .replace(REPEATED_WORD_RE, collapseRepeat)
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/[ \t]+([,.!?;:])/g, "$1")
+      .replace(/([,;:])(?:\s*[,;:])+/g, "$1")
+      .replace(/(^|[.!?]\s+),\s*/g, "$1")
+      .trim())
+    .join("\n");
+}
+
 // Filler words the cleanup stage removes. Empty when cleanup is off.
 export function activeFillerWords(settings: Settings): string[] {
   if (!settings.cleanupEnabled) return [];
   return [...(settings.fillerWords ?? []), ...(settings.extraFillerWords ?? [])];
+}
+
+// Words the cleanup model may drop: the filler words plus hesitation sounds. Empty when cleanup is off.
+export function formatterDropWords(settings: Settings): string[] {
+  if (!settings.cleanupEnabled) return [];
+  return [...new Set([...activeFillerWords(settings), ...HESITATION_WORDS])];
 }
 
 function removeFillers(text: string, fillers: string[]): string {
@@ -41,7 +124,8 @@ function capitalizeSentences(text: string): string {
 function applySmartPunctuation(text: string): string {
   return text
     .replace(/"([^"]+)"/g, "\u201c$1\u201d")
-    .replace(/'([^']+)'/g, "\u2018$1\u2019")
+    // A quote opens and closes only at a word edge, so the apostrophes in "I'll … I'll" never pair up.
+    .replace(/(?<![\p{L}\p{N}])'(?=\S)([^']*?\S)'(?![\p{L}\p{N}])/gu, "\u2018$1\u2019")
     .replace(/\s?--\s?/g, " \u2013 ")
     .replace(/\.{3,}/g, "\u2026");
 }

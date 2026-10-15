@@ -23,6 +23,7 @@ import type {
   InjectionFailureReason,
   ProviderAttemptTrace,
   RecorderFailure,
+  CaptureLevels,
   RecorderSubmission,
   SelectionRange,
   Settings,
@@ -43,7 +44,7 @@ import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
-import { applyDictionary, cleanupText, hasSpokenContent } from "./text/cleanup";
+import { applyDictionary, cleanupText, hasSpokenContent, removeSpeechNoise, stripSoundTags } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
@@ -90,7 +91,7 @@ type DictationTraceDeps = Pick<DictationTraceStore, "upsert" | "updateById" | "g
   & Partial<Pick<DictationTraceStore, "getAll">>;
 
 interface DictationServiceDeps {
-  transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
+  transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed" | "warmUp">>;
   injector?: Pick<TextInjector, "inject">;
   appDetector?: Pick<AppDetector, "getContext">;
   getMicrophonePermission?: () => string;
@@ -108,7 +109,7 @@ interface DictationServiceDeps {
 
 export class DictationService {
   private state: DictationState = { status: "idle" };
-  private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
+  private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed" | "warmUp">>;
   private readonly injector: Pick<TextInjector, "inject">;
   private readonly appDetector: Pick<AppDetector, "getContext">;
   private readonly getMicrophonePermission: () => string;
@@ -272,8 +273,10 @@ export class DictationService {
     }
 
     this.clearRecorderStartTimer();
+    // This budget covers the first audio frame, so a mic that stays silent is released here.
     this.timers.setTimeout("recorderStart", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "starting") {
+        this.recorder?.abortRecording?.(sessionId);
         this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.", "recorder_unavailable");
       }
     }, RECORDER_START_TIMEOUT_MS);
@@ -331,6 +334,7 @@ export class DictationService {
     void this.patchTrace(sessionId, { stopRequestedAt, hotkeyReleasedAt: stopRequestedAt });
     void this.transitionRecovery(sessionId, "interrupted_recording", { error: { class: "interrupted", detail: "Recording finalized." } });
     this.setState({ status: "finalizing", sessionId });
+    this.transcription.warmUp?.();
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
     if (!this.recorder?.stopRecording(sessionId)) {
@@ -386,9 +390,13 @@ export class DictationService {
     const settings = restoreSessionSettings(snapshot);
     const validationClip = trimSilence(payload.clip, settings.silenceThreshold);
     const rawAudio = analyzeAudioQuality(payload.clip, settings.silenceThreshold);
+    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames, payload.clip.pcmData);
     const tracePatch: Partial<DictationTrace> = {
       rawAudio,
+      captureLevels: captureLevelsFor(rawAudio, payload.clip.gain),
+      speechGate,
       trimmedAudio: analyzeAudioQuality(validationClip, settings.silenceThreshold),
+      ...(payload.captureSettings ? { captureSettings: payload.captureSettings } : {}),
       ...(payload.tailMetrics ? payload.tailMetrics : {}),
     };
 
@@ -414,8 +422,7 @@ export class DictationService {
       return;
     }
 
-    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames);
-    if (!speechGate.pass) {
+    if (speechGate.decision === "silent") {
       debug("dictation", `submitAudioClip: speech gate rejected clip (${speechGate.reason}, floor=${speechGate.noiseFloor.toFixed(4)}, longest=${speechGate.longestRunMs}ms, total=${speechGate.totalSpeechMs}ms)`);
       this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.", "no_speech");
       return;
@@ -441,19 +448,20 @@ export class DictationService {
       const sttStartedAt = Date.now();
       const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip);
       const transcriptionDeadlineAt = sttStartedAt + transcriptionTimeoutMs;
+      const qualityClip = preGainClip(payload.clip);
       const transcription = await this.transcription.transcribe(payload.clip, {
         sessionSettings: snapshot,
-        speechContext: { trimmedDurationSeconds: validationClip.durationSeconds, speechGatePassed: speechGate.pass },
+        speechContext: { trimmedDurationSeconds: validationClip.durationSeconds, speechGatePassed: speechGate.decision === "speech" },
         languageOverride: language,
         ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
           retryClip: validationClip,
           deadlineAt: transcriptionDeadlineAt,
           signal: operationSignal,
-        rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, payload.clip, result.quality).action === "retry",
+        rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, qualityClip, result.quality).action === "retry",
       });
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
       void this.patchTrace(payload.sessionId, { sttDoneAt: new Date().toISOString() });
-      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, payload.clip, transcription.quality));
+      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, qualityClip, transcription.quality));
       await this.transitionRecovery(payload.sessionId, "transcript_ready", {
         text: { rawTranscript: transcription.rawText },
         providerAttempts: transcription.providerAttempts?.map(mapProviderAttempt),
@@ -496,9 +504,9 @@ export class DictationService {
       if (qualityDecision.action === "save") {
         debug("dictation", `submitAudioClip: transcript saved instead of inserted (${qualityDecision.reason}): "${transcription.rawText}"`);
         const cleanupTrace = { correctionsApplied: [] };
-        const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
+        const correctedText = applyDictionary(stripSoundTags(transcription.rawText), settings, cleanupTrace);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
-        const cleanedText = cleanupText({ rawText: correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
+        const cleanedText = cleanupText({ rawText: settings.cleanupEnabled ? removeSpeechNoise(correctedText) : correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
         void this.patchTrace(payload.sessionId, { formatDoneAt: new Date().toISOString() });
         void this.patchTrace(payload.sessionId, {
           stages: {
@@ -530,27 +538,29 @@ export class DictationService {
 
       // Apply dictionary terms before the formatter so it sees the intended spelling.
       const cleanupTrace = { correctionsApplied: [] };
-      const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
+      const correctedText = applyDictionary(stripSoundTags(transcription.rawText), settings, cleanupTrace);
       let formattedText = correctedText;
       let formatTrace: FormatTranscriptTraceResult = { text: correctedText, formatterUsed: "none" };
       try {
         await this.transitionRecovery(payload.sessionId, "formatting", { text: { cleanedText: correctedText }, signal: operationSignal });
         const formattingStartedAt = Date.now();
         if (!electron.app.isPackaged && process.env.VAANI_DEV_FORCE_FORMAT_TIMEOUT === "1") throw new TranscriptionDeadlineExceededError();
-        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + FORMATTING_TIMEOUT_MS, snapshot);
+        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + FORMATTING_TIMEOUT_MS, snapshot, language);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
         formattedText = formatTrace.text;
         void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
       } catch (error) {
         if (operationSignal?.aborted) return;
+        // Without the model's cleanup, fixed rules remove the speech noise (literal when cleanup is off).
+        const fallback = settings.cleanupEnabled ? removeSpeechNoise(correctedText) : correctedText;
         if (error instanceof TranscriptionDeadlineExceededError) {
-          formattedText = correctedText;
-          formatTrace = { text: correctedText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: "Formatting timed out." };
+          formattedText = fallback;
+          formatTrace = { text: fallback, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: "Formatting timed out." };
           void this.patchTrace(payload.sessionId, { stages: { formatterStatus: "failed", formatterStatusReason: "Formatting timed out.", formatterReason: "timeout" } });
         } else {
           if (error instanceof TranscriptionCancelledError) return;
-          formattedText = correctedText;
-          formatTrace = { text: correctedText, formatterUsed: "none" };
+          formattedText = fallback;
+          formatTrace = { text: fallback, formatterUsed: "none" };
         }
       }
 
@@ -650,10 +660,13 @@ export class DictationService {
         }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome);
         return;
       }
-      void this.patchTrace(payload.sessionId, { dispatchAt: new Date().toISOString() });
       const injection = await this.injector.inject(cleanedText, finalInjectionTarget, {
         signal: operationSignal,
-        onDispatch: () => { if (this.isCurrentSession(payload.sessionId)) this.activeInsertionDispatched = true; },
+        // dispatchAt marks the paste or keystrokes leaving Vaani, after the injector's preparation.
+        onDispatch: () => {
+          void this.patchTrace(payload.sessionId, { dispatchAt: new Date().toISOString() });
+          if (this.isCurrentSession(payload.sessionId)) this.activeInsertionDispatched = true;
+        },
         isTargetValid: () => this.isCurrentSession(payload.sessionId)
           && this.isSameFocusedTarget(finalInjectionTarget, initialTargetIdentity)
           && (this.activeInsertionDispatched || this.matchesFocusedAX(finalInjectionTarget, initialTargetValue, initialSelection)),
@@ -903,7 +916,7 @@ export class DictationService {
       const settings = restoreSessionSettings(entry.settingsSnapshot);
       const appProfile = resolveAppProfile(settings.appProfiles ?? [], entry.target.appBundleId);
       const cleanupTrace = { correctionsApplied: [] };
-      const correctedText = applyDictionary(rawText, settings, cleanupTrace);
+      const correctedText = applyDictionary(stripSoundTags(rawText), settings, cleanupTrace);
       const formatted = await this.formatTranscriptWithTrace(correctedText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS, entry.settingsSnapshot);
       if (action.signal.aborted) return false;
       const cleanedText = cleanupText({ rawText: formatted.text, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
@@ -1468,7 +1481,9 @@ export class DictationService {
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
     this.setState({ status: "error", sessionId, message });
-    void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message, tracePatch);
+    // The trace keeps every provider attempt, so a failed dictation shows which provider failed and how.
+    const attemptsPatch = providerAttempts.length > 0 ? { providerAttempts } : {};
+    void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message, { ...attemptsPatch, ...tracePatch });
     this.scheduleReset(ERROR_RESET_MS);
   }
 
@@ -1919,9 +1934,9 @@ export class DictationService {
     });
   }
 
-  private async formatTranscriptWithTrace(rawText: string, signal?: AbortSignal, deadlineAt?: number, sessionSettings?: SessionSettingsSnapshot): Promise<FormatTranscriptTraceResult> {
+  private async formatTranscriptWithTrace(rawText: string, signal?: AbortSignal, deadlineAt?: number, sessionSettings?: SessionSettingsSnapshot, language?: string): Promise<FormatTranscriptTraceResult> {
     if (this.transcription.formatTranscriptDetailed) {
-      return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt, sessionSettings });
+      return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt, sessionSettings, language });
     }
     const text = await this.transcription.formatTranscript(rawText, { signal, deadlineAt, sessionSettings });
     return { text, formatterUsed: "none" };
@@ -2010,6 +2025,22 @@ function getElectronAppVersion(): string {
 
 function clippedCopy(clip: { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] }): { pcmData: number[]; sampleRate: number; durationSeconds: number; rmsFrames: number[] } {
   return { pcmData: [...clip.pcmData], sampleRate: clip.sampleRate, durationSeconds: clip.durationSeconds, rmsFrames: [...clip.rmsFrames] };
+}
+
+// Undoes the boost on frame levels, so transcript heuristics keep judging the mic's own level.
+function preGainClip(clip: AudioClip): Pick<AudioClip, "rmsFrames"> {
+  const gain = clip.gain ?? 1;
+  return { rmsFrames: clip.rmsFrames.map((frame) => frame / gain) };
+}
+
+// Recovers pre-gain peak and RMS from the gain-adjusted clip, since the boost is a single multiplier.
+function captureLevelsFor(sent: AudioQualityMetrics, gain: number | undefined): CaptureLevels {
+  const appliedGain = gain ?? 1;
+  return {
+    preGainPeak: sent.peakAmplitude / appliedGain,
+    preGainRms: sent.rmsAverage / appliedGain,
+    gain: appliedGain,
+  };
 }
 
 function analyzeAudioQuality(clip: AudioClip, silenceThreshold: number): AudioQualityMetrics {

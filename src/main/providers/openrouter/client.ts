@@ -21,6 +21,17 @@ export interface OpenRouterPostRequest {
   timeoutMs?: number;
 }
 
+const WARM_UP_TIMEOUT_MS = 3_000;
+
+// Opens a connection to OpenRouter ahead of the real request, so the clip upload skips the TCP and TLS setup.
+export function warmOpenRouterConnection(): void {
+  void fetch(`${OPENROUTER_BASE_URL}/models`, {
+    method: "HEAD",
+    headers: OPENROUTER_ATTRIBUTION_HEADERS,
+    signal: AbortSignal.timeout(WARM_UP_TIMEOUT_MS),
+  }).catch(() => undefined);
+}
+
 // POSTs to OpenRouter and returns the parsed JSON reply. The timeout also covers reading the body.
 export function openRouterPostJson<T>(request: OpenRouterPostRequest): Promise<T> {
   return runWithDeadline(request.signal, request.timeoutMs ?? OPENROUTER_TIMEOUT_MS, async (signal) => {
@@ -35,7 +46,21 @@ export function openRouterPostJson<T>(request: OpenRouterPostRequest): Promise<T
   });
 }
 
-// Checks a key against OpenRouter's models endpoint. Both OpenRouter adapters use it.
+export const PROVISIONING_KEY_MESSAGE = "This is an OpenRouter provisioning key. It can only manage keys. Create a regular API key at openrouter.ai/keys.";
+
+// True when GET /key says the key is a provisioning key.
+function isProvisioningKeyReply(reply: unknown): boolean {
+  if (typeof reply !== "object" || reply === null || !("data" in reply)) return false;
+  const { data } = reply;
+  return typeof data === "object" && data !== null && "is_provisioning_key" in data && data.is_provisioning_key === true;
+}
+
+// Checks a key against OpenRouter's key endpoint. The public models endpoint accepts any key, so it can't tell.
+// Both OpenRouter adapters use it.
 export function validateOpenRouterKey(apiKey: string): Promise<ApiKeyValidationResult> {
-  return validateBearerEndpoint("OpenRouter", `${OPENROUTER_BASE_URL}/models`, apiKey, "Bearer", OPENROUTER_ATTRIBUTION_HEADERS);
+  return validateBearerEndpoint("OpenRouter", `${OPENROUTER_BASE_URL}/key`, apiKey, "Bearer", OPENROUTER_ATTRIBUTION_HEADERS, async (response) => {
+    // A body that can't be read throws, and the validator reports a failed check rather than a valid key.
+    const reply: unknown = await response.json();
+    return isProvisioningKeyReply(reply) ? { valid: false, message: PROVISIONING_KEY_MESSAGE } : null;
+  });
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Settings } from "@shared/types";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
-import { cleanupText } from "@main/text/cleanup";
+import { cleanupText, removeSpeechNoise, stripSoundTags } from "@main/text/cleanup";
 
 function createSettings(overrides: Partial<Settings> = {}): Settings {
   return {
@@ -26,7 +26,69 @@ function createSettings(overrides: Partial<Settings> = {}): Settings {
   };
 }
 
+describe("removeSpeechNoise", () => {
+  it("removes hesitation sounds, cut-off words, and stutters", () => {
+    expect(removeSpeechNoise("It went, mm, honestly better. The formatting is po-- uh, bad.")).toBe("It went, honestly better. The formatting is bad.");
+    expect(removeSpeechNoise("the the report and no, no, no that is wrong")).toBe("the report and no that is wrong");
+    expect(removeSpeechNoise("would it ru- run")).toBe("would it run");
+  });
+
+  it("removes the owner's stutters, including two-word ones", () => {
+    expect(removeSpeechNoise("quick update on the, on the release. So I checked the build and, and it looks good. Can you can you send me the logs by By Friday")).toBe("quick update on the release. So I checked the build and it looks good. Can you send me the logs by Friday");
+  });
+
+  it("leaves meaningful text the review flagged", () => {
+    expect(removeSpeechNoise("- Do not— send it.")).toBe("- Do not— send it.");
+    expect(removeSpeechNoise("मुझे मत— भेजो।")).toBe("मुझे मत— भेजो।");
+    expect(removeSpeechNoise("Er ist da.")).toBe("Er ist da.");
+    expect(removeSpeechNoise("Use 10 mm screws.")).toBe("Use 10 mm screws.");
+    expect(removeSpeechNoise("The code is 1 1 2.")).toBe("The code is 1 1 2.");
+    expect(removeSpeechNoise("वह घर घर जाता है।")).toBe("वह घर घर जाता है।");
+    expect(removeSpeechNoise("Book 11- 12 seats.")).toBe("Book 11- 12 seats.");
+    expect(removeSpeechNoise("I said not- never.")).toBe("I said not- never.");
+  });
+
+  it("leaves the text Codex flagged in round 2", () => {
+    expect(removeSpeechNoise("- Call Priya-- tomorrow.\n- Offer pre- and post-operative care.")).toBe("- Call Priya-- tomorrow.\n- Offer pre- and post-operative care.");
+    expect(removeSpeechNoise("The code is one one two.")).toBe("The code is one one two.");
+    expect(removeSpeechNoise("Use ten mm screws. Use 10  mm screws.")).toBe("Use ten mm screws. Use 10 mm screws.");
+    expect(removeSpeechNoise("there sh- there are times")).toBe("there are times");
+  });
+
+  it("keeps spelled numbers in repeated phrases and cut-off words", () => {
+    expect(removeSpeechNoise("The PIN is one two one two.")).toBe("The PIN is one two one two.");
+    expect(removeSpeechNoise("Set twenty- uh five milliseconds.")).toBe("Set twenty- five milliseconds.");
+  });
+
+  it("keeps doubles the grammar needs, clause-break repeats, and hyphenated words", () => {
+    expect(removeSpeechNoise("I had had enough")).toBe("I had had enough");
+    expect(removeSpeechNoise("If you look at it, it has problems")).toBe("If you look at it, it has problems");
+    expect(removeSpeechNoise("the re-release passed")).toBe("the re-release passed");
+  });
+});
+
+describe("stripSoundTags", () => {
+  it("removes sound tags a transcription model adds, keeping the spoken words", () => {
+    expect(stripSoundTags("Grok's [coughs] Grok's Whisper is faster.")).toBe("Grok's Grok's Whisper is faster.");
+    expect(stripSoundTags("That is all [laughs].")).toBe("That is all.");
+    expect(stripSoundTags("[background noise]")).toBe("");
+    expect(stripSoundTags("Ship it.\n[music]\nThanks.")).toBe("Ship it.\n\nThanks.");
+    expect(stripSoundTags("Ship it (Applause) now.")).toBe("Ship it now.");
+  });
+
+  it("keeps bracketed text that is not a sound tag", () => {
+    expect(stripSoundTags("Use items[0] and keep [draft] in the title.")).toBe("Use items[0] and keep [draft] in the title.");
+  });
+});
+
 describe("cleanupText", () => {
+  it("leaves contraction apostrophes alone and curls only real single quotes", () => {
+    const settings = createSettings();
+    expect(cleanupText({ rawText: "I'll run it on Thursday and I'll send the notes.", settings })).toBe("I'll run it on Thursday and I'll send the notes.");
+    expect(cleanupText({ rawText: "She said 'ship it' and left.", settings })).toBe("She said \u2018ship it\u2019 and left.");
+    expect(cleanupText({ rawText: "The students' 'best' work.", settings })).toBe("The students' \u2018best\u2019 work.");
+  });
+
   it("preserves numbered list formatting across lines", () => {
     const result = cleanupText({
       rawText: "1. buy milk\n2. call mom\n3. ship update",

@@ -3,6 +3,8 @@ import type { AudioClip } from "./types";
 export const TARGET_SAMPLE_RATE = 16_000;
 export const PRE_ROLL_MS = 2_000;
 export const PRE_ROLL_SILENCE_THRESHOLD = 0.0015;
+// Audio kept before the detected onset, so a soft opening sound is not clipped.
+export const PRE_ROLL_LEAD_PAD_MS = 250;
 
 export class PcmRingBuffer {
   private readonly samples: Float32Array;
@@ -42,23 +44,19 @@ export class PcmRingBuffer {
   }
 }
 
+// Drops silence before the first speech frame, keeping a lead pad. Keeps the whole input when no speech is found.
 export function trimLeadingSilence(input: Float32Array, sampleRate: number, threshold = PRE_ROLL_SILENCE_THRESHOLD): Float32Array {
   const frameSize = Math.max(1, Math.floor(sampleRate * 0.02));
-  let firstSpeechSample = input.length;
+  const leadPadSamples = Math.floor(sampleRate * PRE_ROLL_LEAD_PAD_MS / 1000);
 
   for (let offset = 0; offset < input.length; offset += frameSize) {
     const frame = input.subarray(offset, Math.min(offset + frameSize, input.length));
     if (calculateRms(frame) >= threshold) {
-      firstSpeechSample = offset;
-      break;
+      return input.slice(Math.max(0, offset - leadPadSamples));
     }
   }
 
-  if (firstSpeechSample >= input.length) {
-    return new Float32Array();
-  }
-
-  return input.slice(firstSpeechSample);
+  return input;
 }
 
 export function mergePcmChunks(chunks: Float32Array[]): Float32Array {
@@ -128,17 +126,26 @@ const NORMALIZE_SILENCE_EPSILON = 1e-9;
 const NORMALIZE_TARGET_PEAK = 0.3;
 const NORMALIZE_MAX_GAIN = 20;
 
-// Gentle peak normalization for quiet-but-real speech so STT gets a usable
-// level. Near-silence is left untouched — boosting it would only feed noise to
-// Whisper and defeat the silence gates.
-export function normalizeQuietPcm(input: Float32Array): Float32Array {
+// Boost multiplier for a clip. 1 means the clip is left alone.
+function quietPcmGain(input: Float32Array): number {
   let peak = 0;
   for (let index = 0; index < input.length; index += 1) {
     peak = Math.max(peak, Math.abs(input[index] ?? 0));
   }
-  if (peak >= NORMALIZE_PEAK_BELOW || peak <= NORMALIZE_SILENCE_PEAK + NORMALIZE_SILENCE_EPSILON) return input;
+  if (peak >= NORMALIZE_PEAK_BELOW || peak <= NORMALIZE_SILENCE_PEAK + NORMALIZE_SILENCE_EPSILON) return 1;
+  return Math.min(NORMALIZE_MAX_GAIN, NORMALIZE_TARGET_PEAK / peak);
+}
 
-  const gain = Math.min(NORMALIZE_MAX_GAIN, NORMALIZE_TARGET_PEAK / peak);
+// Gentle peak normalization for quiet-but-real speech so STT gets a usable
+// level. Near-silence is left untouched — boosting it would only feed noise to
+// Whisper and defeat the silence gates.
+export function normalizeQuietPcm(input: Float32Array): Float32Array {
+  const gain = quietPcmGain(input);
+  return gain === 1 ? input : scalePcm(input, gain);
+}
+
+// Multiplies every sample by gain.
+function scalePcm(input: Float32Array, gain: number): Float32Array {
   const output = new Float32Array(input.length);
   for (let index = 0; index < input.length; index += 1) {
     output[index] = (input[index] ?? 0) * gain;
@@ -147,17 +154,16 @@ export function normalizeQuietPcm(input: Float32Array): Float32Array {
 }
 
 export function pcmToAudioClip(input: Float32Array, inputRate: number): AudioClip {
-  const pcmData = resampleToTargetRate(input, inputRate, TARGET_SAMPLE_RATE);
-  // rmsFrames reflect the true acoustic levels (pre-normalization) so the
-  // speech gate and VAD judge what the mic actually heard; only the samples
-  // sent to STT are boosted.
-  const rmsFrames = calculateRmsFrames(pcmData, TARGET_SAMPLE_RATE);
-  const normalized = normalizeQuietPcm(pcmData);
+  const resampled = resampleToTargetRate(input, inputRate, TARGET_SAMPLE_RATE);
+  const gain = quietPcmGain(resampled);
+  // Frame levels come from the boosted samples, so the gate and trim judge exactly what STT receives.
+  const pcmData = gain === 1 ? resampled : scalePcm(resampled, gain);
   return {
-    pcmData: Array.from(normalized),
+    pcmData: Array.from(pcmData),
     sampleRate: TARGET_SAMPLE_RATE,
-    durationSeconds: pcmData.length / TARGET_SAMPLE_RATE,
-    rmsFrames,
+    durationSeconds: resampled.length / TARGET_SAMPLE_RATE,
+    rmsFrames: calculateRmsFrames(pcmData, TARGET_SAMPLE_RATE),
+    gain,
   };
 }
 

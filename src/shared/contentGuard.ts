@@ -1,12 +1,23 @@
 // Word guard for LLM formatting. Compares the words of the formatter input and output,
 // in order and in any script. Punctuation, capitals, and line placement are ignored.
-// Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one") may
-// disappear only when the output has a line break or a list item with the same number there, or keeps the cue words.
+// A Devanagari word may come back in Roman letters when it sounds alike ("कैंसल" → "cancel").
+// With speech noise allowed, these may also be dropped: a stutter next to a kept copy ("the, the", "on the, on the"),
+// a cut-off word ("ru-", or a short fragment the next word starts with), and up to four words replaced right after a
+// correction cue ("Arjun, sorry, Aditya"). Negations and numbers are never cut-off words or bare cues. Any other dropped
+// word, and any added word, is a change.
+// Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one",
+// a sentence-opening "First,") may disappear only when the output has a line break or a list item with the same number there,
+// or keeps the cue words.
+
+import { isDevanagariWord, soundsAlike } from "./scriptMatch";
 
 const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
 const NUMBER_WORD_SOURCE = String.raw`one|two|three|four|five|six|seven|eight|nine|ten|\d+`;
+const ORDINAL_SOURCE = String.raw`first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth`;
+// An ordinal that opens a sentence ("First, Siddharth should…") is a list cue on its own.
+const BARE_ORDINAL_SOURCE = String.raw`(?<=(?:^|[.!?:;\n।॥])[ \t]*)(?:${ORDINAL_SOURCE}|firstly|secondly|thirdly)`;
 // A cue whose number starts a longer literal such as "1.5" is not a cue.
-const ENUM_CUE_SOURCE = String.raw`(?:bullet\s*point|number\s+(?:${NUMBER_WORD_SOURCE})|no\.\s*\d+|point\s+(?:${NUMBER_WORD_SOURCE})|item\s+(?:${NUMBER_WORD_SOURCE})|(?:first|second|third|fourth|fifth)\s+(?:item|bullet|point|step))(?![.,:/]\p{N})`;
+const ENUM_CUE_SOURCE = String.raw`(?:bullet\s*point|number\s+(?:${NUMBER_WORD_SOURCE})|no\.\s*\d+|point\s+(?:${NUMBER_WORD_SOURCE})|item\s+(?:${NUMBER_WORD_SOURCE})|(?:${ORDINAL_SOURCE})\s+(?:item|bullet|point|step)|${BARE_ORDINAL_SOURCE})(?![.,:/]\p{N})`;
 // A sign, with a currency symbol before or after it, or a leading dot is part of the literal only when no letter or digit comes right before it.
 const NUMERIC_LITERAL_SOURCE = String.raw`(?<![\p{L}\p{M}\p{N}])(?:[+-]\p{Sc}?|\p{Sc}[+-])\p{N}+(?:[.,:/]\p{N}+)*|(?<![\p{L}\p{M}\p{N}])[+-]?\.\p{N}+|\p{N}+(?:[.,:/]\p{N}+)+`;
 const WORD_SOURCE = String.raw`[\p{L}\p{M}\p{N}]+`;
@@ -23,6 +34,23 @@ const UNCLOSED_REASONING_RE = /<(think|thinking|reasoning|thought)>[\s\S]*$/i;
 const WORD_RE = /[\p{L}\p{M}\p{N}]+/gu;
 const CURRENCY_RE = /\p{Sc}/gu;
 
+// Hesitation sounds. Cleanup adds them to the filler words it removes.
+// "er" and "ah" are left out: they are words in other languages ("Er ist da").
+export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "hm", "mm", "mmm", "mhm"];
+// Phrases that mark the speaker correcting what came just before, longest first.
+const CORRECTION_CUES: readonly (readonly string[])[] = [["scratch", "that"], ["or", "rather"], ["no", "wait"], ["i", "mean"], ["sorry"], ["wait"], ["actually"], ["rather"], ["no"]];
+const MAX_REPLACED_WORDS = 4;
+const MAX_STUTTER_PHRASE = 3;
+const MAX_CUT_FRAGMENT = 3;
+// Words whose loss flips meaning. They are never cut-off fragments or droppable lone cues.
+export const PROTECTED_WORDS: ReadonlySet<string> = new Set([
+  "no", "not", "nor", "never", "none", "nothing", "don", "didn", "doesn", "won", "can", "cannot", "isn", "aren", "wasn", "weren",
+  "shouldn", "wouldn", "couldn", "haven", "hasn", "hadn", "mustn", "nahi", "nahin", "na", "mat", "nako",
+  "नहीं", "नही", "न", "ना", "मत", "नाही", "नको",
+]);
+// Cut-off marker right after a word: "ru- run", "trans-- uh". Em and en dashes are punctuation, not cut-offs.
+const CUT_OFF_RE = /^-{1,2}(?=[\s,.!?]|$)/u;
+
 const NUMBER_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
   zero: "0", one: "1", two: "2", three: "3", four: "4",
   five: "5", six: "6", seven: "7", eight: "8", nine: "9",
@@ -35,6 +63,8 @@ const NUMBER_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
 
 const ORDINAL_NUMBERS: ReadonlyMap<string, string> = new Map([
   ["first", "1"], ["second", "2"], ["third", "3"], ["fourth", "4"], ["fifth", "5"],
+  ["sixth", "6"], ["seventh", "7"], ["eighth", "8"], ["ninth", "9"], ["tenth", "10"],
+  ["firstly", "1"], ["secondly", "2"], ["thirdly", "3"],
 ]);
 
 // Largest alignment table the guard builds. Longer diffs are rejected instead of aligned.
@@ -50,7 +80,7 @@ export interface ContentWordDiff {
 
 // One piece of input or output: a word, a listed filler, a spoken layout cue, a line break, or a list item.
 type Unit =
-  | { kind: "word"; text: string }
+  | { kind: "word"; text: string; cut?: boolean; pause?: boolean; boundary?: boolean }
   | { kind: "filler"; text: string }
   | { kind: "line"; words: string[] }
   | { kind: "enum"; value: string | null; words: string[] }
@@ -79,6 +109,11 @@ function cueValue(cue: string): string | null {
     if (number) return number;
   }
   return null;
+}
+
+// True when an output word is the input word, or the same Devanagari word written in Roman letters.
+function sameWord(source: string, output: string): boolean {
+  return output === source || (isDevanagariWord(source) && soundsAlike(source, output));
 }
 
 // True when a unit is a spelled-out number word.
@@ -130,10 +165,24 @@ function inputUnits(text: string, fillers: readonly string[]): { units: Unit[]; 
   const units = [...text.matchAll(INPUT_TOKEN_RE)].map((match): Unit => {
     if (match.groups?.line) return { kind: "line", words: wordsIn(match[0]) };
     if (match.groups?.enum) return { kind: "enum", value: cueValue(match[0]), words: wordsIn(match[0]) };
-    return { kind: "word", text: tokenText(match[0]) };
+    const start = match.index ?? 0;
+    const after = text.slice(start + match[0].length);
+    const unit: Unit = { kind: "word", text: tokenText(match[0]) };
+    if (/\p{L}/u.test(unit.text) && CUT_OFF_RE.test(after)) unit.cut = true;
+    // A pause is punctuation right after the word; a boundary is a sentence end or line break right before it.
+    if (/^(?:[,;:.!?…।॥]|-{2})/u.test(after)) unit.pause = true;
+    if (/(?:^|[.!?।॥\n])[\s"'“‘(]*$/u.test(text.slice(0, start))) unit.boundary = true;
+    return unit;
   });
+  // "mm" after a number is a unit ("10 mm"), so it is not offered as a filler there.
   const marked = markFillers(units, fillers);
-  return { units: finishWords(marked.units), phrases: marked.phrases };
+  const unitAfterNumber = (index: number): boolean => {
+    const previous = unitText(units[index - 1]) ?? "";
+    return unitText(units[index]) === "mm" && (/^\p{N}/u.test(previous) || NUMBER_WORDS.has(previous));
+  };
+  const phrases = marked.phrases.filter(([start]) => !unitAfterNumber(start));
+  const markedUnits = marked.units.map((unit, index): Unit => (unit.kind === "filler" && unitAfterNumber(index) && !phrases.some(([start, end]) => start <= index && index < end) ? { kind: "word", text: unit.text } : unit));
+  return { units: finishWords(markedUnits), phrases };
 }
 
 // Output words, line breaks, and list items in order. Numeric literals such as 1.5 stay whole.
@@ -159,24 +208,28 @@ function showsLayout(cue: Unit, output: Unit): boolean {
 }
 
 // Number of output units that the cue words fill when they appear unchanged just before end, or 0.
-function cueWordsCountAt(words: string[], output: Unit[], end: number): number {
+// A list item with the cue's number right before the kept words ("1. First, …") is part of the match.
+function cueWordsCountAt(cue: Unit & { words: string[] }, output: Unit[], end: number): number {
+  const { words } = cue;
   const start = end - words.length;
   if (words.length === 0 || start < 0) return 0;
   const matches = words.every((word, offset) => {
     const unit = output[start + offset];
     return unit?.kind === "word" && sameCueWord(word, unit.text);
   });
-  return matches ? words.length : 0;
+  if (!matches) return 0;
+  const before = output[start - 1];
+  return before && showsLayout(cue, before) ? words.length + 1 : words.length;
 }
 
 // Number of output units, ending just before end, that a source unit accounts for. Zero means no match there.
 function consumedBy(source: Unit, output: Unit[], end: number): number {
   const last = output[end - 1];
   if (!last) return 0;
-  if (source.kind === "word" || source.kind === "filler") return last.kind === "word" && last.text === source.text ? 1 : 0;
+  if (source.kind === "word" || source.kind === "filler") return last.kind === "word" && sameWord(source.text, last.text) ? 1 : 0;
   if (source.kind !== "line" && source.kind !== "enum") return 0;
   if (showsLayout(source, last)) return 1;
-  return cueWordsCountAt(source.words, output, end);
+  return cueWordsCountAt(source, output, end);
 }
 
 // Words a unit contributes to the missing or added list. Line breaks have none.
@@ -193,7 +246,7 @@ function unitWords(unit: Unit): string[] {
 
 // True when a source unit and an output unit are the same single word, so pairing them never costs a match.
 function sameWordUnit(source: Unit | undefined, output: Unit | undefined): boolean {
-  return (source?.kind === "word" || source?.kind === "filler") && output?.kind === "word" && output.text === source.text;
+  return (source?.kind === "word" || source?.kind === "filler") && output?.kind === "word" && sameWord(source.text, output.text);
 }
 
 // Unmatched source indices and added output units for two sections, or null when the table would exceed MAX_ALIGN_CELLS.
@@ -233,7 +286,7 @@ function alignSections(source: Unit[], output: Unit[]): { dropped: number[]; add
 }
 
 // Aligns input and output units in order. Unmatched input units are missing unless they belong to a filler phrase that was dropped whole; unmatched output units are added.
-function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[]): ContentWordDiff {
+function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[], allowSpeechNoise: boolean): ContentWordDiff {
   // Equal words at both ends align without a table, so a long transcript with small edits stays cheap.
   // Whole filler phrases the output drops are skipped there too.
   const skipped: number[] = [];
@@ -290,17 +343,154 @@ function alignUnits(source: Unit[], phrases: [number, number][], output: Unit[])
     for (let index = start; index < end; index += 1) if (!dropped.has(index)) return false;
     return true;
   };
-  const isExempt = (index: number): boolean => phrases.some(phrase => phrase[0] <= index && index < phrase[1] && dropsWholePhrase(phrase));
+  const noise = allowSpeechNoise ? speechNoise(source, dropped, phrases) : new Set<number>();
+  const isExempt = (index: number): boolean => noise.has(index) || phrases.some(phrase => phrase[0] <= index && index < phrase[1] && dropsWholePhrase(phrase));
   return {
     missing: source.filter((_, index) => dropped.has(index) && !isExempt(index)).flatMap(unitWords),
     added: middle.added.flatMap(unitWords),
   };
 }
 
+// The word a source unit holds, or null for layout cues.
+function unitText(unit: Unit | undefined): string | null {
+  return unit?.kind === "word" || unit?.kind === "filler" ? unit.text : null;
+}
+
+// True when losing the word could flip meaning: a negation or a number.
+function isProtected(text: string): boolean {
+  return PROTECTED_WORDS.has(text) || isNumber(text);
+}
+
+// True for digits and spelled-out numbers.
+function isNumber(text: string): boolean {
+  return /^[+-]?\p{N}/u.test(text) || NUMBER_WORDS.has(text) || ORDINAL_NUMBERS.has(text);
+}
+
+// The core sequence the stutter and correction rules read: words with their pause and sentence-boundary marks.
+interface Core {
+  words: (string | null)[];
+  gone: boolean[];
+  pause: boolean[];
+  boundary: boolean[];
+}
+
+const AMBIGUOUS_CUES: ReadonlySet<string> = new Set(["mean", "actually", "rather", "wait"]);
+
+// True when words[start..start+phrase) equals the phrase.
+function startsWithPhrase(words: readonly (string | null)[], start: number, phrase: readonly (string | null)[]): boolean {
+  return phrase.length > 0 && phrase.every((word, offset) => word !== null && words[start + offset] === word);
+}
+
+// Dropped source indices that are speech noise: cut-off words, stutters next to a kept copy, and corrected phrases.
+function speechNoise(source: Unit[], dropped: ReadonlySet<number>, phrases: readonly [number, number][]): Set<number> {
+  const noise = new Set<number>();
+  for (const index of dropped) {
+    const unit = source[index];
+    const text = unitText(unit);
+    if (!text || unit?.kind !== "word" || !unit.cut || isProtected(text)) continue;
+    // A hyphen alone can be a dash or a suspended prefix ("Priya-- tomorrow", "pre- and post-paid"). A cut-off also
+    // needs the speaker to restart: the next word starts with the fragment, a hesitation follows, or the word before repeats.
+    const next = source[index + 1];
+    const nextText = unitText(next);
+    const restarts = nextText !== null && (
+      (nextText.length > text.length && nextText.startsWith(text))
+      || next?.kind === "filler"
+      || (unitText(source[index - 1]) === nextText && text.length <= MAX_CUT_FRAGMENT)
+    );
+    if (restarts && nextText !== "and" && nextText !== "or") noise.add(index);
+  }
+
+  // The core sequence skips filler phrases and cut-off words, so "the uh the" and "there sh- there" read as stutters.
+  const inPhrase = (index: number): boolean => phrases.some(([start, end]) => start <= index && index < end);
+  const core = source.map((_, index) => index).filter(index => !noise.has(index) && !inPhrase(index));
+  const info: Core = {
+    words: core.map(index => unitText(source[index])),
+    gone: core.map(index => dropped.has(index)),
+    pause: core.map(index => { const unit = source[index]; return unit?.kind === "word" && unit.pause === true; }),
+    boundary: core.map(index => { const unit = source[index]; return unit?.kind !== "word" || unit.boundary === true; }),
+  };
+  const { gone } = info;
+  for (let start = 0; start < core.length;) {
+    if (!gone[start]) { start += 1; continue; }
+    let end = start;
+    while (end + 1 < core.length && gone[end + 1]) end += 1;
+    const run = info.words.slice(start, end + 1);
+    if (isStutter(run, info, start, end) || isCorrection(run, info, start, end)) {
+      for (let position = start; position <= end; position += 1) noise.add(core[position] ?? -1);
+    }
+    start = end + 1;
+  }
+  return noise;
+}
+
+// True when no sentence starts at any core position in (from, to].
+function sameSentence(boundary: readonly boolean[], from: number, to: number): boolean {
+  for (let position = from + 1; position <= to; position += 1) if (boundary[position]) return false;
+  return true;
+}
+
+// True when the dropped run is one phrase said again, next to a kept copy of it in the same sentence
+// ("no, no, no" keeping one "no"). Numbers never count: "1 1 2" is a value.
+function isStutter(run: readonly (string | null)[], { words, gone, boundary }: Core, start: number, end: number): boolean {
+  if (run.some(word => word !== null && isNumber(word))) return false;
+  for (let size = 1; size <= MAX_STUTTER_PHRASE && size <= run.length; size += 1) {
+    if (run.length % size !== 0) continue;
+    const phrase = run.slice(0, size);
+    let repeats = true;
+    for (let offset = 0; offset < run.length && repeats; offset += size) repeats = startsWithPhrase(run, offset, phrase);
+    if (!repeats) continue;
+    const keptAfter = startsWithPhrase(words, end + 1, phrase) && gone.slice(end + 1, end + 1 + size).every(value => !value) && sameSentence(boundary, start, end + size);
+    const keptBefore = start - size >= 0 && startsWithPhrase(words, start - size, phrase) && gone.slice(start - size, start).every(value => !value) && sameSentence(boundary, start - size, end);
+    if (keptAfter || keptBefore) return true;
+  }
+  return false;
+}
+
+// True when the dropped run ends in correction cues, replaces at most four words of one sentence, and a kept
+// replacement follows. The replaced words hold no negation or number. A lone cue may go only when it can't flip
+// meaning ("sorry", not "no"). "I mean", "actually", "rather", and "wait" count only with a pause next to them,
+// so "what I mean here" stays. A bare "no" counts only with a pause next to it ("Monday, no Tuesday") or another
+// "no" beside it ("no no no"), so "there is no need" stays a negation.
+function isCorrection(run: readonly (string | null)[], { gone, pause, boundary }: Core, start: number, end: number): boolean {
+  if (end + 1 >= gone.length || gone[end + 1]) return false;
+  let rest = run.length;
+  const cues: string[] = [];
+  const bareNoIsCue = (position: number): boolean =>
+    pause[start + position] === true || pause[start + position - 1] === true || run[position - 1] === "no" || run[position + 1] === "no";
+  for (let matched = true; matched && rest > 0;) {
+    matched = false;
+    for (const cue of CORRECTION_CUES) {
+      const bareNo = cue.length === 1 && cue[0] === "no";
+      if (cue.length <= rest && startsWithPhrase(run, rest - cue.length, cue) && (!bareNo || bareNoIsCue(rest - 1))) {
+        cues.push(...cue);
+        rest -= cue.length;
+        matched = true;
+        break;
+      }
+    }
+  }
+  if (cues.length === 0) return false;
+  if (rest === 0) return cues.every(word => !isProtected(word));
+  const replaced = run.slice(0, rest);
+  if (rest > MAX_REPLACED_WORDS || replaced.some(word => word !== null && isProtected(word))) return false;
+  if (!sameSentence(boundary, start, start + rest - 1)) return false;
+  const firstCue = start + rest;
+  // A replacement in the next sentence needs the cue to stand as its own sentence ("Priyanka, run... Sorry. Priya").
+  // Otherwise "He said no. No one agreed." would read as a correction.
+  if (boundary[end + 1] && !boundary[firstCue]) return false;
+  const ambiguous = run.slice(rest).some(word => word !== null && AMBIGUOUS_CUES.has(word));
+  return !ambiguous || pause[firstCue - 1] === true || pause[end] === true;
+}
+
+export interface DiffOptions {
+  /** Allow dropping stutters, cut-off words, and corrected phrases. Off when cleanup is off. */
+  speechNoise?: boolean;
+}
+
 // Words the formatter dropped, reordered, or added. Listed fillers may be dropped but not added.
-export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = []): ContentWordDiff {
+export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): ContentWordDiff {
   const input = inputUnits(rawText, fillers);
-  return alignUnits(input.units, input.phrases, outputUnits(candidate));
+  return alignUnits(input.units, input.phrases, outputUnits(candidate), options.speechNoise ?? true);
 }
 
 // True only when the formatter kept every word, in order, and added none. Listed fillers may be dropped.

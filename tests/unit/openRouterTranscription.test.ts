@@ -4,6 +4,10 @@ import type { AudioClip, Settings, TranscriptionResult } from "@shared/types";
 import type { TranscribeOptions } from "@main/transcription";
 import type { TranscriptionProvider } from "@main/providers/types";
 import { OpenRouterSttProvider } from "@main/providers/openrouter/openRouterStt";
+import { PROVISIONING_KEY_MESSAGE } from "@main/providers/openrouter/client";
+import { openRouterSttTimeoutMs } from "@main/providers/openrouter/openRouterStt";
+
+const DICTATION_CONTEXT = "Voice dictation by an Indian speaker, mostly in English, sometimes in Hindi or Marathi, often mixing them.";
 
 const registryState = vi.hoisted(() => ({
   providers: new Map<string, TranscriptionProvider>(),
@@ -81,7 +85,7 @@ describe("OpenRouter transcription through the service", () => {
   it("sends dictionary hints on a clip under 2 seconds and reports that they were sent", async () => {
     const result = await transcribeWith(settingsWith({ customCorrections: [{ spoken: "get hub", written: "GitHub" }] }));
 
-    expect(sentBody().provider).toEqual({ options: { openai: { prompt: "GitHub" } } });
+    expect(sentBody().provider).toEqual({ options: { openai: { prompt: `${DICTATION_CONTEXT} Names and terms: GitHub.` } } });
     expect(result.quality?.vocabularyHintsSent).toBe(true);
   });
 
@@ -93,7 +97,26 @@ describe("OpenRouter transcription through the service", () => {
       ],
     }));
 
-    expect(sentBody().provider).toEqual({ options: { openai: { prompt: "GitHub" } } });
+    expect(sentBody().provider).toEqual({ options: { openai: { prompt: `${DICTATION_CONTEXT} Names and terms: GitHub.` } } });
+  });
+
+  it("gives a short clip a short deadline and a long clip a longer one, up to 30 s", () => {
+    expect(openRouterSttTimeoutMs(5)).toBe(7_000);
+    expect(openRouterSttTimeoutMs(105)).toBe(27_000);
+    expect(openRouterSttTimeoutMs(600)).toBe(30_000);
+  });
+
+  it("sends the dictation context alone when the dictionary is empty", async () => {
+    const result = await transcribeWith(settingsWith());
+
+    expect(sentBody().provider).toEqual({ options: { openai: { prompt: DICTATION_CONTEXT } } });
+    expect(result.quality?.vocabularyHintsSent).toBe(true);
+  });
+
+  it("leaves the Indian-language context out for other languages", async () => {
+    await transcribeWith(settingsWith({ language: "es", customCorrections: [{ spoken: "get hub", written: "GitHub" }] }));
+
+    expect(sentBody().provider).toEqual({ options: { openai: { prompt: "Names and terms: GitHub." } } });
   });
 
   it("sends list hints as a list for models that take one", async () => {
@@ -165,8 +188,28 @@ describe("OpenRouter transcription through the service", () => {
 
     const result = await OpenRouterSttProvider.validateApiKey?.("or-key");
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/models");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/key");
     expect(result).toEqual({ valid: false, message: "OpenRouter rejected the API key." });
+  });
+
+  it("rejects a provisioning key, which the API accepts for reads but not for calls", async () => {
+    fetchMock.mockResolvedValueOnce(jsonReply({ data: { is_provisioning_key: true } }, 200));
+
+    const result = await OpenRouterSttProvider.validateApiKey?.("or-key");
+
+    expect(result).toEqual({ valid: false, message: PROVISIONING_KEY_MESSAGE });
+  });
+
+  it("reports a failed check, not a valid key, when the key reply can't be read", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("not json", { status: 200 }));
+
+    expect(await OpenRouterSttProvider.validateApiKey?.("or-key")).toEqual({ valid: false, message: "OpenRouter validation failed." });
+  });
+
+  it("accepts a regular key", async () => {
+    fetchMock.mockResolvedValueOnce(jsonReply({ data: { is_provisioning_key: false } }, 200));
+
+    expect(await OpenRouterSttProvider.validateApiKey?.("or-key")).toEqual({ valid: true, message: "OpenRouter API key is valid." });
   });
 
   it("falls back to Groq when OpenRouter times out, with time left for Groq", async () => {

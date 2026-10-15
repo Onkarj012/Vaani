@@ -52,6 +52,7 @@ export const OpenAISttProvider: TranscriptionProvider = {
     if (!rawText) throw new Error("No speech detected.");
     const resolvedLanguage = resolveReportedLanguage(options.language);
     const segments = data.segments ?? [];
+    const segmentNoSpeechProbabilities = segments.flatMap((segment) => typeof segment.no_speech_prob === "number" ? [segment.no_speech_prob] : []);
     return {
       rawText,
       formattedText: rawText,
@@ -66,6 +67,7 @@ export const OpenAISttProvider: TranscriptionProvider = {
         noSpeechProbability: maxNumber(segments.map((segment) => segment.no_speech_prob)),
         segmentCount: segments.length,
         transcriptLength: rawText.length,
+        ...(segmentNoSpeechProbabilities.length > 0 ? { segmentNoSpeechProbabilities } : {}),
       },
     };
   },

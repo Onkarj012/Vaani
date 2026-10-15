@@ -1,0 +1,150 @@
+[
+  {
+    "name": "105 s owner passage: Haiku's numbered list from First/Second/Third passes",
+    "raw": "Hi Ananya. Quick update from Onkar on the Vaani beta. So, I tested the new build on my MacBook Pro this morning and honestly it went better than expected. The transcription runs through OpenRouter now, the Groq whisper as the fallback, and the cleanup setup uses Claude Haiku. I did not change the default hotkey and I did not touch this table build. Here is what I need from the team this week. First, Siddharth should check the Kubernetes deployment and the Postgres SQL replica lag. Second, Priya needs to update the Figma designs and share them on Slack. Third, someone has to review the GitHub pull request before Friday. For Friday, the budget is 4.2 lakh, not 42 lakh. So please double-check the spreadsheet. If the release passes on Thursday, merge it, tag it, and ping me before lunch. If it fails, roll back and file a ticket. कल सुबह की मीटिंग कैंसल हो गई है, तो please client को email भेज देना। मी उद्या पुण्याला येतोय, संध्याकाळी भेटू. Sundaygari bhetu. Actually, wait, no. Make the call at 11:30 instead of 11. I had had enough of moving it around, and no, no, no, that is not what I meant to say. Thanks, talk soon.",
+    "reply": "Hi Ananya. Quick update from Onkar on the Vaani beta.\n\nSo, I tested the new build on my MacBook Pro this morning and honestly it went better than expected. The transcription runs through OpenRouter now, the Groq Whisper as the fallback, and the cleanup setup uses Claude Haiku. I did not change the default hotkey and I did not touch this table build.\n\nHere is what I need from the team this week:\n\n1. Siddharth should check the Kubernetes deployment and the Postgres SQL replica lag.\n2. Priya needs to update the Figma designs and share them on Slack.\n3. Someone has to review the GitHub pull request before Friday.\n\nFor Friday, the budget is 4.2 lakh, not 42 lakh. So please double-check the spreadsheet.\n\nIf the release passes on Thursday, merge it, tag it, and ping me before lunch. If it fails, roll back and file a ticket.\n\nकल सुबह की मीटिंग कैंसल हो गई है, तो please client को email भेज देना।\n\nमी उद्या पुण्याला येतोय, संध्याकाळी भेटू.\n\nSundaygari bhetu.\n\nActually, wait, no. Make the call at 11:30 instead of 11. I had had enough of moving it around, and no, no, no, that is not what I meant to say.\n\nThanks, talk soon.",
+    "passes": true,
+    "source": "anthropic/claude-haiku-5.5 reply, reasoning off, 2026-10-11"
+  },
+  {
+    "name": "105 s owner passage: same list but the mixed Hinglish sentence written in Roman passes",
+    "raw": "Hi Ananya. Quick update from Onkar on the Vaani beta. So, I tested the new build on my MacBook Pro this morning and honestly it went better than expected. The transcription runs through OpenRouter now, the Groq whisper as the fallback, and the cleanup setup uses Claude Haiku. I did not change the default hotkey and I did not touch this table build. Here is what I need from the team this week. First, Siddharth should check the Kubernetes deployment and the Postgres SQL replica lag. Second, Priya needs to update the Figma designs and share them on Slack. Third, someone has to review the GitHub pull request before Friday. For Friday, the budget is 4.2 lakh, not 42 lakh. So please double-check the spreadsheet. If the release passes on Thursday, merge it, tag it, and ping me before lunch. If it fails, roll back and file a ticket. कल सुबह की मीटिंग कैंसल हो गई है, तो please client को email भेज देना। मी उद्या पुण्याला येतोय, संध्याकाळी भेटू. Sundaygari bhetu. Actually, wait, no. Make the call at 11:30 instead of 11. I had had enough of moving it around, and no, no, no, that is not what I meant to say. Thanks, talk soon.",
+    "reply": "Hi Ananya. Quick update from Onkar on the Vaani beta.\n\nSo, I tested the new build on my MacBook Pro this morning and honestly it went better than expected. The transcription runs through OpenRouter now, the Groq Whisper as the fallback, and the cleanup setup uses Claude Haiku. I did not change the default hotkey and I did not touch this table build.\n\nHere is what I need from the team this week:\n\n1. Siddharth should check the Kubernetes deployment and the Postgres SQL replica lag.\n2. Priya needs to update the Figma designs and share them on Slack.\n3. Someone has to review the GitHub pull request before Friday.\n\nFor Friday, the budget is 4.2 lakh, not 42 lakh. So please double-check the spreadsheet.\n\nIf the release passes on Thursday, merge it, tag it, and ping me before lunch. If it fails, roll back and file a ticket.\n\nKal subah ki meeting cancel ho gayi hai, toh please client ko email bhej dena.\n\nमी उद्या पुण्याला येतोय, संध्याकाळी भेटू.\n\nSundaygari bhetu.\n\nActually, wait, no. Make the call at 11:30 instead of 11. I had had enough of moving it around, and no, no, no, that is not what I meant to say.\n\nThanks, talk soon.",
+    "passes": true
+  },
+  {
+    "name": "Hinglish sentence transliterated to Roman passes",
+    "raw": "कल सुबह की मीटिंग कैंसल हो गई है, तो please client को email भेज देना।",
+    "reply": "Kal subah ki meeting cancel ho gayi hai, to please client ko email bhej dena.",
+    "passes": true,
+    "source": "anthropic/claude-haiku-5.5 reply, 2026-10-11"
+  },
+  {
+    "name": "Marathi sentence transliterated to Roman passes (language English)",
+    "raw": "मी उद्या पुण्याला येतोय, संध्याकाळी भेटू.",
+    "reply": "Mi udya Punyala yetoy, sandhyakali bhetu.",
+    "passes": true,
+    "source": "anthropic/claude-haiku-5.5 reply, 2026-10-11"
+  },
+  {
+    "name": "Transliteration that flips the meaning is rejected",
+    "raw": "कल सुबह की मीटिंग कैंसल हो गई है, तो please client को email भेज देना।",
+    "reply": "Kal subah ki meeting cancel nahi hui hai, toh please client ko email mat bhejna.",
+    "passes": false
+  },
+  {
+    "name": "Transliteration that swaps a word for an English one is rejected",
+    "raw": "कल सुबह की मीटिंग कैंसल हो गई है, तो please client को email भेज देना।",
+    "reply": "Tomorrow morning ki meeting cancel ho gayi hai, toh please client ko email bhej dena.",
+    "passes": false
+  },
+  {
+    "name": "Ordinal kept inside the list item passes",
+    "raw": "Here is the plan. First, Siddharth checks the logs. Second, Priya updates Figma.",
+    "reply": "Here is the plan.\n1. First, Siddharth checks the logs.\n2. Second, Priya updates Figma.",
+    "passes": true
+  },
+  {
+    "name": "Ordinal kept as a plain sentence passes",
+    "raw": "First, I went home and slept.",
+    "reply": "First, I went home and slept.",
+    "passes": true
+  },
+  {
+    "name": "List number that does not match the ordinal is rejected",
+    "raw": "First, Siddharth checks the logs. Second, Priya updates Figma.",
+    "reply": "1. Siddharth checks the logs.\n3. Priya updates Figma.",
+    "passes": false
+  },
+  {
+    "name": "Ordinal dropped without a list item is rejected",
+    "raw": "First, Siddharth checks the logs. Second, Priya updates Figma.",
+    "reply": "Siddharth checks the logs. Priya updates Figma.",
+    "passes": false
+  },
+  {
+    "name": "Mid-sentence ordinal is a word, not a cue",
+    "raw": "She came first in the race and second in the relay.",
+    "reply": "She came 1. in the race and 2. in the relay.",
+    "passes": false
+  },
+  {
+    "name": "Repeated words collapsed passes (owner wants stutters and repeats removed)",
+    "raw": "I had had enough of moving it around, and no, no, no, that is not what I meant.",
+    "reply": "I had enough of moving it around, and no, that is not what I meant.",
+    "passes": true
+  },
+  {
+    "name": "Repeated words kept with punctuation passes",
+    "raw": "I had had enough of moving it around and no no no that is not what I meant",
+    "reply": "I had had enough of moving it around, and no, no, no, that is not what I meant.",
+    "passes": true
+  },
+  {
+    "name": "Transliteration that turns send into sell is rejected",
+    "raw": "मैं पैसे भेजूंगा।",
+    "reply": "Main paise bechunga.",
+    "passes": false,
+    "source": "Codex review round 1"
+  },
+  {
+    "name": "Transliteration that turns nahin into nayi is rejected",
+    "raw": "मीटिंग नहीं होगी।",
+    "reply": "Meeting nayi hogi.",
+    "passes": false,
+    "source": "Codex review round 1"
+  },
+  {
+    "name": "Negation transliterated faithfully passes",
+    "raw": "मीटिंग नहीं होगी।",
+    "reply": "Meeting nahi hogi.",
+    "passes": true
+  },
+  {
+    "name": "z spelling for ज passes (cheez)",
+    "raw": "यह चीज अच्छी है।",
+    "reply": "Yeh cheez acchi hai.",
+    "passes": true,
+    "source": "Codex review round 1"
+  },
+  {
+    "name": "Soft g in an English loanword passes (message)",
+    "raw": "मैसेज भेज दो।",
+    "reply": "Message bhej do.",
+    "passes": true
+  },
+  {
+    "name": "Ordinal after a Devanagari danda is a list cue",
+    "raw": "काम करो। First, check the logs. Second, send the mail.",
+    "reply": "काम करो।\n1. Check the logs.\n2. Send the mail.",
+    "passes": true,
+    "source": "Codex review round 1"
+  },
+  {
+    "name": "Negation swapped for a same-shape word is rejected",
+    "raw": "यह काम न करें।",
+    "reply": "Yeh kaam naya karein.",
+    "passes": false,
+    "source": "Codex review round 2"
+  },
+  {
+    "name": "Number swapped for a same-shape number is rejected (sixty to seven)",
+    "raw": "साठ रुपये भेजो।",
+    "reply": "Saat rupaye bhejo.",
+    "passes": false,
+    "source": "Codex review round 2"
+  },
+  {
+    "name": "Number transliterated faithfully passes",
+    "raw": "साठ रुपये भेजो।",
+    "reply": "Saath rupaye bhejo.",
+    "passes": true
+  },
+  {
+    "name": "Nasal before b written as m passes (sambhalo)",
+    "raw": "इसे संभालो।",
+    "reply": "Ise sambhalo.",
+    "passes": true,
+    "source": "Codex review round 2"
+  }
+]

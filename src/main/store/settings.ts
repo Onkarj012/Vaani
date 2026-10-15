@@ -89,6 +89,12 @@ export class SettingsStore {
       changed = true;
     }
 
+    // Unknown capture processing values fall back to the default processing.
+    if (next.captureProcessing !== undefined && next.captureProcessing !== "default" && next.captureProcessing !== "unprocessed") {
+      next.captureProcessing = DEFAULT_SETTINGS.captureProcessing;
+      changed = true;
+    }
+
     if (next.preWarmMic === true && next.preWarmMicOptIn !== true) {
       next.preWarmMic = DEFAULT_SETTINGS.preWarmMic;
       changed = true;
