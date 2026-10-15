@@ -25,12 +25,17 @@ describe("model list helpers", () => {
       "elevenlabs/scribe-v2",
       "mistralai/voxtral-mini-transcribe",
       "microsoft/mai-transcribe-2",
+      "whisper-large-v3-turbo",
+      "whisper-large-v3",
     ]);
     expect(pickerEntries("cleanup").map((entry) => entry.provider)).toContain("anthropic");
   });
 
-  it("gives each provider its own list, with the Groq transcription fallback kept for adapters", () => {
-    expect(providerModels("transcription", "groq")).toEqual([{ id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" }]);
+  it("gives each provider its own list", () => {
+    expect(providerModels("transcription", "groq")).toEqual([
+      { id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo" },
+      { id: "whisper-large-v3", name: "Whisper Large v3" },
+    ]);
     expect(providerModels("cleanup", "openai-llm").map((model) => model.id)).toEqual(["gpt-6-luna"]);
     expect(providerModels("cleanup", "anthropic").map((model) => model.id)).toEqual(["claude-haiku-5-5"]);
   });

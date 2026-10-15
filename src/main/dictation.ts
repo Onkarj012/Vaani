@@ -62,7 +62,8 @@ import { intendedInjectionStrategy } from "./injection/policy";
 import { createDictationBugReport } from "./dictationBugReport";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
-const FORMATTING_TIMEOUT_MS = 20_000;
+const LIVE_FORMATTING_TIMEOUT_MS = 1_500;
+const REFORMAT_TIMEOUT_MS = 20_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
@@ -545,7 +546,7 @@ export class DictationService {
         await this.transitionRecovery(payload.sessionId, "formatting", { text: { cleanedText: correctedText }, signal: operationSignal });
         const formattingStartedAt = Date.now();
         if (!electron.app.isPackaged && process.env.VAANI_DEV_FORCE_FORMAT_TIMEOUT === "1") throw new TranscriptionDeadlineExceededError();
-        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + FORMATTING_TIMEOUT_MS, snapshot, language);
+        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + LIVE_FORMATTING_TIMEOUT_MS, snapshot, language);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
         formattedText = formatTrace.text;
         void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
@@ -917,7 +918,7 @@ export class DictationService {
       const appProfile = resolveAppProfile(settings.appProfiles ?? [], entry.target.appBundleId);
       const cleanupTrace = { correctionsApplied: [] };
       const correctedText = applyDictionary(stripSoundTags(rawText), settings, cleanupTrace);
-      const formatted = await this.formatTranscriptWithTrace(correctedText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS, entry.settingsSnapshot);
+      const formatted = await this.formatTranscriptWithTrace(correctedText, action.signal, Date.now() + REFORMAT_TIMEOUT_MS, entry.settingsSnapshot);
       if (action.signal.aborted) return false;
       const cleanedText = cleanupText({ rawText: formatted.text, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
       const current = await this.recovery.getById(id);

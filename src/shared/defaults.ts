@@ -5,6 +5,9 @@ export const DEFAULT_FILLER_WORDS = [
   "um", "uh"
 ];
 
+// Bumped when the default transcription provider changes. Settings below this version are moved to the default once.
+export const STT_DEFAULT_VERSION = 2;
+
 export const DEFAULT_SETTINGS: Settings = {
   onboardingCompleted: false,
   groqApiKey: "",
@@ -38,8 +41,9 @@ export const DEFAULT_SETTINGS: Settings = {
   recoveryRetentionDays: 3,
   retainFailedAudio: false,
   // Phase 1
-  transcriptionProvider: "openrouter",
-  transcriptionModel: defaultModelFor("transcription", "openrouter"),
+  transcriptionProvider: "groq",
+  transcriptionModel: defaultModelFor("transcription", "groq"),
+  sttDefaultVersion: STT_DEFAULT_VERSION,
   formattingProvider: "openrouter",
   formattingModel: defaultModelFor("cleanup", "openrouter"),
   providerApiKeys: [],

@@ -454,6 +454,7 @@ export interface Settings {
   failoverEnabled: boolean;
   /** Set once the user has seen the OpenRouter key prompt, so it is not shown again. */
   openRouterKeyPromptShown: boolean;
+  sttDefaultVersion?: number;
   // Phase 2: Local model settings
   localWhisperModel: string;
   offlineMode: "auto" | "always-offline" | "always-online";
