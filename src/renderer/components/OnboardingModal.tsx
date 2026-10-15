@@ -361,7 +361,7 @@ function ProviderApiSlide({
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Plug size={24} /></SlideIcon>
       <h2 className="text-display mb-1 text-3xl text-ink">Choose Providers &amp; Add Keys</h2>
-      <p className="mb-5 text-sm text-muted">Your keys stay on your device. Groq handles transcription; OpenRouter handles cleanup and fallback.</p>
+      <p className="mb-5 text-sm text-muted">Choose your transcription and cleanup providers. Your keys stay on your device.</p>
 
       <div className="w-full space-y-3 text-left">
         <div>
@@ -415,7 +415,7 @@ function ProviderApiSlide({
         )}
 
         <div className="rounded-xl border border-line bg-surface p-4">
-          <p className="mb-2 text-xs font-semibold text-ink">How to get a {activeProvider?.name ?? "provider"} key</p>
+          <p className="mb-2 text-xs font-semibold text-ink">Get your {activeProvider?.name ?? "provider"} key</p>
           <ol className="list-inside list-decimal space-y-1 text-xs text-muted">
             <li>Go to <span className="font-medium text-ink">{activeProvider?.id === "groq" ? "console.groq.com/keys" : "openrouter.ai/keys"}</span></li>
             <li>Sign up or log in</li>
