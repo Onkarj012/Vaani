@@ -14,11 +14,14 @@ export const STOP_QUIET_RMS = 0.002;
 export const STOP_QUIET_MAX_RMS = 0.02;
 
 // Quiet level for the stop tail: 1.5x the quietest fifth of the recording's frames, within the bounds.
-// The low multiplier keeps a soft final word above the level.
+// The low multiplier keeps a soft final word above the level. With no pauses to measure, the fixed minimum applies.
 export function quietThresholdFromNoise(frameRms: readonly number[]): number {
   // Digital silence (RMS 0) counts as the quietest room, so a device that opens with zeros keeps the low level.
   const sorted = frameRms.filter((rms) => Number.isFinite(rms) && rms >= 0).sort((a, b) => a - b);
   const floor = sorted[Math.floor((sorted.length - 1) * 0.2)] ?? 0;
+  const median = sorted[Math.floor((sorted.length - 1) * 0.5)] ?? 0;
+  // A quiet fifth that is not well below the median is speech or steady noise, not a room floor.
+  if (floor > median * 0.5) return STOP_QUIET_RMS;
   return Math.min(STOP_QUIET_MAX_RMS, Math.max(STOP_QUIET_RMS, floor * 1.5));
 }
 

@@ -43,10 +43,15 @@ describe("renderer stop drain", () => {
 
   it("sets the quiet level from the recording's room noise, between 0.002 and 0.02", () => {
     // Room noise measured in Vaani Dev traces sat at 0.005 to 0.011 by the end of a clip, so a fixed 0.002 always ran to the cap.
-    expect(quietThresholdFromNoise(new Array(20).fill(0.004))).toBeCloseTo(0.006);
+    expect(quietThresholdFromNoise([...new Array(6).fill(0.004), ...new Array(14).fill(0.05)])).toBeCloseTo(0.006);
+    expect(quietThresholdFromNoise([...new Array(5).fill(0.03), ...new Array(15).fill(0.2)])).toBe(STOP_QUIET_MAX_RMS);
     expect(quietThresholdFromNoise(new Array(20).fill(0.0001))).toBe(STOP_QUIET_RMS);
-    expect(quietThresholdFromNoise(new Array(20).fill(0.05))).toBe(STOP_QUIET_MAX_RMS);
     expect(quietThresholdFromNoise([])).toBe(STOP_QUIET_RMS);
+  });
+
+  it("uses the fixed minimum when no quiet frames stand apart from the speech", () => {
+    // Thirty frames at 0.05 have no room floor, so a soft ending at 0.004 must not count as quiet.
+    expect(quietThresholdFromNoise(new Array(30).fill(0.05))).toBe(STOP_QUIET_RMS);
   });
 
   it("ends the tail at room noise that auto gain lifted to 0.011 during a dictation with pauses", () => {
@@ -63,7 +68,7 @@ describe("renderer stop drain", () => {
 
   it("finishes early when the tail settles to room noise", async () => {
     vi.useFakeTimers();
-    const threshold = quietThresholdFromNoise(new Array(20).fill(0.004));
+    const threshold = quietThresholdFromNoise([...new Array(6).fill(0.004), ...new Array(14).fill(0.05)]);
     const roomNoiseRms = 0.005;
     const startedAt = Date.now();
     let lastLoudAt = startedAt;
@@ -77,16 +82,19 @@ describe("renderer stop drain", () => {
     expect(finishedAt - startedAt).toBeLessThan(STOP_MAX_WAIT_MS);
   });
 
-  it("keeps draining while a soft ending stays above the fixed level", async () => {
+  it("keeps draining while a soft ending stays above the level computed for a recording with no quiet frames", async () => {
     vi.useFakeTimers();
+    const threshold = quietThresholdFromNoise(new Array(30).fill(0.05));
+    // The final word is soft (0.004) and runs to 400 ms after stop, so the tail must not end at the 300 ms grace.
     const softEndingRms = 0.004;
+    const softEndingMs = 400;
     const startedAt = Date.now();
     let lastLoudAt = startedAt;
     let finishedAt = 0;
     const drain = waitForRendererDrain(startedAt, () => lastLoudAt, () => true).then(() => { finishedAt = Date.now(); });
     for (let elapsed = 0; elapsed < STOP_MAX_WAIT_MS && !finishedAt; elapsed += 10) {
       await vi.advanceTimersByTimeAsync(10);
-      if (softEndingRms >= STOP_QUIET_RMS) lastLoudAt = Date.now();
+      if (elapsed < softEndingMs && softEndingRms >= threshold) lastLoudAt = Date.now();
     }
     await drain;
     expect(finishedAt - startedAt).toBe(STOP_MAX_WAIT_MS);
