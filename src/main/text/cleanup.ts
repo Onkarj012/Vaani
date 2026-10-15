@@ -53,13 +53,18 @@ function collapseRepeat(match: string, word: string): string {
   return KEPT_DOUBLES.has(lower) && match.split(/,?\s+/).length === 2 ? match : word;
 }
 
+// Collapses a repeated phrase unless one of its words is a spelled-out number ("one two one two" is a value).
+function collapsePhraseRepeat(match: string, phrase: string): string {
+  return phrase.split(/\s+/).some(word => SPELLED_NUMBERS.has(word.toLowerCase())) ? match : phrase;
+}
+
 // Removes a word ending in a hyphen only when the speaker restarts after it: the next word starts with it ("ru- run"),
 // a hesitation follows ("trans-- uh"), or the word before it comes again ("there sh- there"). Otherwise the hyphen is a
-// dash or a suspended prefix ("Priya-- tomorrow", "pre- and post-paid").
+// dash or a suspended prefix ("Priya-- tomorrow", "pre- and post-paid"). A spelled-out number keeps its hyphen ("twenty- five").
 function removeCutOffWords(line: string): string {
   return line.replace(HYPHEN_END_RE, (match: string, word: string, offset: number) => {
     const lower = word.toLowerCase();
-    if (PROTECTED_WORDS.has(lower)) return match;
+    if (PROTECTED_WORDS.has(lower) || SPELLED_NUMBERS.has(lower)) return match;
     const next = (line.slice(offset + match.length).match(/^\s+([\p{L}\p{M}']+)/u)?.[1] ?? "").toLowerCase();
     const previous = (line.slice(0, offset).match(/([\p{L}\p{M}']+)[\s,]*$/u)?.[1] ?? "").toLowerCase();
     const restarts = (next.length > lower.length && next.startsWith(lower))
@@ -76,7 +81,7 @@ export function removeSpeechNoise(text: string): string {
     .split("\n")
     .map(line => removeCutOffWords(line)
       .replace(HESITATION_RE, (match: string, offset: number, whole: string) => (/^mm\b/i.test(match) && NUMBER_BEFORE_RE.test(whole.slice(0, offset)) ? match : " "))
-      .replace(REPEATED_PHRASE_RE, "$1")
+      .replace(REPEATED_PHRASE_RE, collapsePhraseRepeat)
       .replace(REPEATED_WORD_RE, collapseRepeat)
       .replace(/[ \t]{2,}/g, " ")
       .replace(/[ \t]+([,.!?;:])/g, "$1")

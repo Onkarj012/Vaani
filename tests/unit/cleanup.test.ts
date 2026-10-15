@@ -55,6 +55,11 @@ describe("removeSpeechNoise", () => {
     expect(removeSpeechNoise("there sh- there are times")).toBe("there are times");
   });
 
+  it("keeps spelled numbers in repeated phrases and cut-off words", () => {
+    expect(removeSpeechNoise("The PIN is one two one two.")).toBe("The PIN is one two one two.");
+    expect(removeSpeechNoise("Set twenty- uh five milliseconds.")).toBe("Set twenty- five milliseconds.");
+  });
+
   it("keeps doubles the grammar needs, clause-break repeats, and hyphenated words", () => {
     expect(removeSpeechNoise("I had had enough")).toBe("I had had enough");
     expect(removeSpeechNoise("If you look at it, it has problems")).toBe("If you look at it, it has problems");
