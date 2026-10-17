@@ -47,7 +47,7 @@ async function requestFormatting(text: string, options: Parameters<FormattingPro
       }),
       signal,
     });
-    if (!response.ok) throw new Error(`OpenAI API request failed with status ${response.status}.`);
+    if (!response.ok) throw Object.assign(new Error(`OpenAI API request failed with status ${response.status}.`), { status: response.status });
     return await response.json() as { choices: { message: { content: string } }[] };
   });
   return stripReasoningBlocks(data.choices[0]?.message?.content ?? "") || null;

@@ -1,6 +1,6 @@
 import { app } from "electron";
 import { join } from "node:path";
-import { APP_DATA_DIR, DEFAULT_SETTINGS, isHiddenProvider } from "@shared/defaults";
+import { APP_DATA_DIR, DEFAULT_SETTINGS, STT_DEFAULT_VERSION, isHiddenProvider } from "@shared/defaults";
 import { modelEntries, modelForProvider } from "@shared/modelList";
 import type { Settings } from "@shared/types";
 import { error } from "@main/log";
@@ -107,11 +107,15 @@ export class SettingsStore {
       changed = true;
     }
 
-    // Transcription moves to OpenRouter. Any other saved provider gets OpenRouter's default model. Repeat loads change nothing.
-    if (next.transcriptionProvider !== undefined && next.transcriptionProvider !== DEFAULT_SETTINGS.transcriptionProvider) {
-      next.transcriptionProvider = DEFAULT_SETTINGS.transcriptionProvider;
-      next.transcriptionModel = DEFAULT_SETTINGS.transcriptionModel;
-      changed = true;
+    // Retire hidden providers once, while preserving saved providers and their credentials.
+    if ((next.sttDefaultVersion ?? 0) < STT_DEFAULT_VERSION) {
+      if (isHiddenProvider(next.transcriptionProvider)) {
+        next.transcriptionProvider = DEFAULT_SETTINGS.transcriptionProvider;
+        next.transcriptionModel = DEFAULT_SETTINGS.transcriptionModel;
+        changed = true;
+      }
+      next.sttDefaultVersion = STT_DEFAULT_VERSION;
+      if (next.transcriptionProvider !== undefined) changed = true;
     }
 
     // Always Offline only ever routed to the hidden local provider, so it moves to Auto.

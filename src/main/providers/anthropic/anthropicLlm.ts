@@ -45,7 +45,7 @@ export const AnthropicLlmProvider: FormattingProvider = {
             messages: [{ role: "user", content: `<transcript>\n${text}\n</transcript>` }],
           }),
         });
-        if (!response.ok) throw new Error(`Anthropic API request failed with status ${response.status}.`);
+        if (!response.ok) throw Object.assign(new Error(`Anthropic API request failed with status ${response.status}.`), { status: response.status });
         return await response.json() as { content: { type: string; text: string }[] };
       });
       const formatted = data.content?.find(c => c.type === "text")?.text?.trim();
