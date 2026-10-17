@@ -418,7 +418,7 @@ export class TranscriptionService {
       const text = part.value.trim();
       if (!text) continue;
       // A rejected key fails every later paragraph too, so keep the rest unformatted instead of waiting on them.
-      if (keyRejected) { formattedParts.push(text); continue; }
+      if (keyRejected) { formattedParts.push(fallbackText(text, settings)); continue; }
       throwIfAborted(signal);
       const result = await this.formatTranscriptBlock(text, provider, apiKey, settings, language, signal);
       if (result.formatterStatusReason === FORMATTER_KEY_REJECTED_REASON) keyRejected = true;
@@ -429,7 +429,8 @@ export class TranscriptionService {
 
     const usedFallback = blockResults.some(r => r.formatterUsed === "guard-fallback");
     // A failed or rejected block sets the trace status, so one bad paragraph is never hidden behind a good one.
-    const summary = blockResults.find(r => r.formatterStatus === "failed" || r.formatterStatus === "rejected")
+    const summary = blockResults.find(r => r.formatterStatusReason === FORMATTER_KEY_REJECTED_REASON)
+      ?? blockResults.find(r => r.formatterStatus === "failed" || r.formatterStatus === "rejected")
       ?? blockResults.find(r => r.formatterUsed === "llm")
       ?? blockResults[0];
     // Only a ran aggregate counts as LLM output; a failed or rejected paragraph makes the whole result unformatted.
