@@ -1,6 +1,6 @@
 import type { SelectionRange } from "@shared/types";
 import { debug } from "@main/log";
-import { nativeBridge } from "../nativeBridge";
+import { nativeBridge } from "@main/nativeBridge";
 
 // Reads the focused caret range, or null when the field cannot report one.
 export function readFocusedSelection(): SelectionRange | null {
