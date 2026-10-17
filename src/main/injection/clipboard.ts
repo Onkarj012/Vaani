@@ -4,7 +4,7 @@ import { clipboard } from "electron";
 import type { InjectionResult } from "@shared/types";
 import { warn } from "@main/log";
 import { nativeBridge } from "../nativeBridge";
-import type { PasteboardItem } from "../nativeBridge";
+import type { PasteboardItem, PasteboardWriteResult } from "../nativeBridge";
 import type { InjectionTarget } from "./index";
 import { isClipboardOnlyTarget, shouldPreferTypingInjection } from "./policy";
 import { activateTargetApp, isTargetFrontmost } from "./target";
@@ -72,11 +72,10 @@ export class ClipboardTextInjector {
       if (!snapshot) return { success: false, reason: "insertion_failed" };
       const insertionStart = readFocusedSelection()?.location ?? target?.selection?.location;
       generation = ++restoreGeneration;
-      const countBeforeWrite = clipboardChangeCount();
-      ownedChangeCount = writeClipboardText(text);
-      if (ownedChangeCount === null) {
-        // A failed write may already have cleared the clipboard, so put the user's items back.
-        if (clipboardChangeCount() !== countBeforeWrite) restoreClipboard(snapshot);
+      const writeResult = writeClipboardItems(plainTextItems(text));
+      // Keep ownership even on failure so cleanup cannot overwrite a newer user copy.
+      ownedChangeCount = typeof writeResult === "number" ? writeResult : writeResult?.failedChangeCount ?? null;
+      if (typeof writeResult !== "number" || clipboard.readText() !== text) {
         return { success: false, reason: "insertion_failed" };
       }
 
@@ -302,20 +301,16 @@ function clipboardChangeCount(): number | null {
   }
 }
 
-// Replaces the pasteboard with the given items. Returns the new change count, or null if the write failed.
-function writeClipboardItems(items: PasteboardItem[]): number | null {
+// Replaces the pasteboard and keeps the clearing count if the native write fails.
+function writeClipboardItems(items: PasteboardItem[]): PasteboardWriteResult {
   return nativeBridge.writePasteboard?.(items) ?? null;
-}
-
-// Puts the dictated text on the pasteboard. Returns the change count only if the text was stored.
-function writeClipboardText(text: string): number | null {
-  const changeCount = writeClipboardItems(plainTextItems(text));
-  return changeCount !== null && clipboard.readText() === text ? changeCount : null;
 }
 
 // Puts every saved item back. Falls back to the saved plain text if the native write fails.
 function restoreClipboard(items: PasteboardItem[]): void {
-  if (writeClipboardItems(items) !== null) return;
+  const result = writeClipboardItems(items);
+  if (typeof result === "number") return;
+  if (result && clipboardChangeCount() !== result.failedChangeCount) return;
   clipboard.writeText(items.flat().find((entry) => entry.type === PLAIN_TEXT_TYPE)?.data.toString("utf8") ?? "");
 }
 
