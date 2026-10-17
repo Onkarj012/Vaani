@@ -756,6 +756,8 @@ export class DictationService {
   }
 
   reportHotkeyUnavailable(message: string): void {
+    // Stop the mic first, so clearing the session never leaves capture running with no way to stop it.
+    if (this.activeSessionId && this.isLiveSession()) this.recorder?.stopRecording(this.activeSessionId);
     this.clearTimers();
     const statusMessage = message;
     if (this.activeSessionId) void this.finishTrace(this.activeSessionId, "failed", "recorder_unavailable", statusMessage);

@@ -651,12 +651,14 @@ describe("DictationService", () => {
 
   it("keeps the specific hotkey failure message during an active session", async () => {
     const traceDeps = createTraceDeps();
-    const { service } = createDictationService({ traces: traceDeps.traces });
+    const { service, recorder } = createDictationService({ traces: traceDeps.traces });
     const message = "Microphone permission denied.";
 
     service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
     service.reportHotkeyUnavailable(message);
 
+    expect(recorder.stopRecording).toHaveBeenCalledWith(sessionId);
     expect(service.getState()).toMatchObject({ status: "error", message });
     await vi.waitFor(() => expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "recorder_unavailable", userMessage: message }));
   });

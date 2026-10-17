@@ -57,6 +57,9 @@ export class HotkeyManager {
     if (this.captureActive) return;
 
     this.stopMonitors();
+    // A press or release lost while monitoring was stopped must not swallow the next real one.
+    this.rejectedPress = false;
+    this.suppressNextRelease = false;
     const settings = this.settingsProvider();
     this.registerPasteLatest(settings.pasteLatestHotkey);
 
