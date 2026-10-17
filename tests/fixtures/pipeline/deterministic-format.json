@@ -18,7 +18,7 @@
     "rawText": "hello. next sentence! how are you",
     "settingsOverrides": {},
     "stage": "deterministicFormat",
-    "expected": "Hello. Next sentence! How are you."
+    "expected": "Hello. Next sentence! How are you?"
   },
   {
     "name": "preserves existing terminal question punctuation",
