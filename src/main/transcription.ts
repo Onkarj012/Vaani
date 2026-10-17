@@ -5,7 +5,7 @@ import { getProviderRegistry } from "./providers";
 import { defaultModelFor } from "@shared/modelList";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { formatterErrorReason } from "./providers/types";
-import { buildFormattingPrompt, CHANGED_WORDS_REASON, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
+import { buildFormattingPrompt, CHANGED_WORDS_REASON, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON, FORMATTER_KEY_REJECTED_REASON } from "./providers/formatting-constants";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
@@ -407,6 +407,7 @@ export class TranscriptionService {
     const formattedParts: string[] = [];
     const missingWords: string[] = [];
     const blockResults: FormatTranscriptTraceResult[] = [];
+    let keyRejected = false;
 
     for (const part of parts) {
       if (part.type === "separator") {
@@ -416,8 +417,11 @@ export class TranscriptionService {
 
       const text = part.value.trim();
       if (!text) continue;
+      // A rejected key fails every later paragraph too, so keep the rest unformatted instead of waiting on them.
+      if (keyRejected) { formattedParts.push(fallbackText(text, settings)); continue; }
       throwIfAborted(signal);
       const result = await this.formatTranscriptBlock(text, provider, apiKey, settings, language, signal);
+      if (result.formatterStatusReason === FORMATTER_KEY_REJECTED_REASON) keyRejected = true;
       blockResults.push(result);
       formattedParts.push(result.text.trim());
       if (result.contentGuardVerdict?.missingWords) missingWords.push(...result.contentGuardVerdict.missingWords);
@@ -425,7 +429,8 @@ export class TranscriptionService {
 
     const usedFallback = blockResults.some(r => r.formatterUsed === "guard-fallback");
     // A failed or rejected block sets the trace status, so one bad paragraph is never hidden behind a good one.
-    const summary = blockResults.find(r => r.formatterStatus === "failed" || r.formatterStatus === "rejected")
+    const summary = blockResults.find(r => r.formatterStatusReason === FORMATTER_KEY_REJECTED_REASON)
+      ?? blockResults.find(r => r.formatterStatus === "failed" || r.formatterStatus === "rejected")
       ?? blockResults.find(r => r.formatterUsed === "llm")
       ?? blockResults[0];
     // Only a ran aggregate counts as LLM output; a failed or rejected paragraph makes the whole result unformatted.
