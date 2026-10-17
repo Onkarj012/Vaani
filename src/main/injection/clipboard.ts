@@ -87,12 +87,17 @@ export class ClipboardTextInjector {
       if (isClipboardOnlyTarget(target)) {
         const blockedBeforeActivation = dispatchGuard();
         if (blockedBeforeActivation) return { success: false, reason: blockedBeforeActivation };
+        const insertionFieldIdentity = readFocusedElementIdentity();
         const outcome = await this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, markDispatch);
         if (outcome === "dispatched") {
           if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
           consecutiveFailures = 0;
           // The paste lands asynchronously, so check the caret after the app applies it.
-          pendingCaretCheck = setTimeout(() => { pendingCaretCheck = null; moveCaretAfterInsertion(text, insertionStart); }, CARET_SETTLE_MS);
+          pendingCaretCheck = setTimeout(() => {
+            pendingCaretCheck = null;
+            if (dispatchGuard() || !insertionFieldIdentity || readFocusedElementIdentity() !== insertionFieldIdentity) return;
+            moveCaretAfterInsertion(text, insertionStart);
+          }, CARET_SETTLE_MS);
           return { success: true, method: "clipboard" };
         }
         if (outcome !== "failed") return { success: false, reason: outcome };
@@ -231,6 +236,15 @@ async function runAppleScriptDispatch(action: string[], target: InjectionTarget 
       return "outcome_uncertain";
     }
   } catch { return "failed"; }
+}
+
+// Reads the focused field identity, or null when it cannot be verified.
+function readFocusedElementIdentity(): string | null {
+  try {
+    return nativeBridge.getFocusedElementIdentity?.() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function delay(ms: number): Promise<void> {

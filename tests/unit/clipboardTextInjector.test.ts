@@ -76,6 +76,9 @@ const bridge = vi.hoisted(() => ({
   pasteText: vi.fn((_text: string, _expectedChangeCount: number) => true),
   typeText: vi.fn((_text: string) => true),
   getFocusedSelection: undefined as undefined | (() => { location: number; length: number }),
+  getFocusedElementIdentity: vi.fn<() => string | null>(() => null),
+  getFocusedValue: vi.fn<() => string | null>(() => null),
+  setFocusedSelection: vi.fn((_location: number, _length: number) => true),
   getClipboardChangeCount: () => pasteboardChangeCount,
   readPasteboard: (maxBytes: number) => {
     const total = pasteboard.flat().reduce((sum, entry) => sum + entry.data.length, 0);
@@ -262,6 +265,9 @@ describe("ClipboardTextInjector dispatch safety", () => {
     bridge.pasteText.mockReset().mockReturnValue(true);
     bridge.typeText.mockReset().mockReturnValue(true);
     bridge.getFocusedSelection = undefined;
+    bridge.getFocusedElementIdentity.mockReset().mockReturnValue(null);
+    bridge.getFocusedValue.mockReset().mockReturnValue(null);
+    bridge.setFocusedSelection.mockClear();
     failAppleScriptAction = false;
     holdAppleScriptPaste = false;
     releaseAppleScriptPaste = null;
@@ -270,6 +276,34 @@ describe("ClipboardTextInjector dispatch safety", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("moves the delayed caret only while the original field and guard remain valid", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    for (const scenario of ["same-field", "other-field", "cancelled", "unknown-field"] as const) {
+      const controller = new AbortController();
+      bridge.getFocusedSelection = () => ({ location: 0, length: 0 });
+      bridge.getFocusedValue.mockReturnValue("dictated");
+      bridge.getFocusedElementIdentity.mockReturnValue(scenario === "unknown-field" ? null : "field-a");
+      bridge.setFocusedSelection.mockClear();
+
+      const promise = new ClipboardTextInjector().inject("dictated", chromeTarget, createInjectionGuard({ signal: controller.signal }));
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+      expect(bridge.setFocusedSelection).not.toHaveBeenCalled();
+
+      if (scenario === "other-field") bridge.getFocusedElementIdentity.mockReturnValue("field-b");
+      if (scenario === "cancelled") controller.abort();
+      await vi.advanceTimersByTimeAsync(300);
+
+      if (scenario === "same-field") {
+        expect(bridge.setFocusedSelection).toHaveBeenCalledExactlyOnceWith(8, 0);
+      } else {
+        expect(bridge.setFocusedSelection).not.toHaveBeenCalled();
+      }
+      await vi.runAllTimersAsync();
+    }
   });
 
   it("does not touch the clipboard when already cancelled", async () => {
