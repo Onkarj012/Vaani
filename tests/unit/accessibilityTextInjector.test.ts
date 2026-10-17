@@ -4,7 +4,9 @@ import { isExternalTarget } from "@main/injection/target";
 const bridge = vi.hoisted(() => ({
   isAccessibilityTrusted: vi.fn(() => true),
   injectText: vi.fn(),
-  getFocusedValue: vi.fn(() => ""),
+  getFocusedValue: vi.fn<() => string | null>(() => ""),
+  getFocusedSelection: vi.fn<() => { location: number; length: number } | null>(() => ({ location: 0, length: 0 })),
+  setFocusedSelection: vi.fn((_location: number, _length: number) => true),
 }));
 
 vi.mock("@main/nativeBridge", () => ({ nativeBridge: bridge }));
@@ -16,6 +18,47 @@ vi.mock("@main/injection/target", () => ({
 describe("AccessibilityTextInjector dispatch safety", () => {
   beforeEach(() => {
     bridge.injectText.mockReset();
+    bridge.getFocusedValue.mockReset().mockReturnValue("");
+    bridge.getFocusedSelection.mockReset().mockReturnValue({ location: 0, length: 0 });
+    bridge.setFocusedSelection.mockClear();
+  });
+
+  it("moves the caret to the end of inserted text when the field shows it there", async () => {
+    const { AccessibilityTextInjector } = await import("@main/injection/accessibility");
+    bridge.injectText.mockReturnValue({ success: true });
+    bridge.getFocusedValue.mockReturnValue("dictated");
+
+    await expect(new AccessibilityTextInjector().inject("dictated")).resolves.toEqual({ success: true, method: "ax" });
+    expect(bridge.setFocusedSelection).toHaveBeenCalledWith(8, 0);
+  });
+
+  it("leaves the caret alone when the field text does not match the insertion", async () => {
+    const { AccessibilityTextInjector } = await import("@main/injection/accessibility");
+    bridge.injectText.mockReturnValue({ success: true });
+    bridge.getFocusedValue.mockReturnValue("someone else wrote this");
+
+    await expect(new AccessibilityTextInjector().inject("dictated")).resolves.toEqual({ success: true, method: "ax" });
+    expect(bridge.setFocusedSelection).not.toHaveBeenCalled();
+  });
+
+  it("leaves the caret alone when the app already moved it past the insertion start", async () => {
+    const { AccessibilityTextInjector } = await import("@main/injection/accessibility");
+    bridge.injectText.mockReturnValue({ success: true });
+    bridge.getFocusedValue.mockReturnValue("dictated");
+    bridge.getFocusedSelection.mockReturnValueOnce({ location: 0, length: 0 }).mockReturnValue({ location: 8, length: 0 });
+
+    await expect(new AccessibilityTextInjector().inject("dictated")).resolves.toEqual({ success: true, method: "ax" });
+    expect(bridge.setFocusedSelection).not.toHaveBeenCalled();
+  });
+
+  it("leaves the caret alone when the insertion start is unknown", async () => {
+    const { AccessibilityTextInjector } = await import("@main/injection/accessibility");
+    bridge.injectText.mockReturnValue({ success: true });
+    bridge.getFocusedValue.mockReturnValue("dictated");
+    bridge.getFocusedSelection.mockReturnValue(null);
+
+    await expect(new AccessibilityTextInjector().inject("dictated")).resolves.toEqual({ success: true, method: "ax" });
+    expect(bridge.setFocusedSelection).not.toHaveBeenCalled();
   });
 
   it("treats a native failure after invocation as uncertain", async () => {

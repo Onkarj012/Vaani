@@ -3,6 +3,7 @@ import { nativeBridge } from "../nativeBridge";
 import type { InjectionTarget } from "./index";
 import { activateTargetApp, isExternalTarget } from "./target";
 import type { InjectionGuard } from "./guard";
+import { moveCaretAfterInsertion, readFocusedSelection } from "./caret";
 
 export class AccessibilityTextInjector {
   isTrusted(): boolean {
@@ -42,6 +43,7 @@ export class AccessibilityTextInjector {
       if (!nativeBridge.injectText) {
         return { success: false, reason: "insertion_failed" };
       }
+      const insertionStart = readFocusedSelection()?.location ?? target?.selection?.location;
       invoked = true;
       const result = nativeBridge.injectText(text);
       // Native reports these before any write, so the field is untouched and fallback may run.
@@ -50,7 +52,10 @@ export class AccessibilityTextInjector {
 
       onDispatch?.();
       if (guard()) return { success: false, reason: "outcome_uncertain" };
-      if (result.success) return { success: true, method: "ax" };
+      if (result.success) {
+        moveCaretAfterInsertion(text, insertionStart);
+        return { success: true, method: "ax" };
+      }
       return { success: false, reason: "outcome_uncertain" };
     } catch (_error) {
       if (!invoked) return { success: false, reason: "insertion_failed" };
