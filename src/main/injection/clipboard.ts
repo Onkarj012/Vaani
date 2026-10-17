@@ -66,8 +66,13 @@ export class ClipboardTextInjector {
       snapshot = readClipboardSnapshot();
       if (!snapshot) return { success: false, reason: "insertion_failed" };
       generation = ++restoreGeneration;
+      const countBeforeWrite = clipboardChangeCount();
       ownedChangeCount = writeClipboardText(text);
-      if (ownedChangeCount === null) return { success: false, reason: "insertion_failed" };
+      if (ownedChangeCount === null) {
+        // A failed write may already have cleared the clipboard, so put the user's items back.
+        if (clipboardChangeCount() !== countBeforeWrite) restoreClipboard(snapshot);
+        return { success: false, reason: "insertion_failed" };
+      }
 
       // Clipboard-only apps (terminals, browsers, Electron apps, etc.) have no AX
       // selection tracking. Running the full fallback chain would fire multiple
@@ -262,10 +267,16 @@ function readClipboardSnapshot(): PasteboardItem[] | null {
 // Reads every item natively. Over the size cap, keeps only the plain text.
 function readPasteboardItems(): PasteboardItem[] | null {
   if (!nativeBridge.readPasteboard) return null;
-  const items = nativeBridge.readPasteboard(PASTEBOARD_SNAPSHOT_MAX_BYTES);
-  if (items) return items;
-  warn("clipboard", `pasteboard exceeds ${PASTEBOARD_SNAPSHOT_MAX_BYTES} bytes; restoring plain text only`);
-  return plainTextItems(clipboard.readText());
+  // A copy made during the read leaves stale, partial items, so read again until the clipboard holds still.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const before = clipboardChangeCount();
+    const items = nativeBridge.readPasteboard(PASTEBOARD_SNAPSHOT_MAX_BYTES);
+    if (before === null || clipboardChangeCount() !== before) continue;
+    if (items) return items;
+    warn("clipboard", `pasteboard exceeds ${PASTEBOARD_SNAPSHOT_MAX_BYTES} bytes; restoring plain text only`);
+    return plainTextItems(clipboard.readText());
+  }
+  return null;
 }
 
 // Builds one plain-text item, or no items for empty text.

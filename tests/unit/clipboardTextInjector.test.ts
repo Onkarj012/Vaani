@@ -12,6 +12,7 @@ let holdAppleScriptPaste = false;
 let releaseAppleScriptPaste: (() => void) | null = null;
 let hangAppleScript = false;
 let refuseClipboardWrite = false;
+let clearThenFailOnce = false;
 const helperTimeouts: number[] = [];
 const writes: { value: string; t: number }[] = [];
 
@@ -81,6 +82,12 @@ const bridge = vi.hoisted(() => ({
     return total > maxBytes ? null : cloneItems(pasteboard);
   },
   writePasteboard: (items: Item[]) => {
+    // Clears the pasteboard, then fails, like NSPasteboard.writeObjects returning NO after clearContents.
+    if (clearThenFailOnce) {
+      clearThenFailOnce = false;
+      storeItems([]);
+      return null;
+    }
     // A refused write reports a new change count without storing anything, like a helper that lies.
     if (refuseClipboardWrite) {
       pasteboardChangeCount += 1;
@@ -122,6 +129,7 @@ describe("ClipboardTextInjector restore timing", () => {
     holdAppleScriptPaste = false;
     releaseAppleScriptPaste = null;
     refuseClipboardWrite = false;
+    clearThenFailOnce = false;
   });
 
   afterEach(() => {
@@ -543,6 +551,20 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("puts the user's items back when a failed write already cleared the clipboard", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const original: Item[] = [[{ type: "public.png", data: Buffer.from([137, 80, 78, 71]) }, { type: PLAIN_TEXT, data: Buffer.from("original") }]];
+    pasteboard = cloneItems(original);
+    clearThenFailOnce = true;
+
+    const attempt = new ClipboardTextInjector().inject("dictated", chromeTarget);
+    await vi.runAllTimersAsync();
+
+    await expect(attempt).resolves.toEqual({ success: false, reason: "insertion_failed" });
+    expect(pasteboard).toEqual(original);
+    expect(bridge.pasteText).not.toHaveBeenCalled();
   });
 
   it("restores every pasteboard format and item, not only plain text", async () => {
