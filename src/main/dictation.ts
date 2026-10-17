@@ -224,6 +224,7 @@ export class DictationService {
         this.sessionAbortController?.abort("new-dictation");
         if (this.activeSessionId) {
           if (this.activeInsertionDispatched && this.activePreparedEntry) void this.settleInterruptedInsertion(this.activeSessionId);
+          else if (this.activePreparedEntry) void this.saveReplacedTranscript(this.activeSessionId, this.activePreparedEntry);
           else {
             const outcome: DictationInsertionOutcome = this.activeInsertionPrepared ? "refused" : "failed";
             void this.finishTrace(this.activeSessionId, outcome, "cancelled", insertionStatusText(outcome, false, "processing"));
@@ -531,6 +532,23 @@ export class DictationService {
       // Apply dictionary terms before the formatter so it sees the intended spelling.
       const cleanupTrace = { correctionsApplied: [] };
       const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
+      // Kept so a new dictation that replaces this one during formatting can still save the transcript.
+      this.activePreparedEntry = {
+        id: crypto.randomUUID(),
+        traceId: this.activeTraceId,
+        timestamp: new Date().toISOString(),
+        rawText: transcription.rawText,
+        formattedText: correctedText,
+        cleanedText: correctedText,
+        durationSeconds: payload.clip.durationSeconds,
+        appBundleId: this.activeTarget?.appBundleId ?? null,
+        appName: this.activeTarget?.appName ?? null,
+        language: transcription.language,
+        detectedLanguage: transcription.detectedLanguage ?? null,
+        rawAudioPath,
+        injectionStatus: "saved",
+        injectionMethod: null,
+      };
       let formattedText = correctedText;
       let formatTrace: FormatTranscriptTraceResult = { text: correctedText, formatterUsed: "none" };
       try {
@@ -785,6 +803,8 @@ export class DictationService {
       injectionStatus: "injected",
       injectionMethod: result.method,
     }));
+    // A new dictation may have started during the History write. Leave its state alone.
+    if (generation !== this.sessionGeneration) return;
     if (entry.traceId) {
       void this.safeTraceOperation("retryEntry", entry.traceId, () =>
         this.traces?.updateById(entry.traceId ?? "", (trace) => ({
@@ -1204,6 +1224,11 @@ export class DictationService {
     return undefined;
   }
 
+  // True while the microphone is opening or capturing audio.
+  isCapturing(): boolean {
+    return this.state.status === "starting" || this.state.status === "recording";
+  }
+
   // True while a dictation is starting, recording, finalizing, or transcribing.
   private isLiveSession(): boolean {
     return this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing" || this.state.status === "transcribing";
@@ -1459,6 +1484,13 @@ export class DictationService {
     await this.recordRecoveryInsertionOutcome(sessionId, "recoverable", null, "interrupted", OUTCOME_UNCERTAIN_DETAIL).catch(() => undefined);
     await this.finishTrace(sessionId, "unconfirmed", "cancelled", insertionStatusText("unconfirmed", saved, "processing"));
     this.historyWrites.delete(sessionId);
+  }
+
+  // Saves a replaced session's transcript as not inserted. Touches only that session's history and trace.
+  private async saveReplacedTranscript(sessionId: string, entry: DictationEntry): Promise<void> {
+    void this.transitionRecovery(sessionId, "recoverable", { error: { class: "interrupted", detail: "Dictation replaced by a new recording." } });
+    const saved = await this.persistHistoryOnce(sessionId, entry);
+    await this.finishTrace(sessionId, "failed", "cancelled", insertionStatusText("failed", saved, "processing"));
   }
 
   private failSession(sessionId: string, message: string, reason: DictationRejectionReason = "transcription_error", providerAttempts: ProviderAttemptTrace[] = [], signal?: AbortSignal, errorClass?: RecoveryErrorClass, tracePatch: Partial<DictationTrace> = {}): void {

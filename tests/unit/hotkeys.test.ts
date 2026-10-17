@@ -265,6 +265,85 @@ describe("HotkeyManager", () => {
     expect(unregisterMock).toHaveBeenCalledWith("Escape");
   });
 
+  it("keeps the toggle lock and Escape across re-registration during a toggle recording", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onRelease = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, dictationMode: "toggle" }),
+      vi.fn(),
+      onRelease,
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    const callback = startHotkeyMonitorMock.mock.calls[0]?.[1] as ((pressed: boolean) => void);
+    callback(true);
+    callback(false);
+    manager.reregister();
+
+    expect(unregisterMock).not.toHaveBeenCalledWith("Escape");
+    const restartedCallback = startHotkeyMonitorMock.mock.calls.at(-1)?.[1] as ((pressed: boolean) => void);
+    restartedCallback(true);
+    restartedCallback(false);
+    expect(onRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts from the tray with toggle controls and stops from the tray", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onPress = vi.fn();
+    const onRelease = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, dictationMode: "toggle" }),
+      onPress,
+      onRelease,
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    manager.startFromMenu();
+
+    expect(onPress).toHaveBeenCalledWith("tray");
+    expect(registerMock).toHaveBeenCalledWith("Escape", expect.any(Function));
+    manager.stopFromMenu();
+    expect(onRelease).toHaveBeenCalledTimes(1);
+    expect(unregisterMock).toHaveBeenCalledWith("Escape");
+  });
+
+  it("drops the hands-free lock and Escape when the recording ended on its own", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onPress = vi.fn();
+    const onRelease = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, dictationMode: "toggle" }),
+      onPress,
+      onRelease,
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    manager.startFromMenu();
+    manager.syncSession(true);
+    expect(unregisterMock).not.toHaveBeenCalledWith("Escape");
+    manager.syncSession(false);
+    expect(unregisterMock).toHaveBeenCalledWith("Escape");
+    manager.stopFromMenu();
+    expect(onRelease).toHaveBeenCalledTimes(1);
+    manager.startFromMenu();
+    expect(onPress).toHaveBeenCalledTimes(2);
+  });
+
   it("does not release or enter toggle mode after a rejected press", async () => {
     startHotkeyMonitorMock.mockReturnValue(true);
     startPasteLatestMonitorMock.mockReturnValue(true);

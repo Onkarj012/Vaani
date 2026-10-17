@@ -46,7 +46,7 @@ export class HotkeyManager {
 
   constructor(
     private readonly settingsProvider: () => Settings,
-    private readonly onPress: () => void | boolean,
+    private readonly onPress: (source: "hotkey" | "tray") => void | boolean,
     private readonly onRelease: () => void,
     private readonly onCancel: () => void,
     private readonly onPasteLatest: () => void,
@@ -56,7 +56,7 @@ export class HotkeyManager {
   register(): void {
     if (this.captureActive) return;
 
-    this.unregister();
+    this.stopMonitors();
     const settings = this.settingsProvider();
     this.registerPasteLatest(settings.pasteLatestHotkey);
 
@@ -98,17 +98,41 @@ export class HotkeyManager {
   setCaptureActive(active: boolean): void {
     if (this.captureActive === active) return;
     this.captureActive = active;
-    if (active) { this.unregister(); return; }
+    if (active) { this.stopMonitors(); return; }
     this.register();
   }
 
+  // Tray start uses the hotkey press path, then locks on because no key release will stop it.
+  startFromMenu(): void {
+    if (this.onPress("tray") === false) return;
+    this.enterToggleMode();
+  }
+
+  // Tray stop ends the session the same way a toggle press does.
+  stopFromMenu(): void {
+    this.exitToggleMode(false);
+  }
+
+  // Drops a hands-free lock once its recording ended on its own, so Escape is released and the next press starts fresh.
+  syncSession(capturing: boolean): void {
+    if (capturing || !this.isToggleRecording) return;
+    this.isToggleRecording = false;
+    this.unregisterEscapeShortcut();
+    this.clearPendingRelease();
+  }
+
+  // Full teardown for app quit. Drops any toggle or Escape state.
   unregister(): void {
     this.clearPendingRelease();
     this.unregisterEscapeShortcut();
     this.isToggleRecording = false;
     this.suppressNextRelease = false;
     this.rejectedPress = false;
+    this.stopMonitors();
+  }
 
+  // Stops native monitors and paste-latest only. Toggle and Escape state survive so an active recording can still be stopped.
+  private stopMonitors(): void {
     if (this.usingNativeMonitor) {
       try { nativeBridge.stopHotkeyMonitor?.(); } catch (error) { console.warn("[vaani] failed to stop native hotkey monitor:", error); }
       this.usingNativeMonitor = false;
@@ -177,7 +201,7 @@ export class HotkeyManager {
       return;
     }
 
-    if (this.onPress() === false) {
+    if (this.onPress("hotkey") === false) {
       this.rejectedPress = true;
       return;
     }

@@ -253,6 +253,32 @@ describe("DictationService", () => {
     expect(history.append).toHaveBeenCalledTimes(1);
   });
 
+  it("does not mark a new recording completed when a History retry finishes late", async () => {
+    const { service, history } = createDictationService();
+    let finishHistoryWrite: () => void = () => undefined;
+    history.getById.mockResolvedValue({ id: "old-entry", cleanedText: "Open get hub.", rawText: "open get hub", traceId: null } as DictationEntry);
+    history.updateById.mockImplementationOnce(() => new Promise<void>((resolve) => { finishHistoryWrite = resolve; }));
+    const retry = service.retryEntry("old-entry");
+    await vi.waitFor(() => expect(history.updateById).toHaveBeenCalledOnce());
+    service.beginHotkeySession();
+    finishHistoryWrite();
+    await retry;
+    expect(service.getState()).toMatchObject({ status: "starting" });
+  });
+
+  it("saves the transcript to History when a new recording replaces it during formatting", async () => {
+    const { service, transcription, history } = createDictationService();
+    let finishFormat: (text: string) => void = () => undefined;
+    transcription.formatTranscript.mockImplementationOnce(() => new Promise<string>((resolve) => { finishFormat = resolve; }));
+    const submission = submitHelloWorld(service);
+    await vi.waitFor(() => expect(transcription.formatTranscript).toHaveBeenCalledOnce());
+    service.beginHotkeySession();
+    await vi.waitFor(() => expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ rawText: "open get hub", injectionStatus: "saved" })));
+    finishFormat("Open get hub.");
+    await submission;
+    expect(history.append).toHaveBeenCalledTimes(1);
+  });
+
   it("stops verification when the session is cancelled during a poll wait", async () => {
     let service: ReturnType<typeof createDictationService>["service"];
     let cancelled = false;
