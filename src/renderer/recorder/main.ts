@@ -47,6 +47,9 @@ let sourceNode: MediaStreamAudioSourceNode | null = null;
 let processorNode: PcmProcessorNode | null = null;
 let ringBuffer = new PcmRingBuffer(Math.floor(DEFAULT_INPUT_SAMPLE_RATE * PRE_ROLL_MS / 1000));
 let activeSessionId: string | null = null;
+const pendingStarts = new Map<string, { cancelled: boolean }>();
+// Starts run one at a time, so a cancelled start never cleans up capture a newer start is using.
+let startQueue: Promise<void> = Promise.resolve();
 let previousInputDevice: number | null = null;
 let currentConfig: RecorderConfig = { preWarmMic: false };
 let captureConfigKey: string | null = null;
@@ -105,8 +108,16 @@ async function initializeRecorder(): Promise<void> {
   }
 }
 
+// Open capture unless the session is aborted while its input is being prepared.
 async function startRecording({ sessionId, config }: RecorderCommand): Promise<void> {
+  const start = { cancelled: false };
+  pendingStarts.set(sessionId, start);
+  const previousStart = startQueue;
+  let finishStart = () => {};
+  startQueue = new Promise<void>((resolve) => { finishStart = resolve; });
+  await previousStart;
   try {
+    if (start.cancelled) return;
     currentConfig = normalizeConfig(config);
     sessionChunks = [];
     lastFrameAt = 0;
@@ -116,7 +127,12 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
     resetSmoothedBars();
     previousInputDevice = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
-    await ensureWarmCapture(currentConfig);
+    if (!start.cancelled) await ensureWarmCapture(currentConfig);
+    if (start.cancelled) {
+      await cleanupSession();
+      await shutdownWarmCapture();
+      return;
+    }
 
     const sampleRate = audioContext?.sampleRate ?? DEFAULT_INPUT_SAMPLE_RATE;
     const preRoll = trimLeadingSilence(ringBuffer.snapshot(Math.floor(sampleRate * PRE_ROLL_MS / 1000)), sampleRate);
@@ -124,15 +140,19 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
       sessionChunks.push(preRoll);
     }
 
+    pendingStarts.delete(sessionId);
     activeSessionId = sessionId;
     await window.__VAANI_RECORDER__.reportRecorderStarted(sessionId);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Microphone recording could not start.";
-    await reportFailure(sessionId, `Microphone recording could not start: ${message}`);
+    if (!start.cancelled) await reportFailure(sessionId, `Microphone recording could not start: ${message}`);
     await cleanupSession();
-    if (!currentConfig.preWarmMic) {
+    if (start.cancelled || !currentConfig.preWarmMic) {
       await shutdownWarmCapture();
     }
+  } finally {
+    if (pendingStarts.get(sessionId) === start) pendingStarts.delete(sessionId);
+    finishStart();
   }
 }
 
@@ -167,7 +187,13 @@ async function stopRecording(sessionId: string): Promise<void> {
   } });
 }
 
+// Cancel an opening session or shut down capture that is already recording.
 async function abortRecording(sessionId: string): Promise<void> {
+  const pending = pendingStarts.get(sessionId);
+  if (pending) {
+    pending.cancelled = true;
+    return;
+  }
   if (activeSessionId !== sessionId) return;
   await cleanupSession();
   await shutdownWarmCapture();

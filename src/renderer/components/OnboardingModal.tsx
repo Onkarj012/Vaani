@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { DictationMode, PermissionStatus, Settings, MacOSPermissionState } from "@shared/types";
 import { KNOWN_PROVIDERS } from "@shared/defaults";
+import { hotkeyFromKeyEvent } from "@shared/hotkeys";
 import devanagariLightUrl from "../../../assets/iconset/devanagari/devanagari_light.svg?url";
 import devanagariDarkUrl from "../../../assets/iconset/devanagari/devanagari_dark.svg?url";
 import { useColorMode } from "../context/color-mode";
@@ -434,23 +435,20 @@ const HOTKEY_MODIFIER_LABEL: Record<string, string> = { Meta: "Cmd", Control: "C
 function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onChange: (v: string) => void }) {
   const [isEditing, setIsEditing] = useState(false);
   const [preview, setPreview] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const stopEditing = useCallback(() => { void window.vaani.setHotkeyCapture(false); setIsEditing(false); setPreview([]); }, []);
-  const startEditing = useCallback(() => { void window.vaani.setHotkeyCapture(true); setPreview([]); setIsEditing(true); }, []);
+  const stopEditing = useCallback(() => { void window.vaani.setHotkeyCapture(false); setIsEditing(false); setPreview([]); setError(null); }, []);
+  const startEditing = useCallback(() => { void window.vaani.setHotkeyCapture(true); setPreview([]); setError(null); setIsEditing(true); }, []);
 
   useEffect(() => {
     if (!isEditing) return;
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault(); e.stopPropagation();
       if (e.key === "Escape") { stopEditing(); return; }
-      const mods: string[] = [];
-      if (e.metaKey) mods.push("Cmd");
-      if (e.ctrlKey) mods.push("Ctrl");
-      if (e.altKey) mods.push("Option");
-      if (e.shiftKey) mods.push("Shift");
-      if (HOTKEY_MODIFIER_KEYS.has(e.key)) { setPreview([HOTKEY_MODIFIER_LABEL[e.key] ?? e.key]); return; }
-      const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-      onChange([...mods, key].join("+"));
+      if (HOTKEY_MODIFIER_KEYS.has(e.key)) { setError(null); setPreview([HOTKEY_MODIFIER_LABEL[e.key] ?? e.key]); return; }
+      const result = hotkeyFromKeyEvent(e);
+      if (!result.ok) { setError(result.message); setPreview([]); return; }
+      onChange(result.hotkey);
       stopEditing();
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -492,6 +490,7 @@ function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onCha
                 <span key={i} className="inline-flex min-w-[36px] items-center justify-center rounded-lg border border-accent bg-accent/10 px-2.5 py-1.5 font-mono text-sm font-bold text-accent">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
               )) : <span className="text-xs text-faint">Hold modifiers (⌃⌥⇧⌘) then press a key</span>}
             </div>
+            {error && <p className="text-xs leading-relaxed text-red-600">{error}</p>}
           </div>
         )}
         <p className="mt-3 text-left text-xs text-faint"><Volume2 size={10} className="mr-1 inline" /> You can also change this anytime in Settings</p>

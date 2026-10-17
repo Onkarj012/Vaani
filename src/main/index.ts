@@ -495,7 +495,7 @@ async function bootstrap(): Promise<void> {
     mainWindow,
     settings,
     history,
-    (label) => trayController.updateStatus(label),
+    (label) => { trayController.updateStatus(label); hotkeyManager?.syncSession(dictation.isCapturing()); },
     overlayController,
     { recorder: recorderController, credentials: credentialsStore, traces, recovery, recoveryAudio, recoveryReady: isRecoveryReady }
   );
@@ -539,7 +539,9 @@ async function bootstrap(): Promise<void> {
     trayController = createTray({
       openMainWindow: () => showMainWindow(),
       quit: () => { mutableApp.isQuitting = true; app.quit(); },
-      startDictation: () => { void beginDictationIfPermitted("tray"); },
+      startDictation: () => { hotkeyManager?.startFromMenu(); },
+      stopDictation: () => { hotkeyManager?.stopFromMenu(); },
+      isDictationCapturing: () => dictation.isCapturing(),
       pasteLatest: () => { void dictation.pasteLatestEntry(); },
       getRecentHistory: async () => {
         const entries = await history.getAll();
@@ -556,7 +558,7 @@ async function bootstrap(): Promise<void> {
 
   hotkeyManager = new HotkeyManager(
     () => settings.get(),
-    () => beginDictationIfPermitted("hotkey"),
+    (source) => beginDictationIfPermitted(source),
     () => dictation.endHotkeySession(),
     () => dictation.cancelSession(),
     () => { dictation.pasteLatestEntry().catch((err) => { error("main", `paste latest failed: ${err instanceof Error ? err.message : String(err)}`); }); },

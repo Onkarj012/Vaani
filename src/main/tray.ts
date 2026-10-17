@@ -43,6 +43,8 @@ export interface TrayOptions {
   openMainWindow: () => void;
   quit: () => void;
   startDictation?: () => void;
+  stopDictation?: () => void;
+  isDictationCapturing?: () => boolean;
   pasteLatest?: () => void;
   getRecentHistory: () => Promise<Array<{ id: string; cleanedText: string }>>;
   reinjectEntry: (id: string) => Promise<void>;
@@ -111,6 +113,7 @@ export function createTray(options: TrayOptions): TrayController {
       status === "Done" || status === "Saved" ? "✅" :
       status === "Error" ? "⚠️" : isOffline ? "🔸" : "⚪";
 
+    const capturing = options.isDictationCapturing?.() ?? false;
     const activeLanguage = options.getLanguage();
     const languageSubmenu: Electron.MenuItemConstructorOptions[] = TRAY_LANGUAGES.map((lang) => ({
       label: lang.label,
@@ -130,8 +133,11 @@ export function createTray(options: TrayOptions): TrayController {
       { label: `${statusIcon}  ${status}${offlineIndicator}`, enabled: false },
       { type: "separator" },
       { label: "Open Vaani", accelerator: "Cmd+Shift+V", click: options.openMainWindow },
-      ...(options.startDictation
+      ...(options.startDictation && !capturing
         ? [{ label: "Start Dictation", click: options.startDictation }]
+        : []),
+      ...(options.stopDictation && capturing
+        ? [{ label: "Stop Dictation", click: options.stopDictation }]
         : []),
       ...(options.pasteLatest
         ? [{ label: "Paste Latest", click: options.pasteLatest }]

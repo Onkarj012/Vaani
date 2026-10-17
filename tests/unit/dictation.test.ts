@@ -106,7 +106,8 @@ function createDictationService(deps: {
   const recorder = {
     isReady: vi.fn(() => true),
     startRecording: vi.fn(() => true),
-    stopRecording: vi.fn(() => true)
+    stopRecording: vi.fn(() => true),
+    abortRecording: vi.fn((_sessionId: string) => undefined)
   };
 
   const transcription = {
@@ -250,6 +251,48 @@ describe("DictationService", () => {
     finishInjection({ success: true, method: "clipboard" });
     await submission;
     await vi.waitFor(() => expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open get hub.", injectionStatus: "saved" })));
+    expect(history.append).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates the retried entry's trace without completing a new recording after a late History write", async () => {
+    let oldTrace: DictationTrace = {
+      id: "old-trace", sessionId: "old-session", startedAt: "2026-10-17T00:00:00.000Z",
+      buildIdentifier: "test", targetAppBundleId: null, targetAppName: null,
+      outcome: "failed", stages: { outcome: "failed" }, rejectionReason: "insertion_failed",
+    };
+    const traceDeps = createTraceDeps();
+    const updateTrace = vi.spyOn(traceDeps.traces, "updateById").mockImplementation(async (id, updater) => {
+      expect(id).toBe(oldTrace.id);
+      oldTrace = updater(oldTrace);
+      return oldTrace;
+    });
+    const { service, history } = createDictationService({ traces: traceDeps.traces });
+    let finishHistoryWrite: () => void = () => undefined;
+    history.getById.mockResolvedValue({ id: "old-entry", cleanedText: "Open get hub.", rawText: "open get hub", traceId: oldTrace.id } as DictationEntry);
+    history.updateById.mockImplementationOnce(() => new Promise<void>((resolve) => { finishHistoryWrite = resolve; }));
+    const retry = service.retryEntry("old-entry");
+    await vi.waitFor(() => expect(history.updateById).toHaveBeenCalledOnce());
+    service.beginHotkeySession();
+    const newSessionState = service.getState();
+    finishHistoryWrite();
+    await retry;
+    expect(updateTrace).toHaveBeenCalledOnce();
+    expect(oldTrace).toMatchObject({ outcome: "verified", stages: { outcome: "verified" }, injectionMethod: "clipboard", userMessage: "Inserted.", completedAt: expect.any(String) });
+    expect(oldTrace.rejectionReason).toBeUndefined();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "started" });
+    expect(service.getState()).toEqual(newSessionState);
+  });
+
+  it("saves the transcript to History when a new recording replaces it during formatting", async () => {
+    const { service, transcription, history } = createDictationService();
+    let finishFormat: (text: string) => void = () => undefined;
+    transcription.formatTranscript.mockImplementationOnce(() => new Promise<string>((resolve) => { finishFormat = resolve; }));
+    const submission = submitHelloWorld(service);
+    await vi.waitFor(() => expect(transcription.formatTranscript).toHaveBeenCalledOnce());
+    service.beginHotkeySession();
+    await vi.waitFor(() => expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ rawText: "open get hub", injectionStatus: "saved" })));
+    finishFormat("Open get hub.");
+    await submission;
     expect(history.append).toHaveBeenCalledTimes(1);
   });
 
@@ -625,13 +668,20 @@ describe("DictationService", () => {
 
   it("keeps the specific hotkey failure message during an active session", async () => {
     const traceDeps = createTraceDeps();
-    const { service } = createDictationService({ traces: traceDeps.traces });
+    const { service, recorder } = createDictationService({ traces: traceDeps.traces });
     const message = "Microphone permission denied.";
 
     service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    recorder.abortRecording.mockImplementationOnce(() => {
+      expect(service.getState()).toMatchObject({ status: "starting", sessionId });
+    });
     service.reportHotkeyUnavailable(message);
 
-    expect(service.getState()).toMatchObject({ status: "error", message });
+    expect(recorder.abortRecording).toHaveBeenCalledExactlyOnceWith(sessionId);
+    expect(recorder.stopRecording).not.toHaveBeenCalled();
+    service.reportRecorderStarted(sessionId);
+    expect(service.getState()).toMatchObject({ status: "error", sessionId: null, message });
     await vi.waitFor(() => expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "recorder_unavailable", userMessage: message }));
   });
 

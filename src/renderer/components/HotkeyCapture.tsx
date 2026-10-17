@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Kbd, KbdGroup } from "@/components/ui/Kbd";
+import { hotkeyFromKeyEvent, parseHotkey } from "@shared/hotkeys";
 
 interface HotkeyCaptureProps {
   value: string;
@@ -13,26 +14,20 @@ const MOD_SYMBOL: Record<string, string> = {
   Command: "⌘", Alt: "⌥", Control: "⌃", Fn: "Fn",
 };
 
-function keyToLabel(key: string): string {
-  const map: Record<string, string> = {
-    " ": "Space", "ArrowUp": "↑", "ArrowDown": "↓",
-    "ArrowLeft": "←", "ArrowRight": "→",
-    "Enter": "Return", "Escape": "Esc", "Tab": "Tab",
-    "Backspace": "⌫", "Delete": "⌦",
-    "Meta": "Cmd", "Control": "Ctrl", "Alt": "Option", "Shift": "Shift",
-  };
-  return map[key] ?? (key.length === 1 ? key.toUpperCase() : key);
-}
+const MODIFIER_LABELS: Record<string, string> = {
+  Meta: "Cmd", Control: "Ctrl", Alt: "Option", Shift: "Shift",
+};
 
 function parseCombo(combo: string): string[] {
   return combo.split("+").filter(Boolean);
 }
 
-const MODIFIER_KEYS = new Set(["Meta", "Control", "Alt", "Shift"]);
+const MODIFIER_KEYS = new Set(Object.keys(MODIFIER_LABELS));
 
 export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps) {
   const [capturing, setCapturing] = useState(false);
   const [preview, setPreview] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const lastModifierRef = useRef<string | null>(null);
 
@@ -40,6 +35,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
     void window.vaani.setHotkeyCapture(false);
     setCapturing(false);
     setPreview([]);
+    setError(null);
     lastModifierRef.current = null;
   }, []);
 
@@ -47,6 +43,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
     if (disabled) return;
     void window.vaani.setHotkeyCapture(true);
     setPreview([]);
+    setError(null);
     setCapturing(true);
     lastModifierRef.current = null;
     requestAnimationFrame(() => { btnRef.current?.focus(); });
@@ -62,22 +59,21 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
       e.stopPropagation();
       if (e.key === "Escape") { stopCapture(); return; }
 
-      const mods: string[] = [];
-      if (e.metaKey)  mods.push("Cmd");
-      if (e.ctrlKey)  mods.push("Ctrl");
-      if (e.altKey)   mods.push("Option");
-      if (e.shiftKey) mods.push("Shift");
-
       if (MODIFIER_KEYS.has(e.key)) {
-        const label = keyToLabel(e.key);
+        const label = MODIFIER_LABELS[e.key] ?? e.key;
         lastModifierRef.current = label;
+        setError(null);
         setPreview([label]);
         return;
       }
 
-      const parts = [...mods, keyToLabel(e.key)];
-      setPreview(parts);
-      onChange(parts.join("+"));
+      const result = hotkeyFromKeyEvent(e);
+      if (!result.ok) {
+        setError(result.message);
+        setPreview([]);
+        return;
+      }
+      onChange(result.hotkey);
       stopCapture();
     };
 
@@ -87,8 +83,10 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
       if (MODIFIER_KEYS.has(e.key) && lastModifierRef.current) {
         const stillHeld = [e.metaKey, e.ctrlKey, e.altKey, e.shiftKey].filter(Boolean).length;
         if (stillHeld === 0) {
-          onChange(lastModifierRef.current);
-          stopCapture();
+          const result = parseHotkey(lastModifierRef.current);
+          lastModifierRef.current = null;
+          setPreview([]);
+          if (!result.ok) setError(result.message);
         }
       }
     };
@@ -145,6 +143,8 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
           Use Fn key
         </button>
       )}
+
+      {error && <p className="text-xs text-red-500/80">{error}</p>}
     </div>
   );
 }
