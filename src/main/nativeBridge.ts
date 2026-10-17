@@ -26,6 +26,7 @@ export interface PasteboardEntry {
 }
 
 export type PasteboardItem = PasteboardEntry[];
+export type PasteboardWriteResult = number | { failedChangeCount: number } | null;
 
 interface NativeBridge {
   isAccessibilityTrusted?: () => boolean;
@@ -34,7 +35,7 @@ interface NativeBridge {
   typeText?: (text: string) => boolean;
   getClipboardChangeCount?: () => number;
   readPasteboard?: (maxBytes: number) => PasteboardItem[] | null;
-  writePasteboard?: (items: PasteboardItem[]) => number | null;
+  writePasteboard?: (items: PasteboardItem[]) => PasteboardWriteResult;
   getFocusedSelection?: () => SelectionRange | null;
   getFocusedValue?: () => string | null;
   getFocusedElementIdentity?: () => string | null;

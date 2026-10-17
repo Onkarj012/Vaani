@@ -540,7 +540,7 @@ Napi::Value ReadPasteboard(const Napi::CallbackInfo& info) {
   }
 }
 
-// Replaces the pasteboard with the given items. Returns the new change count, or null if the write failed.
+// Replaces the pasteboard, returning its count or the clearing count on failure.
 Napi::Value WritePasteboard(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1 || !info[0].IsArray()) {
@@ -562,8 +562,12 @@ Napi::Value WritePasteboard(const Napi::CallbackInfo& info) {
       }
       if (entries.Length() > 0) [pasteboardItems addObject:item];
     }
-    [pasteboard clearContents];
-    if ([pasteboardItems count] > 0 && ![pasteboard writeObjects:pasteboardItems]) return env.Null();
+    const NSInteger clearedChangeCount = [pasteboard clearContents];
+    if ([pasteboardItems count] > 0 && ![pasteboard writeObjects:pasteboardItems]) {
+      Napi::Object failure = Napi::Object::New(env);
+      failure.Set("failedChangeCount", Napi::Number::New(env, clearedChangeCount));
+      return failure;
+    }
     return Napi::Number::New(env, [pasteboard changeCount]);
   }
 }

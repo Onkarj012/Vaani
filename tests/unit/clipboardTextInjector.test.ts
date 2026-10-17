@@ -86,7 +86,7 @@ const bridge = vi.hoisted(() => ({
     if (clearThenFailOnce) {
       clearThenFailOnce = false;
       storeItems([]);
-      return null;
+      return { failedChangeCount: pasteboardChangeCount };
     }
     // A refused write reports a new change count without storing anything, like a helper that lies.
     if (refuseClipboardWrite) {
@@ -565,6 +565,27 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
     await expect(attempt).resolves.toEqual({ success: false, reason: "insertion_failed" });
     expect(pasteboard).toEqual(original);
     expect(bridge.pasteText).not.toHaveBeenCalled();
+  });
+
+  it("keeps a new user copy made while verifying the dictated text", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { clipboard } = await import("electron");
+    const read = vi.spyOn(clipboard, "readText").mockImplementationOnce(() => {
+      storeItems(textItems("userCopy"));
+      return clipboardText();
+    });
+
+    try {
+      const attempt = new ClipboardTextInjector().inject("dictated", chromeTarget);
+      await vi.runAllTimersAsync();
+
+      await expect(attempt).resolves.toEqual({ success: false, reason: "insertion_failed" });
+      expect(clipboardText()).toBe("userCopy");
+      expect(writes.filter((write) => write.value === "original")).toHaveLength(0);
+      expect(bridge.pasteText).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+    }
   });
 
   it("restores every pasteboard format and item, not only plain text", async () => {
