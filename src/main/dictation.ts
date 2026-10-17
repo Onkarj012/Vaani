@@ -50,7 +50,7 @@ import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDe
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
-import { NO_API_KEY_REASON, NO_PROVIDER_REASON } from "./providers/formatting-constants";
+import { FORMATTER_KEY_REJECTED_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON } from "./providers/formatting-constants";
 import { formatBuildIdentifier } from "@shared/buildIdentifier";
 import { evaluateInsertionAcceptance } from "@shared/insertionAcceptance";
 import { resolveProfileLanguage } from "@main/providers/language";
@@ -62,7 +62,6 @@ import { intendedInjectionStrategy } from "./injection/policy";
 import { createDictationBugReport } from "./dictationBugReport";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
-const LIVE_FORMATTING_TIMEOUT_MS = 1_500;
 const REFORMAT_TIMEOUT_MS = 20_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
@@ -546,7 +545,7 @@ export class DictationService {
         await this.transitionRecovery(payload.sessionId, "formatting", { text: { cleanedText: correctedText }, signal: operationSignal });
         const formattingStartedAt = Date.now();
         if (!electron.app.isPackaged && process.env.VAANI_DEV_FORCE_FORMAT_TIMEOUT === "1") throw new TranscriptionDeadlineExceededError();
-        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + LIVE_FORMATTING_TIMEOUT_MS, snapshot, language);
+        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + liveFormattingTimeoutMs(snapshot?.formattingProvider), snapshot, language);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
         formattedText = formatTrace.text;
         void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
@@ -2096,8 +2095,14 @@ const NOTHING_TO_INSERT_MESSAGE = "Nothing to insert. The transcript was empty a
 const FORMAT_NOTICE = "Formatting did not apply. Inserted the unformatted text.";
 const FORMAT_PARTIAL_NOTICE = "Formatting applied only in part. Some text was inserted unformatted.";
 
+// Groq formats fast. Slower providers get a longer live deadline so their reply is not cut off. An unset provider means Groq.
+export function liveFormattingTimeoutMs(provider: string | undefined): number {
+  return (provider ?? "groq-llm") === "groq-llm" ? 1_500 : 3_500;
+}
+
 // Short warning added to the insert message when formatting did not apply. Offline and too-short skips get no warning.
 function formatNoticeFor(trace: FormatTranscriptTraceResult): string | null {
+  if (trace.formatterStatusReason === FORMATTER_KEY_REJECTED_REASON) return FORMATTER_KEY_REJECTED_REASON;
   if (trace.partiallyFormatted) return FORMAT_PARTIAL_NOTICE;
   if (trace.formatterStatus === "failed" || trace.formatterStatus === "rejected") return FORMAT_NOTICE;
   const formatterUnavailable = trace.formatterStatusReason === NO_API_KEY_REASON || trace.formatterStatusReason === NO_PROVIDER_REASON;
