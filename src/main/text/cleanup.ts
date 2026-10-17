@@ -286,10 +286,9 @@ function addFinalPunctuation(text: string): string {
   // Strip a dangling list comma/semicolon so it becomes a period, not "press,.".
   const trimmed = text.trimEnd().replace(/[,;]+$/, "");
   if (!trimmed || /[.?!:…]$/.test(trimmed)) return trimmed;
-  // Titles, "St." and "vs." sit mid-sentence; suffixes like "Jr." and "Main St." (Street) can end one.
+  // Titles, "St." (Saint) and "vs." sit mid-sentence; suffixes like "Jr." can end one.
   const sentence = trimmed
-    .replace(/\b(Mr|Mrs|Ms|Dr|Prof|vs)\.(?=\s)/gi, "$1")
-    .replace(/(?<![A-Z][\w'-]*\s)\b(St)\.(?=\s)/g, "$1")
+    .replace(/\b(Mr|Mrs|Ms|Dr|Prof|St|vs)\.(?=\s)/gi, "$1")
     .split(/(?<=[.?!…])\s+/).pop() ?? trimmed;
   return `${trimmed}${isQuestionSentence(sentence) ? "?" : "."}`;
 }
