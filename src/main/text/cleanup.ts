@@ -260,9 +260,9 @@ function capitalizeLine(text: string): string {
   return text.replace(/^(\s*(?:[-*•]\s+|\d+[.)]\s+)?)([a-z])/, (_, prefix: string, first: string) => `${prefix}${first.toUpperCase()}`);
 }
 
-const WH_QUESTION = /^(?:(?:what|why|how|where|when|whom|whose)(?:'s|'re|\s+(?:is|are|was|were|am|do|does|did|can|could|would|should|will|shall|may|might|has|have|had|about|if|else|[a-z]+n't)\b)|who\s+\w|which\s+\w|how\s+(?:many|much|long|often|far|come)\b)/i;
-// "What is needed is X" opens like a question but is a statement.
-const WH_STATEMENT = /^what\s+(?:is|was)\s+\w+(?:\s+\w+)?\s+(?:is|was)\b/i;
+const WH_QUESTION = /^(?:(?:what|why|how|where|when|who|whom|whose)(?:'s|'re|\s+(?:is|are|was|were|am|do|does|did|can|could|would|should|will|shall|may|might|has|have|had|about|if|else|[a-z]+n't)\b)|who\s+\w|which\s+\w|how\s+(?:many|much|long|often|far|come)\b)/i;
+// Common "What is needed ... is X" statements can have long subject clauses.
+const WH_STATEMENT = /^what\s+(?:is|was)\s+(?:needed|required|missing)(?:\s+[\w'-]+)*\s+(?:is|was)\b/i;
 // "do" and "have" also start imperatives ("Do this", "Have a look"), so only pronoun subjects count. "may" questions ask permission.
 const AUX_QUESTION = /^(?:(?:is|are|am|was|were|does|did|can|could|would|should|will|shall|has|had|isn't|aren't|doesn't|didn't|can't|couldn't|won't|wouldn't|shouldn't|hasn't)\s+(?:you|i|we|they|he|she|it|there|this|that|these|those|the|a|an|my|your|our|their|his|her|its|anyone|anybody|someone|somebody|everyone|any)\b|(?:do|have|don't|haven't)\s+(?:you|i|we|they|he|she|there)\b|(?:may|might)\s+(?:i|we)\b)/i;
 const SPOKEN_FILE_EXTENSIONS = "ts|tsx|js|jsx|mjs|cjs|json|md|mdx|py|go|java|kt|rs|c|cc|cpp|h|hpp|mm|m|swift|rb|php|css|scss|html|yml|yaml|toml|sh|zsh|txt|sql|env|lock|xml|csv";
@@ -286,7 +286,10 @@ function addFinalPunctuation(text: string): string {
   // Strip a dangling list comma/semicolon so it becomes a period, not "press,.".
   const trimmed = text.trimEnd().replace(/[,;]+$/, "");
   if (!trimmed || /[.?!:…]$/.test(trimmed)) return trimmed;
-  const sentence = trimmed.split(/(?<=[.?!…])\s+/).pop() ?? trimmed;
+  // Ignore common abbreviation periods only while finding the final sentence.
+  const sentence = trimmed
+    .replace(/\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs)\.(?=\s)/gi, "$1")
+    .split(/(?<=[.?!…])\s+/).pop() ?? trimmed;
   return `${trimmed}${isQuestionSentence(sentence) ? "?" : "."}`;
 }
 

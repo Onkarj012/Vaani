@@ -44,4 +44,36 @@ describe("question punctuation and spoken file names", () => {
   it("gives the LLM-fallback formatter a question mark too", () => {
     expect(deterministicFormat("what is this")).toBe("What is this?");
   });
+
+  it("distinguishes relative-clause questions from what-is statements", () => {
+    for (const [rawText, expected] of [
+      ["what is it that is failing", "What is it that is failing?"],
+      ["what is required for this task is a new tool", "What is required for this task is a new tool."],
+    ] satisfies [string, string][]) {
+      expect(cleanupText({ rawText, settings })).toBe(expected);
+      expect(deterministicFormat(rawText)).toBe(expected);
+    }
+  });
+
+  it("keeps common abbreviations inside the final question", () => {
+    for (const [rawText, expected] of [
+      ["how is Dr. Smith", "How is Dr. Smith?"],
+      ["send it. how is Mrs. Smith", "Send it. How is Mrs. Smith?"],
+      ["how is Dr. Smith? send it", "How is Dr. Smith? Send it."],
+    ] satisfies [string, string][]) {
+      expect(cleanupText({ rawText, settings })).toBe(expected);
+      expect(deterministicFormat(rawText)).toBe(expected);
+    }
+  });
+
+  it("recognizes short questions with contracted who openers", () => {
+    for (const [rawText, expected] of [
+      ["who's there", "Who's there?"],
+      ["who’s there", "Who’s there?"],
+      ["who're they", "Who're they?"],
+    ] satisfies [string, string][]) {
+      expect(cleanupText({ rawText, settings })).toBe(expected);
+      expect(deterministicFormat(rawText)).toBe(expected);
+    }
+  });
 });
