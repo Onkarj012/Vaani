@@ -47,6 +47,7 @@ let sourceNode: MediaStreamAudioSourceNode | null = null;
 let processorNode: PcmProcessorNode | null = null;
 let ringBuffer = new PcmRingBuffer(Math.floor(DEFAULT_INPUT_SAMPLE_RATE * PRE_ROLL_MS / 1000));
 let activeSessionId: string | null = null;
+let pendingStart: { sessionId: string; cancelled: boolean } | null = null;
 let previousInputDevice: number | null = null;
 let currentConfig: RecorderConfig = { preWarmMic: false };
 let captureConfigKey: string | null = null;
@@ -105,7 +106,10 @@ async function initializeRecorder(): Promise<void> {
   }
 }
 
+// Open capture unless the session is aborted while its input is being prepared.
 async function startRecording({ sessionId, config }: RecorderCommand): Promise<void> {
+  const start = { sessionId, cancelled: false };
+  pendingStart = start;
   try {
     currentConfig = normalizeConfig(config);
     sessionChunks = [];
@@ -116,7 +120,12 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
     resetSmoothedBars();
     previousInputDevice = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
-    await ensureWarmCapture(currentConfig);
+    if (!start.cancelled) await ensureWarmCapture(currentConfig);
+    if (start.cancelled) {
+      await cleanupSession();
+      await shutdownWarmCapture();
+      return;
+    }
 
     const sampleRate = audioContext?.sampleRate ?? DEFAULT_INPUT_SAMPLE_RATE;
     const preRoll = trimLeadingSilence(ringBuffer.snapshot(Math.floor(sampleRate * PRE_ROLL_MS / 1000)), sampleRate);
@@ -124,15 +133,18 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
       sessionChunks.push(preRoll);
     }
 
+    pendingStart = null;
     activeSessionId = sessionId;
     await window.__VAANI_RECORDER__.reportRecorderStarted(sessionId);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Microphone recording could not start.";
-    await reportFailure(sessionId, `Microphone recording could not start: ${message}`);
+    if (!start.cancelled) await reportFailure(sessionId, `Microphone recording could not start: ${message}`);
     await cleanupSession();
-    if (!currentConfig.preWarmMic) {
+    if (start.cancelled || !currentConfig.preWarmMic) {
       await shutdownWarmCapture();
     }
+  } finally {
+    if (pendingStart === start) pendingStart = null;
   }
 }
 
@@ -167,7 +179,12 @@ async function stopRecording(sessionId: string): Promise<void> {
   } });
 }
 
+// Cancel an opening session or shut down capture that is already recording.
 async function abortRecording(sessionId: string): Promise<void> {
+  if (pendingStart?.sessionId === sessionId) {
+    pendingStart.cancelled = true;
+    return;
+  }
   if (activeSessionId !== sessionId) return;
   await cleanupSession();
   await shutdownWarmCapture();

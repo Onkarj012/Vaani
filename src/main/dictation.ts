@@ -756,8 +756,8 @@ export class DictationService {
   }
 
   reportHotkeyUnavailable(message: string): void {
-    // Stop the mic first, so clearing the session never leaves capture running with no way to stop it.
-    if (this.activeSessionId && this.isLiveSession()) this.recorder?.stopRecording(this.activeSessionId);
+    // Cancel queued starts and active capture before clearing the session.
+    if (this.activeSessionId && this.isLiveSession()) this.recorder?.abortRecording?.(this.activeSessionId);
     this.clearTimers();
     const statusMessage = message;
     if (this.activeSessionId) void this.finishTrace(this.activeSessionId, "failed", "recorder_unavailable", statusMessage);
@@ -805,8 +805,6 @@ export class DictationService {
       injectionStatus: "injected",
       injectionMethod: result.method,
     }));
-    // A new dictation may have started during the History write. Leave its state alone.
-    if (generation !== this.sessionGeneration) return;
     if (entry.traceId) {
       void this.safeTraceOperation("retryEntry", entry.traceId, () =>
         this.traces?.updateById(entry.traceId ?? "", (trace) => ({
@@ -820,6 +818,8 @@ export class DictationService {
         }))
       );
     }
+    // A new dictation may have started during the History write. Leave its state alone.
+    if (generation !== this.sessionGeneration) return;
     const sessionId = this.createSessionId();
     this.setState({ status: "completed", sessionId, outcome: "injected", insertionOutcome: "verified", text: entry.cleanedText, message: "Inserted." });
     this.scheduleReset(SUCCESS_RESET_MS);
