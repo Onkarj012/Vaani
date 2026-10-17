@@ -47,7 +47,9 @@ let sourceNode: MediaStreamAudioSourceNode | null = null;
 let processorNode: PcmProcessorNode | null = null;
 let ringBuffer = new PcmRingBuffer(Math.floor(DEFAULT_INPUT_SAMPLE_RATE * PRE_ROLL_MS / 1000));
 let activeSessionId: string | null = null;
-let pendingStart: { sessionId: string; cancelled: boolean } | null = null;
+const pendingStarts = new Map<string, { cancelled: boolean }>();
+// Starts run one at a time, so a cancelled start never cleans up capture a newer start is using.
+let startQueue: Promise<void> = Promise.resolve();
 let previousInputDevice: number | null = null;
 let currentConfig: RecorderConfig = { preWarmMic: false };
 let captureConfigKey: string | null = null;
@@ -108,9 +110,14 @@ async function initializeRecorder(): Promise<void> {
 
 // Open capture unless the session is aborted while its input is being prepared.
 async function startRecording({ sessionId, config }: RecorderCommand): Promise<void> {
-  const start = { sessionId, cancelled: false };
-  pendingStart = start;
+  const start = { cancelled: false };
+  pendingStarts.set(sessionId, start);
+  const previousStart = startQueue;
+  let finishStart = () => {};
+  startQueue = new Promise<void>((resolve) => { finishStart = resolve; });
+  await previousStart;
   try {
+    if (start.cancelled) return;
     currentConfig = normalizeConfig(config);
     sessionChunks = [];
     lastFrameAt = 0;
@@ -133,7 +140,7 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
       sessionChunks.push(preRoll);
     }
 
-    pendingStart = null;
+    pendingStarts.delete(sessionId);
     activeSessionId = sessionId;
     await window.__VAANI_RECORDER__.reportRecorderStarted(sessionId);
   } catch (error) {
@@ -144,7 +151,8 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
       await shutdownWarmCapture();
     }
   } finally {
-    if (pendingStart === start) pendingStart = null;
+    if (pendingStarts.get(sessionId) === start) pendingStarts.delete(sessionId);
+    finishStart();
   }
 }
 
@@ -181,8 +189,9 @@ async function stopRecording(sessionId: string): Promise<void> {
 
 // Cancel an opening session or shut down capture that is already recording.
 async function abortRecording(sessionId: string): Promise<void> {
-  if (pendingStart?.sessionId === sessionId) {
-    pendingStart.cancelled = true;
+  const pending = pendingStarts.get(sessionId);
+  if (pending) {
+    pending.cancelled = true;
     return;
   }
   if (activeSessionId !== sessionId) return;
