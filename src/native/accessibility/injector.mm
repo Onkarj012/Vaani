@@ -59,8 +59,12 @@ void PostKeyboardEvent(CGEventRef event) {
   CGEventPost(kCGHIDEventTap, event);
 }
 
-bool IsEditableFailure(AXError error) {
-  return error == kAXErrorAttributeUnsupported || error == kAXErrorNoValue || error == kAXErrorCannotComplete;
+// Written: the field changed. NotAttempted: no AX write happened. Uncertain: a write may have landed.
+enum class WriteOutcome { Written, NotAttempted, Uncertain };
+
+// Only an unsupported attribute is known to have left the field untouched.
+WriteOutcome ClassifySetError(AXError error) {
+  return error == kAXErrorAttributeUnsupported ? WriteOutcome::NotAttempted : WriteOutcome::Uncertain;
 }
 
 AXUIElementRef CopyFocusedElement() {
@@ -119,20 +123,21 @@ bool SetSelectedRange(AXUIElementRef element, CFRange selectedRange) {
   return result == kAXErrorSuccess;
 }
 
-bool ReplaceSelectedRange(AXUIElementRef element, NSString* text) {
+// Replaces the selection in the field's value and reports whether a write may have happened.
+WriteOutcome ReplaceSelectedRange(AXUIElementRef element, NSString* text) {
   CFTypeRef currentValue = nullptr;
   AXError valueResult = AXUIElementCopyAttributeValue(element, kAXValueAttribute, &currentValue);
   if (valueResult != kAXErrorSuccess || currentValue == nullptr || CFGetTypeID(currentValue) != CFStringGetTypeID()) {
     if (currentValue != nullptr) {
       CFRelease(currentValue);
     }
-    return false;
+    return WriteOutcome::NotAttempted;
   }
 
   CFRange selectedRange;
   if (!CopySelectedRange(element, &selectedRange)) {
     CFRelease(currentValue);
-    return false;
+    return WriteOutcome::NotAttempted;
   }
 
   NSString* existingText = (__bridge NSString*)currentValue;
@@ -141,23 +146,24 @@ bool ReplaceSelectedRange(AXUIElementRef element, NSString* text) {
   // Handle hint/placeholder text: check if field value matches placeholder attribute.
   // When a field shows hint text as its actual value, treat the field as empty
   // so the transcription replaces the hint instead of being prepended to it.
+  // An empty placeholder matches every value, so it must never count as a match.
   CFTypeRef placeholderValue = nullptr;
   AXError placeholderResult = AXUIElementCopyAttributeValue(element, kAXPlaceholderValueAttribute, &placeholderValue);
   if (placeholderResult == kAXErrorSuccess && placeholderValue != nullptr && CFGetTypeID(placeholderValue) == CFStringGetTypeID()) {
     NSString* placeholder = (__bridge NSString*)placeholderValue;
-    if ([existingText isEqualToString:placeholder] || [existingText hasPrefix:placeholder]) {
-      // Field value is placeholder text — treat as empty, replace full value
+    if ([placeholder length] > 0 && [existingText isEqualToString:placeholder]) {
+      // Field value is exactly its placeholder, so treat it as empty and replace the full value
       AXError setValueResult = AXUIElementSetAttributeValue(element, kAXValueAttribute, (__bridge CFTypeRef)text);
       CFRelease(placeholderValue);
       CFRelease(currentValue);
-      if (setValueResult == kAXErrorSuccess) {
-        CFRange caretRange;
-        caretRange.location = [text length];
-        caretRange.length = 0;
-        SetSelectedRange(element, caretRange);
-        return true;
+      if (setValueResult != kAXErrorSuccess) {
+        return ClassifySetError(setValueResult);
       }
-      return false;
+      CFRange caretRange;
+      caretRange.location = [text length];
+      caretRange.length = 0;
+      SetSelectedRange(element, caretRange);
+      return WriteOutcome::Written;
     }
   }
   if (placeholderValue != nullptr) {
@@ -171,7 +177,7 @@ bool ReplaceSelectedRange(AXUIElementRef element, NSString* text) {
   AXError setValueResult = AXUIElementSetAttributeValue(element, kAXValueAttribute, (__bridge CFTypeRef)updatedText);
   if (setValueResult != kAXErrorSuccess) {
     CFRelease(currentValue);
-    return false;
+    return ClassifySetError(setValueResult);
   }
 
   CFRange caretRange;
@@ -179,7 +185,7 @@ bool ReplaceSelectedRange(AXUIElementRef element, NSString* text) {
   caretRange.length = 0;
   SetSelectedRange(element, caretRange);
   CFRelease(currentValue);
-  return true;
+  return WriteOutcome::Written;
 }
 
 AudioDeviceID CopyDefaultInputDeviceID() {
@@ -315,25 +321,27 @@ Napi::Object InjectText(const Napi::CallbackInfo& info) {
   }
 
   NSString* text = [NSString stringWithUTF8String:info[0].As<Napi::String>().Utf8Value().c_str()];
-  if (ReplaceSelectedRange(focusedElement, text)) {
+  WriteOutcome replaced = ReplaceSelectedRange(focusedElement, text);
+  if (replaced == WriteOutcome::Written) {
     CFRelease(focusedElement);
     return SuccessResult(env);
+  }
+  if (replaced == WriteOutcome::Uncertain) {
+    CFRelease(focusedElement);
+    return FailureResult(env, "outcome_uncertain");
   }
 
   AXError selectedResult =
       AXUIElementSetAttributeValue(focusedElement, kAXSelectedTextAttribute, (__bridge CFTypeRef)text);
+  CFRelease(focusedElement);
   if (selectedResult == kAXErrorSuccess) {
-    CFRelease(focusedElement);
     return SuccessResult(env);
   }
 
-  CFRelease(focusedElement);
-
-  if (IsEditableFailure(selectedResult)) {
+  if (ClassifySetError(selectedResult) == WriteOutcome::NotAttempted) {
     return FailureResult(env, "no_editable_target");
   }
-
-  return FailureResult(env, "insertion_failed");
+  return FailureResult(env, "outcome_uncertain");
 }
 
 Napi::Value GetFocusedSelection(const Napi::CallbackInfo& info) {

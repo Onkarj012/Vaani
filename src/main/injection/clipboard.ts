@@ -9,6 +9,7 @@ import type { InjectionTarget } from "./index";
 import { isClipboardOnlyTarget, shouldPreferTypingInjection } from "./policy";
 import { activateTargetApp, isTargetFrontmost } from "./target";
 import type { InjectionBlockReason, InjectionGuard } from "./guard";
+import { moveCaretAfterInsertion, readFocusedSelection } from "./caret";
 
 const exec = promisify(execFile);
 let consecutiveFailures = 0;
@@ -20,7 +21,9 @@ const DISPATCH_TIMEOUT_MS = 20_000;
 // Clipboards larger than this keep only their plain text, so the snapshot stays bounded.
 export const PASTEBOARD_SNAPSHOT_MAX_BYTES = 50 * 1024 * 1024;
 const PLAIN_TEXT_TYPE = "public.utf8-plain-text";
+const CARET_SETTLE_MS = 300;
 let restoreGeneration = 0;
+let pendingCaretCheck: ReturnType<typeof setTimeout> | null = null;
 // The user's items, plus the change count our own write left on the pasteboard.
 let pendingRestore: { items: PasteboardItem[]; changeCount: number } | null = null;
 let injectionQueue: Promise<void> | null = null;
@@ -51,6 +54,8 @@ export class ClipboardTextInjector {
     const blockedAtStart = guard();
     if (blockedAtStart) return { success: false, reason: blockedAtStart };
     if (clipboardChangeCount() === null) return { success: false, reason: "insertion_failed" };
+    // A newer insert owns the caret now, so an older pending check must not move it.
+    if (pendingCaretCheck) { clearTimeout(pendingCaretCheck); pendingCaretCheck = null; }
     let snapshot: PasteboardItem[] | null = null;
     let generation = restoreGeneration;
     let ownedChangeCount: number | null = null;
@@ -65,6 +70,7 @@ export class ClipboardTextInjector {
       // Snapshot right before the first write, so a copy made during activation is the one kept.
       snapshot = readClipboardSnapshot();
       if (!snapshot) return { success: false, reason: "insertion_failed" };
+      const insertionStart = readFocusedSelection()?.location ?? target?.selection?.location;
       generation = ++restoreGeneration;
       const writeResult = writeClipboardItems(plainTextItems(text));
       // Keep ownership even on failure so cleanup cannot overwrite a newer user copy.
@@ -81,10 +87,17 @@ export class ClipboardTextInjector {
       if (isClipboardOnlyTarget(target)) {
         const blockedBeforeActivation = dispatchGuard();
         if (blockedBeforeActivation) return { success: false, reason: blockedBeforeActivation };
+        const insertionFieldIdentity = readFocusedElementIdentity();
         const outcome = await this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, markDispatch);
         if (outcome === "dispatched") {
           if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
           consecutiveFailures = 0;
+          // The paste lands asynchronously, so check the caret after the app applies it.
+          pendingCaretCheck = setTimeout(() => {
+            pendingCaretCheck = null;
+            if (dispatchGuard() || !insertionFieldIdentity || readFocusedElementIdentity() !== insertionFieldIdentity) return;
+            moveCaretAfterInsertion(text, insertionStart);
+          }, CARET_SETTLE_MS);
           return { success: true, method: "clipboard" };
         }
         if (outcome !== "failed") return { success: false, reason: outcome };
@@ -138,6 +151,7 @@ export class ClipboardTextInjector {
       if (pasted) {
         if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
         consecutiveFailures = 0;
+        moveCaretAfterInsertion(text, insertionStart);
         return { success: true, method: "clipboard" };
       }
       consecutiveFailures += 1;
@@ -222,6 +236,15 @@ async function runAppleScriptDispatch(action: string[], target: InjectionTarget 
       return "outcome_uncertain";
     }
   } catch { return "failed"; }
+}
+
+// Reads the focused field identity, or null when it cannot be verified.
+function readFocusedElementIdentity(): string | null {
+  try {
+    return nativeBridge.getFocusedElementIdentity?.() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function delay(ms: number): Promise<void> {

@@ -3,6 +3,7 @@ import { nativeBridge } from "../nativeBridge";
 import type { InjectionTarget } from "./index";
 import { activateTargetApp, isExternalTarget } from "./target";
 import type { InjectionGuard } from "./guard";
+import { moveCaretAfterInsertion, readFocusedSelection } from "./caret";
 
 export class AccessibilityTextInjector {
   isTrusted(): boolean {
@@ -16,42 +17,10 @@ export class AccessibilityTextInjector {
     const blockedAtStart = guard();
     if (blockedAtStart) return { success: false, reason: blockedAtStart };
 
-    let dispatched = false;
+    let invoked = false;
     try {
-      let activationSucceeded = false;
-      
-      if (isExternalTarget(target)) {
-        activationSucceeded = await activateTargetApp(target);
-        if (activationSucceeded) {
-          await delay(280);
-        }
-      }
-
-      // CRITICAL: Re-read selection immediately before injection if activation succeeded
-      // This ensures we have fresh caret position, not stale data from session start
-      let freshSelection = target?.selection;
-      if (activationSucceeded && nativeBridge.getFocusedSelection) {
-        try {
-          const currentSelection = nativeBridge.getFocusedSelection();
-          if (currentSelection && Number.isFinite(currentSelection.location)) {
-            // Only use fresh selection if it seems valid (not at position 0 when we expected elsewhere)
-            const oldLocation = target?.selection?.location ?? 0;
-            const newLocation = currentSelection.location;
-            
-            // If selection moved significantly or original was invalid, use fresh
-            if (Math.abs(newLocation - oldLocation) > 10 || oldLocation === 0) {
-              freshSelection = currentSelection;
-            }
-          }
-        } catch (e) {
-          // Could not re-read selection, proceed with original
-        }
-      }
-
-      // If activation failed or selection is untrustworthy (0,0 in a non-empty field), suggest fallback
-      const isSuspectSelection = freshSelection && freshSelection.location === 0 && freshSelection.length === 0;
-      if (!activationSucceeded && isSuspectSelection) {
-        return { success: false, reason: "activation_failed" };
+      if (isExternalTarget(target) && await activateTargetApp(target)) {
+        await delay(280);
       }
 
       // Use paste-fallback for multiline text — AX setValue flattens formatting
@@ -74,26 +43,24 @@ export class AccessibilityTextInjector {
       if (!nativeBridge.injectText) {
         return { success: false, reason: "insertion_failed" };
       }
-      onDispatch?.();
-      dispatched = true;
+      const insertionStart = readFocusedSelection()?.location ?? target?.selection?.location;
+      invoked = true;
       const result = nativeBridge.injectText(text);
+      // Native reports these before any write, so the field is untouched and fallback may run.
+      if (result.reason === "no_editable_target") return { success: false, reason: "no_editable_target" };
+      if (result.reason === "permission_missing") return { success: false, reason: "permission_missing" };
+
+      onDispatch?.();
       if (guard()) return { success: false, reason: "outcome_uncertain" };
-      if (!result) return { success: false, reason: "outcome_uncertain" };
-
-      if (typeof result === "boolean") {
-        if (result) {
-          return { success: true, method: "ax" };
-        }
-        return { success: false, reason: "outcome_uncertain" };
-      }
-
       if (result.success) {
+        moveCaretAfterInsertion(text, insertionStart);
         return { success: true, method: "ax" };
       }
-
       return { success: false, reason: "outcome_uncertain" };
     } catch (_error) {
-      return { success: false, reason: dispatched ? "outcome_uncertain" : "insertion_failed" };
+      if (!invoked) return { success: false, reason: "insertion_failed" };
+      onDispatch?.();
+      return { success: false, reason: "outcome_uncertain" };
     }
   }
 }
