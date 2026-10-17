@@ -286,9 +286,9 @@ function addFinalPunctuation(text: string): string {
   // Strip a dangling list comma/semicolon so it becomes a period, not "press,.".
   const trimmed = text.trimEnd().replace(/[,;]+$/, "");
   if (!trimmed || /[.?!:…]$/.test(trimmed)) return trimmed;
-  // Titles before a name never end a sentence; suffixes like "Jr." can, so they are left out.
+  // Titles, "St." and "vs." sit mid-sentence; suffixes like "Jr." can end one, so they are left out.
   const sentence = trimmed
-    .replace(/\b(Mr|Mrs|Ms|Dr|Prof)\.(?=\s)/gi, "$1")
+    .replace(/\b(Mr|Mrs|Ms|Dr|Prof|St|vs)\.(?=\s)/gi, "$1")
     .split(/(?<=[.?!…])\s+/).pop() ?? trimmed;
   return `${trimmed}${isQuestionSentence(sentence) ? "?" : "."}`;
 }

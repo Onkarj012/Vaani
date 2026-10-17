@@ -61,6 +61,8 @@ describe("question punctuation and spoken file names", () => {
       ["send it. how is Mrs. Smith", "Send it. How is Mrs. Smith?"],
       ["how is Dr. Smith? send it", "How is Dr. Smith? Send it."],
       ["send it to John Jr. is it ready", "Send it to John Jr. Is it ready?"],
+      ["where is St. Louis", "Where is St. Louis?"],
+      ["who won India vs. Australia", "Who won India vs. Australia?"],
     ] satisfies [string, string][]) {
       expect(cleanupText({ rawText, settings })).toBe(expected);
       expect(deterministicFormat(rawText)).toBe(expected);
