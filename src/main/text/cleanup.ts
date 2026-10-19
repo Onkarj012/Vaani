@@ -168,12 +168,9 @@ interface CueMatch {
   end: number;
 }
 
+// Turns spoken numbered items into a list. "new line" and "new paragraph" stay as words, the same as in the model's output.
 function applySpokenLayout(text: string, settings: Pick<Settings, "smartPunctuation">): string {
-  let next = text
-    .replace(/\s*\b(?:a\s+)?(?:new\s+paragraph|new\s+para)\b[,.!?;:]?\s*/gi, "\n\n")
-    .replace(/\s*\b(?:new\s+line|next\s+line)\b[,.!?;:]?\s*/gi, "\n");
-
-  next = applyEnumerationLayout(next);
+  const next = applyEnumerationLayout(text);
   if (!hasMultipleLines(next)) return text;
   return formatExplicitLayoutText(next, settings);
 }

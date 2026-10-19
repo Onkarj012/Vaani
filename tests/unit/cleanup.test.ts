@@ -166,7 +166,7 @@ describe("cleanupText", () => {
 
   it("uses dictionary rules for dictated proper nouns", () => {
     const result = cleanupText({
-      rawText: "the final word after the pause is BANI new paragraph the final sentence should end with the word google",
+      rawText: "the final word after the pause is BANI. the final sentence should end with the word google",
       settings: createSettings({
         customCorrections: [
           { spoken: "BANI", written: "Vaani" },
@@ -175,7 +175,7 @@ describe("cleanupText", () => {
       })
     });
 
-    expect(result).toBe("The final word after the pause is Vaani.\n\nThe final sentence should end with the word Google.");
+    expect(result).toBe("The final word after the pause is Vaani. The final sentence should end with the word Google.");
   });
 
   it("leaves unrelated words unchanged with plain and fuzzy dictionary rules", () => {
@@ -372,38 +372,22 @@ describe("cleanupText", () => {
     expect(result).toBe("Contact me.\nOnkarj012@gmail.com.\nThanks.");
   });
 
-  it("converts spoken paragraph and line break cues deterministically", () => {
+  it("keeps spoken paragraph and line cues as words", () => {
     const result = cleanupText({
       rawText: "intro sentence new paragraph first sentence should stay simple new line this should appear fresh new para final sentence",
       settings: createSettings()
     });
 
-    expect(result).toBe([
-      "Intro sentence.",
-      "",
-      "First sentence should stay simple.",
-      "This should appear fresh.",
-      "",
-      "Final sentence.",
-    ].join("\n"));
-  });
-
-  it("converts article-prefixed paragraph cues from STT artifacts", () => {
-    const result = cleanupText({
-      rawText: "important edge case a new paragraph here is another edge case",
-      settings: createSettings()
-    });
-
-    expect(result).toBe("Important edge case.\n\nHere is another edge case.");
+    expect(result).toBe("Intro sentence new paragraph first sentence should stay simple new line this should appear fresh new para final sentence.");
   });
 
   it("formats spoken point and number enumerations without breaking numeric prose", () => {
     const result = cleanupText({
       rawText: [
         "here are the things I want to test point one preserve every real word I say point two turn spoken enumeration into a real list point three do not add extra conclusions",
-        "new paragraph now test a numbered list number one open the app number two start recording number three speak softly for one sentence number four stop recording after a short pause",
-        "new paragraph I bought a number two pencil wrote point one percent in the margin and named the file Vani test notes",
-      ].join(" "),
+        "now test a numbered list number one open the app number two start recording number three speak softly for one sentence number four stop recording after a short pause",
+        "I bought a number two pencil wrote point one percent in the margin and named the file Vani test notes",
+      ].join("\n\n"),
       settings: createSettings()
     });
 
@@ -412,14 +396,14 @@ describe("cleanupText", () => {
       "",
       "1. Preserve every real word I say",
       "2. Turn spoken enumeration into a real list",
-      "3. Do not add extra conclusions",
+      "3. Do not add extra conclusions.",
       "",
       "Now test a numbered list.",
       "",
       "1. Open the app",
       "2. Start recording",
       "3. Speak softly for one sentence",
-      "4. Stop recording after a short pause",
+      "4. Stop recording after a short pause.",
       "",
       "I bought a number 2 pencil wrote point 1% in the margin and named the file Vani test notes.",
     ].join("\n"));

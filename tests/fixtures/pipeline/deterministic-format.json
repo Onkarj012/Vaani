@@ -42,24 +42,24 @@
     "expected": "One thing to remember."
   },
   {
-    "name": "formats a new line and smart punctuation",
+    "name": "keeps a spoken new line as words",
     "rawText": "first new line \"hello\" -- world",
     "settingsOverrides": {},
     "stage": "deterministicFormat",
-    "expected": "First.\n“hello” – world."
+    "expected": "First new line \"hello\" -- world."
   },
   {
-    "name": "formats a new paragraph and ellipsis",
+    "name": "keeps a spoken new paragraph as words",
     "rawText": "first new paragraph hello... world",
     "settingsOverrides": {},
     "stage": "deterministicFormat",
-    "expected": "First.\n\nHello… World."
+    "expected": "First new paragraph hello... World."
   },
   {
-    "name": "formats sequential paragraphs",
+    "name": "keeps sequential paragraph cues as words",
     "rawText": "first new paragraph second new paragraph third",
     "settingsOverrides": {},
     "stage": "deterministicFormat",
-    "expected": "First.\n\nSecond.\n\nThird."
+    "expected": "First new paragraph second new paragraph third."
   }
 ]
