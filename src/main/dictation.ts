@@ -1201,7 +1201,7 @@ export class DictationService {
     try {
       if (!settings.saveRecordings || !this.settings.get().saveRecordings) return null;
       const dir = settings.recordingsPath || join(homedir(), "Documents", "Vaani Recordings");
-      if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+      if (!existsSync(dir)) await mkdir(dir, { recursive: true, mode: 0o700 });
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = `vaani-recording-${timestamp}.wav`;
@@ -1227,7 +1227,8 @@ export class DictationService {
         buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
       }
       if (!this.settings.get().saveRecordings) return null;
-      await writeFile(filepath, buf);
+      // Voice audio is private: owner read/write only.
+      await writeFile(filepath, buf, { mode: 0o600 });
       if (!this.settings.get().saveRecordings) { await unlink(filepath); return null; }
       return filepath;
     } catch {

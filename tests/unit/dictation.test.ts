@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -352,6 +352,7 @@ describe("DictationService", () => {
       const files = await readdir(directory);
       expect(files).toHaveLength(count);
       expect(files.every((name) => name.endsWith(".wav"))).toBe(true);
+      for (const name of files) expect((await stat(join(directory, name))).mode & 0o777).toBe(0o600);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
