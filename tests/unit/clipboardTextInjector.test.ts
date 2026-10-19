@@ -120,6 +120,8 @@ const RESTORE_DELAY_MS = 1_200;
 
 describe("ClipboardTextInjector restore timing", () => {
   beforeEach(() => {
+    // Fresh injector module state (queue, last paste time) for every test.
+    vi.resetModules();
     vi.useFakeTimers();
     setClipboardText("");
     pasteboardChangeCount = 0;
@@ -257,6 +259,8 @@ describe("ClipboardTextInjector restore timing", () => {
 
 describe("ClipboardTextInjector dispatch safety", () => {
   beforeEach(() => {
+    // Fresh injector module state (queue, last paste time) for every test.
+    vi.resetModules();
     vi.useFakeTimers();
     setClipboardText("original");
     pasteboardChangeCount = 0;
@@ -386,6 +390,31 @@ describe("ClipboardTextInjector dispatch safety", () => {
     expect(dispatchedAt).not.toBeNull();
     // The old code slept 600 ms here after an already confirmed paste.
     expect(elapsed - (dispatchedAt ?? 0)).toBeLessThanOrEqual(20);
+  });
+
+  it("returns fast but keeps the next insert off the clipboard until the paste has landed", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const injector = new ClipboardTextInjector();
+    let elapsed = 0;
+    const dispatches: Array<{ text: string; at: number }> = [];
+    const clipboardWrites: number[] = [];
+    bridge.pasteText.mockImplementation((text: string) => { dispatches.push({ text, at: elapsed }); return true; });
+    let firstSettledAt: number | null = null;
+    const first = injector.inject("first", textEditTarget).finally(() => { firstSettledAt = elapsed; });
+    const second = injector.inject("second", textEditTarget);
+    const writesBefore = writes.length;
+    while (dispatches.length < 2 && elapsed < 5_000) {
+      await vi.advanceTimersByTimeAsync(10);
+      elapsed += 10;
+      if (writes.length > writesBefore + clipboardWrites.length) clipboardWrites.push(elapsed);
+    }
+    await Promise.all([first, second]);
+
+    expect(dispatches.map((d) => d.text)).toEqual(["first", "second"]);
+    const firstAt = dispatches[0]?.at ?? 0;
+    expect((firstSettledAt ?? Infinity) - firstAt).toBeLessThanOrEqual(20);
+    // The second text reaches the clipboard only after the first paste's 700 ms landing time.
+    expect(clipboardWrites[1] ?? 0).toBeGreaterThanOrEqual(firstAt + 700);
   });
 
   it("stops before dispatch when the focused target changes during the wait", async () => {
@@ -569,6 +598,8 @@ describe("ClipboardTextInjector dispatch safety", () => {
 
 describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
   beforeEach(() => {
+    // Fresh injector module state (queue, last paste time) for every test.
+    vi.resetModules();
     vi.useFakeTimers();
     setClipboardText("original");
     pasteboardChangeCount = 0;

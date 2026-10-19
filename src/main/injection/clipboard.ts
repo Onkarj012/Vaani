@@ -20,6 +20,10 @@ const DISPATCH_TIMEOUT_MS = 20_000;
 export const PASTEBOARD_SNAPSHOT_MAX_BYTES = 50 * 1024 * 1024;
 const PLAIN_TEXT_TYPE = "public.utf8-plain-text";
 const CARET_SETTLE_MS = 300;
+// Apps can read the pasteboard well after Cmd+V. An insert that follows a paste this
+// closely waits before writing the clipboard, so it can't swap the text being pasted.
+const PASTE_LANDING_MS = 700;
+let lastDispatchAt: number | null = null;
 let restoreGeneration = 0;
 let pendingCaretCheck: ReturnType<typeof setTimeout> | null = null;
 // The user's items, plus the change count our own write left on the pasteboard.
@@ -58,9 +62,10 @@ export class ClipboardTextInjector {
     let generation = restoreGeneration;
     let ownedChangeCount: number | null = null;
     let dispatchStarted = false;
-    const markDispatch = (): void => { dispatchStarted = true; onDispatch?.(); };
+    const markDispatch = (): void => { dispatchStarted = true; lastDispatchAt = Date.now(); onDispatch?.(); };
     const dispatchGuard: InjectionGuard = () => guard() ?? (ownedChangeCount !== null && clipboardChangeCount() !== ownedChangeCount ? "cancelled" : null);
     try {
+      await waitForPreviousPasteToLand();
       // Settle only after switching apps. A target already in front takes the clipboard write at once.
       if (await activateTargetApp(target)) await delay(180);
       const blockedBeforeWrite = dispatchGuard();
@@ -235,6 +240,14 @@ function readFocusedElementIdentity(): string | null {
   } catch {
     return null;
   }
+}
+
+// Waits out the rest of the previous paste's landing time, if any. Never longer than PASTE_LANDING_MS.
+async function waitForPreviousPasteToLand(): Promise<void> {
+  if (lastDispatchAt === null) return;
+  const remaining = Math.min(PASTE_LANDING_MS, lastDispatchAt + PASTE_LANDING_MS - Date.now());
+  lastDispatchAt = null;
+  if (remaining > 0) await delay(remaining);
 }
 
 function delay(ms: number): Promise<void> {
