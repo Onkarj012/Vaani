@@ -897,6 +897,82 @@ describe("DictationService", () => {
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", stages: { formatterUsed: "none", formatterReason: "timeout" } });
   });
 
+  it("releases the mic when the recorder start times out", () => {
+    const { service, recorder } = createDictationService();
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+
+    vi.advanceTimersByTime(5_000);
+
+    expect(service.getState().status).toBe("error");
+    expect(recorder.abortRecording).toHaveBeenCalledWith(sessionId);
+  });
+
+  it("shuts a mic that opens after its session ended", () => {
+    const { service, recorder } = createDictationService();
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.cancelSession();
+    recorder.abortRecording.mockClear();
+
+    service.reportRecorderStarted(sessionId);
+
+    expect(service.getState().status).toBe("idle");
+    expect(recorder.abortRecording).toHaveBeenCalledWith(sessionId);
+  });
+
+  it("leaves a newer session's capture alone when an old start lands late", () => {
+    const { service, recorder } = createDictationService();
+    service.beginHotkeySession();
+    const oldSessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.cancelSession();
+    service.beginHotkeySession();
+    const newSessionId = (service.getState() as { sessionId: string }).sessionId;
+    recorder.abortRecording.mockClear();
+
+    service.reportRecorderStarted(oldSessionId);
+
+    expect(recorder.abortRecording).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "starting", sessionId: newSessionId });
+  });
+
+  it("closes a recording at quit and finishes its trace", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, recorder } = createDictationService({ traces: traceDeps.traces });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+
+    await service.closeForQuit();
+
+    expect(recorder.abortRecording).toHaveBeenCalledWith(sessionId);
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
+  });
+
+  it("closes a transcription at quit without inserting late text", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
+    let resolveTranscription: ((result: TranscriptionResult) => void) | undefined;
+    transcription.transcribe.mockImplementation(() => new Promise((resolve) => { resolveTranscription = resolve; }));
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    const submission = service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(service.getState().status).toBe("transcribing");
+
+    await service.closeForQuit();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
+
+    resolveTranscription?.({ rawText: "late text", formattedText: "late text", language: "en" });
+    await submission;
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
   it("stale guard finishes trace with the stuck stage and a visible message", async () => {
     const traceDeps = createTraceDeps();
     const { service, transcription, injector, overlay } = createDictationService({ traces: traceDeps.traces });
@@ -914,7 +990,10 @@ describe("DictationService", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(service.getState().status).toBe("transcribing");
 
-    await vi.advanceTimersByTimeAsync(60_000);
+    // A 1 s clip gets 30 s STT + 20 s cleanup + 15 s grace before the guard fires.
+    await vi.advanceTimersByTimeAsync(64_999);
+    expect(service.getState().status).toBe("transcribing");
+    await vi.advanceTimersByTimeAsync(1);
     expect(service.getState()).toMatchObject({ status: "error", message: "Dictation stopped while transcribing. Please try again." });
     expect(overlay.setError).toHaveBeenCalled();
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "stale-session", stages: { staleStage: "transcribing", outcome: "failed" }, completedAt: expect.any(String) });

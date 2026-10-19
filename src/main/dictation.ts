@@ -66,6 +66,8 @@ const REFORMAT_TIMEOUT_MS = 20_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
+// Extra time past the transcription and cleanup deadlines before the stale guard ends a session.
+const STALE_GUARD_GRACE_MS = 15_000;
 const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 const EDIT_WATCH_INTERVAL_MS = 500;
 const EDIT_WATCH_TIMEOUT_MS = 60_000;
@@ -191,7 +193,8 @@ export class DictationService {
     }, UPTIME_LOG_INTERVAL_MS);
   }
 
-  private armStaleSessionGuard(sessionId: string): void {
+  // Ends a session that stops making progress. Long stages pass a longer timeout so their own deadlines win.
+  private armStaleSessionGuard(sessionId: string, timeoutMs = STALE_SESSION_TIMEOUT_MS): void {
     this.clearStaleSessionTimer();
     this.timers.setTimeout("staleSession", () => {
       const stage = this.state.status;
@@ -206,7 +209,7 @@ export class DictationService {
           this.failSession(sessionId, `Dictation stopped while ${stage}. Please try again.`, "stale-session", [], undefined, undefined, { stages: { staleStage: stage } });
         }
       }
-    }, STALE_SESSION_TIMEOUT_MS);
+    }, timeoutMs);
   }
 
   private rearmStaleSessionGuard(): void {
@@ -349,6 +352,9 @@ export class DictationService {
 
   reportRecorderStarted(sessionId: string): void {
     if (!this.isCurrentSession(sessionId) || this.state.status !== "starting") {
+      // A mic that opens after its session ended must not stay open. A newer
+      // session in capture already takes the recorder over, so leave it alone.
+      if (!this.isCaptureStage()) this.recorder?.abortRecording?.(sessionId);
       return;
     }
 
@@ -441,13 +447,14 @@ export class DictationService {
     await this.transitionRecovery(payload.sessionId, "transcribing");
     if (!this.isCurrentSession(payload.sessionId)) return;
     this.setState({ status: "transcribing", sessionId: payload.sessionId });
+    const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip);
+    this.armStaleSessionGuard(payload.sessionId, Math.max(STALE_SESSION_TIMEOUT_MS, transcriptionTimeoutMs + FORMATTING_TIMEOUT_MS + STALE_GUARD_GRACE_MS));
 
     const operationSignal = this.sessionAbortController?.signal;
     try {
       const appProfile = resolveAppProfile(settings.appProfiles ?? [], this.activeTarget?.appBundleId ?? null);
       const language = resolveProfileLanguage(appProfile?.language, settings.language);
       const sttStartedAt = Date.now();
-      const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip);
       const transcriptionDeadlineAt = sttStartedAt + transcriptionTimeoutMs;
       const qualityClip = preGainClip(payload.clip);
       const hintTerms = buildVocabularyTerms(settings);
@@ -1250,6 +1257,11 @@ export class DictationService {
   }
 
   // True while a dictation is starting, recording, finalizing, or transcribing.
+  // True while the recorder may hold the mic for the active session.
+  private isCaptureStage(): boolean {
+    return this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing";
+  }
+
   private isLiveSession(): boolean {
     return this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing" || this.state.status === "transcribing";
   }
@@ -1516,6 +1528,8 @@ export class DictationService {
 
   private failSession(sessionId: string, message: string, reason: DictationRejectionReason = "transcription_error", providerAttempts: ProviderAttemptTrace[] = [], signal?: AbortSignal, errorClass?: RecoveryErrorClass, tracePatch: Partial<DictationTrace> = {}): void {
     if (!this.isCurrentSession(sessionId)) return;
+    // Release the mic, including a start that is still opening.
+    if (this.isCaptureStage()) this.recorder?.abortRecording?.(sessionId);
     void this.transitionRecovery(sessionId, "recoverable", { error: { class: errorClass ?? recoveryErrorClass(reason), detail: message }, providerAttempts: providerAttempts.map(mapProviderAttempt), signal });
     this.clearRecorderStartTimer();
     this.clearAudioFrameTimer();
@@ -1529,6 +1543,7 @@ export class DictationService {
 
   private resetToIdle(): void {
     if (this.activeSessionId) {
+      if (this.isCaptureStage()) this.recorder?.abortRecording?.(this.activeSessionId);
       this.historyWrites.delete(this.activeSessionId);
     }
     this.sessionAbortController?.abort("session-reset");
@@ -1589,6 +1604,23 @@ export class DictationService {
     this.clearStaleSessionTimer();
     this.clearEditWatch();
     this.clearUptimeLogging();
+  }
+
+  // Ends an in-flight dictation at quit so its trace is not left "started" and a ready transcript reaches History.
+  async closeForQuit(): Promise<void> {
+    const sessionId = this.activeSessionId;
+    if (!sessionId || !this.isLiveSession()) return;
+    const stage = this.isCaptureStage() ? "recording" : "processing";
+    this.clearTimers();
+    if (this.isCaptureStage()) this.recorder?.abortRecording?.(sessionId);
+    this.sessionAbortController?.abort("app-quit");
+    if (this.activeInsertionDispatched && this.activePreparedEntry) {
+      await this.settleInterruptedInsertion(sessionId);
+      return;
+    }
+    const saved = this.activePreparedEntry ? await this.persistHistoryOnce(sessionId, this.activePreparedEntry) : false;
+    const outcome: DictationInsertionOutcome = this.activeInsertionPrepared ? "refused" : "failed";
+    await this.finishTrace(sessionId, outcome, "cancelled", insertionStatusText(outcome, saved, stage));
   }
 
   async flushRecovery(): Promise<void> {

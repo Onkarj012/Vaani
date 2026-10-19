@@ -695,6 +695,7 @@ app.on("second-instance", () => { log("second-instance:focus"); showMainWindow()
 
 app.on("before-quit", createQuitHandler({
   flush: async () => {
+    await dictationService?.closeForQuit();
     await dictationService?.flushRecovery();
     await lifecycleCoordinator?.flush();
     await recoveryJournal?.flush();
