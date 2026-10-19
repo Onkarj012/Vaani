@@ -14,7 +14,9 @@ describe("applySelfCorrections", () => {
     ["He said no, Ravi is fine.", "He said no, Ravi is fine."],
     ["meet Monday no wait next Tuesday", "meet Monday no wait next Tuesday"],
     ["Send it by friday, no, the report first.", "Send it by friday, no, the report first."],
-    ["Set it to 3.5, no wait, 4.5.", "Set it to 3.5, no wait, 4.5."],
+    ["Set it to 3.5, no wait, 4.5.", "Set it to 4.5."],
+    ["Set the timer to 3.5, no, 4.5 minutes.", "Set the timer to 4.5 minutes."],
+    ["I called John, sorry, Mike was busy.", "I called John, sorry, Mike was busy."],
     ["Please make that Monday.", "Please make that Monday."],
     ["Version 1.2. Meet at 3, no wait, 4.", "Version 1.2. Meet at 4."],
   ])("%s", (raw, expected) => {
