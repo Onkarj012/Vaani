@@ -1,6 +1,6 @@
 # Transcription A/B test
 
-This is a dev-only tool. It runs your own recorded clips through each OpenRouter transcription model and prints how each one did. Use it to pick the default transcription model on your voice.
+This is a dev-only tool. It runs your own recorded clips through each OpenRouter and Groq transcription model and prints how each one did. Use it to pick the default transcription model on your voice.
 
 The clips and results stay in `ab-test/`, which git ignores.
 
@@ -52,13 +52,14 @@ Set the key in your own shell. Do not save it in a file in the repo.
 
 ```bash
 export OPENROUTER_API_KEY=your-key-here
+export GROQ_API_KEY=your-key-here
 bun scripts/ab-transcription.ts
 ```
 
 Options:
 
 - `--dir <folder>` uses another folder. The default is `ab-test`.
-- `--models <id,id>` runs only some models, for example `--models openai/gpt-transcribe,mistralai/voxtral-mini-transcribe`. Without this flag the script runs every OpenRouter transcription model in `src/shared/modelList.ts`.
+- `--models <id,id>` runs only some models, for example `--models openai/gpt-transcribe,mistralai/voxtral-mini-transcribe`. Without this flag the script runs every OpenRouter and Groq transcription model in `src/shared/modelList.ts`. Groq gets the hints as its Whisper prompt, the way Vaani sends them.
 
 The script runs one clip at a time, so a full run makes about 30 calls per model. Each run writes two files:
 
