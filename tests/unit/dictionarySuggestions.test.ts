@@ -80,4 +80,28 @@ describe("detectDictionarySuggestions", () => {
   it("no prompt when edit distance too large (unrelated rewrite)", () => {
     expect(detectDictionarySuggestions("hello everyone", "goodbye world")).toEqual([]);
   });
+
+  it("rejects typed-continuation artifacts (word + punctuation-joined keystrokes)", () => {
+    // User kept typing after the inserted dictation: "GitHub." + "a" merges
+    // into one token and must never become the rule GitHub → GitHub.a.
+    expect(detectDictionarySuggestions("push it to GitHub.", "push it to GitHub.a")).toEqual([]);
+    expect(detectDictionarySuggestions("see the CLAUDE file", "see the CLAUDE.m file")).toEqual([]);
+  });
+
+  it("rejects common-word spoken triggers", () => {
+    // "on" → "Onk" is phonetically close and Onk looks name-like, but a rule
+    // triggered by "on" would rewrite nearly every future dictation.
+    expect(detectDictionarySuggestions("meet on Monday", "meet Onk Monday")).toEqual([]);
+    expect(detectDictionarySuggestions("take a break", "take Aan break")).toEqual([]);
+  });
+
+  it("rejects spoken triggers shorter than three characters", () => {
+    expect(detectDictionarySuggestions("use js here", "use Jas here")).toEqual([]);
+  });
+
+  it("still learns genuine proper-noun corrections after gate hardening", () => {
+    expect(detectDictionarySuggestions("ask Bani about it", "ask Vaani about it")).toEqual([
+      { spoken: "Bani", written: "Vaani" }
+    ]);
+  });
 });

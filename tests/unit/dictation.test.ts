@@ -2376,6 +2376,34 @@ describe("DictationService", () => {
     });
   });
 
+  it("treats typing after the inserted text as new writing, not a correction", async () => {
+    const { service, overlay, settings } = createDictationService();
+    const nativeBridge = await import("@main/nativeBridge");
+    const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("Open get hub.")
+      .mockReturnValueOnce("Open get hub.")
+      .mockReturnValue("Open get hub.a");
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
+    expect(settings.update).not.toHaveBeenCalledWith(expect.objectContaining({ customCorrections: expect.anything() }));
+  });
+
   it("keeps watching long enough for a delayed manual correction", async () => {
     const { service, overlay, settings, transcription } = createDictationService();
     transcription.transcribe.mockResolvedValue({
