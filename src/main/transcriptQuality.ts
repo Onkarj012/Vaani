@@ -39,12 +39,15 @@ const NO_SPEECH_REASONS = new Set([
   "known-hallucination-phrase",
   "provider-no-speech-probability",
   "script-mismatch-quiet-audio",
+  "vocabulary-hint-echo",
 ]);
 
+// Decides whether a transcript may be inserted. hints are the dictionary words sent to the provider with the clip.
 export function decideTranscriptInsertion(
   rawText: string,
   clip: Pick<AudioClip, "rmsFrames">,
   quality?: TranscriptionQualityMetadata,
+  hints: readonly string[] = [],
 ): TranscriptQualityDecision {
   const text = rawText.trim();
   if (!text) return { action: "reject", reason: "empty-transcript" };
@@ -54,6 +57,8 @@ export function decideTranscriptInsertion(
   if (!compact) return { action: "reject", reason: "empty-transcript" };
 
   const normalized = tokens.join(" ").toLowerCase();
+  // On unclear audio Whisper can return the hint list it was given ("Onkar, CLAUDE.md, Unslop") instead of the speech.
+  if (isHintEcho(tokens, hints)) return { action: "retry", reason: "vocabulary-hint-echo" };
   const lowSpeechAudio = looksLikeLowSpeechAudio(clip);
   const lowConfidence = hasLowProviderConfidence(quality);
 
@@ -97,6 +102,22 @@ export function finalizeTranscriptDecision(decision: TranscriptQualityDecision):
     return { action: "save", reason: decision.reason };
   }
   return { action: "insert", reason: decision.reason };
+}
+
+// True when the transcript is nothing but two or more of the hint terms, the way Whisper echoes its prompt.
+function isHintEcho(tokens: readonly string[], hints: readonly string[]): boolean {
+  const termTokens = hints
+    .map(hint => (hint.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)?/gu) ?? []).map(token => token.toLowerCase()))
+    .filter(term => term.length > 0);
+  const words = tokens.map(token => token.toLowerCase());
+  let matched = 0;
+  for (let index = 0; index < words.length;) {
+    const term = termTokens.find(candidate => candidate.every((token, offset) => words[index + offset] === token));
+    if (!term) return false;
+    matched += 1;
+    index += term.length;
+  }
+  return matched >= 2;
 }
 
 function hasLowProviderConfidence(quality: TranscriptionQualityMetadata | undefined): boolean {

@@ -46,7 +46,7 @@ import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
 import { applyDictionary, cleanupText, hasSpokenContent, removeSpeechNoise, stripSoundTags } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
-import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
+import { buildVocabularyTerms, getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
@@ -450,6 +450,7 @@ export class DictationService {
       const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip);
       const transcriptionDeadlineAt = sttStartedAt + transcriptionTimeoutMs;
       const qualityClip = preGainClip(payload.clip);
+      const hintTerms = buildVocabularyTerms(settings);
       const transcription = await this.transcription.transcribe(payload.clip, {
         sessionSettings: snapshot,
         speechContext: { trimmedDurationSeconds: validationClip.durationSeconds, speechGatePassed: speechGate.decision === "speech" },
@@ -458,11 +459,11 @@ export class DictationService {
           retryClip: validationClip,
           deadlineAt: transcriptionDeadlineAt,
           signal: operationSignal,
-        rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, qualityClip, result.quality).action === "retry",
+        rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, qualityClip, result.quality, hintTerms).action === "retry",
       });
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
       void this.patchTrace(payload.sessionId, { sttDoneAt: new Date().toISOString() });
-      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, qualityClip, transcription.quality));
+      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, qualityClip, transcription.quality, hintTerms));
       await this.transitionRecovery(payload.sessionId, "transcript_ready", {
         text: { rawTranscript: transcription.rawText },
         providerAttempts: transcription.providerAttempts?.map(mapProviderAttempt),

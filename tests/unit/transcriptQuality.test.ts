@@ -103,3 +103,18 @@ describe("decideTranscriptInsertion", () => {
     });
   });
 });
+
+describe("vocabulary hint echo", () => {
+  const hints = ["Vaani", "Onkar", "CLAUDE.md", "Unslop", "Sol"];
+  const speech = { rmsFrames: new Array(50).fill(0.1) };
+
+  it("holds back a transcript that is only the hint list", () => {
+    expect(decideTranscriptInsertion("Onkar, CLAUDE.md, Unslop, Sol.", speech, undefined, hints)).toEqual({ action: "retry", reason: "vocabulary-hint-echo" });
+    expect(finalizeTranscriptDecision({ action: "retry", reason: "vocabulary-hint-echo" }).action).toBe("save");
+  });
+
+  it("inserts a single spoken hint word or real speech with hint words", () => {
+    expect(decideTranscriptInsertion("Vaani.", speech, undefined, hints).action).toBe("insert");
+    expect(decideTranscriptInsertion("Onkar opened CLAUDE.md today", speech, undefined, hints).action).toBe("insert");
+  });
+});
