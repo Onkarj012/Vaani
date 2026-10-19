@@ -12,7 +12,7 @@ describe("live formatting deadline", () => {
   it("gives Groq 1.5 seconds and every other formatter 3.5 seconds", () => {
     expect(liveFormattingTimeoutMs("groq-llm")).toBe(1_500);
     expect(liveFormattingTimeoutMs(undefined)).toBe(1_500);
-    expect(liveFormattingTimeoutMs("openrouter")).toBe(3_500);
+    expect(liveFormattingTimeoutMs("openrouter")).toBe(2_000);
     expect(liveFormattingTimeoutMs("anthropic")).toBe(3_500);
   });
 });

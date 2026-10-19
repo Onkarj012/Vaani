@@ -2134,9 +2134,12 @@ const NOTHING_TO_INSERT_MESSAGE = "Nothing to insert. The transcript was empty a
 const FORMAT_NOTICE = "Formatting did not apply. Inserted the unformatted text.";
 const FORMAT_PARTIAL_NOTICE = "Formatting applied only in part. Some text was inserted unformatted.";
 
-// Groq formats fast. Slower providers get a longer live deadline so their reply is not cut off. An unset provider means Groq.
+// Live formatting deadline per provider. An unset provider means Groq.
+// OpenRouter's default Haiku 5.5 answers in about 1.3 s at p90, so 2 s keeps release-to-done under the 3.5 s p90 goal.
 export function liveFormattingTimeoutMs(provider: string | undefined): number {
-  return (provider ?? "groq-llm") === "groq-llm" ? 1_500 : 3_500;
+  const id = provider ?? "groq-llm";
+  if (id === "groq-llm") return 1_500;
+  return id === "openrouter" ? 2_000 : 3_500;
 }
 
 // Short warning added to the insert message when formatting did not apply. Offline and too-short skips get no warning.
