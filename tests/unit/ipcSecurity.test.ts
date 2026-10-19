@@ -334,6 +334,29 @@ describe("IPC security boundaries", () => {
     }]);
   });
 
+  it("leaves Keychain alone while the settings file can't be saved", async () => {
+    const backend = new MemoryCredentialBackend();
+    const credentials = new CredentialsStore(backend);
+    await credentials.set("groq", "groq-secret");
+    settings.saveBlockedReason.mockReturnValue("Could not read settings.json (invalid JSON). The file was left unchanged.");
+    try {
+      const { registerIpcHandlers } = await import("@main/ipc");
+      registerIpcHandlers({
+        mainWindow: windowFor(mainSender), dictation, history, settings, credentials,
+        hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      });
+
+      await invokeHandlers.get(IpcChannel.SetProviderApiKey)?.({ sender: mainSender }, "openai", "openai-secret");
+      await invokeHandlers.get(IpcChannel.ClearProviderApiKey)?.({ sender: mainSender }, "groq");
+
+      expect(await credentials.has("openai")).toBe(false);
+      expect(await credentials.has("groq")).toBe(true);
+      expect(settings.update).not.toHaveBeenCalled();
+    } finally {
+      settings.saveBlockedReason.mockReturnValue(null);
+    }
+  });
+
   it("clears exactly the named provider credential", async () => {
     const backend = new MemoryCredentialBackend();
     const credentials = new CredentialsStore(backend);

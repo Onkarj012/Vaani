@@ -156,12 +156,6 @@ export default function AppLayout() {
           </header>
 
           {notification && <UpdateBanner notification={notification} onDismiss={dismiss} />}
-          {settingsSaveError && (
-            <div role="alert" className="fixed inset-x-4 top-4 z-[80] mx-auto flex max-w-2xl items-center justify-between gap-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 shadow-lg">
-              <span>Settings not saved. {settingsSaveError} Fix or move the file, then restart Vaani.</span>
-              <button aria-label="Dismiss settings error" onClick={dismissSettingsSaveError} className="shrink-0 rounded-full p-1 hover:bg-red-600/10"><span aria-hidden="true">×</span></button>
-            </div>
-          )}
           {restoredNotice && (
             <div className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-2xl bg-accent/10 px-4 py-3 text-sm text-accent lg:mx-12">
               <span>{restoredNotice.count} unfinished dictation{restoredNotice.count === 1 ? '' : 's'} restored. Nothing was inserted automatically.</span>
@@ -188,6 +182,13 @@ export default function AppLayout() {
         {showOpenRouterPrompt && <OpenRouterKeyPrompt updateSettings={updateSettings} />}
       </div>
       <PermissionGuard onBlockingChange={setPermissionsBlocked} />
+      {/* Outside the content wrapper's stacking context, so it shows above onboarding. */}
+      {settingsSaveError && (
+        <div role="alert" className="fixed inset-x-4 top-4 z-[80] mx-auto flex max-w-2xl items-center justify-between gap-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 shadow-lg">
+          <span>Settings not saved. {settingsSaveError} Fix or move the file, then restart Vaani.</span>
+          <button aria-label="Dismiss settings error" onClick={dismissSettingsSaveError} className="shrink-0 rounded-full p-1 hover:bg-red-600/10"><span aria-hidden="true">×</span></button>
+        </div>
+      )}
     </div>
   )
 }
