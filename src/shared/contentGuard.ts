@@ -68,8 +68,12 @@ const NUMBER_WORDS: ReadonlyMap<string, string> = new Map(Object.entries({
 const ORDINAL_NUMBERS: ReadonlyMap<string, string> = new Map([
   ["first", "1"], ["second", "2"], ["third", "3"], ["fourth", "4"], ["fifth", "5"],
   ["sixth", "6"], ["seventh", "7"], ["eighth", "8"], ["ninth", "9"], ["tenth", "10"],
-  ["firstly", "1"], ["secondly", "2"], ["thirdly", "3"],
+  ["eleventh", "11"], ["twelfth", "12"], ["thirteenth", "13"], ["fourteenth", "14"], ["fifteenth", "15"],
+  ["sixteenth", "16"], ["seventeenth", "17"], ["eighteenth", "18"], ["nineteenth", "19"], ["twentieth", "20"],
+  ["thirtieth", "30"], ["firstly", "1"], ["secondly", "2"], ["thirdly", "3"],
 ]);
+// Single words that open a correction ("3.5, no, 4.5"), for the guard path that cannot align.
+const CORRECTION_CUE_WORDS: ReadonlySet<string> = new Set(["no", "wait", "sorry", "actually", "rather", "mean"]);
 
 // Largest alignment table the guard builds. Longer diffs are compared as word counts instead.
 const MAX_ALIGN_CELLS = 1_000_000;
@@ -380,7 +384,7 @@ function isProtected(text: string): boolean {
 
 // True for digits and spelled-out numbers, including Hindi and Marathi number words.
 function isNumber(text: string): boolean {
-  return /^[+-]?\p{N}/u.test(text) || NUMBER_WORDS.has(text) || ORDINAL_NUMBERS.has(text) || isDevanagariNumberWord(text);
+  return /^[+-]?\.?\p{N}/u.test(text) || NUMBER_WORDS.has(text) || ORDINAL_NUMBERS.has(text) || isDevanagariNumberWord(text);
 }
 
 // The core sequence the stutter and correction rules read: words with their pause and sentence-boundary marks.
@@ -490,8 +494,10 @@ function isCorrection(run: readonly (string | null)[], { words, gone, pause, bou
   if (rest === 0) return cues.every(word => !isProtected(word));
   const replaced = run.slice(0, rest);
   // A number may be replaced by another number ("3.5, no, 4.5"). Negations and other numbers stay.
+  // Only the number right before the cue may go: "Version 2 supports 3, no, 4" keeps the 2.
   const replacementIsNumber = isNumber(words[end + 1] ?? "");
-  if (rest > MAX_REPLACED_WORDS || replaced.some(word => word !== null && isProtected(word) && !(replacementIsNumber && isNumber(word)))) return false;
+  const correctable = (word: string, index: number): boolean => replacementIsNumber && isNumber(word) && index === replaced.length - 1;
+  if (rest > MAX_REPLACED_WORDS || replaced.some((word, index) => word !== null && isProtected(word) && !correctable(word, index))) return false;
   if (!sameSentence(boundary, start, start + rest - 1)) return false;
   const firstCue = start + rest;
   // A replacement in the next sentence needs the cue to stand as its own sentence ("Priyanka, run... Sorry. Priya").
@@ -565,15 +571,16 @@ export function judgeFormatterReply(rawText: string, candidate: string, fillers:
     return { rejection, dropped: diff.missing, added: diff.added };
   }
   const sourceWords = inputUnits(rawText, fillers).units.flatMap(unit => (unit.kind === "filler" ? [] : unitWords(unit)));
-  // Too long to align: compare the words as counts instead, with no speech-noise allowance.
-  const { missing, added } = diff.rejection ? { missing: bagDifference(sourceWords, outputWordsOf(candidate)), added: bagDifference(outputWordsOf(candidate), sourceWords) } : diff;
+  // Too long to align: compare the words as counts instead. A number with a correction cue right after it may go.
+  const countedWords = diff.rejection ? withoutCorrectedNumbers(sourceWords) : sourceWords;
+  const { missing, added } = diff.rejection ? { missing: bagDifference(countedWords, outputWordsOf(candidate)), added: bagDifference(outputWordsOf(candidate), countedWords) } : diff;
   // A word that only moved is in both lists. Ordinals count as their numbers, so "second" may come back as "2".
   const dropped = bagDifference(missing, added);
   const newWords = bagDifference(added, missing);
   let rejection: string | null = null;
   if ([...dropped, ...newWords].some(isProtected)) rejection = CHANGED_MEANING_REASON;
   else if (newWords.length > MAX_NEW_WORDS) rejection = ADDED_WORDS_REASON;
-  else if (dropped.length > Math.max(1, sourceWords.length * MAX_DROPPED_SHARE)) rejection = DROPPED_WORDS_REASON;
+  else if (dropped.length > sourceWords.length * MAX_DROPPED_SHARE) rejection = DROPPED_WORDS_REASON;
   return { rejection, dropped, added: newWords };
 }
 
@@ -582,15 +589,33 @@ function outputWordsOf(candidate: string): string[] {
   return outputUnits(candidate).flatMap(unitWords);
 }
 
-// Words of a that are left after removing one copy of each word of b. Ordinals match their numbers.
+// Drops each number that a correction cue follows, and the cue, from a word list ("3.5 no 4.5" keeps "4.5").
+function withoutCorrectedNumbers(words: readonly string[]): string[] {
+  return words.filter((word, index) => {
+    const next = words[index + 1] ?? "";
+    if (isNumber(word) && CORRECTION_CUE_WORDS.has(next) && isNumber(words[index + 2] ?? "")) return false;
+    return !(CORRECTION_CUE_WORDS.has(word) && isNumber(words[index - 1] ?? "") && isNumber(next));
+  });
+}
+
+// The number an ordinal names ("second", "2nd" → "2"), or the word itself.
+function ordinalKey(word: string): string {
+  return ORDINAL_NUMBERS.get(word) ?? /^(\d+)(?:st|nd|rd|th)$/.exec(word)?.[1] ?? word;
+}
+
+// True when two words count as the same: equal, the same ordinal, or a Devanagari word and its Roman spelling.
+function sameBagWord(left: string, right: string): boolean {
+  if (ordinalKey(left) === ordinalKey(right)) return true;
+  return (isDevanagariWord(left) && soundsAlike(left, right)) || (isDevanagariWord(right) && soundsAlike(right, left));
+}
+
+// Words of a that are left after removing one matching copy of each word of b.
 function bagDifference(a: readonly string[], b: readonly string[]): string[] {
-  const key = (word: string): string => ORDINAL_NUMBERS.get(word) ?? word;
-  const counts = new Map<string, number>();
-  for (const word of b) counts.set(key(word), (counts.get(key(word)) ?? 0) + 1);
+  const remaining = [...b];
   return a.filter(word => {
-    const count = counts.get(key(word)) ?? 0;
-    if (count === 0) return true;
-    counts.set(key(word), count - 1);
+    const index = remaining.findIndex(other => sameBagWord(word, other));
+    if (index < 0) return true;
+    remaining.splice(index, 1);
     return false;
   });
 }
