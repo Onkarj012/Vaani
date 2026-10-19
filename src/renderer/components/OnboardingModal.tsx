@@ -12,12 +12,11 @@ import { hotkeyFromKeyEvent } from "@shared/hotkeys";
 import devanagariLightUrl from "../../../assets/iconset/devanagari/devanagari_light.svg?url";
 import devanagariDarkUrl from "../../../assets/iconset/devanagari/devanagari_dark.svg?url";
 import { useColorMode } from "../context/color-mode";
-import { decideProviderKeyDraft } from "@renderer/lib/providerKeyDraft";
+import { decideProviderKeyDraft, onboardingNeedsLlmKey } from "@renderer/lib/providerKeyDraft";
 import { Select } from "@/components/ui/Select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-const EXCLUDED_LLM_KEY_PROVIDERS = new Set(["openai-llm", "openrouter", "groq-llm"]);
 const TOTAL_SLIDES = 8;
 const ONBOARDING_LANGUAGES = [
   { value: "auto", label: "Auto-detect" },
@@ -183,7 +182,7 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
   const hasRequiredSttKey = !requiresApiKey || !!apiKey.trim() || hasConfiguredSttKey;
   const selectedLlmProvider = KNOWN_PROVIDERS.find((p) => p.id === settings.formattingProvider && p.type === "llm");
   const llmRequiresKey = selectedLlmProvider?.requiresApiKey !== false;
-  const llmNeedsOnboardingKey = llmRequiresKey && !EXCLUDED_LLM_KEY_PROVIDERS.has(selectedLlmProvider?.id ?? "");
+  const llmNeedsOnboardingKey = onboardingNeedsLlmKey(selectedLlmProvider?.id, settings.transcriptionProvider, llmRequiresKey);
   const hasConfiguredLlmKey = !!(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.formattingProvider)?.hasKey;
   const hasRequiredLlmKey = !llmNeedsOnboardingKey || !!llmApiKey.trim() || hasConfiguredLlmKey;
   const hasRequiredApiKey = hasRequiredSttKey && hasRequiredLlmKey;
@@ -355,8 +354,7 @@ function ProviderApiSlide({
   const activeProvider = sttProviders.find((p) => p.id === settings.transcriptionProvider);
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === "llm");
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider);
-  const showLlmKeyInput = activeLlm?.requiresApiKey !== false &&
-    (activeLlm?.id === "openrouter" ? settings.transcriptionProvider !== "openrouter" : !EXCLUDED_LLM_KEY_PROVIDERS.has(activeLlm?.id ?? ""));
+  const showLlmKeyInput = onboardingNeedsLlmKey(activeLlm?.id, settings.transcriptionProvider, activeLlm?.requiresApiKey !== false);
 
   return (
     <div className="flex flex-col items-center text-center">
