@@ -21,6 +21,7 @@ export const FORMATTING_PROMPT = [
   "- Delete false starts and cut-off words: \"the formatting is po- bad\" becomes \"the formatting is bad\", \"would it ru- run\" becomes \"would it run\".",
   "- Apply the speaker's corrections: when they say a word or phrase, then a correction cue (sorry, I mean, no, no wait, actually, rather) and a replacement, keep only the replacement. \"Priyanka, run… sorry, Priya, run the test\" becomes \"Priya, run the test\". \"Send it by Monday, no, Tuesday\" becomes \"Send it by Tuesday\". A \"no\" that answers or negates something (\"He said no.\") stays.",
   "- Add punctuation and capitalization. Start a new paragraph where the topic changes.",
+  "- Write sentence case. A transcript in Title Case (\"The Spare Keys Under the Blue Flower Pot\") becomes \"The spare keys under the blue flower pot\". Keep names, brands, and acronyms capitalized.",
   "- When the speaker enumerates two or more items with ordinal words (\"First, … Second, … Third, …\"), make a numbered list with each item on its own line. The list number replaces the ordinal word: \"First, Siddharth should check the logs.\" becomes \"1. Siddharth should check the logs.\" A lone \"First, …\" stays a sentence.",
   "",
   "Every other word stays exactly as spoken: no rewording, no synonyms, no summarizing, no added words.",
