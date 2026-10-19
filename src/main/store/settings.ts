@@ -154,7 +154,9 @@ export class SettingsStore {
     return next;
   }
 
+  // Throws, changing nothing, while an unreadable settings file blocks saving.
   update(patch: Partial<Settings>): Settings {
+    if (this.readError) throw this.readError;
     const next: Settings = { ...this.get(), ...patch, theme: "aurora" };
     if (patch.fillerWords !== undefined || patch.extraFillerWords !== undefined) {
       next.fillerWordsCustomized = true;
@@ -185,10 +187,7 @@ export class SettingsStore {
     }
     this.pendingWrite = this.pendingWrite
       .catch(() => undefined)
-      .then(() => {
-        if (this.readError) throw this.readError;
-        return writeJsonFile(this.filePath, persisted);
-      });
+      .then(() => writeJsonFile(this.filePath, persisted));
     void this.pendingWrite.catch((err) => {
       error("settings", `Failed to persist settings to ${this.filePath}: ${err instanceof Error ? err.message : String(err)}`);
     });

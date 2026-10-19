@@ -93,6 +93,8 @@ describe("detectDictionarySuggestions", () => {
     // triggered by "on" would rewrite nearly every future dictation.
     expect(detectDictionarySuggestions("meet on Monday", "meet Onk Monday")).toEqual([]);
     expect(detectDictionarySuggestions("take a break", "take Aan break")).toEqual([]);
+    expect(detectDictionarySuggestions("we can do it", "we Cane do it")).toEqual([]);
+    expect(detectDictionarySuggestions("I know how", "I know Howe")).toEqual([]);
   });
 
   it("rejects spoken triggers shorter than three characters", () => {

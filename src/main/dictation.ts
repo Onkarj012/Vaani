@@ -1187,7 +1187,7 @@ export class DictationService {
 
     const current = this.settings.get().snippets ?? [];
     if (current.some((snippet) => snippet.trigger.toLowerCase() === trigger.toLowerCase())) return;
-    this.settings.update({ snippets: [...current, { trigger, content }] });
+    this.updateSettingsQuietly({ snippets: [...current, { trigger, content }] }, "snippet");
   }
 
   navigateToHistoryEntry(entryId: string): void {
@@ -1353,7 +1353,16 @@ export class DictationService {
     const nextCorrections = existingIndex >= 0
       ? current.map((entry, index) => index === existingIndex ? { ...entry, spoken, written, source: "auto-suggested" as const } : entry)
       : [...current, { spoken, written, source: "auto-suggested" as const }];
-    this.settings.update({ customCorrections: nextCorrections });
+    this.updateSettingsQuietly({ customCorrections: nextCorrections }, "dictionary");
+  }
+
+  // Saves a background settings change. A blocked settings file only logs, so dictation keeps working.
+  private updateSettingsQuietly(patch: Partial<Settings>, scope: string): void {
+    try {
+      this.settings.update(patch);
+    } catch (err) {
+      debug(scope, "settings change not saved", { message: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   private watchForManualEdits(insertedText: string, target: Pick<AppContextResult, "appBundleId" | "appName"> | null): void {

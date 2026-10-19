@@ -132,7 +132,16 @@ const COMMON_WORD_TRIGGERS = new Set([
   "been", "am", "to", "of", "in", "on", "at", "by", "it", "its", "i", "we",
   "you", "he", "she", "they", "me", "him", "her", "us", "them", "my", "your",
   "our", "their", "this", "that", "these", "those", "for", "with", "as", "so",
-  "do", "does", "did", "not", "no", "yes", "up", "out", "get", "go"
+  "do", "does", "did", "not", "no", "yes", "up", "out", "get", "go",
+  "can", "could", "will", "would", "shall", "should", "may", "might", "must",
+  "have", "has", "had", "how", "what", "when", "where", "who", "whom", "why",
+  "which", "all", "any", "some", "just", "then", "than", "there", "here",
+  "now", "one", "two", "from", "into", "about", "over", "after", "before",
+  "also", "very", "more", "most", "like", "well", "see", "say", "said",
+  "make", "know", "new", "way", "use", "too", "off", "own", "let", "put",
+  "got", "come", "came", "take", "took", "give", "gave", "want", "need",
+  "think", "look", "only", "even", "back", "still", "much", "many", "each",
+  "both", "few", "other", "such", "same", "per", "via", "okay", "ok"
 ]);
 
 // One-sided extensions joined by punctuation (GitHub → GitHub.a) are typing

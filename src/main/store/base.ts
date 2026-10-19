@@ -17,25 +17,26 @@ export async function readJsonFile<T>(filePath: string, fallback: T, isValid: (d
   try {
     raw = await readFile(filePath, "utf8");
   } catch (err) {
-    if (err instanceof Error && "code" in err && err.code === "ENOENT") return fallback;
-    throw failRead(filePath, err);
+    const code = err instanceof Error && "code" in err ? String(err.code) : null;
+    if (code === "ENOENT") return fallback;
+    throw failRead(filePath, code ? `file error ${code}` : "file error");
   }
   let data: unknown;
   try {
     data = JSON.parse(raw);
-  } catch (err) {
-    throw failRead(filePath, err);
+  } catch {
+    // Parser messages can quote the file, which may hold transcripts or keys.
+    throw failRead(filePath, "invalid JSON");
   }
   if (!isValid(data)) throw failRead(filePath, "unexpected JSON shape");
   await chmod(filePath, 0o600).catch(() => undefined);
   return data as T;
 }
 
-// Logs a failed read and returns the error to throw.
-function failRead(filePath: string, reason: unknown): JsonFileReadError {
-  const message = reason instanceof Error ? reason.message : String(reason);
-  error("store", `Could not read ${filePath}: ${message}`);
-  return new JsonFileReadError(filePath, message);
+// Logs a failed read and returns the error to throw. The reason never includes file contents.
+function failRead(filePath: string, reason: string): JsonFileReadError {
+  error("store", `Could not read ${filePath}: ${reason}`);
+  return new JsonFileReadError(filePath, reason);
 }
 
 export async function repairJsonFilePermissions(filePath: string): Promise<void> {

@@ -92,6 +92,18 @@ describe("HistoryStore read failures", () => {
     expect(await snapshot(path)).toEqual(before);
   });
 
+  it("never puts file contents in the error or the log", async () => {
+    const { HistoryStore } = await import("@main/store/history");
+    const path = join(tempDir, "history.json");
+    // V8 quotes the start of a document that opens with a bad token.
+    await writeFile(path, "gsk_canary my secret transcript", "utf8");
+
+    const failure = await new HistoryStore(path).getAll().catch((err: unknown) => err);
+    expect(String(failure)).toContain("invalid JSON");
+    expect(String(failure)).not.toMatch(/secret transcript|gsk_canary/);
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toMatch(/secret transcript|gsk_canary/);
+  });
+
   it("logs the read failure", async () => {
     const { HistoryStore } = await import("@main/store/history");
     const path = join(tempDir, "history.json");
@@ -149,9 +161,9 @@ describe("SettingsStore read failures", () => {
 
     await expect(store.init()).resolves.toBeUndefined();
     expect(store.get()).toEqual(DEFAULT_SETTINGS);
-    store.update({ saveRecordings: true });
-    await expect(store.flush()).rejects.toThrow("Could not read");
-    expect(store.get().saveRecordings).toBe(true);
+    expect(() => store.update({ saveRecordings: true })).toThrow("Could not read");
+    await expect(store.flush()).resolves.toBeUndefined();
+    expect(store.get()).toEqual(DEFAULT_SETTINGS);
     expect(await snapshot(path)).toEqual(before);
   });
 });
