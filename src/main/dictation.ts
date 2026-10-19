@@ -1622,7 +1622,8 @@ export class DictationService {
     if (this.isCaptureStage()) this.recorder?.abortRecording?.(sessionId);
     this.sessionAbortController?.abort("app-quit");
     // The trace goes first: quit gives the whole flush only 3 s, and a slow History write must not leave it "started".
-    const trace = this.finishTrace(sessionId, outcome, "cancelled", insertionStatusText(outcome, entry !== null, stage));
+    // The History write may not finish before exit, so the trace makes no claim about it.
+    const trace = this.finishTrace(sessionId, outcome, "cancelled", outcome === "failed" ? `${stage === "recording" ? "Recording" : "Processing"} stopped when Vaani quit.` : insertionStatusText(outcome, false, stage));
     const saved = entry ? this.persistHistoryOnce(sessionId, entry) : Promise.resolve(false);
     await Promise.all([trace, saved]);
   }
