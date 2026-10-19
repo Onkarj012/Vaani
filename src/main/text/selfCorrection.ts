@@ -2,6 +2,9 @@ import { NUMBER_WORDS } from "@shared/numberWords";
 
 const CORRECTION_PHRASES = String.raw`actually,?\s+make\s+that|no,?\s+i\s+mean|no,?\s+wait|i\s+mean|make\s+that|sorry`;
 const MAX_AFTER_WORDS = 3;
+// Words that open a new clause. A swapped number followed by one of these may start that clause ("3, sorry, 4 were out").
+const CLAUSE_STARTERS = new Set(["was", "were", "is", "are", "am", "will", "would", "can", "could", "should", "have", "has", "had",
+  "did", "do", "does", "i", "you", "he", "she", "we", "they", "it", "there", "that", "which", "who", "and", "but", "so", "or", "if"]);
 // A dot between digits ("3.5", "1.2.0") is part of the number, not a sentence end.
 const SENTENCE_RE = /(?:[^.!?\n]|\.(?=\p{N}))+[.!?]*[ \t]*|[.!?\n]+[ \t]*/gu;
 const WORD_SHAPE_RE = /^[\p{L}\p{N}'’:-]+(?:\.\p{N}+)*$/u;
@@ -41,6 +44,7 @@ function fixSentence(sentence: string): string {
     // A comma inside the swap, or words after a swap that is not all numbers, makes the span unclear.
     if (tokens.slice(0, count - 1).some(token => token.endsWith(","))) return sentence;
     if (count < tokens.length && !replacement.every(word => wordKind(word) === "number")) continue;
+    if (CLAUSE_STARTERS.has((clean[count] ?? "").toLowerCase())) return sentence;
     // At least one kept word must come first: a sentence-opening capital is no sign of a name ("Please make that Monday.").
     if (words.length <= count) continue;
     const head = words.slice(0, words.length - count);
