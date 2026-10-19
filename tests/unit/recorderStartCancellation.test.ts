@@ -140,14 +140,13 @@ describe("renderer recorder start cancellation", () => {
 
     recorder.abort("old");
     recorder.start("next");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    // The old teardown still holds the capture, so the next start must wait for it.
-    expect(recorder.getUserMedia).toHaveBeenCalledOnce();
-    closing.resolve();
-
+    // The next mic opens while the old close() is still pending.
     await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledTimes(2));
     recorder.microphones[1]?.resolve(new MediaStream());
     await vi.waitFor(() => expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("next"));
+    closing.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
     expect(recorder.microphones[0]?.track.stop).toHaveBeenCalledOnce();
     expect(recorder.microphones[1]?.track.stop).not.toHaveBeenCalled();
   });
