@@ -66,6 +66,8 @@ const FIXED_SPELLINGS: ReadonlyMap<string, ReadonlySet<string>> = new Map(Object
   "करोड": "crore karod karor",
 }).map(([word, spellings]) => [word.normalize("NFC"), new Set(spellings.split(" "))]));
 
+const DEVANAGARI_NEGATIONS = new Set(["न", "ना", "नहीं", "नही", "मत", "नको", "नाही"]);
+
 const LABIALS = new Set(["प", "फ", "ब", "भ", "म"]);
 
 const LATIN_DIGRAPHS: Readonly<Record<string, string>> = {
@@ -75,6 +77,12 @@ const LATIN_DIGRAPHS: Readonly<Record<string, string>> = {
 const MAX_SHAPES = 32;
 const SHAPE_CACHE_LIMIT = 5_000;
 const shapeCache = new Map<string, string[]>();
+
+// True for a Hindi or Marathi number word such as "दो" or "दोन".
+export function isDevanagariNumberWord(word: string): boolean {
+  const normalized = word.normalize("NFC");
+  return FIXED_SPELLINGS.has(normalized) && !DEVANAGARI_NEGATIONS.has(normalized);
+}
 
 // True when the word is all Devanagari letters and marks.
 export function isDevanagariWord(word: string): boolean {
