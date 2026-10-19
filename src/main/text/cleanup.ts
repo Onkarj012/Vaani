@@ -3,6 +3,7 @@ import { NUMBER_WORDS, parseNumberWords } from "@shared/numberWords";
 import { editDistance, normalizedEditDistance } from "@shared/textDistance";
 import { phoneticKeysEqual } from "@shared/phonetics";
 import { HESITATION_WORDS, PROTECTED_WORDS } from "@shared/contentGuard";
+import { applySelfCorrections } from "./selfCorrection";
 
 interface TextCleanupInput {
   rawText: string;
@@ -80,7 +81,7 @@ function removeCutOffWords(line: string): string {
   });
 }
 
-// Removes speech noise with fixed rules: cut-off words, hesitation sounds, and stutters.
+// Removes speech noise with fixed rules: cut-off words, hesitation sounds, stutters, and safe self-corrections.
 // Used when the cleanup model did not run or its result was rejected, so the pasted text is still clean.
 export function removeSpeechNoise(text: string): string {
   return text
@@ -94,6 +95,7 @@ export function removeSpeechNoise(text: string): string {
       .replace(/([,;:])(?:\s*[,;:])+/g, "$1")
       .replace(/(^|[.!?]\s+),\s*/g, "$1")
       .trim())
+    .map(applySelfCorrections)
     .join("\n");
 }
 
@@ -344,14 +346,46 @@ function capitalizeLine(text: string): string {
   return text.replace(/^(\s*(?:[-*•]\s+|\d+[.)]\s+)?)([a-z])/, (_, prefix: string, first: string) => `${prefix}${first.toUpperCase()}`);
 }
 
-function ensureLinePunctuation(text: string): string {
+const WH_QUESTION = /^(?:(?:what|why|how|where|when|who|whom|whose)(?:'s|'re|\s+(?:is|are|was|were|am|do|does|did|can|could|would|should|will|shall|may|might|has|have|had|about|if|else|[a-z]+n't)\b)|who\s+\w|which\s+\w|how\s+(?:many|much|long|often|far|come)\b)/i;
+// Common "What is needed ... is X" statements can have long subject clauses.
+const WH_STATEMENT = /^what\s+(?:is|was)\s+(?:needed|required|missing)(?:\s+[\w'-]+)*\s+(?:is|was)\b/i;
+// "do" and "have" also start imperatives ("Do this", "Have a look"), so only pronoun subjects count. "may" questions ask permission.
+const AUX_QUESTION = /^(?:(?:is|are|am|was|were|does|did|can|could|would|should|will|shall|has|had|isn't|aren't|doesn't|didn't|can't|couldn't|won't|wouldn't|shouldn't|hasn't)\s+(?:you|i|we|they|he|she|it|there|this|that|these|those|the|a|an|my|your|our|their|his|her|its|anyone|anybody|someone|somebody|everyone|any)\b|(?:do|have|don't|haven't)\s+(?:you|i|we|they|he|she|there)\b|(?:may|might)\s+(?:i|we)\b)/i;
+const SPOKEN_FILE_EXTENSIONS = "ts|tsx|js|jsx|mjs|cjs|json|md|mdx|py|go|java|kt|rs|c|cc|cpp|h|hpp|mm|m|swift|rb|php|css|scss|html|yml|yaml|toml|sh|zsh|txt|sql|env|lock|xml|csv";
+// A stem can be a path ("src/index") or a dotted chain spoken word by word ("vite dot config").
+const SPOKEN_FILE_NAME = new RegExp(`(^|\\s|\\()([\\p{L}\\p{N}_\\-/.]+(?: dot [\\p{L}\\p{N}_-]+)*) dot (${SPOKEN_FILE_EXTENSIONS})(?=$|[\\s.,;:!?)])`, "giu");
+
+// Turns spoken "name dot ext" into "name.ext" for known file extensions.
+function formatSpokenFileNames(text: string): string {
+  return text.replace(SPOKEN_FILE_NAME, (_match, lead: string, name: string, ext: string) => `${lead}${name.replace(/ dot /gi, ".")}.${ext.toLowerCase()}`);
+}
+
+// True when a sentence is phrased as a question: a wh-word or auxiliary opens it.
+function isQuestionSentence(sentence: string): boolean {
+  const body = sentence.trim().replace(/[\u2018\u2019]/g, "'").replace(/^(?:so|okay|ok)\b[\s,]*/i, "");
+  if (/^don't\s+you\s+dare\b/i.test(body) || WH_STATEMENT.test(body)) return false;
+  return WH_QUESTION.test(body) || AUX_QUESTION.test(body);
+}
+
+// Ends an unterminated final sentence with "?" when it is a question, otherwise ".".
+function addFinalPunctuation(text: string): string {
   // Strip a dangling list comma/semicolon so it becomes a period, not "press,.".
   const trimmed = text.trimEnd().replace(/[,;]+$/, "");
-  if (!trimmed || /[.?!:]$/.test(trimmed) || isListLine(trimmed)) {
+  if (!trimmed || /[.?!:…]$/.test(trimmed)) return trimmed;
+  // Titles, "St." (Saint) and "vs." sit mid-sentence; suffixes like "Jr." can end one.
+  const sentence = trimmed
+    .replace(/\b(Mr|Mrs|Ms|Dr|Prof|St|vs)\.(?=\s)/gi, "$1")
+    .split(/(?<=[.?!…])\s+/).pop() ?? trimmed;
+  return `${trimmed}${isQuestionSentence(sentence) ? "?" : "."}`;
+}
+
+function ensureLinePunctuation(text: string): string {
+  const trimmed = text.trimEnd().replace(/[,;]+$/, "");
+  if (!trimmed || isListLine(trimmed)) {
     return trimmed;
   }
 
-  return `${trimmed}.`;
+  return addFinalPunctuation(trimmed);
 }
 
 function formatPlainParagraph(text: string, settings: Settings): string {
@@ -558,23 +592,22 @@ export function cleanupText({ rawText, settings, trace, skipCorrections = false,
   }
 
   const fillered = removeFillers(expanded, activeFillerWords(settings));
-  const numbered = normalizeCommonNumbers(fillered);
+  const numbered = normalizeCommonNumbers(formatSpokenFileNames(fillered));
   if (hasMultipleLines(numbered)) {
     return applySpokenLayout(formatMultilineText(numbered, settings), settings);
   }
 
   const capitalized = capitalizeSentences(numbered);
   const punctuated = settings.smartPunctuation ? applySmartPunctuation(capitalized) : capitalized;
-  const ensurePunctuation = /[.?!]$/.test(punctuated) ? punctuated : `${punctuated}.`;
 
-  return applySpokenLayout(normalizeWhitespace(ensurePunctuation), settings);
+  return applySpokenLayout(normalizeWhitespace(addFinalPunctuation(punctuated)), settings);
 }
 
 // Deterministic formatting without requiring full Settings — used as LLM fallback.
 export function deterministicFormat(text: string): string {
-  const numbered = normalizeCommonNumbers(text);
+  const numbered = normalizeCommonNumbers(formatSpokenFileNames(text));
   const capitalized = capitalizeSentences(numbered);
-  const ensured = /[.?!]$/.test(capitalized.trim()) ? capitalized : `${capitalized}.`;
+  const ensured = addFinalPunctuation(capitalized);
   return applySpokenLayout(normalizeWhitespace(ensured), {
     smartPunctuation: true,
   });

@@ -27,11 +27,6 @@ const int64_t PASTE_LATEST_DEBOUNCE_MS = 1200;
 // Fn key state tracking (CGEvent doesn't expose Fn as a modifier flag)
 bool isFnKeyPressed = false;
 
-const int64_t MIN_HOLD_MS = 300;
-int64_t keyDownTime = 0;
-bool pendingUp = false;
-dispatch_source_t upTimer = nil;
-
 // CGEventTap state
 CFMachPortRef primaryEventTap = nullptr;
 CFRunLoopSourceRef primaryRunLoopSource = nullptr;
@@ -76,48 +71,15 @@ void EmitPasteLatest() {
   });
 }
 
-// MARK: - Delayed Release
+// MARK: - Release
 
-void CancelPendingUp() {
-  pendingUp = false;
-  if (upTimer) {
-    dispatch_source_cancel(upTimer);
-    upTimer = nil;
-  }
-}
-
-void EmitUpAfterDelay();
-
-void EmitUpAfterDelay() {
-  if (upTimer) {
-    dispatch_source_cancel(upTimer);
-    upTimer = nil;
-  }
-
-  int64_t elapsed = CurrentTimeMs() - keyDownTime;
-  int64_t delay = MIN_HOLD_MS - elapsed;
-  if (delay <= 0) {
-    isHotkeyPressed = false;
-    pendingUp = false;
-    EmitHotkeyState(false);
+// Reports the release at once. TypeScript owns double-press timing.
+void ReleasePrimaryHotkey() {
+  if (!isHotkeyPressed) {
     return;
   }
-
-  pendingUp = true;
-  upTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-  dispatch_source_set_timer(upTimer, dispatch_time(DISPATCH_TIME_NOW, delay * NSEC_PER_MSEC), 0, 0);
-  dispatch_source_set_event_handler(upTimer, ^{
-    if (pendingUp) {
-      isHotkeyPressed = false;
-      pendingUp = false;
-      EmitHotkeyState(false);
-    }
-    if (upTimer) {
-      dispatch_source_cancel(upTimer);
-      upTimer = nil;
-    }
-  });
-  dispatch_resume(upTimer);
+  isHotkeyPressed = false;
+  EmitHotkeyState(false);
 }
 
 // MARK: - Key Code Mapping
@@ -223,9 +185,15 @@ bool ConfigureAccelerator(
     }
 
     const unsigned short keyCode = KeyCodeForToken(trimmed.UTF8String);
-    if (keyCode != USHRT_MAX) {
-      *outKeyCode = keyCode;
+    if (keyCode == USHRT_MAX) {
+      return false;
     }
+    *outKeyCode = keyCode;
+  }
+
+  // Fn only registers alone. Fn with other keys would fire on Fn by itself.
+  if (*outWatchesFunctionModifier && (*outKeyCode != USHRT_MAX || *outModifiers != 0)) {
+    return false;
   }
 
   return *outKeyCode != USHRT_MAX || *outWatchesFunctionModifier;
@@ -244,18 +212,16 @@ bool ConfigurePasteLatestAccelerator(const std::string& accelerator) {
 void HandlePrimaryFlagsChanged(CGEventFlags flags) {
   if (watchesFunctionModifier) {
     bool hasFn = HasFnModifier(flags);
-    
-    if (hasFn == isHotkeyPressed && !pendingUp) {
+
+    if (hasFn == isHotkeyPressed) {
       return;
     }
 
     if (hasFn) {
-      CancelPendingUp();
       isHotkeyPressed = true;
-      keyDownTime = CurrentTimeMs();
       EmitHotkeyState(true);
     } else {
-      EmitUpAfterDelay();
+      ReleasePrimaryHotkey();
     }
     return;
   }
@@ -265,7 +231,7 @@ void HandlePrimaryFlagsChanged(CGEventFlags flags) {
   }
 
   if (!RequiredModifiersPressed(flags)) {
-    EmitUpAfterDelay();
+    ReleasePrimaryHotkey();
   }
 }
 
@@ -296,23 +262,21 @@ void HandlePrimaryKeyEvent(CGKeyCode keyCode, CGEventFlags flags, bool isPressed
   }
 
   if (!RequiredModifiersPressed(flags)) {
-    if (!isPressed && isHotkeyPressed) {
-      EmitUpAfterDelay();
+    if (!isPressed) {
+      ReleasePrimaryHotkey();
     }
     return;
   }
 
-  if (isHotkeyPressed == isPressed && !pendingUp) {
+  if (isHotkeyPressed == isPressed) {
     return;
   }
 
   if (isPressed) {
-    CancelPendingUp();
     isHotkeyPressed = true;
-    keyDownTime = CurrentTimeMs();
     EmitHotkeyState(true);
   } else {
-    EmitUpAfterDelay();
+    ReleasePrimaryHotkey();
   }
 }
 
@@ -474,8 +438,6 @@ bool StartEventTap() {
 }
 
 void StopEventTap() {
-  CancelPendingUp();
-  
   // Stop the run loop first to wake up the thread
   if (eventTapRunLoop) {
     CFRunLoopStop(eventTapRunLoop);
@@ -513,7 +475,6 @@ void StopEventTap() {
   
   // Reset state
   isHotkeyPressed = false;
-  pendingUp = false;
   watchesFunctionModifier = false;
   monitoredKeyCode = USHRT_MAX;
   monitoredModifiers = 0;
@@ -563,9 +524,7 @@ Napi::Boolean StartHotkeyMonitor(const Napi::CallbackInfo& info) {
 }
 
 Napi::Value StopHotkeyMonitor(const Napi::CallbackInfo& info) {
-  CancelPendingUp();
   isHotkeyPressed = false;
-  pendingUp = false;
   watchesFunctionModifier = false;
   monitoredKeyCode = USHRT_MAX;
   monitoredModifiers = 0;

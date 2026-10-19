@@ -226,6 +226,7 @@ export class DictationService {
         this.sessionAbortController?.abort("new-dictation");
         if (this.activeSessionId) {
           if (this.activeInsertionDispatched && this.activePreparedEntry) void this.settleInterruptedInsertion(this.activeSessionId);
+          else if (this.activePreparedEntry) void this.saveReplacedTranscript(this.activeSessionId, this.activePreparedEntry);
           else {
             const outcome: DictationInsertionOutcome = this.activeInsertionPrepared ? "refused" : "failed";
             void this.finishTrace(this.activeSessionId, outcome, "cancelled", insertionStatusText(outcome, false, "processing"));
@@ -540,6 +541,23 @@ export class DictationService {
       // Apply dictionary terms before the formatter so it sees the intended spelling.
       const cleanupTrace = { correctionsApplied: [] };
       const correctedText = applyDictionary(stripSoundTags(transcription.rawText), settings, cleanupTrace);
+      // Kept so a new dictation that replaces this one during formatting can still save the transcript.
+      this.activePreparedEntry = {
+        id: crypto.randomUUID(),
+        traceId: this.activeTraceId,
+        timestamp: new Date().toISOString(),
+        rawText: transcription.rawText,
+        formattedText: correctedText,
+        cleanedText: correctedText,
+        durationSeconds: payload.clip.durationSeconds,
+        appBundleId: this.activeTarget?.appBundleId ?? null,
+        appName: this.activeTarget?.appName ?? null,
+        language: transcription.language,
+        detectedLanguage: transcription.detectedLanguage ?? null,
+        rawAudioPath,
+        injectionStatus: "saved",
+        injectionMethod: null,
+      };
       let formattedText = correctedText;
       let formatTrace: FormatTranscriptTraceResult = { text: correctedText, formatterUsed: "none" };
       try {
@@ -682,8 +700,8 @@ export class DictationService {
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
 
       if (injection.success) {
-        const verification = await this.verifyInsertion(cleanedText, verificationBaseline, verificationTarget,
-          () => this.isCurrentSession(payload.sessionId) && !operationSignal?.aborted);
+        const verification = await this.verifyInsertion(cleanedText, verificationBaseline, currentSelection, verificationTarget,
+          () => this.isCurrentSession(payload.sessionId) && !operationSignal?.aborted && this.isSameFocusedTarget(target, initialTargetIdentity));
         void this.patchTrace(payload.sessionId, { verifyDoneAt: new Date().toISOString() });
         const finalAttempt = injectionAttempts[injectionAttempts.length - 1];
         if (finalAttempt) finalAttempt.verification = verification;
@@ -694,7 +712,7 @@ export class DictationService {
         });
         const weakEvidence = initialTargetIdentity === null || currentTargetIdentity === null
           || initialTargetValue === null || currentValue === null || initialSelection === null || currentSelection === null;
-        if (verification.passed && !weakEvidence) {
+        if (verification.passed && !weakEvidence && this.isSameFocusedTarget(target, initialTargetIdentity)) {
           await this.recordRecoveryInsertionOutcome(payload.sessionId, "delivered", injection.method, undefined, undefined);
           await this.finishActiveInsertion(payload.sessionId, "verified", { ...entryBase, injectionStatus: "injected", injectionMethod: injection.method }, {
             injectionMethod: injection.method,
@@ -752,6 +770,8 @@ export class DictationService {
   }
 
   reportHotkeyUnavailable(message: string): void {
+    // Cancel queued starts and active capture before clearing the session.
+    if (this.activeSessionId && this.isLiveSession()) this.recorder?.abortRecording?.(this.activeSessionId);
     this.clearTimers();
     const statusMessage = message;
     if (this.activeSessionId) void this.finishTrace(this.activeSessionId, "failed", "recorder_unavailable", statusMessage);
@@ -812,6 +832,8 @@ export class DictationService {
         }))
       );
     }
+    // A new dictation may have started during the History write. Leave its state alone.
+    if (generation !== this.sessionGeneration) return;
     const sessionId = this.createSessionId();
     this.setState({ status: "completed", sessionId, outcome: "injected", insertionOutcome: "verified", text: entry.cleanedText, message: "Inserted." });
     this.scheduleReset(SUCCESS_RESET_MS);
@@ -1218,6 +1240,11 @@ export class DictationService {
     return undefined;
   }
 
+  // True while the microphone is opening or capturing audio.
+  isCapturing(): boolean {
+    return this.state.status === "starting" || this.state.status === "recording";
+  }
+
   // True while a dictation is starting, recording, finalizing, or transcribing.
   private isLiveSession(): boolean {
     return this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing" || this.state.status === "transcribing";
@@ -1247,6 +1274,7 @@ export class DictationService {
     }
     const baselineFocus = this.appDetector.getContext();
     const baseline = sameTarget(target, baselineFocus) ? safeFocusedValue() : null;
+    const baselineSelection = this.captureSelection(target);
     const identity = expectedIdentity === undefined ? safeFocusedElementIdentity() : expectedIdentity;
     if (identity === null) {
       this.setState({ status: "error", sessionId: null, message: "Not inserted: target changed." });
@@ -1278,8 +1306,8 @@ export class DictationService {
       this.scheduleReset(ERROR_RESET_MS);
       return null;
     }
-    const verification = await this.verifyInsertion(text, baseline, target,
-      () => this.sessionGeneration === expectedGeneration && !signal?.aborted);
+    const verification = await this.verifyInsertion(text, baseline, baselineSelection, target,
+      () => this.sessionGeneration === expectedGeneration && !signal?.aborted && this.isSameFocusedTarget(target, identity));
     if (this.sessionGeneration !== expectedGeneration || signal?.aborted) return null;
     if (!verification.passed) {
       onUncertain?.();
@@ -1473,6 +1501,13 @@ export class DictationService {
     await this.recordRecoveryInsertionOutcome(sessionId, "recoverable", null, "interrupted", OUTCOME_UNCERTAIN_DETAIL).catch(() => undefined);
     await this.finishTrace(sessionId, "unconfirmed", "cancelled", insertionStatusText("unconfirmed", saved, "processing"));
     this.historyWrites.delete(sessionId);
+  }
+
+  // Saves a replaced session's transcript as not inserted. Touches only that session's history and trace.
+  private async saveReplacedTranscript(sessionId: string, entry: DictationEntry): Promise<void> {
+    void this.transitionRecovery(sessionId, "recoverable", { error: { class: "interrupted", detail: "Dictation replaced by a new recording." } });
+    const saved = await this.persistHistoryOnce(sessionId, entry);
+    await this.finishTrace(sessionId, "failed", "cancelled", insertionStatusText("failed", saved, "processing"));
   }
 
   private failSession(sessionId: string, message: string, reason: DictationRejectionReason = "transcription_error", providerAttempts: ProviderAttemptTrace[] = [], signal?: AbortSignal, errorClass?: RecoveryErrorClass, tracePatch: Partial<DictationTrace> = {}): void {
@@ -1946,6 +1981,7 @@ export class DictationService {
   private async verifyInsertion(
     expectedText: string,
     baseline: string | null,
+    selection: SelectionRange | null,
     target: Pick<AppContextResult, "appBundleId" | "appName"> | null,
     isValid: () => boolean = () => true,
   ): Promise<InsertionVerificationTrace> {
@@ -1954,7 +1990,11 @@ export class DictationService {
       return { readable: false, passed: false, repaired: false, reason: "baseline-unreadable" };
     }
     const baselineOccurrenceCount = countLiteralOccurrences(baseline, expectedText);
-    const initialPoll = await this.pollInsertionValue(expectedText, baselineOccurrenceCount, target, isValid);
+    // A replacement that leaves the field unchanged shows no write, so it never counts as inserted.
+    const replacedValue = selection ? replaceSelectedText(baseline, selection, expectedText) : null;
+    const isInserted = (value: string): boolean => countLiteralOccurrences(value, expectedText) > baselineOccurrenceCount
+      || (replacedValue !== null && replacedValue !== baseline && value === replacedValue);
+    const initialPoll = await this.pollInsertionValue(isInserted, target, isValid);
     if (!isValid()) return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
     if (initialPoll.reason === "not-at-target") {
       return { readable: false, passed: false, repaired: false, reason: "not-at-target" };
@@ -1968,7 +2008,7 @@ export class DictationService {
     if (currentValue === null) {
       return { readable: false, passed: false, repaired: false, reason: "unreadable" };
     }
-    if (countLiteralOccurrences(currentValue, expectedText) > baselineOccurrenceCount) {
+    if (isInserted(currentValue)) {
       return { readable: true, passed: true, repaired: false, reason: "expected-present" };
     }
 
@@ -1977,8 +2017,7 @@ export class DictationService {
   }
 
   private async pollInsertionValue(
-    expectedText: string,
-    baselineOccurrenceCount: number,
+    isInserted: (value: string) => boolean,
     target: Pick<AppContextResult, "appBundleId" | "appName"> | null,
     isValid: () => boolean,
   ): Promise<{ value: string | null; reason?: "not-at-target" | "timeout" }> {
@@ -1994,7 +2033,7 @@ export class DictationService {
       const currentValue = safeFocusedValue();
       if (currentValue !== null) {
         lastReadableValue = currentValue;
-        if (countLiteralOccurrences(currentValue, expectedText) > baselineOccurrenceCount) return { value: currentValue };
+        if (isInserted(currentValue)) return { value: currentValue };
       }
 
       const remainingMs = deadline - this.verifierNow();
@@ -2188,6 +2227,13 @@ function safeFocusedElementIdentity(): string | null {
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 500);
+}
+
+// Returns the value with the selected range replaced by text.
+function replaceSelectedText(value: string, selection: SelectionRange, text: string): string {
+  const start = Math.min(selection.location, value.length);
+  const end = Math.min(start + selection.length, value.length);
+  return value.slice(0, start) + text + value.slice(end);
 }
 
 function countLiteralOccurrences(value: string, expectedText: string): number {
