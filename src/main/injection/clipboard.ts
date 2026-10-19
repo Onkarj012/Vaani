@@ -90,12 +90,7 @@ export class ClipboardTextInjector {
         if (outcome === "dispatched") {
           if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
           consecutiveFailures = 0;
-          // The paste lands asynchronously, so check the caret after the app applies it.
-          pendingCaretCheck = setTimeout(() => {
-            pendingCaretCheck = null;
-            if (dispatchGuard() || !insertionFieldIdentity || readFocusedElementIdentity() !== insertionFieldIdentity) return;
-            moveCaretAfterInsertion(text, insertionStart);
-          }, CARET_SETTLE_MS);
+          scheduleCaretMove(text, insertionStart, insertionFieldIdentity, dispatchGuard);
           return { success: true, method: "clipboard" };
         }
         if (outcome !== "failed") return { success: false, reason: outcome };
@@ -131,6 +126,7 @@ export class ClipboardTextInjector {
       // Once keystrokes or a paste reach the target, an unconfirmed result is
       // uncertain and retrying would risk inserting the text twice.
       let pasted = false;
+      const insertionFieldIdentity = readFocusedElementIdentity();
       for (const method of methods) {
         const outcome = await method.run();
         if (outcome === "failed") continue;
@@ -145,11 +141,10 @@ export class ClipboardTextInjector {
         break;
       }
 
-      await delay(600);
       if (pasted) {
         if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
         consecutiveFailures = 0;
-        moveCaretAfterInsertion(text, insertionStart);
+        scheduleCaretMove(text, insertionStart, insertionFieldIdentity, dispatchGuard);
         return { success: true, method: "clipboard" };
       }
       consecutiveFailures += 1;
@@ -320,6 +315,15 @@ async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCo
   // Text equality cannot distinguish a user copy of the same dictated text.
   // Restore only while the pasteboard still has our last observed change count.
   if (clipboardChangeCount() === ownedChangeCount) restoreClipboard(items);
+}
+
+// Moves the caret after the inserted text once the app has applied it, unless focus moved or a newer insert started.
+function scheduleCaretMove(text: string, insertionStart: number | undefined, fieldIdentity: string | null, guard: InjectionGuard): void {
+  pendingCaretCheck = setTimeout(() => {
+    pendingCaretCheck = null;
+    if (guard() || !fieldIdentity || readFocusedElementIdentity() !== fieldIdentity) return;
+    moveCaretAfterInsertion(text, insertionStart);
+  }, CARET_SETTLE_MS);
 }
 
 async function maybeRestoreCaretAfterInsertion(_text: string, _target: InjectionTarget | undefined, _kind: "paste" | "typing", _activationSucceeded?: boolean): Promise<void> {

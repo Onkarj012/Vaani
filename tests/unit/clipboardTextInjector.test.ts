@@ -373,18 +373,19 @@ describe("ClipboardTextInjector dispatch safety", () => {
     expect(bridge.pasteText).not.toHaveBeenCalled();
   });
 
-  it("reports uncertainty when cancelled during the post-dispatch wait", async () => {
+  it("returns as soon as the paste is confirmed, without a fixed post-paste wait", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
-    const { createInjectionGuard } = await import("@main/injection/guard");
-    const controller = new AbortController();
-    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ signal: controller.signal }));
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(bridge.pasteText).toHaveBeenCalledTimes(1);
-    controller.abort("user-cancelled");
-    await vi.runAllTimersAsync();
+    let elapsed = 0;
+    let dispatchedAt: number | null = null;
+    bridge.pasteText.mockImplementation(() => { dispatchedAt = elapsed; return true; });
+    let settled = false;
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget).finally(() => { settled = true; });
+    while (!settled && elapsed < 3_000) { await vi.advanceTimersByTimeAsync(10); elapsed += 10; }
 
-    await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
-    expect(bridge.pasteText).toHaveBeenCalledTimes(1);
+    await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+    expect(dispatchedAt).not.toBeNull();
+    // The old code slept 600 ms here after an already confirmed paste.
+    expect(elapsed - (dispatchedAt ?? 0)).toBeLessThanOrEqual(20);
   });
 
   it("stops before dispatch when the focused target changes during the wait", async () => {
