@@ -290,3 +290,10 @@ describe("guard false rejections", () => {
     expect(preservesContentWords("The spare key is under the pot.", "7. The spare key is under the pot.")).toBe(false);
   });
 });
+
+describe("Devanagari number words", () => {
+  it("never drops a repeated Hindi or Marathi digit as a stutter", () => {
+    expect(preservesContentWords("कोड दो दो तीन है।", "कोड दो तीन है।")).toBe(false);
+    expect(preservesContentWords("कोड दोन दोन तीन आहे.", "कोड दोन तीन आहे.")).toBe(false);
+  });
+});

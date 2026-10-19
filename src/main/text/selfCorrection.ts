@@ -2,7 +2,8 @@ import { NUMBER_WORDS } from "@shared/numberWords";
 
 const CORRECTION_PHRASES = String.raw`actually,?\s+make\s+that|no,?\s+i\s+mean|no,?\s+wait|i\s+mean|make\s+that|sorry`;
 const MAX_AFTER_WORDS = 3;
-const SENTENCE_RE = /[^.!?\n]+[.!?]*[ \t]*|[.!?\n]+[ \t]*/g;
+// A dot between digits ("3.5", "1.2.0") is part of the number, not a sentence end.
+const SENTENCE_RE = /(?:[^.!?\n]|\.(?=\p{N}))+[.!?]*[ \t]*|[.!?\n]+[ \t]*/gu;
 const WORD_SHAPE_RE = /^[\p{L}\p{N}'’:-]+$/u;
 // Before-words, a cue, then 1-3 words that end the sentence. A bare "no" counts only between commas ("Friday, no, Thursday").
 const CORRECTION_SENTENCE_RE = new RegExp(

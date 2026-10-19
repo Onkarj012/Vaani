@@ -9,7 +9,7 @@
 // a sentence-opening "First,") may disappear only when the output has a line break or a list item with the same number there,
 // or keeps the cue words.
 
-import { isDevanagariWord, soundsAlike } from "./scriptMatch";
+import { isDevanagariNumberWord, isDevanagariWord, soundsAlike } from "./scriptMatch";
 
 const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
 const NUMBER_WORD_SOURCE = String.raw`one|two|three|four|five|six|seven|eight|nine|ten|\d+`;
@@ -367,9 +367,9 @@ function isProtected(text: string): boolean {
   return PROTECTED_WORDS.has(text) || isNumber(text);
 }
 
-// True for digits and spelled-out numbers.
+// True for digits and spelled-out numbers, including Hindi and Marathi number words.
 function isNumber(text: string): boolean {
-  return /^[+-]?\p{N}/u.test(text) || NUMBER_WORDS.has(text) || ORDINAL_NUMBERS.has(text);
+  return /^[+-]?\p{N}/u.test(text) || NUMBER_WORDS.has(text) || ORDINAL_NUMBERS.has(text) || isDevanagariNumberWord(text);
 }
 
 // The core sequence the stutter and correction rules read: words with their pause and sentence-boundary marks.
