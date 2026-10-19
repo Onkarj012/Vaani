@@ -1234,14 +1234,14 @@ describe("DictationService", () => {
     expect(["1.1.3+unresolved", "unresolved+unresolved"]).toContain(updatedTrace?.buildIdentifier);
   });
 
-  it("inserts the literal text and warns when the formatter drops a word", async () => {
-    groqCreate.mockResolvedValue({ choices: [{ message: { content: "Please send the report." } }] });
+  it("inserts the literal text and warns when the formatter drops a number", async () => {
+    groqCreate.mockResolvedValue({ choices: [{ message: { content: "Please send the reports today." } }] });
     const traceDeps = createTraceDeps();
     const { service, injector, transcription, settings } = createDictationService({ traces: traceDeps.traces });
     settings.get.mockReturnValue({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" });
     const formatter = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
     Object.assign(transcription, { formatTranscriptDetailed: formatter.formatTranscriptDetailed.bind(formatter) });
-    transcription.transcribe.mockResolvedValue({ rawText: "please send the report today", formattedText: "please send the report today", language: "en" });
+    transcription.transcribe.mockResolvedValue({ rawText: "please send the 2 reports today", formattedText: "please send the 2 reports today", language: "en" });
 
     service.beginHotkeySession();
     await Promise.resolve();
@@ -1254,13 +1254,13 @@ describe("DictationService", () => {
     });
     await Promise.resolve();
 
-    expect(injector.inject).toHaveBeenCalledWith("Please send the report today.", expect.anything(), expect.anything());
+    expect(injector.inject).toHaveBeenCalledWith("Please send the 2 reports today.", expect.anything(), expect.anything());
     expect(service.getState()).toMatchObject({
       status: "completed",
       message: "Inserted. Formatting did not apply. Inserted the unformatted text.",
     });
     expect(traceDeps.getTrace()).toMatchObject({
-      stages: { formatterUsed: "none", formatterStatus: "rejected", formatterStatusReason: "The formatter changed words in the transcript." },
+      stages: { formatterUsed: "none", formatterStatus: "rejected", formatterStatusReason: "The formatter changed a number or a negation." },
     });
   });
 

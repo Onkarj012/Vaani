@@ -5,10 +5,10 @@ import { getProviderRegistry } from "./providers";
 import { defaultModelFor } from "@shared/modelList";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { formatterErrorReason } from "./providers/types";
-import { buildFormattingPrompt, CHANGED_WORDS_REASON, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
+import { buildFormattingPrompt, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
-import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
+import { judgeFormatterReply, stripReasoningBlocks } from "@shared/contentGuard";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
 import { formatterDropWords, removeSpeechNoise } from "./text/cleanup";
 import { warmOpenRouterConnection } from "./providers/openrouter/client";
@@ -469,15 +469,15 @@ export class TranscriptionService {
     if (!formatted) {
       return { text: fallback, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: EMPTY_REPLY_REASON };
     }
-    const { missing, added, rejection } = diffContentWords(rawText, formatted, fillerWords, { speechNoise: !literal });
-    if (rejection || missing.length > 0 || added.length > 0) {
+    const { rejection, dropped } = judgeFormatterReply(rawText, formatted, fillerWords, { speechNoise: !literal });
+    if (rejection) {
       debug("transcription", "Content guard rejected LLM output — falling back to raw transcript cleanup");
       return {
         text: fallback,
         formatterUsed: "guard-fallback",
         formatterStatus: "rejected",
-        formatterStatusReason: rejection ?? CHANGED_WORDS_REASON,
-        contentGuardVerdict: { passed: false, missingWords: missing },
+        formatterStatusReason: rejection,
+        contentGuardVerdict: { passed: false, missingWords: dropped },
       };
     }
     return {

@@ -1,9 +1,8 @@
 import type { FormattingProvider, FormattingResult } from "../types";
 import { formatterErrorReason, formatterResult } from "../types";
-import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
+import { judgeFormatterReply, stripReasoningBlocks } from "@shared/contentGuard";
 import { defaultModelFor, providerModels } from "@shared/modelList";
 import {
-  CHANGED_WORDS_REASON,
   CHAT_REPLY_REASON,
   EMPTY_REPLY_REASON,
   EMPTY_TRANSCRIPT_REASON,
@@ -23,9 +22,7 @@ const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will fo
 
 // Why the formatter reply must be rejected, or null when its words check out. Matches the service's final guard.
 function contentRejection(rawText: string, candidate: string, fillers: readonly string[], literal: boolean | undefined): string | null {
-  const diff = diffContentWords(rawText, candidate, fillers, { speechNoise: !literal });
-  if (diff.rejection) return diff.rejection;
-  return diff.missing.length > 0 || diff.added.length > 0 ? CHANGED_WORDS_REASON : null;
+  return judgeFormatterReply(rawText, candidate, fillers, { speechNoise: !literal }).rejection;
 }
 
 async function requestFormatting(text: string, options: Parameters<FormattingProvider["format"]>[1], prompt: string): Promise<string | null> {

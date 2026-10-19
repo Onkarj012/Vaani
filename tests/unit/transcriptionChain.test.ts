@@ -748,7 +748,7 @@ describe("TranscriptionService failover chain", () => {
   });
 
   it("marks content-guard rejection as literal fallback", async () => {
-    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "I this.")));
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "This.")));
     const { TranscriptionService } = await import("@main/transcription");
 
     const service = new TranscriptionService(() => ({
@@ -765,8 +765,8 @@ describe("TranscriptionService failover chain", () => {
       text: "I like this",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
-      formatterStatusReason: "The formatter changed words in the transcript.",
-      contentGuardVerdict: { passed: false, missingWords: ["like"] },
+      formatterStatusReason: "The formatter dropped too many words.",
+      contentGuardVerdict: { passed: false, missingWords: ["i", "like"] },
     });
   });
 
@@ -793,17 +793,17 @@ describe("TranscriptionService failover chain", () => {
     });
   });
 
-  it("falls back to corrected raw text when the formatter omits the last word", async () => {
-    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "We ship it.")));
+  it("falls back to corrected raw text when the formatter omits a number", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "We ship boxes Tuesday.")));
     const { TranscriptionService } = await import("@main/transcription");
     const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
-    expect(await service.formatTranscriptDetailed("we ship it Tuesday")).toEqual({
-      text: "we ship it Tuesday",
+    expect(await service.formatTranscriptDetailed("we ship 2 boxes Tuesday")).toEqual({
+      text: "we ship 2 boxes Tuesday",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
-      formatterStatusReason: "The formatter changed words in the transcript.",
-      contentGuardVerdict: { passed: false, missingWords: ["tuesday"] },
+      formatterStatusReason: "The formatter changed a number or a negation.",
+      contentGuardVerdict: { passed: false, missingWords: ["2"] },
     });
   });
 
@@ -819,13 +819,13 @@ describe("TranscriptionService failover chain", () => {
     });
   });
 
-  it("rejects a dropped Devanagari word", async () => {
-    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "मुझे ऑफिस जाना है।")));
+  it("rejects a dropped Devanagari negation", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "मुझे कल ऑफिस जाना है।")));
     const { TranscriptionService } = await import("@main/transcription");
     const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
-    expect(await service.formatTranscriptDetailed("मुझे कल ऑफिस जाना है")).toMatchObject({
-      text: "मुझे कल ऑफिस जाना है",
+    expect(await service.formatTranscriptDetailed("मुझे कल ऑफिस नहीं जाना है")).toMatchObject({
+      text: "मुझे कल ऑफिस नहीं जाना है",
       formatterStatus: "rejected",
     });
   });
@@ -887,7 +887,7 @@ describe("TranscriptionService failover chain", () => {
 
   it("falls back only the multiline block that fails content guard", async () => {
     const format = vi.fn(async (text: string) => text === "alpha beta"
-      ? "Alpha."
+      ? "Alpha beta not."
       : "Gamma delta.");
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
     const { TranscriptionService } = await import("@main/transcription");
@@ -906,8 +906,8 @@ describe("TranscriptionService failover chain", () => {
       text: "alpha beta\n\nGamma delta.",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
-      formatterStatusReason: "The formatter changed words in the transcript.",
-      contentGuardVerdict: { passed: false, missingWords: ["beta"] },
+      formatterStatusReason: "The formatter changed a number or a negation.",
+      contentGuardVerdict: { passed: false, missingWords: [] },
       partiallyFormatted: true,
     });
   });
@@ -1136,7 +1136,7 @@ describe("formatter outcome at the transcription seam", () => {
 
   it("keeps the script rule on the strict retry after the guard rejects a reply", async () => {
     groqCreate
-      .mockResolvedValueOnce({ choices: [{ message: { content: "Kal meeting cancel ho gayi hai." } }] })
+      .mockResolvedValueOnce({ choices: [{ message: { content: "Meeting cancel." } }] })
       .mockResolvedValueOnce({ choices: [{ message: { content: "Kal subah ki meeting cancel ho gayi hai." } }] });
 
     await (await serviceFor("groq-llm")).formatTranscriptDetailed("कल सुबह की मीटिंग कैंसल हो गई है", { language: "en" });

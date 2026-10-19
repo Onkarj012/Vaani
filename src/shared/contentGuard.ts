@@ -1,5 +1,8 @@
 // Word guard for LLM formatting. Compares the words of the formatter input and output,
 // in order and in any script. Punctuation, capitals, and line placement are ignored.
+// judgeFormatterReply turns the comparison into a verdict. With cleanup on it is loose: it rejects only an added
+// sentence, a large drop, or a changed number or negation. With cleanup off every word must stay.
+// The rules below decide which dropped words are explained, so they never count against the reply.
 // A Devanagari word may come back in Roman letters when it sounds alike ("कैंसल" → "cancel").
 // With speech noise allowed, these may also be dropped: a stutter next to a kept copy ("the, the", "on the, on the"),
 // a cut-off word ("ru-", or a short fragment the next word starts with), and up to four words replaced right after a
@@ -68,9 +71,16 @@ const ORDINAL_NUMBERS: ReadonlyMap<string, string> = new Map([
   ["firstly", "1"], ["secondly", "2"], ["thirdly", "3"],
 ]);
 
-// Largest alignment table the guard builds. Longer diffs are rejected instead of aligned.
+// Largest alignment table the guard builds. Longer diffs are compared as word counts instead.
 const MAX_ALIGN_CELLS = 1_000_000;
 const TOO_LONG_REASON = "Transcript too long to verify formatting.";
+// With cleanup on, a reply may add at most this many words the speaker never said, and drop at most this share.
+const MAX_NEW_WORDS = 2;
+const MAX_DROPPED_SHARE = 0.25;
+export const CHANGED_WORDS_REASON = "The formatter changed words in the transcript.";
+const ADDED_WORDS_REASON = "The formatter added words the speaker did not say.";
+const DROPPED_WORDS_REASON = "The formatter dropped too many words.";
+const CHANGED_MEANING_REASON = "The formatter changed a number or a negation.";
 
 export interface ContentWordDiff {
   missing: string[];
@@ -458,7 +468,7 @@ function isStutter(run: readonly (string | null)[], { words, gone, boundary }: C
 // meaning ("sorry", not "no"). "I mean", "actually", "rather", and "wait" count only with a pause next to them,
 // so "what I mean here" stays. A bare "no" counts only with a pause next to it ("Monday, no Tuesday") or another
 // "no" beside it ("no no no"), so "there is no need" stays a negation.
-function isCorrection(run: readonly (string | null)[], { gone, pause, boundary }: Core, start: number, end: number): boolean {
+function isCorrection(run: readonly (string | null)[], { words, gone, pause, boundary }: Core, start: number, end: number): boolean {
   if (end + 1 >= gone.length || gone[end + 1]) return false;
   let rest = run.length;
   const cues: string[] = [];
@@ -479,7 +489,9 @@ function isCorrection(run: readonly (string | null)[], { gone, pause, boundary }
   if (cues.length === 0) return false;
   if (rest === 0) return cues.every(word => !isProtected(word));
   const replaced = run.slice(0, rest);
-  if (rest > MAX_REPLACED_WORDS || replaced.some(word => word !== null && isProtected(word))) return false;
+  // A number may be replaced by another number ("3.5, no, 4.5"). Negations and other numbers stay.
+  const replacementIsNumber = isNumber(words[end + 1] ?? "");
+  if (rest > MAX_REPLACED_WORDS || replaced.some(word => word !== null && isProtected(word) && !(replacementIsNumber && isNumber(word)))) return false;
   if (!sameSentence(boundary, start, start + rest - 1)) return false;
   const firstCue = start + rest;
   // A replacement in the next sentence needs the cue to stand as its own sentence ("Priyanka, run... Sorry. Priya").
@@ -532,4 +544,53 @@ export function missingContentWords(rawText: string, candidate: string, fillers:
 // Output words the formatter added or moved.
 export function addedContentWords(rawText: string, candidate: string, fillers: readonly string[] = []): string[] {
   return diffContentWords(rawText, candidate, fillers).added;
+}
+
+export interface GuardVerdict {
+  /** Why the reply is rejected, or null when it may be used. */
+  rejection: string | null;
+  /** Words the reply dropped that no rule explains. */
+  dropped: string[];
+  /** Words the reply added that the speaker never said. */
+  added: string[];
+}
+
+// Decides whether a formatter reply may replace the transcript. Cleanup off: every word must stay.
+// Cleanup on: rejects only a large drop, added words, or a changed number or negation.
+export function judgeFormatterReply(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): GuardVerdict {
+  const strict = options.speechNoise === false;
+  const diff = diffContentWords(rawText, candidate, fillers, options);
+  if (strict) {
+    const rejection = diff.rejection ?? (diff.missing.length > 0 || diff.added.length > 0 ? CHANGED_WORDS_REASON : null);
+    return { rejection, dropped: diff.missing, added: diff.added };
+  }
+  const sourceWords = inputUnits(rawText, fillers).units.flatMap(unit => (unit.kind === "filler" ? [] : unitWords(unit)));
+  // Too long to align: compare the words as counts instead, with no speech-noise allowance.
+  const { missing, added } = diff.rejection ? { missing: bagDifference(sourceWords, outputWordsOf(candidate)), added: bagDifference(outputWordsOf(candidate), sourceWords) } : diff;
+  // A word that only moved is in both lists. Ordinals count as their numbers, so "second" may come back as "2".
+  const dropped = bagDifference(missing, added);
+  const newWords = bagDifference(added, missing);
+  let rejection: string | null = null;
+  if ([...dropped, ...newWords].some(isProtected)) rejection = CHANGED_MEANING_REASON;
+  else if (newWords.length > MAX_NEW_WORDS) rejection = ADDED_WORDS_REASON;
+  else if (dropped.length > Math.max(1, sourceWords.length * MAX_DROPPED_SHARE)) rejection = DROPPED_WORDS_REASON;
+  return { rejection, dropped, added: newWords };
+}
+
+// Every word of a formatter reply, list numbers included.
+function outputWordsOf(candidate: string): string[] {
+  return outputUnits(candidate).flatMap(unitWords);
+}
+
+// Words of a that are left after removing one copy of each word of b. Ordinals match their numbers.
+function bagDifference(a: readonly string[], b: readonly string[]): string[] {
+  const key = (word: string): string => ORDINAL_NUMBERS.get(word) ?? word;
+  const counts = new Map<string, number>();
+  for (const word of b) counts.set(key(word), (counts.get(key(word)) ?? 0) + 1);
+  return a.filter(word => {
+    const count = counts.get(key(word)) ?? 0;
+    if (count === 0) return true;
+    counts.set(key(word), count - 1);
+    return false;
+  });
 }
