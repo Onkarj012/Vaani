@@ -7,7 +7,7 @@ export const EMPTY_TRANSCRIPT_REASON = "Transcript is empty.";
 export const TOO_SHORT_REASON = "Too few words to format.";
 export const NO_API_KEY_REASON = "No API key.";
 export const EMPTY_REPLY_REASON = "The formatter returned an empty reply.";
-export const CHANGED_WORDS_REASON = "The formatter changed words in the transcript.";
+export { CHANGED_WORDS_REASON } from "@shared/contentGuard";
 export const CHAT_REPLY_REASON = "The formatter replied like an assistant instead of formatting the transcript.";
 export const OFFLINE_REASON = "Offline mode is on.";
 export const NO_PROVIDER_REASON = "No formatting provider is selected.";
@@ -22,6 +22,7 @@ export const FORMATTING_PROMPT = [
   "- Delete false starts and cut-off words: \"the formatting is po- bad\" becomes \"the formatting is bad\", \"would it ru- run\" becomes \"would it run\".",
   "- Apply the speaker's corrections: when they say a word or phrase, then a correction cue (sorry, I mean, no, no wait, actually, rather) and a replacement, keep only the replacement. \"Priyanka, run… sorry, Priya, run the test\" becomes \"Priya, run the test\". \"Send it by Monday, no, Tuesday\" becomes \"Send it by Tuesday\". A \"no\" that answers or negates something (\"He said no.\") stays.",
   "- Add punctuation and capitalization. Start a new paragraph where the topic changes.",
+  "- Write sentence case. A transcript in Title Case (\"The Spare Keys Under the Blue Flower Pot\") becomes \"The spare keys under the blue flower pot\". Keep names, brands, and acronyms capitalized.",
   "- When the speaker enumerates two or more items with ordinal words (\"First, … Second, … Third, …\"), make a numbered list with each item on its own line. The list number replaces the ordinal word: \"First, Siddharth should check the logs.\" becomes \"1. Siddharth should check the logs.\" A lone \"First, …\" stays a sentence.",
   "",
   "Every other word stays exactly as spoken: no rewording, no synonyms, no summarizing, no added words.",
