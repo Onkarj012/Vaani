@@ -1,4 +1,5 @@
 import type { AudioClip, DictationFormatterStatus, TranscriptionResult, TranscriptionOptions, FormattingOptions } from "@shared/types";
+import { FORMATTER_KEY_REJECTED_REASON } from "./formatting-constants";
 
 export interface ApiKeyValidationResult {
   valid: boolean;
@@ -49,7 +50,8 @@ export function formatterResult(status: DictationFormatterStatus, text: string, 
   return { status, text, reason };
 }
 
-// Reason stored in the trace for an error a formatter adapter caught.
+// Reason stored in the trace for an error a formatter adapter caught. A 401 or 403 gets the key reason.
 export function formatterErrorReason(error: unknown): string {
+  if (typeof error === "object" && error !== null && "status" in error && (error.status === 401 || error.status === 403)) return FORMATTER_KEY_REJECTED_REASON;
   return error instanceof Error && error.message ? error.message : "Unknown formatter error.";
 }
