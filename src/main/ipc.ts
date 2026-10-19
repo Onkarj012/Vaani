@@ -229,6 +229,7 @@ const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) =
   capsuleDesign: (value) => isOneOf(value, ["dot", "bar", "rule", "pill"]),
   dictationMode: (value) => isOneOf(value, ["toggle", "push-to-talk", "toggle-double"]),
   saveRecordings: (value) => typeof value === "boolean",
+  suggestDictionaryWords: (value) => typeof value === "boolean",
   recordingsPath: (value) => {
     if (!isBoundedString(value, 4_096)) return false;
     if (value === "") return true;

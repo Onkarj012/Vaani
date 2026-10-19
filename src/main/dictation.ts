@@ -1149,6 +1149,10 @@ export class DictationService {
   }
 
   async showDictionarySuggestions(suggestions: DictionarySuggestion[]): Promise<void> {
+    if (!this.settings.get().suggestDictionaryWords) {
+      debug("dictionary", "suggestions off", { count: suggestions.length });
+      return;
+    }
     const promptGeneration = this.dictionaryPromptGeneration;
     for (const suggestion of suggestions) {
       if (!this.isPromptableDictionarySuggestion(suggestion)) continue;

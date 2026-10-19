@@ -552,6 +552,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <Row title="Save Recordings" desc="Save WAV files to disk for replay">
             <Toggle checked={settings.saveRecordings} onChange={(v) => updateSettings({ saveRecordings: v })} />
           </Row>
+          <Row title="Suggest Dictionary Words" desc="After you fix a pasted word, offer to add it to the dictionary">
+            <Toggle checked={settings.suggestDictionaryWords} onChange={(v) => updateSettings({ suggestDictionaryWords: v })} />
+          </Row>
           <Row title="Low Latency Mode" desc="Keeps the microphone open between dictations">
             <Toggle checked={settings.preWarmMic} onChange={(v) => updateSettings({ preWarmMic: v })} />
           </Row>

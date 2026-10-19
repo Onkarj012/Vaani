@@ -442,6 +442,8 @@ export interface Settings {
   // Phase 0: New settings
   dictationMode: DictationMode;
   saveRecordings: boolean;
+  /** Offer a dictionary entry after the user fixes a pasted word by hand. Off by default. */
+  suggestDictionaryWords: boolean;
   recordingsPath: string;
   recoveryRetentionDays: 1 | 3 | 7 | 14;
   retainFailedAudio: boolean;

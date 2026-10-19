@@ -37,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // Phase 0
   dictationMode: "toggle",
   saveRecordings: false,
+  suggestDictionaryWords: false,
   recordingsPath: "",
   recoveryRetentionDays: 3,
   retainFailedAudio: false,

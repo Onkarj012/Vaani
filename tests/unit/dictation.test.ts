@@ -52,6 +52,9 @@ vi.mock("groq-sdk", () => ({
   },
 }));
 
+// Dictionary suggestions are off by default; these tests cover the prompt flow, so they turn it on.
+const SUGGESTING_SETTINGS: Settings = { ...DEFAULT_SETTINGS, suggestDictionaryWords: true };
+
 function createDictationService(deps: {
   traces?: Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId"> & Partial<Pick<DictationTraceStore, "getAll">>;
   getMicrophonePermission?: () => string;
@@ -92,8 +95,8 @@ function createDictationService(deps: {
   };
 
   const settings = {
-    get: vi.fn(() => DEFAULT_SETTINGS),
-    update: vi.fn((patch) => ({ ...DEFAULT_SETTINGS, ...patch }))
+    get: vi.fn(() => SUGGESTING_SETTINGS),
+    update: vi.fn((patch) => ({ ...SUGGESTING_SETTINGS, ...patch }))
   };
 
   const history = {
@@ -196,7 +199,7 @@ function createInsertionRecovery(sessionId: string) {
 
 type MockedSettingsStore = ReturnType<typeof createDictationService>["settings"];
 
-function makeSettingsMutable(settings: MockedSettingsStore, initial: Settings = DEFAULT_SETTINGS) {
+function makeSettingsMutable(settings: MockedSettingsStore, initial: Settings = SUGGESTING_SETTINGS) {
   let current: Settings = {
     ...initial,
     customCorrections: [...initial.customCorrections],
@@ -2550,6 +2553,16 @@ describe("DictationService", () => {
     await pending;
 
     expect(mutable.current().customCorrections).toEqual([]);
+  });
+
+  it("never offers a dictionary entry while suggestions are off", async () => {
+    const { service, overlay, settings } = createDictationService();
+    settings.get.mockReturnValue(DEFAULT_SETTINGS);
+
+    await service.showDictionarySuggestions([{ spoken: "grog", written: "Groq" }]);
+
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
+    expect(settings.update).not.toHaveBeenCalled();
   });
 
   it("does not add a dictionary correction when the prompt is skipped", async () => {
