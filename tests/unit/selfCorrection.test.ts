@@ -15,6 +15,7 @@ describe("applySelfCorrections", () => {
     ["meet Monday no wait next Tuesday", "meet Monday no wait next Tuesday"],
     ["Send it by friday, no, the report first.", "Send it by friday, no, the report first."],
     ["Set it to 3.5, no wait, 4.5.", "Set it to 3.5, no wait, 4.5."],
+    ["Please make that Monday.", "Please make that Monday."],
     ["Version 1.2. Meet at 3, no wait, 4.", "Version 1.2. Meet at 4."],
   ])("%s", (raw, expected) => {
     expect(applySelfCorrections(raw)).toBe(expected);

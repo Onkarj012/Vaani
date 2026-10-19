@@ -282,6 +282,11 @@ describe("guard false rejections", () => {
     expect(preservesContentWords("So did open router fail?", "So did OpenRouter fail?")).toBe(true);
   });
 
+  it("rejects joins that change meaning", () => {
+    expect(preservesContentWords("We are now here.", "We are nowhere.")).toBe(false);
+    expect(preservesContentWords("Take 2 5 mg tablets.", "Take 25 mg tablets.")).toBe(false);
+  });
+
   it("still rejects a joined word the input never had side by side", () => {
     expect(preservesContentWords("open the router", "openrouter the")).toBe(false);
   });

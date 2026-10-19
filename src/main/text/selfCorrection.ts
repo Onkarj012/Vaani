@@ -35,7 +35,8 @@ function fixSentence(sentence: string): string {
   const replacement = after.trim().split(/\s+/);
   const count = replacement.length;
   if (count > MAX_AFTER_WORDS || !replacement.every(word => WORD_SHAPE_RE.test(word))) return sentence;
-  if (words.length < count) return sentence;
+  // At least one kept word must come first: a sentence-opening capital is no sign of a name ("Please make that Monday.").
+  if (words.length <= count) return sentence;
 
   const head = words.slice(0, words.length - count);
   const replaced = words.slice(words.length - count);
