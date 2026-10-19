@@ -9,7 +9,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 // Loads the renderer recorder with stubbed input preparation and microphone access.
-async function loadRecorder(prepareInput: () => Promise<number | null>) {
+async function loadRecorder(prepareInput: () => Promise<number | null>, closeContext: () => Promise<void> = async () => {}) {
   vi.resetModules();
   const microphones: Array<{ resolve: (stream: MediaStream) => void; track: { onended: null; onmute: null; stop: ReturnType<typeof vi.fn> } }> = [];
   let onStart: ((command: RecorderCommand) => void) | undefined;
@@ -67,7 +67,7 @@ async function loadRecorder(prepareInput: () => Promise<number | null>) {
       return processor;
     }
     resume = async () => {};
-    close = async () => {};
+    close = closeContext;
   });
 
   await import("@renderer/recorder/main");
@@ -125,6 +125,29 @@ describe("renderer recorder start cancellation", () => {
       expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("next");
     });
     expect(recorder.recorderApi.reportRecorderStarted).not.toHaveBeenCalledWith("cancelled");
+    expect(recorder.microphones[0]?.track.stop).toHaveBeenCalledOnce();
+    expect(recorder.microphones[1]?.track.stop).not.toHaveBeenCalled();
+  });
+
+  it("keeps the next recording's microphone when an abort is still closing the old one", async () => {
+    const closing = deferred<void>();
+    let closeCalls = 0;
+    const recorder = await loadRecorder(async () => null, () => { closeCalls += 1; return closeCalls === 1 ? closing.promise : Promise.resolve(); });
+    recorder.start("old");
+    await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledOnce());
+    recorder.microphones[0]?.resolve(new MediaStream());
+    await vi.waitFor(() => expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("old"));
+
+    recorder.abort("old");
+    recorder.start("next");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The old teardown still holds the capture, so the next start must wait for it.
+    expect(recorder.getUserMedia).toHaveBeenCalledOnce();
+    closing.resolve();
+
+    await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledTimes(2));
+    recorder.microphones[1]?.resolve(new MediaStream());
+    await vi.waitFor(() => expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("next"));
     expect(recorder.microphones[0]?.track.stop).toHaveBeenCalledOnce();
     expect(recorder.microphones[1]?.track.stop).not.toHaveBeenCalled();
   });

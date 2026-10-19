@@ -235,8 +235,19 @@ async function abortRecording(sessionId: string): Promise<void> {
     return;
   }
   if (activeSessionId !== sessionId) return;
-  await cleanupSession();
-  await shutdownWarmCapture();
+  // Teardown waits on AudioContext.close(). Queue it with starts so a start
+  // that arrives meanwhile opens its mic after this one is gone, not before.
+  const previous = startQueue;
+  let finishTeardown = () => {};
+  startQueue = new Promise<void>((resolve) => { finishTeardown = resolve; });
+  await previous;
+  try {
+    if (activeSessionId !== sessionId) return;
+    await cleanupSession();
+    await shutdownWarmCapture();
+  } finally {
+    finishTeardown();
+  }
 }
 
 async function suspendRecording(sessionId: string): Promise<void> {

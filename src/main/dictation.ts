@@ -141,6 +141,8 @@ export class DictationService {
   private pendingStopRequestedAt: string | null = null;
   private readonly recorder: RecorderCommands | null;
   private pasteLatestInProgress = false;
+  // Set when quit starts. No new dictation may start after it.
+  private closingForQuit = false;
   private sessionAbortController: AbortController | null = null;
   private readonly recoveryActionAbortControllers = new Set<AbortController>();
   private sessionGeneration = 0;
@@ -219,6 +221,7 @@ export class DictationService {
   }
 
   beginHotkeySession(): void {
+    if (this.closingForQuit) return;
     this.cancelRecoveryActions("new-dictation");
     this.cancelledRecoveryRetryIds.clear();
     if (this.state.status !== "idle") {
@@ -1608,19 +1611,20 @@ export class DictationService {
 
   // Ends an in-flight dictation at quit so its trace is not left "started" and a ready transcript reaches History.
   async closeForQuit(): Promise<void> {
+    this.closingForQuit = true;
     const sessionId = this.activeSessionId;
     if (!sessionId || !this.isLiveSession()) return;
     const stage = this.isCaptureStage() ? "recording" : "processing";
+    const entry = this.activePreparedEntry;
+    const dispatched = this.activeInsertionDispatched;
+    const outcome: DictationInsertionOutcome = dispatched && entry ? "unconfirmed" : this.activeInsertionPrepared ? "refused" : "failed";
     this.clearTimers();
     if (this.isCaptureStage()) this.recorder?.abortRecording?.(sessionId);
     this.sessionAbortController?.abort("app-quit");
-    if (this.activeInsertionDispatched && this.activePreparedEntry) {
-      await this.settleInterruptedInsertion(sessionId);
-      return;
-    }
-    const saved = this.activePreparedEntry ? await this.persistHistoryOnce(sessionId, this.activePreparedEntry) : false;
-    const outcome: DictationInsertionOutcome = this.activeInsertionPrepared ? "refused" : "failed";
-    await this.finishTrace(sessionId, outcome, "cancelled", insertionStatusText(outcome, saved, stage));
+    // The trace goes first: quit gives the whole flush only 3 s, and a slow History write must not leave it "started".
+    const trace = this.finishTrace(sessionId, outcome, "cancelled", insertionStatusText(outcome, entry !== null, stage));
+    const saved = entry ? this.persistHistoryOnce(sessionId, entry) : Promise.resolve(false);
+    await Promise.all([trace, saved]);
   }
 
   async flushRecovery(): Promise<void> {

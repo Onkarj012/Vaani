@@ -37,6 +37,18 @@ afterEach(async () => {
 });
 
 describe("DictationTraceStore", () => {
+  it("closes traces an earlier run left started and leaves finished ones alone", async () => {
+    const store = await createStore();
+    await store.upsert(trace("left-open"));
+    await store.upsert({ ...trace("done"), outcome: "verified", completedAt: "2026-06-29T00:00:01.000Z" });
+
+    await expect(store.closeUnfinished()).resolves.toBe(1);
+
+    expect(await store.getById("left-open")).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
+    expect(await store.getById("done")).toMatchObject({ outcome: "verified", completedAt: "2026-06-29T00:00:01.000Z" });
+    await expect(store.closeUnfinished()).resolves.toBe(0);
+  });
+
   it.each(["verified", "unconfirmed", "refused", "copy-only", "failed"] as const)("reloads the %s insertion outcome", async (outcome) => {
     const store = await createStore();
     await store.upsert({ ...trace(outcome), outcome, stages: { outcome } });

@@ -949,6 +949,30 @@ describe("DictationService", () => {
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
   });
 
+  it("starts no new dictation once quit has begun", async () => {
+    const { service, recorder } = createDictationService();
+    await service.closeForQuit();
+    service.beginHotkeySession();
+    expect(service.getState().status).toBe("idle");
+    expect(recorder.startRecording).not.toHaveBeenCalled();
+  });
+
+  it("finishes the trace at quit even while the History write hangs", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, injector, history } = createDictationService({ traces: traceDeps.traces });
+    history.append.mockImplementation(() => new Promise<void>(() => undefined));
+    injector.inject.mockImplementationOnce(() => new Promise<InjectionResult>(() => undefined));
+    void submitHelloWorld(service);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injector.inject).toHaveBeenCalledOnce();
+
+    void service.closeForQuit();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(history.append).toHaveBeenCalled();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "refused", rejectionReason: "cancelled", completedAt: expect.any(String) });
+  });
+
   it("closes a transcription at quit without inserting late text", async () => {
     const traceDeps = createTraceDeps();
     const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
@@ -1014,10 +1038,13 @@ describe("DictationService", () => {
     const submission = submitHelloWorld(service);
     await vi.advanceTimersByTimeAsync(0);
     expect(injector.inject).toHaveBeenCalledOnce();
-    await vi.advanceTimersByTimeAsync(60_000);
+    // A 1 s clip's guard fires at 65 s. Keep the paste hanging past it.
+    await vi.advanceTimersByTimeAsync(65_000);
+    expect(service.getState().status).toBe("idle");
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open get hub.", injectionStatus: "saved" }));
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "unconfirmed", rejectionReason: "cancelled", completedAt: expect.any(String) });
     finishInjection({ success: true, method: "clipboard" });
     await submission;
-    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open get hub.", injectionStatus: "saved" }));
     expect(traceDeps.getTrace()?.outcome).toBe("unconfirmed");
   });
 
