@@ -34,6 +34,9 @@ const HALLUCINATION_SUBSTRINGS = [
 
 // Retry reasons that indicate the audio likely contained no real speech.
 // When retries are exhausted these must never be inserted at the cursor.
+// Whisper's average log-probability below which a two-term hint echo counts as unclear audio.
+const HINT_ECHO_LOGPROB = -0.5;
+
 const NO_SPEECH_REASONS = new Set([
   "common-silence-hallucination",
   "known-hallucination-phrase",
@@ -57,10 +60,13 @@ export function decideTranscriptInsertion(
   if (!compact) return { action: "reject", reason: "empty-transcript" };
 
   const normalized = tokens.join(" ").toLowerCase();
-  // On unclear audio Whisper can return the hint list it was given ("Onkar, CLAUDE.md, Unslop") instead of the speech.
-  if (isHintEcho(tokens, hints)) return { action: "retry", reason: "vocabulary-hint-echo" };
   const lowSpeechAudio = looksLikeLowSpeechAudio(clip);
   const lowConfidence = hasLowProviderConfidence(quality);
+  // On unclear audio Whisper can return the hint list it was given ("Onkar, CLAUDE.md, Unslop") instead of the speech.
+  // Three or more terms is an echo. Two need a sign the audio was unclear, so a clear "Onkar Jadhav" still inserts.
+  const hintTermCount = hintEchoTermCount(tokens, hints);
+  const unclear = lowSpeechAudio || lowConfidence || (quality?.avgLogprob != null && quality.avgLogprob < HINT_ECHO_LOGPROB);
+  if (hintTermCount >= 3 || (hintTermCount === 2 && unclear)) return { action: "retry", reason: "vocabulary-hint-echo" };
 
   if (HALLUCINATION_SUBSTRINGS.some((phrase) => normalized.includes(phrase.toLowerCase())) && (lowSpeechAudio || lowConfidence)) {
     return { action: "retry", reason: "known-hallucination-phrase" };
@@ -104,20 +110,24 @@ export function finalizeTranscriptDecision(decision: TranscriptQualityDecision):
   return { action: "insert", reason: decision.reason };
 }
 
-// True when the transcript is nothing but two or more of the hint terms, the way Whisper echoes its prompt.
-function isHintEcho(tokens: readonly string[], hints: readonly string[]): boolean {
+// Fewest hint terms that spell out the whole transcript, or 0 when it holds any other word.
+function hintEchoTermCount(tokens: readonly string[], hints: readonly string[]): number {
   const termTokens = hints
     .map(hint => (hint.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)?/gu) ?? []).map(token => token.toLowerCase()))
     .filter(term => term.length > 0);
   const words = tokens.map(token => token.toLowerCase());
-  let matched = 0;
-  for (let index = 0; index < words.length;) {
-    const term = termTokens.find(candidate => candidate.every((token, offset) => words[index + offset] === token));
-    if (!term) return false;
-    matched += 1;
-    index += term.length;
+  if (words.length === 0 || termTokens.length === 0) return 0;
+  // fewest[i] is the fewest terms that cover words[i..], or Infinity when they cannot.
+  const fewest: number[] = new Array(words.length + 1).fill(Number.POSITIVE_INFINITY);
+  fewest[words.length] = 0;
+  for (let index = words.length - 1; index >= 0; index -= 1) {
+    for (const term of termTokens) {
+      if (!term.every((token, offset) => words[index + offset] === token)) continue;
+      fewest[index] = Math.min(fewest[index] ?? Number.POSITIVE_INFINITY, (fewest[index + term.length] ?? Number.POSITIVE_INFINITY) + 1);
+    }
   }
-  return matched >= 2;
+  const count = fewest[0] ?? Number.POSITIVE_INFINITY;
+  return Number.isFinite(count) ? count : 0;
 }
 
 function hasLowProviderConfidence(quality: TranscriptionQualityMetadata | undefined): boolean {

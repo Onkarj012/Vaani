@@ -113,6 +113,16 @@ describe("vocabulary hint echo", () => {
     expect(finalizeTranscriptDecision({ action: "retry", reason: "vocabulary-hint-echo" }).action).toBe("save");
   });
 
+  it("needs unclear audio before holding back a two-term echo", () => {
+    const names = ["Onkar", "Jadhav"];
+    expect(decideTranscriptInsertion("Onkar Jadhav", speech, { provider: "groq", attemptCount: 1, supportsConfidence: true, transcriptLength: 12, avgLogprob: -0.1 }, names).action).toBe("insert");
+    expect(decideTranscriptInsertion("Onkar Jadhav", speech, { provider: "groq", attemptCount: 1, supportsConfidence: true, transcriptLength: 12, avgLogprob: -0.7 }, names).action).toBe("retry");
+  });
+
+  it("finds an echo when a shorter hint is a prefix of a longer one", () => {
+    expect(decideTranscriptInsertion("New York, Vaani, Onkar", speech, undefined, ["New", "New York", "Vaani", "Onkar"]).action).toBe("retry");
+  });
+
   it("inserts a single spoken hint word or real speech with hint words", () => {
     expect(decideTranscriptInsertion("Vaani.", speech, undefined, hints).action).toBe("insert");
     expect(decideTranscriptInsertion("Onkar opened CLAUDE.md today", speech, undefined, hints).action).toBe("insert");
