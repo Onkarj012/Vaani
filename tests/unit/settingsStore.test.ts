@@ -156,7 +156,7 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ captureBackend: "native" });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const freshStore = new SettingsStore(filePath);
     await freshStore.init();
@@ -172,12 +172,12 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ captureBackend: "native" });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const reloaded = new SettingsStore(filePath);
     await reloaded.init();
     reloaded.update({ saveRecordings: true });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await reloaded.flush();
 
     const freshStore = new SettingsStore(filePath);
     await freshStore.init();
@@ -208,7 +208,7 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ preWarmMic: true });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const freshStore = new SettingsStore(filePath);
     await freshStore.init();
@@ -224,12 +224,12 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ preWarmMic: true });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const reloaded = new SettingsStore(filePath);
     await reloaded.init();
     reloaded.update({ saveRecordings: true });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await reloaded.flush();
 
     const freshStore = new SettingsStore(filePath);
     await freshStore.init();
@@ -246,7 +246,7 @@ describe("SettingsStore", () => {
     await store.init();
 
     expect(store.update({ fillerWords: ["um"] }).fillerWordsCustomized).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
   });
 
   it("persists provider validation metadata across reloads", async () => {
@@ -262,7 +262,7 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ providerApiKeys: [{ providerId: "openai", key: "", hasKey: true, lastValidation: validation }] });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const reloaded = new SettingsStore(filePath);
     await reloaded.init();
