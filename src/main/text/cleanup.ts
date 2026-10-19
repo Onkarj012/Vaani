@@ -3,6 +3,7 @@ import { NUMBER_WORDS, parseNumberWords } from "@shared/numberWords";
 import { editDistance, normalizedEditDistance } from "@shared/textDistance";
 import { phoneticKeysEqual } from "@shared/phonetics";
 import { HESITATION_WORDS, PROTECTED_WORDS } from "@shared/contentGuard";
+import { applySelfCorrections } from "./selfCorrection";
 
 interface TextCleanupInput {
   rawText: string;
@@ -80,7 +81,7 @@ function removeCutOffWords(line: string): string {
   });
 }
 
-// Removes speech noise with fixed rules: cut-off words, hesitation sounds, and stutters.
+// Removes speech noise with fixed rules: cut-off words, hesitation sounds, stutters, and safe self-corrections.
 // Used when the cleanup model did not run or its result was rejected, so the pasted text is still clean.
 export function removeSpeechNoise(text: string): string {
   return text
@@ -94,6 +95,7 @@ export function removeSpeechNoise(text: string): string {
       .replace(/([,;:])(?:\s*[,;:])+/g, "$1")
       .replace(/(^|[.!?]\s+),\s*/g, "$1")
       .trim())
+    .map(applySelfCorrections)
     .join("\n");
 }
 
