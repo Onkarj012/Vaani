@@ -5,6 +5,8 @@ import type { InjectionTarget } from "./index";
 import { nativeBridge } from "../nativeBridge";
 
 const exec = promisify(execFile);
+// A stalled activation script would otherwise hold the injection queue.
+const ACTIVATE_TIMEOUT_MS = 5_000;
 
 function internalBundleIds(): Set<string> {
   const ids = new Set<string>(["com.claudevaani.app"]);
@@ -86,7 +88,7 @@ export async function activateTargetApp(target?: InjectionTarget): Promise<boole
   const script = buildActivateTargetScript(target);
   if (!script) return false;
   try {
-    await exec("osascript", ["-e", script]);
+    await exec("osascript", ["-e", script], { timeout: ACTIVATE_TIMEOUT_MS });
     await new Promise((resolve) => setTimeout(resolve, 200));
     return true;
   } catch {

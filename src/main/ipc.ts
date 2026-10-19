@@ -5,6 +5,7 @@ import { autoUpdater } from "electron-updater";
 import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { defaultModelFor } from "@shared/modelList";
+import { isCanonicalHotkey } from "@shared/hotkeys";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioVisualFrame,
@@ -202,8 +203,8 @@ function isAppProfile(value: unknown): boolean {
 const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) => boolean } = {
   onboardingCompleted: (value) => typeof value === "boolean",
   groqApiKey: (value) => isBoundedString(value, MAX_SECRET_LENGTH),
-  primaryHotkey: (value) => isBoundedString(value, MAX_SHORT_TEXT_LENGTH, false),
-  pasteLatestHotkey: (value) => isBoundedString(value, MAX_SHORT_TEXT_LENGTH, false),
+  primaryHotkey: (value) => typeof value === "string" && isCanonicalHotkey(value),
+  pasteLatestHotkey: (value) => typeof value === "string" && isCanonicalHotkey(value),
   language: (value) => isBoundedString(value, 32, false),
   customPrompt: (value) => value === undefined || isBoundedString(value, MAX_TEXT_LENGTH),
   cleanupEnabled: (value) => typeof value === "boolean",

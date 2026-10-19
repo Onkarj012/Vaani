@@ -1,25 +1,30 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { clipboard } from "electron";
 import type { InjectionResult } from "@shared/types";
+import { warn } from "@main/log";
 import { nativeBridge } from "../nativeBridge";
+import type { PasteboardItem, PasteboardWriteResult } from "../nativeBridge";
 import type { InjectionTarget } from "./index";
 import { isClipboardOnlyTarget, shouldPreferTypingInjection } from "./policy";
 import { activateTargetApp, isTargetFrontmost } from "./target";
 import type { InjectionBlockReason, InjectionGuard } from "./guard";
+import { moveCaretAfterInsertion, readFocusedSelection } from "./caret";
 
 const exec = promisify(execFile);
 let consecutiveFailures = 0;
 const CLIPBOARD_RESTORE_DELAY_MS = 1_200;
+// Typing a long transcript through System Events can take several seconds.
+const DISPATCH_TIMEOUT_MS = 20_000;
+// Clipboards larger than this keep only their plain text, so the snapshot stays bounded.
+export const PASTEBOARD_SNAPSHOT_MAX_BYTES = 50 * 1024 * 1024;
+const PLAIN_TEXT_TYPE = "public.utf8-plain-text";
+const CARET_SETTLE_MS = 300;
 let restoreGeneration = 0;
-let pendingRestore: { original: string; changeCount: number } | null = null;
+let pendingCaretCheck: ReturnType<typeof setTimeout> | null = null;
+// The user's items, plus the change count our own write left on the pasteboard.
+let pendingRestore: { items: PasteboardItem[]; changeCount: number } | null = null;
 let injectionQueue: Promise<void> | null = null;
-const UTF8_CLIPBOARD_ENV = {
-  ...process.env,
-  LANG: "en_US.UTF-8",
-  LC_ALL: "en_US.UTF-8",
-  LC_CTYPE: "UTF-8"
-};
 
 type DispatchOutcome = "dispatched" | "failed" | "outcome_uncertain" | InjectionBlockReason;
 
@@ -47,7 +52,9 @@ export class ClipboardTextInjector {
     const blockedAtStart = guard();
     if (blockedAtStart) return { success: false, reason: blockedAtStart };
     if (clipboardChangeCount() === null) return { success: false, reason: "insertion_failed" };
-    const original = await readOriginalClipboardText();
+    // A newer insert owns the caret now, so an older pending check must not move it.
+    if (pendingCaretCheck) { clearTimeout(pendingCaretCheck); pendingCaretCheck = null; }
+    let snapshot: PasteboardItem[] | null = null;
     let generation = restoreGeneration;
     let ownedChangeCount: number | null = null;
     let dispatchStarted = false;
@@ -58,9 +65,17 @@ export class ClipboardTextInjector {
       if (await activateTargetApp(target)) await delay(180);
       const blockedBeforeWrite = dispatchGuard();
       if (blockedBeforeWrite) return { success: false, reason: blockedBeforeWrite };
+      // Snapshot right before the first write, so a copy made during activation is the one kept.
+      snapshot = readClipboardSnapshot();
+      if (!snapshot) return { success: false, reason: "insertion_failed" };
+      const insertionStart = readFocusedSelection()?.location ?? target?.selection?.location;
       generation = ++restoreGeneration;
-      ownedChangeCount = await writeClipboardText(text);
-      if (ownedChangeCount === null) return { success: false, reason: "insertion_failed" };
+      const writeResult = writeClipboardItems(plainTextItems(text));
+      // Keep ownership even on failure so cleanup cannot overwrite a newer user copy.
+      ownedChangeCount = typeof writeResult === "number" ? writeResult : writeResult?.failedChangeCount ?? null;
+      if (typeof writeResult !== "number" || clipboard.readText() !== text) {
+        return { success: false, reason: "insertion_failed" };
+      }
 
       // Clipboard-only apps (terminals, browsers, Electron apps, etc.) have no AX
       // selection tracking. Running the full fallback chain would fire multiple
@@ -70,10 +85,17 @@ export class ClipboardTextInjector {
       if (isClipboardOnlyTarget(target)) {
         const blockedBeforeActivation = dispatchGuard();
         if (blockedBeforeActivation) return { success: false, reason: blockedBeforeActivation };
+        const insertionFieldIdentity = readFocusedElementIdentity();
         const outcome = await this.pasteWithNativeBridge(text, target, dispatchGuard, () => ownedChangeCount, markDispatch);
         if (outcome === "dispatched") {
           if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
           consecutiveFailures = 0;
+          // The paste lands asynchronously, so check the caret after the app applies it.
+          pendingCaretCheck = setTimeout(() => {
+            pendingCaretCheck = null;
+            if (dispatchGuard() || !insertionFieldIdentity || readFocusedElementIdentity() !== insertionFieldIdentity) return;
+            moveCaretAfterInsertion(text, insertionStart);
+          }, CARET_SETTLE_MS);
           return { success: true, method: "clipboard" };
         }
         if (outcome !== "failed") return { success: false, reason: outcome };
@@ -127,21 +149,20 @@ export class ClipboardTextInjector {
       if (pasted) {
         if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
         consecutiveFailures = 0;
+        moveCaretAfterInsertion(text, insertionStart);
         return { success: true, method: "clipboard" };
       }
       consecutiveFailures += 1;
       return { success: false, reason: "insertion_failed" };
     } finally {
-      if (original !== text && ownedChangeCount !== null) {
+      if (snapshot && ownedChangeCount !== null) {
         if (dispatchStarted) {
-          pendingRestore = { original, changeCount: ownedChangeCount };
-          void restoreClipboardAfterDelay(original, ownedChangeCount, CLIPBOARD_RESTORE_DELAY_MS, generation);
+          pendingRestore = { items: snapshot, changeCount: ownedChangeCount };
+          void restoreClipboardAfterDelay(snapshot, ownedChangeCount, CLIPBOARD_RESTORE_DELAY_MS, generation);
         } else {
           pendingRestore = null;
-          if (clipboardChangeCount() === ownedChangeCount) await writeClipboardText(original);
+          if (clipboardChangeCount() === ownedChangeCount) restoreClipboard(snapshot);
         }
-      } else if (generation === restoreGeneration && ownedChangeCount !== null) {
-        pendingRestore = null;
       }
     }
   }
@@ -201,15 +222,24 @@ async function runAppleScriptDispatch(action: string[], target: InjectionTarget 
     if (blocked) return blocked;
     // osascript may fail after System Events has already sent some keys.
     // Treat its result as uncertain once the command starts, so no fallback
-    // strategy can insert the same text a second time.
+    // strategy can insert the same text a second time. A timeout counts the same way.
     try {
       onDispatch?.();
-      await exec("osascript", lines.flatMap(l => ["-e", l]));
+      await exec("osascript", lines.flatMap(l => ["-e", l]), { timeout: DISPATCH_TIMEOUT_MS });
       return "dispatched";
     } catch {
       return "outcome_uncertain";
     }
   } catch { return "failed"; }
+}
+
+// Reads the focused field identity, or null when it cannot be verified.
+function readFocusedElementIdentity(): string | null {
+  try {
+    return nativeBridge.getFocusedElementIdentity?.() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function delay(ms: number): Promise<void> {
@@ -230,24 +260,37 @@ function prefersSystemEventsPaste(target?: InjectionTarget): boolean {
   return haystack.includes("whatsapp") || haystack.includes("messages") || haystack.includes("telegram") || haystack.includes("signal");
 }
 
-async function readClipboardText(): Promise<string> {
-  try {
-    const result = await exec("pbpaste", [], { env: UTF8_CLIPBOARD_ENV, encoding: "utf8" });
-    return result.stdout;
-  } catch {
-    return clipboard.readText();
+// Returns the user's pasteboard items, or null if the pasteboard cannot be read.
+function readClipboardSnapshot(): PasteboardItem[] | null {
+  const changeCount = clipboardChangeCount();
+  if (changeCount === null) return null;
+  // While an earlier restore is still pending the clipboard holds that
+  // injection's text, not the user's. Reuse the user's items from then.
+  if (pendingRestore && changeCount === pendingRestore.changeCount) return pendingRestore.items;
+  return readPasteboardItems();
+}
+
+// Reads every item natively. Over the size cap, keeps only the plain text.
+function readPasteboardItems(): PasteboardItem[] | null {
+  if (!nativeBridge.readPasteboard) return null;
+  // A copy made during the read leaves stale, partial items, so read again until the clipboard holds still.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const before = clipboardChangeCount();
+    const items = nativeBridge.readPasteboard(PASTEBOARD_SNAPSHOT_MAX_BYTES);
+    if (before === null || clipboardChangeCount() !== before) continue;
+    if (items) return items;
+    warn("clipboard", `pasteboard exceeds ${PASTEBOARD_SNAPSHOT_MAX_BYTES} bytes; restoring plain text only`);
+    return plainTextItems(clipboard.readText());
   }
+  return null;
 }
 
-// While an earlier restore is still pending the clipboard holds that
-// injection's text, not the user's. Chain back to the user's clipboard so the
-// eventual restore returns what the user actually had.
-async function readOriginalClipboardText(): Promise<string> {
-  const current = await readClipboardText();
-  if (pendingRestore && clipboardChangeCount() === pendingRestore.changeCount) return pendingRestore.original;
-  return current;
+// Builds one plain-text item, or no items for empty text.
+function plainTextItems(text: string): PasteboardItem[] {
+  return text ? [[{ type: PLAIN_TEXT_TYPE, data: Buffer.from(text, "utf8") }]] : [];
 }
 
+// Returns the pasteboard change count, or null if it cannot be read.
 function clipboardChangeCount(): number | null {
   try {
     return nativeBridge.getClipboardChangeCount?.() ?? null;
@@ -256,34 +299,27 @@ function clipboardChangeCount(): number | null {
   }
 }
 
-async function writeClipboardText(text: string): Promise<number | null> {
-  if (/[^\x00-\x7F]/.test(text)) {
-    clipboard.writeText(text);
-    if (clipboard.readText() === text) return clipboardChangeCount();
-  }
-
-  try {
-    execFileSync("pbcopy", [], { input: text, encoding: "utf8", env: UTF8_CLIPBOARD_ENV });
-  } catch {
-    clipboard.writeText(text);
-  }
-  try {
-    return clipboard.readText() === text ? clipboardChangeCount() : null;
-  } catch {
-    return null;
-  }
+// Replaces the pasteboard and keeps the clearing count if the native write fails.
+function writeClipboardItems(items: PasteboardItem[]): PasteboardWriteResult {
+  return nativeBridge.writePasteboard?.(items) ?? null;
 }
 
-async function restoreClipboardAfterDelay(original: string, ownedChangeCount: number, delayMs: number, generation: number): Promise<void> {
+// Puts every saved item back. Falls back to the saved plain text if the native write fails.
+function restoreClipboard(items: PasteboardItem[]): void {
+  const result = writeClipboardItems(items);
+  if (typeof result === "number") return;
+  if (result && clipboardChangeCount() !== result.failedChangeCount) return;
+  clipboard.writeText(items.flat().find((entry) => entry.type === PLAIN_TEXT_TYPE)?.data.toString("utf8") ?? "");
+}
+
+async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCount: number, delayMs: number, generation: number): Promise<void> {
   await delay(delayMs);
   // A newer injection started after this one; let it own the clipboard.
   if (generation !== restoreGeneration) return;
   pendingRestore = null;
   // Text equality cannot distinguish a user copy of the same dictated text.
   // Restore only while the pasteboard still has our last observed change count.
-  if (clipboardChangeCount() === ownedChangeCount) {
-    await writeClipboardText(original);
-  }
+  if (clipboardChangeCount() === ownedChangeCount) restoreClipboard(items);
 }
 
 async function maybeRestoreCaretAfterInsertion(_text: string, _target: InjectionTarget | undefined, _kind: "paste" | "typing", _activationSucceeded?: boolean): Promise<void> {

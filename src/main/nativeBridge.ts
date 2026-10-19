@@ -20,12 +20,22 @@ export interface NativeLoadFailure {
   path: string | null;
 }
 
+export interface PasteboardEntry {
+  type: string;
+  data: Buffer;
+}
+
+export type PasteboardItem = PasteboardEntry[];
+export type PasteboardWriteResult = number | { failedChangeCount: number } | null;
+
 interface NativeBridge {
   isAccessibilityTrusted?: () => boolean;
   injectText?: (text: string) => NativeInjectionResult;
   pasteText?: (text: string, expectedChangeCount: number, bundleId?: string, pid?: number) => boolean;
   typeText?: (text: string) => boolean;
   getClipboardChangeCount?: () => number;
+  readPasteboard?: (maxBytes: number) => PasteboardItem[] | null;
+  writePasteboard?: (items: PasteboardItem[]) => PasteboardWriteResult;
   getFocusedSelection?: () => SelectionRange | null;
   getFocusedValue?: () => string | null;
   getFocusedElementIdentity?: () => string | null;
