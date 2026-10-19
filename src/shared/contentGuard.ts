@@ -33,6 +33,7 @@ const REASONING_BLOCK_RE = /<(think|thinking|reasoning|thought)>[\s\S]*?<\/\1>/g
 const UNCLOSED_REASONING_RE = /<(think|thinking|reasoning|thought)>[\s\S]*$/i;
 const WORD_RE = /[\p{L}\p{M}\p{N}]+/gu;
 const CURRENCY_RE = /\p{Sc}/gu;
+const CAMEL_CASE_RE = /\p{L}*\p{Ll}\p{Lu}\p{L}*/gu;
 
 // Hesitation sounds. Cleanup adds them to the filler words it removes.
 // "er" and "ah" are left out: they are words in other languages ("Er ist da").
@@ -496,18 +497,20 @@ export interface DiffOptions {
 // Words the formatter dropped, reordered, or added. Listed fillers may be dropped but not added.
 export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): ContentWordDiff {
   const input = inputUnits(rawText, fillers);
-  return alignUnits(input.units, input.phrases, splitJoinedWords(input.units, outputUnits(candidate)), options.speechNoise ?? true);
+  return alignUnits(input.units, input.phrases, splitJoinedWords(input.units, outputUnits(candidate), candidate), options.speechNoise ?? true);
 }
 
 // Splits an output word back into two adjacent input words it joins, so "open router" may come back as "OpenRouter".
-function splitJoinedWords(source: Unit[], output: Unit[]): Unit[] {
+// Only a camel-case name of letters counts: "now here" as "nowhere" or "2 5" as "25" changes meaning.
+function splitJoinedWords(source: Unit[], output: Unit[], candidate: string): Unit[] {
+  const camelCase = new Set((candidate.match(CAMEL_CASE_RE) ?? []).map(word => word.toLowerCase()));
   const pairs = new Map<string, [string, string]>();
   const sourceWords = new Set<string>();
   source.forEach((unit, index) => {
     const text = unitText(unit);
     if (text) sourceWords.add(text);
     const next = source[index + 1];
-    if (unit.kind === "word" && next?.kind === "word") pairs.set(unit.text + next.text, [unit.text, next.text]);
+    if (unit.kind === "word" && next?.kind === "word" && camelCase.has(unit.text + next.text)) pairs.set(unit.text + next.text, [unit.text, next.text]);
   });
   return output.flatMap((unit): Unit[] => {
     const pair = unit.kind === "word" && !sourceWords.has(unit.text) ? pairs.get(unit.text) : undefined;
