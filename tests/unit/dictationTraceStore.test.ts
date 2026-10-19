@@ -140,6 +140,8 @@ describe("DictationTraceStore", () => {
         {
           provider: "groq",
           success: true,
+          model: "whisper-large-v3-turbo",
+          fallbackReason: "openrouter failed",
           latencyMs: "slow",
           quality: {
             provider: "groq",
@@ -171,6 +173,7 @@ describe("DictationTraceStore", () => {
     expect(loaded?.qualityDecision).toEqual({ action: "save", reason: "quiet-short-fragment" });
     expect(loaded?.providerAttempts).toHaveLength(1);
     expect(loaded?.providerAttempts?.[0]?.latencyMs).toBeUndefined();
+    expect(loaded?.providerAttempts?.[0]).toMatchObject({ model: "whisper-large-v3-turbo", fallbackReason: "openrouter failed" });
     expect(loaded?.providerAttempts?.[0]?.quality?.noSpeechProbability).toBe(0.8);
     expect(loaded?.injectionAttempts?.[0]).toMatchObject({ targetAppBundleId: null, targetAppName: "TextEdit", success: true });
     expect(loaded?.injectionAttempts?.[0]?.method).toBeUndefined();

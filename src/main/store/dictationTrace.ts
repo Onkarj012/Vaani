@@ -224,6 +224,9 @@ function normalizeProviderAttempts(value: unknown): DictationTrace["providerAtte
     const quality = normalizeQuality(item.quality);
     if (latencyMs !== undefined) attempt.latencyMs = latencyMs;
     if (typeof item.error === "string") attempt.error = truncateTraceText(item.error);
+    // The trace report groups attempts by model, so a reload must keep it.
+    if (typeof item.model === "string") attempt.model = truncateTraceText(item.model);
+    if (typeof item.fallbackReason === "string") attempt.fallbackReason = truncateTraceText(item.fallbackReason);
     if (quality) attempt.quality = quality;
     attempts.push(attempt);
   }
