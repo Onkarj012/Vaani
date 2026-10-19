@@ -272,3 +272,21 @@ describe("stripReasoningBlocks", () => {
     expect(stripReasoningBlocks("Send the report <thinking>maybe")).toBe("Send the report");
   });
 });
+
+describe("guard false rejections", () => {
+  it("accepts a spoken leading number kept as a list item", () => {
+    expect(preservesContentWords("7. The spare key is under the pot.", "7. The spare key is under the pot.")).toBe(true);
+  });
+
+  it("accepts two spoken words joined into one name", () => {
+    expect(preservesContentWords("So did open router fail?", "So did OpenRouter fail?")).toBe(true);
+  });
+
+  it("still rejects a joined word the input never had side by side", () => {
+    expect(preservesContentWords("open the router", "openrouter the")).toBe(false);
+  });
+
+  it("still rejects a list number the speaker never said", () => {
+    expect(preservesContentWords("The spare key is under the pot.", "7. The spare key is under the pot.")).toBe(false);
+  });
+});

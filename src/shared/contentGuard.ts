@@ -222,11 +222,17 @@ function cueWordsCountAt(cue: Unit & { words: string[] }, output: Unit[], end: n
   return before && showsLayout(cue, before) ? words.length + 1 : words.length;
 }
 
+// True when an output unit keeps a source word. A spoken "7." that opens a line may come back as list item 7.
+function keepsWord(source: string, output: Unit | undefined): boolean {
+  if (output?.kind === "item") return output.value === source;
+  return output?.kind === "word" && sameWord(source, output.text);
+}
+
 // Number of output units, ending just before end, that a source unit accounts for. Zero means no match there.
 function consumedBy(source: Unit, output: Unit[], end: number): number {
   const last = output[end - 1];
   if (!last) return 0;
-  if (source.kind === "word" || source.kind === "filler") return last.kind === "word" && sameWord(source.text, last.text) ? 1 : 0;
+  if (source.kind === "word" || source.kind === "filler") return keepsWord(source.text, last) ? 1 : 0;
   if (source.kind !== "line" && source.kind !== "enum") return 0;
   if (showsLayout(source, last)) return 1;
   return cueWordsCountAt(source, output, end);
@@ -246,7 +252,7 @@ function unitWords(unit: Unit): string[] {
 
 // True when a source unit and an output unit are the same single word, so pairing them never costs a match.
 function sameWordUnit(source: Unit | undefined, output: Unit | undefined): boolean {
-  return (source?.kind === "word" || source?.kind === "filler") && output?.kind === "word" && sameWord(source.text, output.text);
+  return (source?.kind === "word" || source?.kind === "filler") && keepsWord(source.text, output);
 }
 
 // Unmatched source indices and added output units for two sections, or null when the table would exceed MAX_ALIGN_CELLS.
@@ -490,7 +496,23 @@ export interface DiffOptions {
 // Words the formatter dropped, reordered, or added. Listed fillers may be dropped but not added.
 export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): ContentWordDiff {
   const input = inputUnits(rawText, fillers);
-  return alignUnits(input.units, input.phrases, outputUnits(candidate), options.speechNoise ?? true);
+  return alignUnits(input.units, input.phrases, splitJoinedWords(input.units, outputUnits(candidate)), options.speechNoise ?? true);
+}
+
+// Splits an output word back into two adjacent input words it joins, so "open router" may come back as "OpenRouter".
+function splitJoinedWords(source: Unit[], output: Unit[]): Unit[] {
+  const pairs = new Map<string, [string, string]>();
+  const sourceWords = new Set<string>();
+  source.forEach((unit, index) => {
+    const text = unitText(unit);
+    if (text) sourceWords.add(text);
+    const next = source[index + 1];
+    if (unit.kind === "word" && next?.kind === "word") pairs.set(unit.text + next.text, [unit.text, next.text]);
+  });
+  return output.flatMap((unit): Unit[] => {
+    const pair = unit.kind === "word" && !sourceWords.has(unit.text) ? pairs.get(unit.text) : undefined;
+    return pair ? pair.map((text): Unit => ({ kind: "word", text })) : [unit];
+  });
 }
 
 // True only when the formatter kept every word, in order, and added none. Listed fillers may be dropped.
