@@ -2376,6 +2376,16 @@ describe("DictationService", () => {
     });
   });
 
+  it("shows an error when Paste Latest can't read History", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getLatest.mockRejectedValueOnce(new Error("Could not read history.json (invalid JSON). The file was left unchanged."));
+
+    await expect(service.pasteLatestEntry()).resolves.toBeUndefined();
+
+    expect(service.getState()).toMatchObject({ status: "error", message: "History could not be read, so there is nothing to paste." });
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
   it("treats typing after the inserted text as new writing, not a correction", async () => {
     const { service, overlay, settings } = createDictationService();
     const nativeBridge = await import("@main/nativeBridge");

@@ -1066,7 +1066,17 @@ export class DictationService {
     this.pasteLatestInProgress = true;
     try {
       const generation = this.sessionGeneration;
-      const latest = await this.history.getLatest();
+      let latest: DictationEntry | undefined;
+      try {
+        latest = await this.history.getLatest();
+      } catch (err) {
+        if (generation !== this.sessionGeneration) return;
+        // An unreadable History file must not fail silently from a hotkey.
+        debug("dictation", "paste latest could not read History", { message: err instanceof Error ? err.message : String(err) });
+        this.setState({ status: "error", sessionId: null, message: "History could not be read, so there is nothing to paste." });
+        this.scheduleReset(ERROR_RESET_MS);
+        return;
+      }
       if (generation !== this.sessionGeneration) return;
       if (!latest) {
         this.setState({ status: "error", sessionId: null, message: "No previous dictation is available yet." });
