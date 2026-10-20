@@ -67,8 +67,18 @@ WriteOutcome ClassifySetError(AXError error) {
   return error == kAXErrorAttributeUnsupported ? WriteOutcome::NotAttempted : WriteOutcome::Uncertain;
 }
 
-// How long one AX call may wait on a busy app before it fails, instead of the 6 s system default.
+// How long one AX read may wait on a busy app before it fails, instead of the 6 s system default.
 constexpr float kAXMessagingTimeoutSeconds = 0.5f;
+// Writes get longer. A write cut off by a timeout may still land, so it can only be reported as uncertain.
+constexpr float kAXWriteTimeoutSeconds = 2.0f;
+
+// Sets one attribute with the longer write timeout, then puts the element back on the global timeout.
+AXError SetAttributeForWrite(AXUIElementRef element, CFStringRef attribute, CFTypeRef value) {
+  AXUIElementSetMessagingTimeout(element, kAXWriteTimeoutSeconds);
+  AXError result = AXUIElementSetAttributeValue(element, attribute, value);
+  AXUIElementSetMessagingTimeout(element, 0);
+  return result;
+}
 
 AXUIElementRef CopyFocusedElement() {
   AXUIElementRef systemWideElement = AXUIElementCreateSystemWide();
@@ -123,7 +133,7 @@ bool SetSelectedRange(AXUIElementRef element, CFRange selectedRange) {
     return false;
   }
 
-  AXError result = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute, rangeValue);
+  AXError result = SetAttributeForWrite(element, kAXSelectedTextRangeAttribute, rangeValue);
   CFRelease(rangeValue);
   return result == kAXErrorSuccess;
 }
@@ -158,7 +168,7 @@ WriteOutcome ReplaceSelectedRange(AXUIElementRef element, NSString* text) {
     NSString* placeholder = (__bridge NSString*)placeholderValue;
     if ([placeholder length] > 0 && [existingText isEqualToString:placeholder]) {
       // Field value is exactly its placeholder, so treat it as empty and replace the full value
-      AXError setValueResult = AXUIElementSetAttributeValue(element, kAXValueAttribute, (__bridge CFTypeRef)text);
+      AXError setValueResult = SetAttributeForWrite(element, kAXValueAttribute, (__bridge CFTypeRef)text);
       CFRelease(placeholderValue);
       CFRelease(currentValue);
       if (setValueResult != kAXErrorSuccess) {
@@ -179,7 +189,7 @@ WriteOutcome ReplaceSelectedRange(AXUIElementRef element, NSString* text) {
       NSMakeRange(MAX(0, selectedRange.location), MAX(0, selectedRange.length)),
       currentRange);
   NSString* updatedText = [existingText stringByReplacingCharactersInRange:safeRange withString:text];
-  AXError setValueResult = AXUIElementSetAttributeValue(element, kAXValueAttribute, (__bridge CFTypeRef)updatedText);
+  AXError setValueResult = SetAttributeForWrite(element, kAXValueAttribute, (__bridge CFTypeRef)updatedText);
   if (setValueResult != kAXErrorSuccess) {
     CFRelease(currentValue);
     return ClassifySetError(setValueResult);
@@ -337,7 +347,7 @@ Napi::Object InjectText(const Napi::CallbackInfo& info) {
   }
 
   AXError selectedResult =
-      AXUIElementSetAttributeValue(focusedElement, kAXSelectedTextAttribute, (__bridge CFTypeRef)text);
+      SetAttributeForWrite(focusedElement, kAXSelectedTextAttribute, (__bridge CFTypeRef)text);
   CFRelease(focusedElement);
   if (selectedResult == kAXErrorSuccess) {
     return SuccessResult(env);
