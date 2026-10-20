@@ -1,7 +1,8 @@
-// Sentences of dictated text. A dot between digits ("3.5", "1.2.0") is part of the number, not a sentence end.
-export const SENTENCE_RE = /(?:[^.!?\n]|\.(?=\p{N}))+[.!?]*[ \t]*|[.!?\n]+[ \t]*/gu;
+// Sentences of dictated text. A mark with a non-space right after it ("3.5", "priya@example.com", "p.m") is
+// inside a word, not a sentence end. The Devanagari danda "।" ends a sentence too.
+export const SENTENCE_RE = /(?:[^.!?।\n]|[.!?।](?=[^\s.!?।]))+[.!?।]*[ \t]*|[.!?।\n]+[ \t]*/gu;
 // A sentence that only withdraws the sentence before it.
-const SCRATCH_SENTENCE_RE = /^\s*(?:scratch|delete)\s+that[.!?]*\s*$/i;
+const SCRATCH_SENTENCE_RE = /^\s*(?:scratch|delete)\s+that[.!?।]*\s*$/i;
 // A sentence with a letter or number, as opposed to a bare separator such as "\n" or "...".
 const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
 
@@ -18,11 +19,16 @@ function dropPreviousSentence(kept: string[]): boolean {
 export function dropScratchedSentences(text: string): string {
   const kept: string[] = [];
   let dropped = false;
+  let afterCue = false;
   for (const sentence of text.match(SENTENCE_RE) ?? []) {
     if (SCRATCH_SENTENCE_RE.test(sentence) && dropPreviousSentence(kept)) {
       dropped = true;
+      afterCue = true;
       continue;
     }
+    // The separator right after a withdrawn cue goes with it.
+    if (afterCue && !WORD_CHAR_RE.test(sentence)) { afterCue = false; continue; }
+    afterCue = false;
     kept.push(sentence);
   }
   if (!dropped) return text;

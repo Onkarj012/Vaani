@@ -57,7 +57,7 @@ function fixSentence(sentence: string): string {
 }
 
 // Applies the self-corrections that need no model: safe same-kind swaps such as "3, no wait, 4" or "Friday, no, Thursday",
-// and a "Scratch that." sentence, which drops the sentence before it.
+// and a "Scratch that." sentence, which drops the sentence before it, across line breaks too.
 export function applySelfCorrections(text: string): string {
-  return dropScratchedSentences((text.match(SENTENCE_RE) ?? []).map(fixSentence).join(""));
+  return dropScratchedSentences(text.split("\n").map(line => (line.match(SENTENCE_RE) ?? []).map(fixSentence).join("")).join("\n"));
 }

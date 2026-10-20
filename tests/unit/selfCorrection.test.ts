@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applySelfCorrections } from "@main/text/selfCorrection";
 import { removeSpeechNoise } from "@main/text/cleanup";
-import { preservesContentWords } from "@shared/contentGuard";
+import { judgeFormatterReply, preservesContentWords } from "@shared/contentGuard";
 
 describe("applySelfCorrections", () => {
   it.each([
@@ -43,7 +43,15 @@ describe("applySelfCorrections", () => {
   });
 
   it("lets the formatter drop a scratched sentence", () => {
-    expect(preservesContentWords("I'll be late today. Scratch that. I'll be on time.", "I'll be on time.")).toBe(true);
+    expect(judgeFormatterReply("I'll be late today. Scratch that. I'll be on time.", "I'll be on time.").rejection).toBeNull();
+    // The rest of the guard still applies to what is left.
+    expect(judgeFormatterReply("Do not pay 500. Scratch that. Schedule the meeting for 5 p.m. tomorrow.", "Schedule the meeting for 5 pm tomorrow.").rejection).toBeNull();
+    expect(judgeFormatterReply("I'll be late. Scratch that. Pay 500 today.", "Pay 600 today.").rejection).not.toBeNull();
+  });
+
+  it("keeps dots inside a withdrawn sentence and works across lines", () => {
+    expect(applySelfCorrections("Email priya@example.com. Scratch that. Call Priya instead.")).toBe("Call Priya instead.");
+    expect(removeSpeechNoise("I will be late.\nScratch that.\nI will be on time.")).toBe("I will be on time.");
   });
 
   it("rejects a dropped sentence without a scratch cue", () => {

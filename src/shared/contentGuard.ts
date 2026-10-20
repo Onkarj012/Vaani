@@ -516,26 +516,8 @@ export interface DiffOptions {
 
 // Words the formatter dropped, reordered, or added. Listed fillers may be dropped but not added.
 export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): ContentWordDiff {
-  const speechNoise = options.speechNoise ?? true;
-  const diff = diffAgainst(rawText, candidate, fillers, speechNoise);
-  if (!speechNoise || isClean(diff)) return diff;
-  // A reply may also drop a sentence the speaker withdrew with "scratch that". Checked as its own text,
-  // since the word alignment can match a repeated opening ("I'll be … I'll be") to the withdrawn sentence.
-  const scratched = dropScratchedSentences(rawText);
-  if (scratched === rawText) return diff;
-  const scratchedDiff = diffAgainst(scratched, candidate, fillers, speechNoise);
-  return isClean(scratchedDiff) ? scratchedDiff : diff;
-}
-
-// Diffs the reply against one version of the input.
-function diffAgainst(rawText: string, candidate: string, fillers: readonly string[], speechNoise: boolean): ContentWordDiff {
   const input = inputUnits(rawText, fillers);
-  return alignUnits(input.units, input.phrases, splitJoinedWords(input.units, outputUnits(candidate), candidate), speechNoise);
-}
-
-// True when the diff found no change.
-function isClean(diff: ContentWordDiff): boolean {
-  return diff.rejection === undefined && diff.missing.length === 0 && diff.added.length === 0;
+  return alignUnits(input.units, input.phrases, splitJoinedWords(input.units, outputUnits(candidate), candidate), options.speechNoise ?? true);
 }
 
 // Splits an output word back into two adjacent input words it joins, so "open router" may come back as "OpenRouter".
@@ -584,6 +566,18 @@ export interface GuardVerdict {
 // Decides whether a formatter reply may replace the transcript. Cleanup off: every word must stay.
 // Cleanup on: rejects only a large drop, added words, or a changed number or negation.
 export function judgeFormatterReply(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): GuardVerdict {
+  const verdict = judgeAgainst(rawText, candidate, fillers, options);
+  if (verdict.rejection === null || options.speechNoise === false) return verdict;
+  // A reply may also drop a sentence the speaker withdrew with "scratch that". It is judged against the input
+  // without that sentence, since the word alignment can match a repeated opening ("I'll be … I'll be") to it.
+  const scratched = dropScratchedSentences(rawText);
+  if (scratched === rawText) return verdict;
+  const scratchedVerdict = judgeAgainst(scratched, candidate, fillers, options);
+  return scratchedVerdict.rejection === null ? scratchedVerdict : verdict;
+}
+
+// Judges a reply against one version of the input.
+function judgeAgainst(rawText: string, candidate: string, fillers: readonly string[], options: DiffOptions): GuardVerdict {
   const strict = options.speechNoise === false;
   const diff = diffContentWords(rawText, candidate, fillers, options);
   if (strict) {

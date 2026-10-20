@@ -84,7 +84,8 @@ function removeCutOffWords(line: string): string {
 // Removes speech noise with fixed rules: cut-off words, hesitation sounds, stutters, and safe self-corrections.
 // Used when the cleanup model did not run or its result was rejected, so the pasted text is still clean.
 export function removeSpeechNoise(text: string): string {
-  return text
+  // Self-corrections run on the whole text, so "scratch that" on its own line still withdraws the line before it.
+  return applySelfCorrections(text
     .split("\n")
     .map(line => removeCutOffWords(line)
       .replace(HESITATION_RE, (match: string, offset: number, whole: string) => (/^mm\b/i.test(match) && NUMBER_BEFORE_RE.test(whole.slice(0, offset)) ? match : " "))
@@ -95,8 +96,7 @@ export function removeSpeechNoise(text: string): string {
       .replace(/([,;:])(?:\s*[,;:])+/g, "$1")
       .replace(/(^|[.!?]\s+),\s*/g, "$1")
       .trim())
-    .map(applySelfCorrections)
-    .join("\n");
+    .join("\n"));
 }
 
 // Filler words the cleanup stage removes. Empty when cleanup is off.
