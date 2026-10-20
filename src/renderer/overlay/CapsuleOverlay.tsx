@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, Loader2, BookOpen, Layers, X, ChevronRight } from 'lucide-react'
-import { getLanguageLabel } from '@shared/defaults'
+import { Check, Loader2, BookOpen, Layers, X, ChevronRight, Pause, Play, ArrowUp } from 'lucide-react'
 
 const BAR_COUNT = 9
 const BAR_WIDTH = 2.5
@@ -16,6 +15,8 @@ const WAVEFORM_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
       onBars: (cb: (bars: number[]) => void) => void
       onAccent: (cb: (color: string) => void) => void
       onStatus: (cb: (message: string | null) => void) => void
+      onHandsFree: (cb: (on: boolean) => void) => void
+      onPaused: (cb: (on: boolean) => void) => void
       onShowSnippet: (cb: (data: { trigger: string }) => void) => void
       onShowDict: (cb: (data: { word: string; correction: string }) => void) => void
       onHideExpanded: (cb: () => void) => void
@@ -23,6 +24,10 @@ const WAVEFORM_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
       sendSnippetResp: (accepted: boolean) => void
       sendDictResp: (accepted: boolean) => void
       sendOpenLastEntry: () => void
+      sendPause: () => void
+      sendResume: () => void
+      sendSend: () => void
+      setInteractive: (on: boolean) => void
       cleanup: () => void
     }
   }
@@ -36,31 +41,76 @@ interface PromptData {
   correction?: string
 }
 
-function WaveformBars({ bars, accentColor }: { bars: number[]; accentColor: string }) {
+// Maps a 0-1 mic level to bar height. The power curve keeps quiet speech visible.
+function WaveformBars({ bars, accentColor, paused }: { bars: number[]; accentColor: string; paused: boolean }) {
   return (
     <div
-      className="flex items-center justify-center"
-      style={{ height: 24, width: WAVEFORM_WIDTH, gap: BAR_GAP }}
+      className="flex items-center justify-center transition-opacity duration-100"
+      style={{ height: 24, width: WAVEFORM_WIDTH, gap: BAR_GAP, opacity: paused ? 0.35 : 1 }}
     >
-      {bars.map((v, i) => (
-        <div
-          key={i}
-          style={{
-            width: BAR_WIDTH,
-            borderRadius: 999,
-            height: Math.max(3, Math.min(22, v * 18)),
-            background: accentColor,
-            opacity: 0.3 + v * 0.7,
-            transition: 'height 60ms ease-out, opacity 60ms ease-out',
-          }}
-        />
-      ))}
+      {bars.map((v, i) => {
+        const level = paused ? 0 : Math.pow(Math.min(1, Math.max(0, v)), 0.6)
+        return (
+          <div
+            key={i}
+            style={{
+              width: BAR_WIDTH,
+              borderRadius: 999,
+              height: 3 + level * 19,
+              background: accentColor,
+              opacity: 0.35 + level * 0.65,
+              transition: 'height 60ms ease-out, opacity 60ms ease-out',
+            }}
+          />
+        )
+      })}
     </div>
   )
 }
 
+// Round icon button for the hands-free controls.
+function ControlButton({ label, onClick, accentColor, children }: {
+  label: string
+  onClick: () => void
+  accentColor?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className={`flex items-center justify-center rounded-full transition-colors ${accentColor ? 'hover:brightness-110' : 'bg-white/[0.08] hover:bg-white/[0.14]'}`}
+      style={{ width: 24, height: 24, background: accentColor, color: 'rgba(255,255,255,0.85)' }}
+    >
+      {children}
+    </button>
+  )
+}
 
-//    over any background. ───────────────────────────────────────────────────────
+// Pause/resume and send buttons. Clicks pass through to the app until the pointer is over them.
+function HandsFreeControls({ paused, accentColor }: { paused: boolean; accentColor: string }) {
+  useEffect(() => () => window.capsuleBridge.setInteractive(false), [])
+
+  return (
+    <div
+      className="flex items-center gap-1.5"
+      onPointerEnter={() => window.capsuleBridge.setInteractive(true)}
+      onPointerLeave={() => window.capsuleBridge.setInteractive(false)}
+    >
+      <ControlButton
+        label={paused ? 'Resume' : 'Pause'}
+        onClick={() => (paused ? window.capsuleBridge.sendResume() : window.capsuleBridge.sendPause())}
+      >
+        {paused ? <Play size={13} /> : <Pause size={13} />}
+      </ControlButton>
+      <ControlButton label="Send" accentColor={accentColor} onClick={() => window.capsuleBridge.sendSend()}>
+        <ArrowUp size={13} />
+      </ControlButton>
+    </div>
+  )
+}
+
 
 // ── Dark pill shell — near-black, soft border, layered shadow ────────────────
 const PILL_STYLE: React.CSSProperties = {
@@ -83,8 +133,9 @@ export default function CapsuleOverlay() {
   const [accentColor, setAccentColor] = useState('#7575c8')
   const [promptData, setPromptData] = useState<PromptData>({})
   const [autoTimer, setAutoTimer] = useState(8)
-  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [handsFree, setHandsFree] = useState(false)
+  const [paused, setPaused] = useState(false)
   const modeRef = useRef<VisualMode>('hidden')
 
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -96,7 +147,8 @@ export default function CapsuleOverlay() {
     bridge.onMode((m) => {
       switch (m) {
         case 'pressed':
-          setDetectedLanguage(null)
+          setHandsFree(false)
+          setPaused(false)
           setMode('pressed')
           break
         case 'recording':
@@ -109,7 +161,8 @@ export default function CapsuleOverlay() {
         case 'idle':
           setMode('hidden')
           setBars(Array(BAR_COUNT).fill(0.08))
-          setDetectedLanguage(null)
+          setHandsFree(false)
+          setPaused(false)
           break
       }
     })
@@ -121,7 +174,8 @@ export default function CapsuleOverlay() {
     })
     bridge.onAccent((color) => setAccentColor(color))
     bridge.onStatus((message) => setStatusMessage(message))
-    bridge.onLanguage((language) => setDetectedLanguage(language))
+    bridge.onHandsFree((on) => setHandsFree(on))
+    bridge.onPaused((on) => setPaused(on))
 
     bridge.onShowSnippet((data) => {
       setPromptData({ trigger: data.trigger })
@@ -222,7 +276,12 @@ export default function CapsuleOverlay() {
                 transition={{ duration: 0.12 }}
                 className="flex items-center px-3 py-1"
               >
-                <WaveformBars bars={bars} accentColor={accentColor} />
+                <WaveformBars bars={bars} accentColor={accentColor} paused={paused} />
+                {handsFree && (
+                  <div className="ml-2">
+                    <HandsFreeControls paused={paused} accentColor={accentColor} />
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -258,12 +317,6 @@ export default function CapsuleOverlay() {
                 >
                   <Check size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
                 </motion.div>
-                {detectedLanguage && (
-                  <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-white/75">
-                    {getLanguageLabel(detectedLanguage)}
-                  </span>
-                )}
-                {statusMessage && <span className="max-w-[390px] text-[11px] font-medium leading-tight text-white">{statusMessage}</span>}
               </motion.div>
             )}
 
@@ -282,7 +335,7 @@ export default function CapsuleOverlay() {
                 >
                   <X size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
                 </motion.div>
-                {statusMessage && <span className="ml-2 max-w-[390px] text-[11px] font-medium leading-tight text-white">{statusMessage}</span>}
+                {statusMessage && <span className="ml-2 max-w-[390px] truncate text-[11px] font-medium leading-tight text-white">{statusMessage}</span>}
               </motion.div>
             )}
 

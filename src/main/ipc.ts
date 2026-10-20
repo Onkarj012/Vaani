@@ -378,10 +378,10 @@ async function openPermissionSettings(permission: keyof PermissionStatus): Promi
 
 export interface RegisterIpcHandlersOptions {
   mainWindow: IpcWindow | null;
-  dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry">;
+  dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry" | "pauseRecording" | "resumeRecording">;
   history: Pick<HistoryStore, "getAll" | "getById" | "updateById" | "getLatest" | "delete" | "clear">;
   settings: Pick<SettingsStore, "get" | "update" | "flush">;
-  hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "reregister" | "setCaptureActive">;
+  hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "reregister" | "setCaptureActive" | "stopFromMenu">;
   recorder?: { getWindow: () => IpcWindow | null; markReady: () => void; acknowledgeLifecycleSuspension?: (ack: RecorderSuspensionAck) => boolean };
   overlay?: { getWindow: () => IpcWindow | null };
   credentials?: Pick<CredentialsStore, "has" | "set" | "delete">;
@@ -828,6 +828,23 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     if (latest) {
       dictation.navigateToHistoryEntry(latest.id);
     }
+  });
+
+  // Capsule overlay hands-free controls
+  ipcMain.on("capsule:pause", (event) => {
+    if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    dictation.pauseRecording();
+  });
+
+  ipcMain.on("capsule:resume", (event) => {
+    if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    dictation.resumeRecording();
+  });
+
+  // Send ends the session the same way a hotkey release or toggle press does.
+  ipcMain.on("capsule:send", (event) => {
+    if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    hotkeys.stopFromMenu();
   });
 
   // Demo transcription (bypasses history and injection)

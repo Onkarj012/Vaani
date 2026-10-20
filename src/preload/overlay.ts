@@ -9,6 +9,8 @@ const OVERLAY_CHANNELS = [
   'capsule:show-snippet',
   'capsule:show-dictionary',
   'capsule:hide-expanded',
+  'capsule:set-hands-free',
+  'capsule:set-paused',
 ] as const
 
 contextBridge.exposeInMainWorld('capsuleBridge', {
@@ -27,6 +29,12 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   onStatus: (cb: (message: string | null) => void) => {
     ipcRenderer.on('capsule:set-status', (_e, message: string | null) => cb(message))
   },
+  onHandsFree: (cb: (on: boolean) => void) => {
+    ipcRenderer.on('capsule:set-hands-free', (_e, on: boolean) => cb(on))
+  },
+  onPaused: (cb: (on: boolean) => void) => {
+    ipcRenderer.on('capsule:set-paused', (_e, on: boolean) => cb(on))
+  },
   onShowSnippet: (cb: (data: { trigger: string }) => void) => {
     ipcRenderer.on('capsule:show-snippet', (_e, d: { trigger: string }) => cb(d))
   },
@@ -40,6 +48,10 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   sendSnippetResp: (accepted: boolean) => ipcRenderer.send('capsule:snippet-response', { accepted }),
   sendDictResp: (accepted: boolean) => ipcRenderer.send('capsule:dictionary-response', { accepted }),
   sendOpenLastEntry: () => ipcRenderer.send('capsule:open-last-entry'),
+  sendPause: () => ipcRenderer.send('capsule:pause'),
+  sendResume: () => ipcRenderer.send('capsule:resume'),
+  sendSend: () => ipcRenderer.send('capsule:send'),
+  setInteractive: (on: boolean) => ipcRenderer.send('capsule:set-interactive', on),
   cleanup: () => {
     for (const ch of OVERLAY_CHANNELS) ipcRenderer.removeAllListeners(ch)
   },

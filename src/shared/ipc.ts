@@ -19,6 +19,8 @@ export const enum IpcChannel {
   AbortRecording = "dictation:abort-recording",
   SuspendRecording = "dictation:suspend-recording",
   ResumeRecording = "dictation:resume-recording",
+  PauseCapture = "dictation:pause-capture",
+  ResumeCapture = "dictation:resume-capture",
 
   // History
   GetHistory = "history:get",

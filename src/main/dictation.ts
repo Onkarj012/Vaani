@@ -84,6 +84,8 @@ interface RecorderCommands {
   startRecording: (sessionId: string) => boolean;
   stopRecording: (sessionId: string) => boolean;
   abortRecording?: (sessionId: string) => void;
+  pauseRecording?: (sessionId: string) => void;
+  resumeRecording?: (sessionId: string) => void;
 }
 
 type DictationTraceDeps = Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId">
@@ -136,6 +138,7 @@ export class DictationService {
   private activeTargetIdentity: string | null = null;
   private releaseRequestedDuringStart = false;
   private pendingStopRequestedAt: string | null = null;
+  private paused = false;
   private readonly recorder: RecorderCommands | null;
   private pasteLatestInProgress = false;
   private sessionAbortController: AbortController | null = null;
@@ -1231,6 +1234,22 @@ export class DictationService {
     return this.state.status === "starting" || this.state.status === "recording";
   }
 
+  // Pauses the active recording. The mic stays open but its audio is left out of the clip.
+  pauseRecording(): void {
+    if (this.state.status !== "recording" || this.paused) return;
+    this.paused = true;
+    this.recorder?.pauseRecording?.(this.state.sessionId);
+    this.overlay.setPaused?.(true);
+  }
+
+  // Resumes a paused recording so its audio is appended again.
+  resumeRecording(): void {
+    if (this.state.status !== "recording" || !this.paused) return;
+    this.paused = false;
+    this.recorder?.resumeRecording?.(this.state.sessionId);
+    this.overlay.setPaused?.(false);
+  }
+
   // True while a dictation is starting, recording, finalizing, or transcribing.
   private isLiveSession(): boolean {
     return this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing" || this.state.status === "transcribing";
@@ -1865,6 +1884,11 @@ export class DictationService {
   }
 
   private setState(state: DictationState): void {
+    // Leaving recording ends any pause, so the next session starts unpaused.
+    if (this.paused && state.status !== "recording") {
+      this.paused = false;
+      this.overlay.setPaused?.(false);
+    }
     this.state = state;
     if (state.status === "idle") {
       this.updateTrayStatus("Ready"); this.overlay.setStatusMessage?.(null); this.overlay.hide();

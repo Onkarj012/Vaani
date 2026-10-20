@@ -21,6 +21,8 @@ async function loadRecorder(prepareInput: () => Promise<number | null>) {
     onAbortRecording: (callback: (command: RecorderCommand) => void) => { onAbort = callback; return () => {}; },
     onSuspendRecording: () => () => {},
     onResumeRecording: () => () => {},
+    onPauseCapture: () => () => {},
+    onResumeCapture: () => () => {},
     onRecorderConfigChanged: () => () => {},
     getRecorderConfig: async () => ({ preWarmMic: false }),
     reportRecorderReady: async () => {},

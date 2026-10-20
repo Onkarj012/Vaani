@@ -78,6 +78,7 @@ function createDictationService(deps: {
     setSuccess: vi.fn(),
     setError: vi.fn(),
     setStatusMessage: vi.fn(),
+    setPaused: vi.fn(),
     hide: vi.fn(),
     updateBars: vi.fn(),
     showDictionaryPrompt: vi.fn((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => resolve(true)),
@@ -107,7 +108,9 @@ function createDictationService(deps: {
     isReady: vi.fn(() => true),
     startRecording: vi.fn(() => true),
     stopRecording: vi.fn(() => true),
-    abortRecording: vi.fn((_sessionId: string) => undefined)
+    abortRecording: vi.fn((_sessionId: string) => undefined),
+    pauseRecording: vi.fn((_sessionId: string) => undefined),
+    resumeRecording: vi.fn((_sessionId: string) => undefined)
   };
 
   const transcription = {
@@ -226,6 +229,29 @@ describe("DictationService", () => {
     const { service, transcription } = createDictationService({ recoveryReady: () => true });
     await submitHelloWorld(service);
     expect(transcription.transcribe.mock.calls[0]?.[1]?.recovery).toBeUndefined();
+  });
+
+  it("pauses and resumes only the active recording and tells the overlay", async () => {
+    const { service, overlay, recorder } = createDictationService({});
+    service.pauseRecording();
+    expect(recorder.pauseRecording).not.toHaveBeenCalled();
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.pauseRecording();
+    service.pauseRecording();
+    expect(recorder.pauseRecording).toHaveBeenCalledOnce();
+    expect(recorder.pauseRecording).toHaveBeenCalledWith(sessionId);
+    expect(overlay.setPaused).toHaveBeenLastCalledWith(true);
+
+    service.resumeRecording();
+    expect(recorder.resumeRecording).toHaveBeenCalledWith(sessionId);
+    expect(overlay.setPaused).toHaveBeenLastCalledWith(false);
+
+    service.pauseRecording();
+    service.endHotkeySession();
+    expect(overlay.setPaused).toHaveBeenLastCalledWith(false);
   });
 
   it("does not replace a verified trace when cancellation follows completion", async () => {

@@ -89,6 +89,8 @@ describe("IPC security boundaries", () => {
     handleRecorderFailure: vi.fn(),
     demoTranscribe: vi.fn(),
     navigateToHistoryEntry: vi.fn(),
+    pauseRecording: vi.fn(),
+    resumeRecording: vi.fn(),
   };
   const onSettingsUpdated = vi.fn();
   const settings = {
@@ -110,7 +112,7 @@ describe("IPC security boundaries", () => {
       history,
       settings,
       onSettingsUpdated,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
     });
   });
 
@@ -123,7 +125,7 @@ describe("IPC security boundaries", () => {
     const { registerIpcHandlers } = await import("@main/ipc");
     registerIpcHandlers({
       mainWindow: windowFor(mainSender), dictation, history, settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       recoveryReadiness: () => ({ state: "ready", entryCount: null }),
       recovery: { getById: vi.fn(), getUnresolved: vi.fn(async () => { if (fails) throw new Error("disk failed"); return []; }) },
     });
@@ -244,7 +246,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       credentials,
     });
 
@@ -279,7 +281,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings: stateStore,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       credentials,
     });
 
@@ -331,7 +333,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       credentials,
     });
 
@@ -363,7 +365,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       credentials,
     });
 
@@ -460,7 +462,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       recovery,
       recoveryAudio,
       recoveryReady: () => false,

@@ -43,6 +43,7 @@ export class HotkeyManager {
   private pendingReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private suppressNextRelease = false;
   private rejectedPress = false;
+  private handsFreeListener: ((handsFree: boolean) => void) | null = null;
 
   constructor(
     private readonly settingsProvider: () => Settings,
@@ -94,6 +95,11 @@ export class HotkeyManager {
     this.register();
   }
 
+  // Tells the caller whenever a hands-free (toggle) recording starts or ends.
+  setHandsFreeListener(listener: (handsFree: boolean) => void): void {
+    this.handsFreeListener = listener;
+  }
+
   isPrimaryHotkeyActive(): boolean {
     return this.usingNativeMonitor;
   }
@@ -119,7 +125,7 @@ export class HotkeyManager {
   // Drops a hands-free lock once its recording ended on its own, so Escape is released and the next press starts fresh.
   syncSession(capturing: boolean): void {
     if (capturing || !this.isToggleRecording) return;
-    this.isToggleRecording = false;
+    this.setToggleRecording(false);
     this.unregisterEscapeShortcut();
     this.clearPendingRelease();
   }
@@ -128,7 +134,7 @@ export class HotkeyManager {
   unregister(): void {
     this.clearPendingRelease();
     this.unregisterEscapeShortcut();
-    this.isToggleRecording = false;
+    this.setToggleRecording(false);
     this.suppressNextRelease = false;
     this.rejectedPress = false;
     this.stopMonitors();
@@ -249,17 +255,24 @@ export class HotkeyManager {
   }
 
   private enterToggleMode(): void {
-    this.isToggleRecording = true;
+    this.setToggleRecording(true);
     this.clearPendingRelease();
     this.registerEscapeShortcut();
   }
 
   private exitToggleMode(cancel: boolean): void {
-    this.isToggleRecording = false;
+    this.setToggleRecording(false);
     this.unregisterEscapeShortcut();
     this.clearPendingRelease();
     if (cancel) { this.onCancel(); return; }
     this.onRelease();
+  }
+
+  // Updates hands-free state and notifies the listener only when it actually changes.
+  private setToggleRecording(on: boolean): void {
+    if (this.isToggleRecording === on) return;
+    this.isToggleRecording = on;
+    this.handsFreeListener?.(on);
   }
 
   private registerEscapeShortcut(): void {
