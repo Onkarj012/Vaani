@@ -451,7 +451,7 @@ export class DictationService {
     if (!this.isCurrentSession(payload.sessionId)) return;
     this.setState({ status: "transcribing", sessionId: payload.sessionId });
     const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip);
-    this.armStaleSessionGuard(payload.sessionId, Math.max(STALE_SESSION_TIMEOUT_MS, transcriptionTimeoutMs + FORMATTING_TIMEOUT_MS + STALE_GUARD_GRACE_MS));
+    this.armStaleSessionGuard(payload.sessionId, Math.max(STALE_SESSION_TIMEOUT_MS, transcriptionTimeoutMs + liveFormattingTimeoutMs(snapshot.formattingProvider) + STALE_GUARD_GRACE_MS));
 
     const operationSignal = this.sessionAbortController?.signal;
     try {

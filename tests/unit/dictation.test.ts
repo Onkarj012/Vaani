@@ -1014,8 +1014,8 @@ describe("DictationService", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(service.getState().status).toBe("transcribing");
 
-    // A 1 s clip gets 30 s STT + 20 s cleanup + 15 s grace before the guard fires.
-    await vi.advanceTimersByTimeAsync(64_999);
+    // A 1 s clip gets 30 s STT + 1.5 s cleanup + 15 s grace, under the 60 s floor, so the guard fires at 60 s.
+    await vi.advanceTimersByTimeAsync(59_999);
     expect(service.getState().status).toBe("transcribing");
     await vi.advanceTimersByTimeAsync(1);
     expect(service.getState()).toMatchObject({ status: "error", message: "Dictation stopped while transcribing. Please try again." });
@@ -1038,8 +1038,8 @@ describe("DictationService", () => {
     const submission = submitHelloWorld(service);
     await vi.advanceTimersByTimeAsync(0);
     expect(injector.inject).toHaveBeenCalledOnce();
-    // A 1 s clip's guard fires at 65 s. Keep the paste hanging past it.
-    await vi.advanceTimersByTimeAsync(65_000);
+    // A 1 s clip's guard fires at 60 s. Keep the paste hanging past it.
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(service.getState().status).toBe("idle");
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open get hub.", injectionStatus: "saved" }));
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "unconfirmed", rejectionReason: "cancelled", completedAt: expect.any(String) });

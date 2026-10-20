@@ -136,14 +136,20 @@ describe("renderer recorder start cancellation", () => {
     recorder.start("old");
     await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledOnce());
     recorder.microphones[0]?.resolve(new MediaStream());
-    await vi.waitFor(() => expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("old"));
+    await vi.waitFor(() => {
+      recorder.sendFrame();
+      expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("old");
+    });
 
     recorder.abort("old");
     recorder.start("next");
     // The next mic opens while the old close() is still pending.
     await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledTimes(2));
     recorder.microphones[1]?.resolve(new MediaStream());
-    await vi.waitFor(() => expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("next"));
+    await vi.waitFor(() => {
+      recorder.sendFrame();
+      expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("next");
+    });
     closing.resolve();
     await new Promise((resolve) => setTimeout(resolve, 20));
 
