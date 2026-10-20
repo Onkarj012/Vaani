@@ -417,6 +417,32 @@ describe("ClipboardTextInjector dispatch safety", () => {
     expect(clipboardWrites[1] ?? 0).toBeGreaterThanOrEqual(firstAt + 700);
   });
 
+  it("keeps two quick inserts in order in an editor that leaves the caret at the paste start", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const injector = new ClipboardTextInjector();
+    // A field that inserts at the caret but leaves the caret where the paste began.
+    let field = "";
+    let caret = 0;
+    bridge.getFocusedSelection = () => ({ location: caret, length: 0 });
+    bridge.getFocusedElementIdentity.mockReturnValue("field");
+    bridge.getFocusedValue.mockImplementation(() => field);
+    bridge.setFocusedSelection.mockImplementation((location: number) => { caret = location; return true; });
+    bridge.pasteText.mockImplementation((text: string) => { field = field.slice(0, caret) + text + field.slice(caret); return true; });
+    try {
+      const first = injector.inject("first", textEditTarget);
+      const second = injector.inject("second", textEditTarget);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.all([first, second]);
+
+      expect(field).toBe("firstsecond");
+    } finally {
+      bridge.getFocusedSelection = undefined;
+      bridge.getFocusedElementIdentity.mockReset().mockReturnValue(null);
+      bridge.getFocusedValue.mockReset().mockReturnValue(null);
+      bridge.setFocusedSelection.mockReset().mockReturnValue(true);
+    }
+  });
+
   it("stops before dispatch when the focused target changes during the wait", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const { createInjectionGuard } = await import("@main/injection/guard");

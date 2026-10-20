@@ -25,7 +25,8 @@ const CARET_SETTLE_MS = 300;
 const PASTE_LANDING_MS = 700;
 let lastDispatchAt: number | null = null;
 let restoreGeneration = 0;
-let pendingCaretCheck: ReturnType<typeof setTimeout> | null = null;
+// The last paste's caret move, waiting for the app to apply the paste.
+let pendingCaretCheck: { timer: ReturnType<typeof setTimeout>; run: () => void } | null = null;
 // The user's items, plus the change count our own write left on the pasteboard.
 let pendingRestore: { items: PasteboardItem[]; changeCount: number } | null = null;
 let injectionQueue: Promise<void> | null = null;
@@ -56,8 +57,6 @@ export class ClipboardTextInjector {
     const blockedAtStart = guard();
     if (blockedAtStart) return { success: false, reason: blockedAtStart };
     if (clipboardChangeCount() === null) return { success: false, reason: "insertion_failed" };
-    // A newer insert owns the caret now, so an older pending check must not move it.
-    if (pendingCaretCheck) { clearTimeout(pendingCaretCheck); pendingCaretCheck = null; }
     let snapshot: PasteboardItem[] | null = null;
     let generation = restoreGeneration;
     let ownedChangeCount: number | null = null;
@@ -66,6 +65,8 @@ export class ClipboardTextInjector {
     const dispatchGuard: InjectionGuard = () => guard() ?? (ownedChangeCount !== null && clipboardChangeCount() !== ownedChangeCount ? "cancelled" : null);
     try {
       await waitForPreviousPasteToLand();
+      // The previous paste has landed, so finish its caret move before this insert reads the selection.
+      flushPendingCaretMove();
       // Settle only after switching apps. A target already in front takes the clipboard write at once.
       if (await activateTargetApp(target)) await delay(180);
       const blockedBeforeWrite = dispatchGuard();
@@ -332,11 +333,19 @@ async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCo
 
 // Moves the caret after the inserted text once the app has applied it, unless focus moved or a newer insert started.
 function scheduleCaretMove(text: string, insertionStart: number | undefined, fieldIdentity: string | null, guard: InjectionGuard): void {
-  pendingCaretCheck = setTimeout(() => {
+  const run = (): void => {
     pendingCaretCheck = null;
     if (guard() || !fieldIdentity || readFocusedElementIdentity() !== fieldIdentity) return;
     moveCaretAfterInsertion(text, insertionStart);
-  }, CARET_SETTLE_MS);
+  };
+  pendingCaretCheck = { timer: setTimeout(run, CARET_SETTLE_MS), run };
+}
+
+// Runs the last paste's caret move now instead of on its timer.
+function flushPendingCaretMove(): void {
+  if (!pendingCaretCheck) return;
+  clearTimeout(pendingCaretCheck.timer);
+  pendingCaretCheck.run();
 }
 
 async function maybeRestoreCaretAfterInsertion(_text: string, _target: InjectionTarget | undefined, _kind: "paste" | "typing", _activationSucceeded?: boolean): Promise<void> {
