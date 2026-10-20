@@ -332,20 +332,23 @@ async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCo
 }
 
 // Moves the caret after the inserted text once the app has applied it, unless focus moved or a newer insert started.
+// A paste that has not reached the field yet keeps its move pending, so the next insert retries it once.
 function scheduleCaretMove(text: string, insertionStart: number | undefined, fieldIdentity: string | null, guard: InjectionGuard): void {
-  const run = (): void => {
-    pendingCaretCheck = null;
-    if (guard() || !fieldIdentity || readFocusedElementIdentity() !== fieldIdentity) return;
-    moveCaretAfterInsertion(text, insertionStart);
+  const check = { timer: setTimeout(() => run(false), CARET_SETTLE_MS), run: () => run(true) };
+  const run = (last: boolean): void => {
+    if (pendingCaretCheck !== check) return;
+    if (guard() || !fieldIdentity || readFocusedElementIdentity() !== fieldIdentity) { pendingCaretCheck = null; return; }
+    if (moveCaretAfterInsertion(text, insertionStart) || last) pendingCaretCheck = null;
   };
-  pendingCaretCheck = { timer: setTimeout(run, CARET_SETTLE_MS), run };
+  pendingCaretCheck = check;
 }
 
-// Runs the last paste's caret move now instead of on its timer.
+// Runs the last paste's caret move now instead of on its timer, as its final try.
 function flushPendingCaretMove(): void {
   if (!pendingCaretCheck) return;
   clearTimeout(pendingCaretCheck.timer);
   pendingCaretCheck.run();
+  pendingCaretCheck = null;
 }
 
 async function maybeRestoreCaretAfterInsertion(_text: string, _target: InjectionTarget | undefined, _kind: "paste" | "typing", _activationSucceeded?: boolean): Promise<void> {

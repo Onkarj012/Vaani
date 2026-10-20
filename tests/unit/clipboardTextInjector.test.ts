@@ -443,6 +443,36 @@ describe("ClipboardTextInjector dispatch safety", () => {
     }
   });
 
+  it("keeps two quick inserts in order when the app applies each paste late", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const injector = new ClipboardTextInjector();
+    // Like the editor above, but each paste reaches the field 500 ms after Cmd+V.
+    let field = "";
+    let caret = 0;
+    bridge.getFocusedSelection = () => ({ location: caret, length: 0 });
+    bridge.getFocusedElementIdentity.mockReturnValue("field");
+    bridge.getFocusedValue.mockImplementation(() => field);
+    bridge.setFocusedSelection.mockImplementation((location: number) => { caret = location; return true; });
+    bridge.pasteText.mockImplementation((text: string) => {
+      const at = caret;
+      setTimeout(() => { field = field.slice(0, at) + text + field.slice(at); }, 500);
+      return true;
+    });
+    try {
+      const first = injector.inject("first", textEditTarget);
+      const second = injector.inject("second", textEditTarget);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.all([first, second]);
+
+      expect(field).toBe("firstsecond");
+    } finally {
+      bridge.getFocusedSelection = undefined;
+      bridge.getFocusedElementIdentity.mockReset().mockReturnValue(null);
+      bridge.getFocusedValue.mockReset().mockReturnValue(null);
+      bridge.setFocusedSelection.mockReset().mockReturnValue(true);
+    }
+  });
+
   it("stops before dispatch when the focused target changes during the wait", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const { createInjectionGuard } = await import("@main/injection/guard");
