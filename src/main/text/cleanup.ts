@@ -35,7 +35,10 @@ function removeFillers(text: string, fillers: string[]): string {
 }
 
 function capitalizeSentences(text: string): string {
-  return text.replace(/(^\s*[a-z])|([.!?]\s+[a-z])/g, m => m.toUpperCase());
+  // "st." before a word is Saint or Street, both written "St." ("st. louis" -> "St. Louis").
+  return text
+    .replace(/\bst\.(?=\s+\p{L})/gu, "St.")
+    .replace(/(^\s*[a-z])|([.!?]\s+[a-z])/g, m => m.toUpperCase());
 }
 
 function applySmartPunctuation(text: string): string {
