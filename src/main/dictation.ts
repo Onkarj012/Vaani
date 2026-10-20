@@ -152,6 +152,8 @@ export class DictationService {
   private activeInsertionPrepared = false;
   private activeInsertionDispatched = false;
   private activePreparedEntry: DictationEntry | null = null;
+  // The insertion result already known while its History write runs, so a quit records that result.
+  private activeFinishedInsertion: { outcome: DictationInsertionOutcome; entry: DictationEntry; tracePatch: Partial<DictationTrace>; reason?: DictationRejectionReason } | null = null;
   private readonly historyWrites = new Map<string, Promise<boolean>>();
   private readonly terminalTraceSessions = new Set<string>();
 
@@ -1491,6 +1493,7 @@ export class DictationService {
     copied = false,
     formatNotice: string | null = null,
   ): Promise<void> {
+    this.activeFinishedInsertion = { outcome, entry, tracePatch, reason };
     const historySaved = await this.persistHistoryOnce(sessionId, entry);
     if (!this.isCurrentSession(sessionId)) return;
     const statusText = insertionStatusText(outcome, historySaved, historySaved ? failedStage : "History", copied);
@@ -1560,6 +1563,7 @@ export class DictationService {
     this.activeInsertionPrepared = false;
     this.activeInsertionDispatched = false;
     this.activePreparedEntry = null;
+    this.activeFinishedInsertion = null;
     this.releaseRequestedDuringStart = false;
     this.setState({ status: "idle" });
   }
@@ -1615,15 +1619,17 @@ export class DictationService {
     const sessionId = this.activeSessionId;
     if (!sessionId || !this.isLiveSession()) return;
     const stage = this.isCaptureStage() ? "recording" : "processing";
-    const entry = this.activePreparedEntry;
+    const known = this.activeFinishedInsertion;
+    const entry = known?.entry ?? this.activePreparedEntry;
     const dispatched = this.activeInsertionDispatched;
-    const outcome: DictationInsertionOutcome = dispatched && entry ? "unconfirmed" : this.activeInsertionPrepared ? "refused" : "failed";
+    const outcome: DictationInsertionOutcome = known?.outcome ?? (dispatched && entry ? "unconfirmed" : this.activeInsertionPrepared ? "refused" : "failed");
     this.clearTimers();
     if (this.isCaptureStage()) this.recorder?.abortRecording?.(sessionId);
     this.sessionAbortController?.abort("app-quit");
     // The trace goes first: quit gives the whole flush only 3 s, and a slow History write must not leave it "started".
     // The History write may not finish before exit, so the trace makes no claim about it.
-    const trace = this.finishTrace(sessionId, outcome, "cancelled", outcome === "failed" ? `${stage === "recording" ? "Recording" : "Processing"} stopped when Vaani quit.` : insertionStatusText(outcome, false, stage));
+    const message = outcome === "failed" ? `${stage === "recording" ? "Recording" : "Processing"} stopped when Vaani quit.` : insertionStatusText(outcome, false, stage);
+    const trace = this.finishTrace(sessionId, outcome, known ? known.reason : "cancelled", message, known?.tracePatch);
     const saved = entry ? this.persistHistoryOnce(sessionId, entry) : Promise.resolve(false);
     await Promise.all([trace, saved]);
   }

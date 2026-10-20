@@ -973,6 +973,21 @@ describe("DictationService", () => {
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "refused", rejectionReason: "cancelled", completedAt: expect.any(String) });
   });
 
+  it("keeps a verified insertion verified when quit lands during the History write", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, injector, history } = createDictationService({ traces: traceDeps.traces });
+    history.append.mockImplementation(() => new Promise<void>(() => undefined));
+    void submitHelloWorld(service);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(history.append).toHaveBeenCalled();
+
+    void service.closeForQuit();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", completedAt: expect.any(String) });
+  });
+
   it("closes a transcription at quit without inserting late text", async () => {
     const traceDeps = createTraceDeps();
     const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
