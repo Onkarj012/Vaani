@@ -5,8 +5,8 @@ const FRAME_SAMPLES = 320; // 20 ms at 16 kHz
 const QUIET_PEAK_CEILING = 0.25; // about -12 dBFS; louder clips are left alone
 const TARGET_PEAK = 0.7;
 const MAX_GAIN = 20; // +26 dB, the same ceiling as before; the voiced floor keeps room noise out
-const VOICED_FRAME_RMS = 0.001; // frames above this carry real energy
-const SILENCE_FLOOR_RMS = 0.002; // same floor as the low-speech check in transcriptQuality
+// Frames below this are room noise, not speech. Same floor as the low-speech check in transcriptQuality.
+const SILENCE_FLOOR_RMS = 0.002;
 
 // Gain that lifts a quiet clip toward a usable peak. 1 for loud clips and for room noise.
 export function quietSpeechGain(samples: Float32Array): number {
@@ -34,7 +34,7 @@ function voicedRms(samples: Float32Array): number {
     for (let index = offset; index < end; index += 1) {
       frameSquares += (samples[index] ?? 0) ** 2;
     }
-    if (Math.sqrt(frameSquares / (end - offset)) >= VOICED_FRAME_RMS) {
+    if (Math.sqrt(frameSquares / (end - offset)) >= SILENCE_FLOOR_RMS) {
       sumSquares += frameSquares;
       count += end - offset;
     }

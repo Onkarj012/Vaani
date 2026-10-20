@@ -65,4 +65,10 @@ describe("quiet speech gain", () => {
     expect(peakOf(result.samples)).toBeLessThanOrEqual(1);
     expect(peakOf(result.samples)).toBeCloseTo(0.7, 2);
   });
+
+  it("boosts a short whisper after long near-silent pre-roll", () => {
+    const input = new Float32Array([...noise(0.00175, SAMPLE_RATE * 2), ...sine(0.0042)]);
+
+    expect(quietSpeechGain(input)).toBe(20);
+  });
 });
