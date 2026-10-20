@@ -6,12 +6,14 @@
 // A Devanagari word may come back in Roman letters when it sounds alike ("कैंसल" → "cancel").
 // With speech noise allowed, these may also be dropped: a stutter next to a kept copy ("the, the", "on the, on the"),
 // a cut-off word ("ru-", or a short fragment the next word starts with), and up to four words replaced right after a
-// correction cue ("Arjun, sorry, Aditya"). Negations and numbers are never cut-off words or bare cues. Any other dropped
+// correction cue ("Arjun, sorry, Aditya"), and a sentence withdrawn by "scratch that" or "delete that" along with that cue.
+// Negations and numbers are never cut-off words or bare cues. Any other dropped
 // word, and any added word, is a change.
 // Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one",
 // a sentence-opening "First,") may disappear only when the output has a line break or a list item with the same number there,
 // or keeps the cue words.
 
+import { dropScratchedSentences } from "./scratchThat";
 import { isDevanagariNumberWord, isDevanagariWord, soundsAlike } from "./scriptMatch";
 
 const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
@@ -514,8 +516,26 @@ export interface DiffOptions {
 
 // Words the formatter dropped, reordered, or added. Listed fillers may be dropped but not added.
 export function diffContentWords(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): ContentWordDiff {
+  const speechNoise = options.speechNoise ?? true;
+  const diff = diffAgainst(rawText, candidate, fillers, speechNoise);
+  if (!speechNoise || isClean(diff)) return diff;
+  // A reply may also drop a sentence the speaker withdrew with "scratch that". Checked as its own text,
+  // since the word alignment can match a repeated opening ("I'll be … I'll be") to the withdrawn sentence.
+  const scratched = dropScratchedSentences(rawText);
+  if (scratched === rawText) return diff;
+  const scratchedDiff = diffAgainst(scratched, candidate, fillers, speechNoise);
+  return isClean(scratchedDiff) ? scratchedDiff : diff;
+}
+
+// Diffs the reply against one version of the input.
+function diffAgainst(rawText: string, candidate: string, fillers: readonly string[], speechNoise: boolean): ContentWordDiff {
   const input = inputUnits(rawText, fillers);
-  return alignUnits(input.units, input.phrases, splitJoinedWords(input.units, outputUnits(candidate), candidate), options.speechNoise ?? true);
+  return alignUnits(input.units, input.phrases, splitJoinedWords(input.units, outputUnits(candidate), candidate), speechNoise);
+}
+
+// True when the diff found no change.
+function isClean(diff: ContentWordDiff): boolean {
+  return diff.rejection === undefined && diff.missing.length === 0 && diff.added.length === 0;
 }
 
 // Splits an output word back into two adjacent input words it joins, so "open router" may come back as "OpenRouter".

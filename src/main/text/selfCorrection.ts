@@ -1,12 +1,11 @@
 import { NUMBER_WORDS } from "@shared/numberWords";
+import { dropScratchedSentences, SENTENCE_RE } from "@shared/scratchThat";
 
 const CORRECTION_PHRASES = String.raw`actually,?\s+make\s+that|no,?\s+i\s+mean|no,?\s+wait|i\s+mean|make\s+that|sorry`;
 const MAX_AFTER_WORDS = 3;
 // Words that open a new clause. A swapped number followed by one of these may start that clause ("3, sorry, 4 were out").
 const CLAUSE_STARTERS = new Set(["was", "were", "is", "are", "am", "will", "would", "can", "could", "should", "have", "has", "had",
   "did", "do", "does", "i", "you", "he", "she", "we", "they", "it", "there", "that", "which", "who", "and", "but", "so", "or", "if"]);
-// A dot between digits ("3.5", "1.2.0") is part of the number, not a sentence end.
-const SENTENCE_RE = /(?:[^.!?\n]|\.(?=\p{N}))+[.!?]*[ \t]*|[.!?\n]+[ \t]*/gu;
 const WORD_SHAPE_RE = /^[\p{L}\p{N}'’:-]+(?:\.\p{N}+)*$/u;
 // Before-words, a cue, then the rest of the sentence. A bare "no" counts only between commas ("Friday, no, Thursday").
 const CORRECTION_SENTENCE_RE = new RegExp(
@@ -57,7 +56,8 @@ function fixSentence(sentence: string): string {
   return sentence;
 }
 
-// Applies the self-corrections that need no model: safe same-kind swaps such as "3, no wait, 4" or "Friday, no, Thursday".
+// Applies the self-corrections that need no model: safe same-kind swaps such as "3, no wait, 4" or "Friday, no, Thursday",
+// and a "Scratch that." sentence, which drops the sentence before it.
 export function applySelfCorrections(text: string): string {
-  return (text.match(SENTENCE_RE) ?? []).map(fixSentence).join("");
+  return dropScratchedSentences((text.match(SENTENCE_RE) ?? []).map(fixSentence).join(""));
 }

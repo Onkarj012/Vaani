@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applySelfCorrections } from "@main/text/selfCorrection";
 import { removeSpeechNoise } from "@main/text/cleanup";
+import { preservesContentWords } from "@shared/contentGuard";
 
 describe("applySelfCorrections", () => {
   it.each([
@@ -26,5 +27,26 @@ describe("applySelfCorrections", () => {
 
   it("runs in the fixed-rule fallback", () => {
     expect(removeSpeechNoise("Um, let's meet on Friday, no, Thursday.")).toBe("let's meet on Thursday.");
+  });
+
+  it("drops a scratched sentence with the sentence before it", () => {
+    expect(applySelfCorrections("I'll be late today. Scratch that. I'll be on time.")).toBe("I'll be on time.");
+  });
+
+  it("treats delete that the same, and keeps a lone scratch", () => {
+    expect(applySelfCorrections("I'll be late today. Delete that. I'll be on time.")).toBe("I'll be on time.");
+    expect(applySelfCorrections("Scratch that.")).toBe("Scratch that.");
+  });
+
+  it("leaves scratch inside a sentence alone", () => {
+    expect(applySelfCorrections("Please scratch that record off the list.")).toBe("Please scratch that record off the list.");
+  });
+
+  it("lets the formatter drop a scratched sentence", () => {
+    expect(preservesContentWords("I'll be late today. Scratch that. I'll be on time.", "I'll be on time.")).toBe(true);
+  });
+
+  it("rejects a dropped sentence without a scratch cue", () => {
+    expect(preservesContentWords("I'll be late today. I'll be on time.", "I'll be on time.")).toBe(false);
   });
 });
