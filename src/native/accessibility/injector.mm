@@ -67,11 +67,16 @@ WriteOutcome ClassifySetError(AXError error) {
   return error == kAXErrorAttributeUnsupported ? WriteOutcome::NotAttempted : WriteOutcome::Uncertain;
 }
 
+// How long one AX call may wait on a busy app before it fails, instead of the 6 s system default.
+constexpr float kAXMessagingTimeoutSeconds = 0.5f;
+
 AXUIElementRef CopyFocusedElement() {
   AXUIElementRef systemWideElement = AXUIElementCreateSystemWide();
   if (systemWideElement == nullptr) {
     return nullptr;
   }
+  // Set on the system-wide element, this becomes the timeout for every AX call this process makes.
+  AXUIElementSetMessagingTimeout(systemWideElement, kAXMessagingTimeoutSeconds);
 
   CFTypeRef focusedElement = nullptr;
   AXError focusedResult =
