@@ -68,7 +68,11 @@ export class ClipboardTextInjector {
       const blockedBeforeWrite = dispatchGuard();
       if (blockedBeforeWrite) return { success: false, reason: blockedBeforeWrite };
       // Snapshot right before the first write, so a copy made during activation is the one kept.
-      snapshot = await readStableSnapshot();
+      // The snapshot read is awaited, so check the clipboard held still with no await before the write below.
+      for (let attempt = 0; attempt < 2 && !snapshot; attempt += 1) {
+        const read = await readSnapshotWithCount();
+        if (read && clipboardChangeCount() === read.changeCount) snapshot = read.items;
+      }
       if (!snapshot) return { success: false, reason: "insertion_failed" };
       const insertionStart = readFocusedSelection()?.location ?? target?.selection?.location;
       generation = ++restoreGeneration;
@@ -286,14 +290,11 @@ async function readClipboardSnapshot(): Promise<PasteboardItem[] | null> {
   return readPasteboardItems();
 }
 
-// Reads the snapshot again if the clipboard changed while it was awaited, so a copy made meanwhile is the one kept.
-async function readStableSnapshot(): Promise<PasteboardItem[] | null> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const before = clipboardChangeCount();
-    const items = await readClipboardSnapshot();
-    if (items && clipboardChangeCount() === before) return items;
-  }
-  return null;
+// Reads the snapshot with the change count it started from, so the caller can tell if a copy landed meanwhile.
+async function readSnapshotWithCount(): Promise<{ items: PasteboardItem[]; changeCount: number } | null> {
+  const changeCount = clipboardChangeCount();
+  const items = await readClipboardSnapshot();
+  return items && changeCount !== null ? { items, changeCount } : null;
 }
 
 // Reads every item natively. Over the size cap, keeps only the plain text.

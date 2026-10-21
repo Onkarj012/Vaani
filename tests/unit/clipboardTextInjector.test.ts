@@ -698,14 +698,15 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
     }
   });
 
-  it("keeps a copy that lands while the snapshot read is awaited", async () => {
+  it.each([0, 1, 2, 4, 8])("keeps a copy that lands %i microtasks after the snapshot read", async (hops) => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const read = bridge.readPasteboard;
     bridge.readPasteboard = (maxBytes: number) => {
       bridge.readPasteboard = read;
       const items = read(maxBytes);
-      // The copy lands after the read returns, before the injector resumes.
-      queueMicrotask(() => storeItems(textItems("userCopy")));
+      // The copy lands after the read returns, a few microtasks later, before the injector resumes.
+      const land = (hops: number): void => queueMicrotask(() => (hops === 0 ? storeItems(textItems("userCopy")) : land(hops - 1)));
+      land(hops);
       return items;
     };
 
@@ -713,8 +714,10 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
       const promise = new ClipboardTextInjector().inject("dictated", chromeTarget);
       await vi.runAllTimersAsync();
 
-      await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+      // Retried or cancelled, the user's copy must survive and the older snapshot must never come back.
+      await promise;
       expect(clipboardText()).toBe("userCopy");
+      expect(writes.filter((write) => write.value === "original")).toHaveLength(0);
     } finally {
       bridge.readPasteboard = read;
     }
