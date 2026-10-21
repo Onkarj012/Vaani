@@ -35,9 +35,10 @@ function removeFillers(text: string, fillers: string[]): string {
 }
 
 function capitalizeSentences(text: string): string {
-  // "st." before a word is Saint or Street, both written "St." ("st. louis" -> "St. Louis").
+  // A standalone "st." before a word is Saint or Street ("st. louis" -> "St. Louis"). After a number it is a count
+  // ("3 st." in Swedish), and inside a filename or URL it is not a word, so both stay as typed.
   return text
-    .replace(/\bst\.(?=\s+\p{L})/gu, "St.")
+    .replace(/(?<=^|\s)(?<!\p{N}\s+)st\.(?=\s+\p{L})/gu, "St.")
     .replace(/(^\s*[a-z])|([.!?]\s+[a-z])/g, m => m.toUpperCase());
 }
 

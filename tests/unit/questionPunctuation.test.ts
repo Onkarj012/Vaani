@@ -71,6 +71,17 @@ describe("question punctuation and spoken file names", () => {
     }
   });
 
+  it("leaves st. alone inside filenames, URLs and counts", () => {
+    for (const [rawText, expected] of [
+      ["open test.st. then run it", "Open test.st. Then run it."],
+      ["open https://example.com/st. then continue", "Open https://example.com/st. Then continue."],
+      ["vi behöver 3 st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
+      ["vi behöver 3  st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
+    ] satisfies [string, string][]) {
+      expect(cleanupText({ rawText, settings })).toBe(expected);
+    }
+  });
+
   it("recognizes short questions with contracted who openers", () => {
     for (const [rawText, expected] of [
       ["who's there", "Who's there?"],
