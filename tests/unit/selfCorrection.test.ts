@@ -100,6 +100,7 @@ describe("applySelfCorrections", () => {
 
   it("counts a cue that opens with a hesitation", () => {
     expect(applySelfCorrections("Pay 500. Um, scratch that. Pay 200.")).toBe("Pay 200.");
+    expect(applySelfCorrections("Pay 500. Um. Scratch that. Pay 200.")).toBe("Pay 200.");
     expect(applySelfCorrections("Pay 500. Um, scratch that. Scratch that. Pay 200.")).not.toContain("500");
   });
 

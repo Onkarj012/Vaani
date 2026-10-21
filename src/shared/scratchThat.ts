@@ -58,6 +58,8 @@ export function splitSentences(text: string): string[] {
 }
 
 // A sentence that only withdraws the sentence before it.
+// A sentence that is only hesitation, such as "Um." or "Uh, um...".
+const HESITATION_ONLY_RE = /^\s*(?:(?:um+|uh+|erm|hmm+)[,.!?।\s]*)+$/i;
 // A hesitation before the cue ("Um, scratch that.") still counts as the cue.
 const SCRATCH_SENTENCE_RE = /^\s*(?:(?:um+|uh+|erm|hmm+)[,\s]+)*(?:scratch|delete)\s+that[.!?।]*\s*$/i;
 // A sentence with a letter or number, as opposed to a bare separator such as "\n" or "...".
@@ -66,7 +68,8 @@ const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
 // Removes the nearest kept sentence and the separators after it. Returns false when no sentence is kept.
 function dropPreviousSentence(kept: string[]): boolean {
   let index = kept.length - 1;
-  while (index >= 0 && !WORD_CHAR_RE.test(kept[index] ?? "")) index -= 1;
+  // Separators and hesitation-only sentences ("Um.") are skipped, so the cue reaches the sentence it withdraws.
+  while (index >= 0 && (!WORD_CHAR_RE.test(kept[index] ?? "") || HESITATION_ONLY_RE.test(kept[index] ?? ""))) index -= 1;
   if (index < 0) return false;
   kept.splice(index);
   return true;
