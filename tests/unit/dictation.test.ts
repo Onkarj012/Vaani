@@ -14,7 +14,8 @@ import type { RecoveryJournalStore } from "@main/store/recoveryJournal";
 import type { EncryptedRecoveryAudioStore } from "@main/audio/recoveryAudio";
 import { createRecoveryEntry, type RecoveryEntry, type RecoveryEntrySeed, type RecoveryErrorClass, type RecoveryInsertionPreparation, type RecoveryTransitionInput } from "@shared/recovery";
 import { DictationService } from "./dictation.fixture";
-import { selectRecoveryText } from "@main/dictation";
+import { extractCorrectedInsertedText, selectRecoveryText } from "@main/dictation";
+import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { nativeBridge } from "@main/nativeBridge";
 import type { InjectionOptions, InjectionTarget } from "@main/injection";
 import { TranscriptionChainError, TranscriptionDeadlineExceededError, TranscriptionService, type TranscribeOptions } from "@main/transcription";
@@ -429,6 +430,17 @@ describe("DictationService", () => {
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: "formatted" })).toBe("formatted");
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: null })).toBe("cleaned");
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: null, formattedText: null })).toBe("raw");
+  });
+
+  it("keeps a correction that extends the last inserted word so the dictionary can suggest it", () => {
+    const corrected = extractCorrectedInsertedText("open Code", "open CodePen", "open Code");
+    expect(corrected).toBe("open CodePen");
+    expect(detectDictionarySuggestions("open Code", corrected ?? "")).toEqual([{ spoken: "Code", written: "CodePen" }]);
+  });
+
+  it("drops typed continuation after the inserted text", () => {
+    expect(extractCorrectedInsertedText("open Code", "open Code and more", "open Code")).toBeNull();
+    expect(extractCorrectedInsertedText("open Code", "open Code.", "open Code")).toBeNull();
   });
 
   it("aborts recovery formatting when a new dictation starts and does not store the late result", async () => {

@@ -2333,7 +2333,7 @@ function extractInsertedFragment(initialValue: string | null, currentValue: stri
   return currentValue.slice(prefixLength, end);
 }
 
-function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {
+export function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {
   if (!initialValue) return null;
   const insertedAt = initialValue.indexOf(insertedText);
   if (insertedAt < 0) return withoutPureContinuation(currentValue.trim(), insertedText);
@@ -2349,14 +2349,15 @@ function extractCorrectedInsertedText(initialValue: string | null, currentValue:
   return withoutPureContinuation(corrected, insertedText);
 }
 
-// Text typed before/after the inserted dictation is continued writing, not a
-// correction of it. Diffing it as an edit merges the new keystrokes into the
-// last dictated token and mints junk suggestions like "GitHub" → "GitHub.a".
+// Text typed after a space or punctuation, or before the inserted dictation, is
+// continued writing. Letters glued onto the last word ("Code" → "CodePen") are a
+// correction, so they pass through to the dictionary suggestion logic.
 function withoutPureContinuation(corrected: string, insertedText: string): string | null {
   if (!corrected) return null;
   const inserted = insertedText.trim();
   if (!inserted || corrected === inserted) return corrected;
-  if (corrected.startsWith(inserted) || corrected.endsWith(inserted)) return null;
+  if (corrected.endsWith(inserted)) return null;
+  if (corrected.startsWith(inserted) && !/^[\p{L}\p{N}]/u.test(corrected.slice(inserted.length))) return null;
   return corrected;
 }
 
