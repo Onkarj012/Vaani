@@ -74,14 +74,18 @@ export class ClipboardTextInjector {
       const blockedBeforeWrite = dispatchGuard();
       if (blockedBeforeWrite) return { success: false, reason: blockedBeforeWrite };
       // Snapshot right before the first write, so a copy made during activation is the one kept.
-      snapshot = readClipboardSnapshot();
+      // The snapshot read is awaited, so check the clipboard held still with no await before the write below.
+      for (let attempt = 0; attempt < 2 && !snapshot; attempt += 1) {
+        const read = await readSnapshotWithCount();
+        if (read && clipboardChangeCount() === read.changeCount) snapshot = read.items;
+      }
       if (!snapshot) return { success: false, reason: "insertion_failed" };
       const insertionStart = readFocusedSelection()?.location ?? target?.selection?.location;
       generation = ++restoreGeneration;
       const writeResult = writeClipboardItems(plainTextItems(text));
       // Keep ownership even on failure so cleanup cannot overwrite a newer user copy.
       ownedChangeCount = typeof writeResult === "number" ? writeResult : writeResult?.failedChangeCount ?? null;
-      if (typeof writeResult !== "number" || clipboard.readText() !== text) {
+      if (typeof writeResult !== "number" || (await clipboard.readText()) !== text) {
         return { success: false, reason: "insertion_failed" };
       }
 
@@ -164,7 +168,7 @@ export class ClipboardTextInjector {
           void restoreClipboardAfterDelay(snapshot, ownedChangeCount, CLIPBOARD_RESTORE_DELAY_MS, generation);
         } else {
           pendingRestore = null;
-          if (clipboardChangeCount() === ownedChangeCount) restoreClipboard(snapshot);
+          if (clipboardChangeCount() === ownedChangeCount) await restoreClipboard(snapshot);
         }
       }
     }
@@ -272,7 +276,7 @@ function prefersSystemEventsPaste(target?: InjectionTarget): boolean {
 }
 
 // Returns the user's pasteboard items, or null if the pasteboard cannot be read.
-function readClipboardSnapshot(): PasteboardItem[] | null {
+async function readClipboardSnapshot(): Promise<PasteboardItem[] | null> {
   const changeCount = clipboardChangeCount();
   if (changeCount === null) return null;
   // While an earlier restore is still pending the clipboard holds that
@@ -281,8 +285,15 @@ function readClipboardSnapshot(): PasteboardItem[] | null {
   return readPasteboardItems();
 }
 
+// Reads the snapshot with the change count it started from, so the caller can tell if a copy landed meanwhile.
+async function readSnapshotWithCount(): Promise<{ items: PasteboardItem[]; changeCount: number } | null> {
+  const changeCount = clipboardChangeCount();
+  const items = await readClipboardSnapshot();
+  return items && changeCount !== null ? { items, changeCount } : null;
+}
+
 // Reads every item natively. Over the size cap, keeps only the plain text.
-function readPasteboardItems(): PasteboardItem[] | null {
+async function readPasteboardItems(): Promise<PasteboardItem[] | null> {
   if (!nativeBridge.readPasteboard) return null;
   // A copy made during the read leaves stale, partial items, so read again until the clipboard holds still.
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -291,7 +302,10 @@ function readPasteboardItems(): PasteboardItem[] | null {
     if (before === null || clipboardChangeCount() !== before) continue;
     if (items) return items;
     warn("clipboard", `pasteboard exceeds ${PASTEBOARD_SNAPSHOT_MAX_BYTES} bytes; restoring plain text only`);
-    return plainTextItems(clipboard.readText());
+    const text = await clipboard.readText();
+    // A copy made while the read was awaited would be lost to an older snapshot, so read again.
+    if (clipboardChangeCount() !== before) continue;
+    return plainTextItems(text);
   }
   return null;
 }
@@ -316,7 +330,7 @@ function writeClipboardItems(items: PasteboardItem[]): PasteboardWriteResult {
 }
 
 // Puts every saved item back, trying the full write twice. Falls back to the saved plain text, and never writes "" over the user's clipboard.
-function restoreClipboard(items: PasteboardItem[]): void {
+async function restoreClipboard(items: PasteboardItem[]): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const result = writeClipboardItems(items);
     if (typeof result === "number") return;
@@ -324,7 +338,7 @@ function restoreClipboard(items: PasteboardItem[]): void {
     if (result && clipboardChangeCount() !== result.failedChangeCount) return;
   }
   const text = items.flat().find((entry) => entry.type === PLAIN_TEXT_TYPE)?.data.toString("utf8");
-  if (text) clipboard.writeText(text);
+  if (text) await clipboard.writeText(text);
 }
 
 async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCount: number, delayMs: number, generation: number): Promise<void> {
@@ -334,7 +348,7 @@ async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCo
   pendingRestore = null;
   // Text equality cannot distinguish a user copy of the same dictated text.
   // Restore only while the pasteboard still has our last observed change count.
-  if (clipboardChangeCount() === ownedChangeCount) restoreClipboard(items);
+  if (clipboardChangeCount() === ownedChangeCount) await restoreClipboard(items);
 }
 
 // Moves the caret after the inserted text once the app has applied it, unless focus moved or a newer insert started.

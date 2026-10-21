@@ -619,10 +619,10 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     requireAllowedSender(event, [mainWindow]);
     return history.clear();
   });
-  ipcMain.handle(IpcChannel.CopyText, (event, text: unknown) => {
+  ipcMain.handle(IpcChannel.CopyText, async (event, text: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(text, MAX_TEXT_LENGTH) || !hasSpokenContent(text)) return false;
-    clipboard.writeText(text);
+    await clipboard.writeText(text);
     return true;
   });
   ipcMain.handle(IpcChannel.GetSettings, (event) => {
