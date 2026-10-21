@@ -296,7 +296,10 @@ async function readPasteboardItems(): Promise<PasteboardItem[] | null> {
     if (before === null || clipboardChangeCount() !== before) continue;
     if (items) return items;
     warn("clipboard", `pasteboard exceeds ${PASTEBOARD_SNAPSHOT_MAX_BYTES} bytes; restoring plain text only`);
-    return plainTextItems(await clipboard.readText());
+    const text = await clipboard.readText();
+    // A copy made while the read was awaited would be lost to an older snapshot, so read again.
+    if (clipboardChangeCount() !== before) continue;
+    return plainTextItems(text);
   }
   return null;
 }

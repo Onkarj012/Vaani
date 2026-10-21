@@ -671,6 +671,33 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
     warn.mockRestore();
   });
 
+  it("keeps a copy made while reading the plain text of an over-cap pasteboard", async () => {
+    const { ClipboardTextInjector, PASTEBOARD_SNAPSHOT_MAX_BYTES } = await import("@main/injection/clipboard");
+    const { clipboard } = await import("electron");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    pasteboard = [
+      [{ type: "public.png", data: Buffer.alloc(PASTEBOARD_SNAPSHOT_MAX_BYTES + 1) }],
+      [{ type: PLAIN_TEXT, data: Buffer.from("original") }],
+    ];
+    const read = vi.spyOn(clipboard, "readText").mockImplementationOnce(async () => {
+      const before = clipboardText();
+      storeItems(textItems("userCopy"));
+      return before;
+    });
+
+    try {
+      const promise = new ClipboardTextInjector().inject("dictated", chromeTarget);
+      await vi.runAllTimersAsync();
+
+      await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+      expect(clipboardText()).toBe("userCopy");
+      expect(writes.filter((write) => write.value === "original")).toHaveLength(0);
+    } finally {
+      read.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
   it("times out a stuck AppleScript helper so the injection still finishes", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     hangAppleScript = true;
