@@ -90,6 +90,7 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("Meet at 3, sorry, 4.", "Meet at 4.", [])).toBe(true);
     expect(preservesContentWords("Meet at 3, no wait, 4.", "Meet at 4.", [])).toBe(true);
     expect(preservesContentWords("Meet at 3. Sorry. 4.", "Meet at 4.", [])).toBe(true);
+    expect(preservesContentWords("Meet at 3. Sorry. Four.", "Meet at 4.", [])).toBe(true);
   });
 
   it("keeps every word when speech noise is not allowed (cleanup off)", () => {
@@ -292,6 +293,17 @@ describe("long transcripts over the alignment limit", () => {
   it("accepts a correction when the kept reply repeats the corrected number", () => {
     const raw = `Start at 3, no, 4. Keep 3 seats. ${tail} done`;
     expect(judgeFormatterReply(raw, `Start at 4. Keep 3 seats. ${tail} finished`).rejection).toBeNull();
+  });
+
+  it("accepts a correction in an oversized gap whose repeated words match in order", () => {
+    const repeated = "Start at 4. Keep 3 seats. ".repeat(200);
+    const raw = `Done. Start at 3, no, 4. Keep 3 seats. ${repeated} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Start at 4. Keep 3 seats. ${repeated} finish.`).rejection).toBeNull();
+  });
+
+  it("accepts a spoken number word that becomes a digit next to a sentence cue", () => {
+    const raw = `Done. Meet at 3. Sorry. Four. ${tail} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Meet at 4. ${tail} finish.`).rejection).toBeNull();
   });
 
   it("accepts a correction whose cue opens a sentence and its replacement does too", () => {

@@ -171,7 +171,7 @@ function finishWords(units: Unit[]): Unit[] {
     if (unit.kind !== "word") return unit;
     const digits = NUMBER_WORDS.get(unit.text);
     if (!digits || isNumberWord(neighbor(index, -1)) || isNumberWord(neighbor(index, 1))) return unit;
-    return { kind: "word", text: digits };
+    return { ...unit, text: digits };
   });
 }
 
@@ -634,10 +634,29 @@ function droppedPositions(words: readonly string[], output: readonly string[]): 
   return dropped;
 }
 
-// Positions of a gap's source words that the gap's output drops. Aligns in order, or bag-matches when the gap is too big.
+// Positions of a gap's source words that the gap's output drops. Aligns in order, or walks in order when the gap is too big.
 function gapDropped(words: readonly string[], output: readonly string[]): number[] {
   const asUnits = (list: readonly string[]): Unit[] => list.map((text): Unit => ({ kind: "word", text }));
-  return alignSections(asUnits(words), asUnits(output))?.dropped ?? unmatchedPositions(words, output);
+  return alignSections(asUnits(words), asUnits(output))?.dropped ?? inOrderDropped(words, output);
+}
+
+// Positions of source words left unmatched by one in-order walk, in linear time. A reply word the source lacks is skipped
+// when the next reply word matches, so one inserted word does not drop the rest of the gap.
+function inOrderDropped(words: readonly string[], output: readonly string[]): number[] {
+  const dropped: number[] = [];
+  let reply = 0;
+  words.forEach((word, position) => {
+    if (matchesAt(word, output, reply)) reply += 1;
+    else if (matchesAt(word, output, reply + 1)) reply += 2;
+    else dropped.push(position);
+  });
+  return dropped;
+}
+
+// True when the reply has a word at index that matches the source word.
+function matchesAt(word: string, output: readonly string[], index: number): boolean {
+  const next = output[index];
+  return next !== undefined && sameBagWord(word, next);
 }
 
 // How many times each word occurs in a list.
