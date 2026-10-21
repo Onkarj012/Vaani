@@ -68,6 +68,8 @@ describe("applySelfCorrections", () => {
 
   it("swaps in a sentence with dots inside a word", () => {
     expect(applySelfCorrections("Send 3, no, 4 emails to priya@example.com.")).toBe("Send 4 emails to priya@example.com.");
+    expect(applySelfCorrections("Meet at 3, no, 4 p.m. tomorrow.")).toBe("Meet at 4 p.m. tomorrow.");
+    expect(applySelfCorrections("Send 3, no, 4 to Dr. Rao.")).toBe("Send 4 to Dr. Rao.");
   });
 
   it("withdraws a sentence that ends in a closing quote or holds a title", () => {
@@ -78,6 +80,7 @@ describe("applySelfCorrections", () => {
   it("withdraws only the sentence before the cue when sentences touch", () => {
     expect(applySelfCorrections("Do not pay 500.Pay 200. Scratch that. Call me.")).toBe("Do not pay 500.Call me.");
     expect(applySelfCorrections("यह सही है।वह गलत है। Scratch that. Call me.")).toBe("यह सही है।Call me.");
+    expect(applySelfCorrections("Do not pay 500!2 is enough. Scratch that. Call me.")).toBe("Do not pay 500!Call me.");
   });
 
   it("swaps inside a quoted sentence", () => {
