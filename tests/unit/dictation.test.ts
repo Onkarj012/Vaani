@@ -995,7 +995,7 @@ describe("DictationService", () => {
     fixture.recovery.recordInsertionOutcome.mockImplementationOnce(() => new Promise<RecoveryEntry>((resolve) => {
       releaseRecoveryWrite = () => resolve(fixture.getEntry());
     }));
-    const { service } = createDictationService({ traces: traceDeps.traces, recovery: fixture.recovery, recoveryReady: () => true });
+    const { service, history } = createDictationService({ traces: traceDeps.traces, recovery: fixture.recovery, recoveryReady: () => true });
 
     service.beginHotkeySession();
     const sessionA = (service.getState() as { sessionId: string }).sessionId;
@@ -1017,6 +1017,8 @@ describe("DictationService", () => {
     await service.closeForQuit();
 
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
+    // Session A's transcript is saved once, even though it finished after B started. B never had a transcript.
+    expect(history.append).toHaveBeenCalledOnce();
   });
 
   it("closes a transcription at quit without inserting late text", async () => {

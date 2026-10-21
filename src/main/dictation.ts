@@ -68,6 +68,8 @@ const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
 // Extra time past the transcription and cleanup deadlines before the stale guard ends a session.
 const STALE_GUARD_GRACE_MS = 15_000;
+// Recent sessions whose History write is remembered, so each session is saved once.
+const HISTORY_WRITE_MARKERS = 20;
 const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 const EDIT_WATCH_INTERVAL_MS = 500;
 const EDIT_WATCH_TIMEOUT_MS = 60_000;
@@ -1514,6 +1516,8 @@ export class DictationService {
       return false;
     });
     this.historyWrites.set(sessionId, write);
+    // Kept past the session so a late finish can't append again; only the oldest markers are dropped.
+    if (this.historyWrites.size > HISTORY_WRITE_MARKERS) this.historyWrites.delete(this.historyWrites.keys().next().value ?? "");
     return write;
   }
 
@@ -1523,7 +1527,6 @@ export class DictationService {
     const saved = await this.persistHistoryOnce(sessionId, entry);
     await this.recordRecoveryInsertionOutcome(sessionId, "recoverable", null, "interrupted", OUTCOME_UNCERTAIN_DETAIL).catch(() => undefined);
     await this.finishTrace(sessionId, "unconfirmed", "cancelled", insertionStatusText("unconfirmed", saved, "processing"));
-    this.historyWrites.delete(sessionId);
   }
 
   // Saves a replaced session's transcript as not inserted. Touches only that session's history and trace.
@@ -1551,7 +1554,6 @@ export class DictationService {
   private resetToIdle(): void {
     if (this.activeSessionId) {
       if (this.isCaptureStage()) this.recorder?.abortRecording?.(this.activeSessionId);
-      this.historyWrites.delete(this.activeSessionId);
     }
     this.sessionAbortController?.abort("session-reset");
     this.clearTimers();
