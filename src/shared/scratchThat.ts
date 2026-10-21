@@ -8,17 +8,17 @@ const TITLE_RE = /(?:^|\s)(?:mr|mrs|ms|dr|prof)$/iu;
 // A list number at the start of a line, such as "2" in "2. Buy eggs.".
 const LIST_MARKER_RE = /(?:^|\n)[ \t]*\p{N}+$/u;
 
-// True when the marks at text[start..markEnd), with any closers up to end, close a sentence. Marks inside a word
-// ("3.5", "priya@example.com") do not, unless they meet a capital after a lowercase letter ("minutes.Next") or are
-// "!" or "?" ("4!Next"). A title ("Dr. Smith"), a dotted abbreviation before a lowercase word ("5 p.m. tomorrow")
-// and a list number ("2. Buy") do not either. The Devanagari danda "।" ends a sentence too.
+// True when the marks at text[start..markEnd), with any closers up to end, close a sentence. When unsure it says yes:
+// a wrong split only keeps text, while a wrong merge lets "Scratch that." withdraw two sentences. Marks inside a word
+// ("3.5", "priya@example.com") do not end one unless a capital follows ("500.Pay", "4!Next"). A Devanagari danda "।"
+// always does. A title ("Dr. Smith"), a dotted abbreviation before a lowercase word ("5 p.m. tomorrow") and a list
+// number ("2. Buy") do not.
 function endsSentence(text: string, start: number, markEnd: number, end: number): boolean {
   const next = text[end];
   const before = text.slice(0, start);
   const marks = text.slice(start, markEnd);
-  if (next !== undefined && !/\s/u.test(next)) {
-    return /\p{Lu}/u.test(next) && (/[!?।]/u.test(marks) || /\p{Ll}$/u.test(before));
-  }
+  if (marks.includes("।")) return true;
+  if (next !== undefined && !/\s/u.test(next)) return /\p{Lu}/u.test(next);
   if (marks !== ".") return true;
   if (LIST_MARKER_RE.test(before) || TITLE_RE.test(before)) return false;
   return !(DOTTED_ABBREVIATION_RE.test(before) && /^[ \t]+\p{Ll}/u.test(text.slice(end)));

@@ -9,7 +9,7 @@ const CLAUSE_STARTERS = new Set(["was", "were", "is", "are", "am", "will", "woul
 const WORD_SHAPE_RE = /^[\p{L}\p{N}'’:-]+(?:\.\p{N}+)*$/u;
 // Before-words, a cue, then the rest of the sentence. A bare "no" counts only between commas ("Friday, no, Thursday").
 const CORRECTION_SENTENCE_RE = new RegExp(
-  String.raw`^(?<lead>\s*)(?<before>[^\n]*?)(?:\s*,?\s*\b(?:${CORRECTION_PHRASES})\b\s*,?|\s*,\s*no\s*,)\s+(?<after>(?:[^.!?\n]|[.!?](?=[^\s.!?]))+?)(?<end>[.!?]*)(?<trail>\s*)$`,
+  String.raw`^(?<lead>\s*)(?<before>[^\n]*?)(?:\s*,?\s*\b(?:${CORRECTION_PHRASES})\b\s*,?|\s*,\s*no\s*,)\s+(?<after>(?:[^.!?\n]|[.!?](?=[^\s.!?]))+?)(?<end>[.!?]*["'”’»)\]]*)(?<trail>\s*)$`,
   "iu",
 );
 

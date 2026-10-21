@@ -75,6 +75,15 @@ describe("applySelfCorrections", () => {
     expect(applySelfCorrections("Ask Dr. Rao about 500. Scratch that. Call me.")).toBe("Call me.");
   });
 
+  it("withdraws only the sentence before the cue when sentences touch", () => {
+    expect(applySelfCorrections("Do not pay 500.Pay 200. Scratch that. Call me.")).toBe("Do not pay 500.Call me.");
+    expect(applySelfCorrections("यह सही है।वह गलत है। Scratch that. Call me.")).toBe("यह सही है।Call me.");
+  });
+
+  it("swaps inside a quoted sentence", () => {
+    expect(applySelfCorrections('He said "Send 3, no, 4."')).toBe('He said "Send 4."');
+  });
+
   it("keeps an abbreviation before a capital as a sentence end, so unclear cuts keep text", () => {
     expect(applySelfCorrections("Meet at 5 p.m. Monday. Scratch that. Call me.")).toBe("Meet at 5 p.m. Call me.");
   });
