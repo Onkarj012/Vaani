@@ -68,7 +68,7 @@ export class ClipboardTextInjector {
       const blockedBeforeWrite = dispatchGuard();
       if (blockedBeforeWrite) return { success: false, reason: blockedBeforeWrite };
       // Snapshot right before the first write, so a copy made during activation is the one kept.
-      snapshot = await readClipboardSnapshot();
+      snapshot = await readStableSnapshot();
       if (!snapshot) return { success: false, reason: "insertion_failed" };
       const insertionStart = readFocusedSelection()?.location ?? target?.selection?.location;
       generation = ++restoreGeneration;
@@ -284,6 +284,16 @@ async function readClipboardSnapshot(): Promise<PasteboardItem[] | null> {
   // injection's text, not the user's. Reuse the user's items from then.
   if (pendingRestore && changeCount === pendingRestore.changeCount) return pendingRestore.items;
   return readPasteboardItems();
+}
+
+// Reads the snapshot again if the clipboard changed while it was awaited, so a copy made meanwhile is the one kept.
+async function readStableSnapshot(): Promise<PasteboardItem[] | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const before = clipboardChangeCount();
+    const items = await readClipboardSnapshot();
+    if (items && clipboardChangeCount() === before) return items;
+  }
+  return null;
 }
 
 // Reads every item natively. Over the size cap, keeps only the plain text.

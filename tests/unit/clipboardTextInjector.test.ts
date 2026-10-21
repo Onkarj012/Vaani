@@ -698,6 +698,28 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
     }
   });
 
+  it("keeps a copy that lands while the snapshot read is awaited", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const read = bridge.readPasteboard;
+    bridge.readPasteboard = (maxBytes: number) => {
+      bridge.readPasteboard = read;
+      const items = read(maxBytes);
+      // The copy lands after the read returns, before the injector resumes.
+      queueMicrotask(() => storeItems(textItems("userCopy")));
+      return items;
+    };
+
+    try {
+      const promise = new ClipboardTextInjector().inject("dictated", chromeTarget);
+      await vi.runAllTimersAsync();
+
+      await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+      expect(clipboardText()).toBe("userCopy");
+    } finally {
+      bridge.readPasteboard = read;
+    }
+  });
+
   it("times out a stuck AppleScript helper so the injection still finishes", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     hangAppleScript = true;
