@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AudioInputDevice } from "@shared/types";
-import { selectRecorderDevice, selectRecorderDeviceId, type AudioInputLike } from "@renderer/recorder/deviceSelection";
+import { captureProcessingConstraints, selectRecorderDevice, selectRecorderDeviceId, type AudioInputLike } from "@renderer/recorder/deviceSelection";
 
 /** Build a browser enumeration fixture with a stable ID and label. */
 function input(deviceId: string, label: string): AudioInputLike {
@@ -188,5 +188,15 @@ describe("review regressions", () => {
     const duplicates = [input("one", "MacBook Pro Microphone (Built-in)"), input("two", "MacBook Pro Microphone (Built-in)")];
     expect(selectRecorderDevice(duplicates, undefined, [])).toMatchObject({ ok: false });
     expect(selectRecorderDevice(duplicates, "one", [])).toMatchObject({ ok: false });
+  });
+});
+
+describe("captureProcessingConstraints", () => {
+  it("keeps echo cancellation and auto gain on for the default mode", () => {
+    expect(captureProcessingConstraints()).toEqual({ echoCancellation: true, autoGainControl: true, noiseSuppression: false });
+  });
+
+  it("turns all three processing stages off for the unprocessed mode", () => {
+    expect(captureProcessingConstraints("unprocessed")).toEqual({ echoCancellation: false, autoGainControl: false, noiseSuppression: false });
   });
 });

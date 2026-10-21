@@ -14,16 +14,21 @@ import { moveCaretAfterInsertion, readFocusedSelection } from "./caret";
 const exec = promisify(execFile);
 let consecutiveFailures = 0;
 const CLIPBOARD_RESTORE_DELAY_MS = 1_200;
-// A helper that never returns would hold the shared injection queue forever.
-const HELPER_TIMEOUT_MS = 3_000;
 // Typing a long transcript through System Events can take several seconds.
 const DISPATCH_TIMEOUT_MS = 20_000;
 // Clipboards larger than this keep only their plain text, so the snapshot stays bounded.
 export const PASTEBOARD_SNAPSHOT_MAX_BYTES = 50 * 1024 * 1024;
 const PLAIN_TEXT_TYPE = "public.utf8-plain-text";
 const CARET_SETTLE_MS = 300;
+// Timed caret checks after a paste, 300 ms apart, before the move waits for the next insert.
+const CARET_MAX_TIMED_TRIES = 5;
+// Apps can read the pasteboard well after Cmd+V. An insert that follows a paste this
+// closely waits before writing the clipboard, so it can't swap the text being pasted.
+const PASTE_LANDING_MS = 700;
+let lastDispatchAt: number | null = null;
 let restoreGeneration = 0;
-let pendingCaretCheck: ReturnType<typeof setTimeout> | null = null;
+// The last paste's caret move, waiting for the app to apply the paste.
+let pendingCaretCheck: { timer: ReturnType<typeof setTimeout>; run: () => void } | null = null;
 // The user's items, plus the change count our own write left on the pasteboard.
 let pendingRestore: { items: PasteboardItem[]; changeCount: number } | null = null;
 let injectionQueue: Promise<void> | null = null;
@@ -54,17 +59,18 @@ export class ClipboardTextInjector {
     const blockedAtStart = guard();
     if (blockedAtStart) return { success: false, reason: blockedAtStart };
     if (clipboardChangeCount() === null) return { success: false, reason: "insertion_failed" };
-    // A newer insert owns the caret now, so an older pending check must not move it.
-    if (pendingCaretCheck) { clearTimeout(pendingCaretCheck); pendingCaretCheck = null; }
     let snapshot: PasteboardItem[] | null = null;
     let generation = restoreGeneration;
     let ownedChangeCount: number | null = null;
     let dispatchStarted = false;
-    const markDispatch = (): void => { dispatchStarted = true; onDispatch?.(); };
+    const markDispatch = (): void => { dispatchStarted = true; lastDispatchAt = Date.now(); onDispatch?.(); };
     const dispatchGuard: InjectionGuard = () => guard() ?? (ownedChangeCount !== null && clipboardChangeCount() !== ownedChangeCount ? "cancelled" : null);
     try {
-      await activateTargetApp(target);
-      await delay(180);
+      await waitForPreviousPasteToLand();
+      // The previous paste has landed, so finish its caret move before this insert reads the selection.
+      settlePendingCaretMove();
+      // Settle only after switching apps. A target already in front takes the clipboard write at once.
+      if (await activateTargetApp(target)) await delay(180);
       const blockedBeforeWrite = dispatchGuard();
       if (blockedBeforeWrite) return { success: false, reason: blockedBeforeWrite };
       // Snapshot right before the first write, so a copy made during activation is the one kept.
@@ -92,12 +98,7 @@ export class ClipboardTextInjector {
         if (outcome === "dispatched") {
           if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
           consecutiveFailures = 0;
-          // The paste lands asynchronously, so check the caret after the app applies it.
-          pendingCaretCheck = setTimeout(() => {
-            pendingCaretCheck = null;
-            if (dispatchGuard() || !insertionFieldIdentity || readFocusedElementIdentity() !== insertionFieldIdentity) return;
-            moveCaretAfterInsertion(text, insertionStart);
-          }, CARET_SETTLE_MS);
+          scheduleCaretMove(text, insertionStart, insertionFieldIdentity);
           return { success: true, method: "clipboard" };
         }
         if (outcome !== "failed") return { success: false, reason: outcome };
@@ -133,6 +134,7 @@ export class ClipboardTextInjector {
       // Once keystrokes or a paste reach the target, an unconfirmed result is
       // uncertain and retrying would risk inserting the text twice.
       let pasted = false;
+      const insertionFieldIdentity = readFocusedElementIdentity();
       for (const method of methods) {
         const outcome = await method.run();
         if (outcome === "failed") continue;
@@ -147,11 +149,10 @@ export class ClipboardTextInjector {
         break;
       }
 
-      await delay(600);
       if (pasted) {
         if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
         consecutiveFailures = 0;
-        moveCaretAfterInsertion(text, insertionStart);
+        scheduleCaretMove(text, insertionStart, insertionFieldIdentity);
         return { success: true, method: "clipboard" };
       }
       consecutiveFailures += 1;
@@ -173,7 +174,7 @@ export class ClipboardTextInjector {
     if (!nativeBridge.pasteText) return "failed";
     let dispatched = false;
     try {
-      const blocked = await prepareDispatch(target, guard, true);
+      const blocked = await prepareDispatch(target, guard);
       if (blocked) return blocked;
       const changeCount = expectedChangeCount();
       if (changeCount === null) return "failed";
@@ -189,7 +190,7 @@ export class ClipboardTextInjector {
     if (!nativeBridge.typeText) return "failed";
     let dispatched = false;
     try {
-      const blocked = await prepareDispatch(target, guard, true);
+      const blocked = await prepareDispatch(target, guard);
       if (blocked) return blocked;
       onDispatch?.();
       dispatched = true;
@@ -204,14 +205,11 @@ export class ClipboardTextInjector {
   }
 }
 
-async function prepareDispatch(target: InjectionTarget | undefined, guard: InjectionGuard, release: boolean): Promise<InjectionBlockReason | null> {
+// Brings the target forward before a native paste or typing. The native call releases held modifier keys itself.
+async function prepareDispatch(target: InjectionTarget | undefined, guard: InjectionGuard): Promise<InjectionBlockReason | null> {
   const blockedBeforeActivation = guard();
   if (blockedBeforeActivation) return blockedBeforeActivation;
   await ensureTargetReady(target);
-  if (release) {
-    await releaseModifiers();
-    await delay(60);
-  }
   return guard();
 }
 
@@ -247,6 +245,14 @@ function readFocusedElementIdentity(): string | null {
   }
 }
 
+// Waits out the rest of the previous paste's landing time, if any. Never longer than PASTE_LANDING_MS.
+async function waitForPreviousPasteToLand(): Promise<void> {
+  if (lastDispatchAt === null) return;
+  const remaining = Math.min(PASTE_LANDING_MS, lastDispatchAt + PASTE_LANDING_MS - Date.now());
+  lastDispatchAt = null;
+  if (remaining > 0) await delay(remaining);
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -263,17 +269,6 @@ function modifierReleaseLines(): string[] {
 function prefersSystemEventsPaste(target?: InjectionTarget): boolean {
   const haystack = `${target?.appBundleId ?? ""} ${target?.appName ?? ""}`.toLowerCase();
   return haystack.includes("whatsapp") || haystack.includes("messages") || haystack.includes("telegram") || haystack.includes("signal");
-}
-
-async function releaseModifiers(): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      await exec("osascript", modifierReleaseLines().flatMap(line => ["-e", line]), { timeout: HELPER_TIMEOUT_MS });
-      await delay(60);
-    } catch {
-      // best-effort only
-    }
-  }
 }
 
 // Returns the user's pasteboard items, or null if the pasteboard cannot be read.
@@ -320,12 +315,16 @@ function writeClipboardItems(items: PasteboardItem[]): PasteboardWriteResult {
   return nativeBridge.writePasteboard?.(items) ?? null;
 }
 
-// Puts every saved item back. Falls back to the saved plain text if the native write fails.
+// Puts every saved item back, trying the full write twice. Falls back to the saved plain text, and never writes "" over the user's clipboard.
 function restoreClipboard(items: PasteboardItem[]): void {
-  const result = writeClipboardItems(items);
-  if (typeof result === "number") return;
-  if (result && clipboardChangeCount() !== result.failedChangeCount) return;
-  clipboard.writeText(items.flat().find((entry) => entry.type === PLAIN_TEXT_TYPE)?.data.toString("utf8") ?? "");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = writeClipboardItems(items);
+    if (typeof result === "number") return;
+    // Something else wrote the pasteboard after the failed write. It is no longer ours to restore.
+    if (result && clipboardChangeCount() !== result.failedChangeCount) return;
+  }
+  const text = items.flat().find((entry) => entry.type === PLAIN_TEXT_TYPE)?.data.toString("utf8");
+  if (text) clipboard.writeText(text);
 }
 
 async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCount: number, delayMs: number, generation: number): Promise<void> {
@@ -336,6 +335,31 @@ async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCo
   // Text equality cannot distinguish a user copy of the same dictated text.
   // Restore only while the pasteboard still has our last observed change count.
   if (clipboardChangeCount() === ownedChangeCount) restoreClipboard(items);
+}
+
+// Moves the caret after the inserted text once the app has applied it, unless focus moved or a newer insert started.
+// A paste that has not reached the field yet is checked again a few times, then kept pending for the next insert.
+// The session guard is not consulted: the text is already sent, and the session usually ends right after the insert.
+function scheduleCaretMove(text: string, insertionStart: number | undefined, fieldIdentity: string | null): void {
+  let tries = 0;
+  const check = { timer: setTimeout(() => run(false), CARET_SETTLE_MS), run: () => run(true) };
+  const run = (last: boolean): void => {
+    if (pendingCaretCheck !== check) return;
+    if (!fieldIdentity || readFocusedElementIdentity() !== fieldIdentity) { pendingCaretCheck = null; return; }
+    if (moveCaretAfterInsertion(text, insertionStart) || last) { pendingCaretCheck = null; return; }
+    tries += 1;
+    if (tries < CARET_MAX_TIMED_TRIES) check.timer = setTimeout(() => run(false), CARET_SETTLE_MS);
+  };
+  pendingCaretCheck = check;
+}
+
+// Runs the last paste's caret move now instead of on its timer, as its final try. A new dictation calls it before
+// it records the caret, so the finished move is not mistaken for the user moving the caret.
+export function settlePendingCaretMove(): void {
+  if (!pendingCaretCheck) return;
+  clearTimeout(pendingCaretCheck.timer);
+  pendingCaretCheck.run();
+  pendingCaretCheck = null;
 }
 
 async function maybeRestoreCaretAfterInsertion(_text: string, _target: InjectionTarget | undefined, _kind: "paste" | "typing", _activationSucceeded?: boolean): Promise<void> {

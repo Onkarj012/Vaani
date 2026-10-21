@@ -1,12 +1,19 @@
-import type { TranscriptionResult } from "@shared/types";
+import type { AudioClip, TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
 import { createWavBuffer } from "@main/providers/shared/audioUtils";
 import { defaultModelFor, modelEntries, providerModels } from "@shared/modelList";
 import { openRouterPostJson, validateOpenRouterKey } from "./client";
 
+// Request deadline that grows with the clip, so a stalled short clip falls back in seconds instead of 20.
+// Measured replies: 0.9-4.8 s for clips under 6 s, 7-7.5 s for 67-104 s clips.
+export function openRouterSttTimeoutMs(durationSeconds: number): number {
+  return Math.min(30_000, Math.round(6_000 + durationSeconds * 200));
+}
+
 interface TranscriptionReply {
   text?: string;
+  usage?: { cost?: number };
 }
 
 interface HintOption {
@@ -25,6 +32,46 @@ const HINT_OPTIONS: Record<string, HintOption> = {
   "mistralai/voxtral-mini-transcribe": { slug: "mistral", key: "context_bias", asList: true },
 };
 
+export interface OpenRouterTranscriptionRequest {
+  clip: AudioClip;
+  apiKey: string;
+  model: string;
+  language?: string;
+  vocabularyHints?: string[];
+  temperature?: number;
+  signal?: AbortSignal;
+}
+
+export interface OpenRouterTranscriptionReply {
+  /** Trimmed transcript. Empty when the model heard nothing. */
+  text: string;
+  /** True when the request body carried vocabulary hints. */
+  hintsSent: boolean;
+  /** The reply's usage object, when OpenRouter returns one. */
+  usage?: { cost?: number };
+}
+
+// Sends one clip to OpenRouter's transcription endpoint. The app adapter and the A/B script both call this.
+export async function transcribeWithOpenRouter(request: OpenRouterTranscriptionRequest): Promise<OpenRouterTranscriptionReply> {
+  const hints = hintProviderOptions(request.model, request.vocabularyHints ?? [], request.language);
+  const language = normalizeWhisperLanguage(request.language);
+  const reply = await openRouterPostJson<TranscriptionReply>({
+    path: "/audio/transcriptions",
+    apiKey: request.apiKey,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: request.model,
+      input_audio: { data: createWavBuffer(request.clip).toString("base64"), format: "wav" },
+      ...(language ? { language } : {}),
+      temperature: request.temperature ?? 0,
+      ...(hints ? { provider: { options: hints } } : {}),
+    }),
+    signal: request.signal,
+    timeoutMs: openRouterSttTimeoutMs(request.clip.durationSeconds),
+  });
+  return { text: (reply.text ?? "").trim(), hintsSent: hints !== null, usage: reply.usage };
+}
+
 export const OpenRouterSttProvider: TranscriptionProvider = {
   id: "openrouter",
   name: "OpenRouter",
@@ -35,24 +82,17 @@ export const OpenRouterSttProvider: TranscriptionProvider = {
   async transcribe(clip, options): Promise<TranscriptionResult> {
     if (!options.apiKey) throw new Error("OpenRouter API key not configured. Go to Settings → API & Providers.");
 
-    const model = options.model || defaultModelFor("transcription", "openrouter");
-    const hints = hintProviderOptions(model, options.vocabularyHints ?? []);
-    const language = normalizeWhisperLanguage(options.language);
-    const reply = await openRouterPostJson<TranscriptionReply>({
-      path: "/audio/transcriptions",
+    const reply = await transcribeWithOpenRouter({
+      clip,
       apiKey: options.apiKey,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        input_audio: { data: createWavBuffer(clip).toString("base64"), format: "wav" },
-        ...(language ? { language } : {}),
-        temperature: options.temperature ?? 0,
-        ...(hints ? { provider: { options: hints } } : {}),
-      }),
+      model: options.model || defaultModelFor("transcription", "openrouter"),
+      language: options.language,
+      vocabularyHints: options.vocabularyHints,
+      temperature: options.temperature,
       signal: options.signal,
     });
 
-    const rawText = (reply.text ?? "").trim();
+    const rawText = reply.text;
     if (!rawText) throw new Error("No speech detected.");
     return {
       rawText,
@@ -64,7 +104,7 @@ export const OpenRouterSttProvider: TranscriptionProvider = {
         attemptCount: 1,
         supportsConfidence: false,
         transcriptLength: rawText.length,
-        vocabularyHintsSent: hints !== null,
+        vocabularyHintsSent: reply.hintsSent,
       },
     };
   },
@@ -78,10 +118,23 @@ export const OpenRouterSttProvider: TranscriptionProvider = {
   },
 };
 
-// Provider options that carry the hints, or null when the model takes none or there are no terms.
-function hintProviderOptions(model: string, terms: string[]): Record<string, Record<string, string | string[]>> | null {
+// A prompt-style model reads its prompt as text that came before the audio, so this describes the dictation instead of giving orders.
+const DICTATION_CONTEXT = "Voice dictation by an Indian speaker, mostly in English, sometimes in Hindi or Marathi, often mixing them.";
+const CONTEXT_LANGUAGES = new Set(["auto", "en", "hi", "mr", "hinglish"]);
+
+// The prompt for a prompt-style model: the dictation context for Indian languages, then the dictionary terms.
+function promptHint(terms: string[], language: string | undefined): string {
+  const parts = CONTEXT_LANGUAGES.has(language ?? "auto") ? [DICTATION_CONTEXT] : [];
+  if (terms.length > 0) parts.push(`Names and terms: ${terms.join(", ")}.`);
+  return parts.join(" ");
+}
+
+// Provider options that carry the hints, or null when the model takes none or there is nothing to send.
+function hintProviderOptions(model: string, terms: string[], language: string | undefined): Record<string, Record<string, string | string[]>> | null {
   const takesHints = modelEntries("transcription", "openrouter").some((entry) => entry.modelId === model && entry.acceptsVocabularyHints);
   const option = HINT_OPTIONS[model];
-  if (!takesHints || !option || terms.length === 0) return null;
-  return { [option.slug]: { [option.key]: option.asList ? terms : terms.join(", ") } };
+  if (!takesHints || !option) return null;
+  if (option.asList) return terms.length > 0 ? { [option.slug]: { [option.key]: terms } } : null;
+  const prompt = promptHint(terms, language);
+  return prompt ? { [option.slug]: { [option.key]: prompt } } : null;
 }

@@ -1,5 +1,5 @@
-import type { AudioInputDevice, MacOSPermissionState, AudioClip, AudioVisualFrame, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
-import { chooseRecorderDeviceId } from "./deviceSelection";
+import type { AudioInputDevice, MacOSPermissionState, AudioClip, AudioVisualFrame, CaptureTrackSettings, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
+import { captureProcessingConstraints, chooseRecorderDeviceId } from "./deviceSelection";
 import {
   PcmRingBuffer,
   PRE_ROLL_MS,
@@ -8,12 +8,11 @@ import {
   trimLeadingSilence,
 } from "./pcmUtils";
 import pcmWorkletUrl from "./pcmWorklet.ts?url";
-import { rendererQuietThreshold, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
+import { quietThresholdFromNoise, trailingRms, waitForRendererDrain } from "@shared/recorderTail";
 
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const DEFAULT_INPUT_SAMPLE_RATE = 48_000;
-const ECHO_CANCELLATION = true;
 // Bar height shown while a session is paused.
 const PAUSED_BAR_LEVEL = 0.12;
 
@@ -62,8 +61,12 @@ let capturePromise: Promise<void> | null = null;
 let sessionChunks: Float32Array[] = [];
 let lastFrameAt = 0;
 let lastLoudFrameAt = 0;
-let quietThreshold = 0;
-let frameRms: number[] = [];
+// Each frame's arrival time and RMS for the current session. The stop tail reads its quiet level from these.
+let sessionFrames: { at: number; rms: number }[] = [];
+let quietThreshold: number | null = null;
+// Mic teardown of the last session. It runs while that clip is sent, and the next start waits for it.
+let teardown: Promise<void> = Promise.resolve();
+let awaitingFirstFrame = false;
 let lastReportedAt = 0;
 let smoothedBars = new Array(VISUAL_BAR_COUNT).fill(0.12);
 
@@ -130,14 +133,15 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
   startQueue = new Promise<void>((resolve) => { finishStart = resolve; });
   await previousStart;
   try {
+    await teardown;
     if (start.cancelled) return;
     currentConfig = normalizeConfig(config);
     sessionChunks = [];
     paused = false;
     lastFrameAt = 0;
     lastLoudFrameAt = 0;
-    quietThreshold = 0;
-    frameRms = [];
+    sessionFrames = [];
+    quietThreshold = null;
     resetSmoothedBars();
     previousInputDevice = await window.__VAANI_RECORDER__.prepareRecordingInput();
 
@@ -156,7 +160,7 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
 
     pendingStarts.delete(sessionId);
     activeSessionId = sessionId;
-    await window.__VAANI_RECORDER__.reportRecorderStarted(sessionId);
+    awaitingFirstFrame = true;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Microphone recording could not start.";
     if (!start.cancelled) await reportFailure(sessionId, `Microphone recording could not start: ${message}`);
@@ -176,18 +180,21 @@ async function stopRecording(sessionId: string): Promise<void> {
   }
 
   const stopRequestedAt = Date.now();
-  quietThreshold = rendererQuietThreshold(frameRms);
+  quietThreshold = quietThresholdFromNoise(sessionFrames.map((frame) => frame.rms));
+  lastLoudFrameAt = lastLoudFrameAtOrAbove(quietThreshold);
   await waitForRendererDrain(stopRequestedAt, () => lastLoudFrameAt, () => activeSessionId === sessionId);
   if (activeSessionId !== sessionId) return;
 
   const inputRate = audioContext?.sampleRate ?? DEFAULT_INPUT_SAMPLE_RATE;
   const chunksAtStop = sessionChunks.slice();
   const lastFrameAfterStopMs = lastFrameAt ? lastFrameAt - stopRequestedAt : 0;
-  await cleanupSession();
-
-  if (!currentConfig.preWarmMic) {
-    await shutdownWarmCapture();
-  }
+  const captureSettings = readCaptureSettings(stream);
+  // Mic teardown runs while the clip is finalized and sent. The submit call waits for the whole dictation, so it can't go first.
+  // The warm-mic setting is read after cleanup, so a change made meanwhile still closes the mic.
+  teardown = (async () => {
+    await cleanupSession();
+    if (!currentConfig.preWarmMic) await shutdownWarmCapture();
+  })().catch(() => undefined);
 
   const clip = finalizeClip(chunksAtStop, inputRate);
   if (!clip || clip.pcmData.length === 0) {
@@ -195,10 +202,43 @@ async function stopRecording(sessionId: string): Promise<void> {
     return;
   }
 
-  await window.__VAANI_RECORDER__.submitAudioClip({ sessionId, clip, tailMetrics: {
+  await window.__VAANI_RECORDER__.submitAudioClip({ sessionId, clip, captureSettings, tailMetrics: {
     lastFrameAfterStopMs,
-    trailingRms: trailingRms(mergePcmChunks(chunksAtStop), inputRate),
+    trailingRms: trailingRms(mergePcmChunks(tailChunks(chunksAtStop, Math.floor(inputRate * 0.3))), inputRate),
   } });
+}
+
+// Arrival time of the newest frame at or above the quiet level, or 0 when none is.
+function lastLoudFrameAtOrAbove(threshold: number): number {
+  for (let index = sessionFrames.length - 1; index >= 0; index -= 1) {
+    const frame = sessionFrames[index];
+    if (frame && frame.rms >= threshold) return frame.at;
+  }
+  return 0;
+}
+
+// The fewest final chunks that hold at least the given number of samples, so the tail RMS skips merging the whole clip.
+function tailChunks(chunks: readonly Float32Array[], sampleCount: number): Float32Array[] {
+  const tail: Float32Array[] = [];
+  let total = 0;
+  for (let index = chunks.length - 1; index >= 0 && total < sampleCount; index -= 1) {
+    const chunk = chunks[index];
+    if (!chunk) continue;
+    tail.unshift(chunk);
+    total += chunk.length;
+  }
+  return tail;
+}
+
+// Reads the processing flags the mic track reports, so traces show what the browser applied.
+function readCaptureSettings(mediaStream: MediaStream | null): CaptureTrackSettings | undefined {
+  const settings = mediaStream?.getAudioTracks()[0]?.getSettings();
+  if (!settings) return undefined;
+  const captured: CaptureTrackSettings = {};
+  if (typeof settings.echoCancellation === "boolean") captured.echoCancellation = settings.echoCancellation;
+  if (typeof settings.autoGainControl === "boolean") captured.autoGainControl = settings.autoGainControl;
+  if (typeof settings.noiseSuppression === "boolean") captured.noiseSuppression = settings.noiseSuppression;
+  return captured;
 }
 
 // Cancel an opening session or shut down capture that is already recording.
@@ -252,7 +292,11 @@ async function reportFailure(sessionId: string, message: string): Promise<void> 
 }
 
 async function rebuildWarmCapture(): Promise<void> {
-  if (!currentConfig.preWarmMic || activeSessionId) {
+  await teardown;
+  if (activeSessionId) return;
+  // Turning the warm mic off closes an idle one instead of leaving it open.
+  if (!currentConfig.preWarmMic) {
+    await shutdownWarmCapture();
     return;
   }
 
@@ -293,9 +337,7 @@ async function openCapture(config: RecorderConfig): Promise<void> {
     audio: {
       deviceId: { exact: micDeviceId },
       channelCount: 1,
-      echoCancellation: ECHO_CANCELLATION,
-      noiseSuppression: false,
-      autoGainControl: true,
+      ...captureProcessingConstraints(config.captureProcessing),
     },
   });
 
@@ -370,6 +412,11 @@ function handlePcmData(samples: Float32Array): void {
     return;
   }
 
+  // Started means audio is arriving, not that the device opened.
+  if (awaitingFirstFrame && samples.length > 0) {
+    awaitingFirstFrame = false;
+    void window.__VAANI_RECORDER__.reportRecorderStarted(activeSessionId);
+  }
   lastFrameAt = Date.now();
   // Paused frames keep the watchdog fed but never reach the clip.
   if (paused) {
@@ -382,8 +429,9 @@ function handlePcmData(samples: Float32Array): void {
   for (const sample of samples) sumSquares += sample * sample;
   if (samples.length > 0) {
     const rms = Math.sqrt(sumSquares / samples.length);
-    if (quietThreshold === 0) frameRms.push(rms);
-    if (rms >= quietThreshold) lastLoudFrameAt = lastFrameAt;
+    sessionFrames.push({ at: lastFrameAt, rms });
+    // The quiet level is set at stop. Frames arriving during the tail wait are judged against it.
+    if (quietThreshold !== null && rms >= quietThreshold) lastLoudFrameAt = lastFrameAt;
   }
   publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT));
 }
@@ -393,7 +441,8 @@ async function handleCaptureEnded(): Promise<void> {
   await shutdownWarmCapture();
   if (failedSessionId) {
     await reportFailure(failedSessionId, "Microphone input stopped. Check your selected microphone.");
-    await cleanupSession();
+    // A newer session may have started during the shutdown. Leave it alone.
+    if (activeSessionId === failedSessionId) await cleanupSession();
   }
 }
 
@@ -419,11 +468,12 @@ function publishBars(nextBars: number[]): void {
 
 async function cleanupSession(): Promise<void> {
   activeSessionId = null;
+  awaitingFirstFrame = false;
   sessionChunks = [];
   ringBuffer.clear();
   paused = false;
-  frameRms = [];
-  quietThreshold = 0;
+  sessionFrames = [];
+  quietThreshold = null;
 
   if (previousInputDevice !== null) {
     const deviceId = previousInputDevice;
@@ -436,44 +486,45 @@ async function cleanupSession(): Promise<void> {
   }
 }
 
+// Takes the current capture out of the globals first, then closes only that capture.
+// A start that runs while close() is pending opens its own stream, which this never touches.
 async function shutdownWarmCapture(): Promise<void> {
-  if (processorNode) {
-    processorNode.disconnect();
-    if ("port" in processorNode) {
-      processorNode.port.onmessage = null;
+  const processor = processorNode;
+  const source = sourceNode;
+  const context = audioContext;
+  const ownedStream = stream;
+  processorNode = null;
+  sourceNode = null;
+  audioContext = null;
+  stream = null;
+  captureConfigKey = null;
+  ringBuffer.clear();
+
+  if (processor) {
+    processor.disconnect();
+    if ("port" in processor) {
+      processor.port.onmessage = null;
     } else {
-      processorNode.onaudioprocess = null;
+      processor.onaudioprocess = null;
     }
-    processorNode = null;
   }
-
-  if (sourceNode) {
-    sourceNode.disconnect();
-    sourceNode = null;
-  }
-
-  if (audioContext) {
-    const context = audioContext;
-    audioContext = null;
+  source?.disconnect();
+  ownedStream?.getTracks().forEach((track) => {
+    track.onended = null;
+    track.onmute = null;
+    track.stop();
+  });
+  if (context) {
     try {
       await context.close();
     } catch {
       // ignore
     }
   }
-
-  stream?.getTracks().forEach((track) => {
-    track.onended = null;
-    track.onmute = null;
-    track.stop();
-  });
-  stream = null;
-  captureConfigKey = null;
-  ringBuffer.clear();
 }
 
 function recorderConfigKey(config: RecorderConfig): string {
-  return `${config.preWarmMic ? "warm" : "ondemand"}:${config.micDeviceId ?? ""}`;
+  return `${config.preWarmMic ? "warm" : "ondemand"}:${config.micDeviceId ?? ""}:${config.captureProcessing ?? "default"}`;
 }
 
 function normalizeConfig(config: RecorderConfig | undefined): RecorderConfig {
@@ -481,6 +532,7 @@ function normalizeConfig(config: RecorderConfig | undefined): RecorderConfig {
     micDeviceId: config?.micDeviceId,
     preWarmMic: config?.preWarmMic ?? false,
     captureBackend: config?.captureBackend ?? "renderer",
+    captureProcessing: config?.captureProcessing ?? "default",
   };
 }
 

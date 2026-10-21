@@ -1,16 +1,29 @@
-import Groq from "groq-sdk";
 import type { TranscriptionResult } from "@shared/types";
 import type { TranscriptionProvider } from "../types";
 import { debug, error } from "@main/log";
 import { buildTranscriptionPrompt, normalizeWhisperLanguage, resolveReportedLanguage } from "@main/providers/language";
 import { validateBearerEndpoint } from "../validation";
 import { createWavBuffer } from "@main/providers/shared/audioUtils";
-import { createCancellationScope, isAbortError, waitWithAbort } from "@main/cancellation";
+import { runWithDeadline } from "@main/cancellation";
 import { defaultModelFor, providerModels } from "@shared/modelList";
 
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 2000;
-const ATTEMPT_TIMEOUT_MS = 15_000;
+const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
+const REQUEST_TIMEOUT_MS = 6_000;
+// Extra time per second of audio for the upload. A 16 kHz WAV is 32 KB/s; this covers about a 1.3 Mbps upload.
+const UPLOAD_MS_PER_AUDIO_SECOND = 200;
+const WARM_UP_TIMEOUT_MS = 3_000;
+
+// Deadline for one transcription request: 6 s for a short clip, longer for a long one so a slow upload can finish.
+// A 5-minute clip gets 66 s, still inside the session's transcription budget.
+export function groqRequestTimeoutMs(durationSeconds: number): number {
+  return REQUEST_TIMEOUT_MS + Math.max(0, durationSeconds) * UPLOAD_MS_PER_AUDIO_SECOND;
+}
+
+interface GroqVerboseReply {
+  text?: string;
+  language?: string;
+  segments?: Array<{ avg_logprob?: number; compression_ratio?: number; no_speech_prob?: number }>;
+}
 
 export const GroqSttProvider: TranscriptionProvider = {
   id: "groq",
@@ -18,6 +31,7 @@ export const GroqSttProvider: TranscriptionProvider = {
   requiresApiKey: true,
   models: providerModels("transcription", "groq"),
 
+  // Sends one clip to Groq's transcriptions endpoint. One request per call; the chain decides any retry.
   async transcribe(clip, options): Promise<TranscriptionResult> {
     debug("groq", `transcribe called: hasApiKey=${!!options.apiKey}, clipDuration=${clip.durationSeconds.toFixed(2)}s, samples=${clip.pcmData.length}`);
 
@@ -30,81 +44,59 @@ export const GroqSttProvider: TranscriptionProvider = {
     debug("groq", `WAV buffer created: ${wavBuffer.length} bytes`);
 
     const arrayBuffer = wavBuffer.buffer.slice(wavBuffer.byteOffset, wavBuffer.byteOffset + wavBuffer.byteLength) as ArrayBuffer;
-    const file = new File([arrayBuffer], "recording.wav", { type: "audio/wav" });
-
+    const form = new FormData();
+    form.append("file", new File([arrayBuffer], "recording.wav", { type: "audio/wav" }));
+    form.append("model", options.model || defaultModelFor("transcription", "groq"));
     const whisperLang = normalizeWhisperLanguage(options.language);
+    if (whisperLang) form.append("language", whisperLang);
+    form.append("temperature", String(options.temperature ?? 0));
+    form.append("response_format", "verbose_json");
     const prompt = buildTranscriptionPrompt(options.prompt);
+    if (prompt) form.append("prompt", prompt);
 
-    let lastError: Error | null = null;
-
-    const maxRetries = options.recovery ? 1 : MAX_RETRIES;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const scope = createCancellationScope(options.signal, Date.now() + ATTEMPT_TIMEOUT_MS);
-      try {
-        debug("groq", `Attempt ${attempt + 1}/${maxRetries}: calling Groq API...`);
-        const groq = new Groq({ apiKey: options.apiKey });
-        const response = await groq.audio.transcriptions.create({
-          file,
-          model: options.model || defaultModelFor("transcription", "groq"),
-          language: whisperLang,
-          temperature: options.temperature ?? 0,
-          response_format: "verbose_json",
-          ...(prompt ? { prompt } : {}),
-        }, { signal: scope.signal });
-        if (scope.signal.aborted) throw new Error("Groq request timed out.");
-
-        const rawText = (response.text ?? "").trim();
-        debug("groq", `Success: ${rawText.length} chars`);
-
-        if (!rawText) throw new Error("No speech detected in the recording.");
-
-        const verbose = response as unknown as {
-          language?: string;
-          segments?: Array<{ avg_logprob?: number; compression_ratio?: number; no_speech_prob?: number }>;
-        };
-        const detectedLanguage = verbose.language ?? null;
-        const segments = verbose.segments ?? [];
-        const avgLogprob = averageNumber(segments.map((segment) => segment.avg_logprob));
-        const compressionRatio = averageNumber(segments.map((segment) => segment.compression_ratio));
-        const noSpeechProbability = maxNumber(segments.map((segment) => segment.no_speech_prob));
-
-        return {
-          rawText,
-          formattedText: rawText,
-          language: resolveReportedLanguage(options.language),
-          detectedLanguage: detectedLanguage || null,
-          quality: {
-            provider: "groq",
-            attemptCount: attempt + 1,
-            supportsConfidence: true,
-            avgLogprob,
-            compressionRatio,
-            noSpeechProbability,
-            segmentCount: segments.length,
-            transcriptLength: rawText.length,
-          },
-        };
-      } catch (err) {
-        if (options.signal?.aborted) throw err;
-        if (scope.signal.aborted) {
-          lastError = new Error("Groq request timed out.");
-        } else if (isAbortError(err)) {
-          throw err;
-        }
-        const message = err instanceof Error ? err.message : String(err);
-        lastError = scope.signal.aborted ? new Error("Groq request timed out.") : err instanceof Error ? err : new Error(message);
-
-        // Don't retry user-facing errors
-        if (isNotRetryableError(message)) throw lastError;
-
-        debug("groq", `Attempt ${attempt + 1} failed: ${lastError.message}`);
-        if (attempt < maxRetries - 1) await waitWithAbort(RETRY_DELAY, options.signal);
-      } finally {
-        scope.dispose();
+    // The Groq SDK call is replaced by a direct POST. A deadline timeout becomes a readable message below.
+    const reply = await runWithDeadline(options.signal, groqRequestTimeoutMs(clip.durationSeconds), async (signal) => {
+      const response = await fetch(`${GROQ_BASE_URL}/audio/transcriptions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${options.apiKey}` },
+        body: form,
+        signal,
+      });
+      if (response.status === 401 || response.status === 403) {
+        throw Object.assign(new Error("Groq rejected the API key. Check it in Settings → API & Providers."), { status: response.status });
       }
-    }
+      if (response.status === 429) throw new Error("Groq rate limit reached.");
+      if (!response.ok) throw new Error(`Groq API request failed with status ${response.status}.`);
+      return await response.json() as GroqVerboseReply;
+    }).catch((err: unknown) => {
+      if (err instanceof Error && err.message === "Request timed out.") throw new Error("Groq did not answer in time.");
+      throw err;
+    });
 
-    throw new Error(`Groq transcription is temporarily unavailable. Please try again.`);
+    const rawText = (reply.text ?? "").trim();
+    debug("groq", `Success: ${rawText.length} chars`);
+
+    if (!rawText) throw new Error("No speech detected in the recording.");
+
+    const segments = reply.segments ?? [];
+    const segmentNoSpeechProbabilities = segments.flatMap((segment) => typeof segment.no_speech_prob === "number" ? [segment.no_speech_prob] : []);
+    return {
+      rawText,
+      formattedText: rawText,
+      language: resolveReportedLanguage(options.language),
+      detectedLanguage: reply.language || null,
+      quality: {
+        provider: "groq",
+        attemptCount: 1,
+        supportsConfidence: true,
+        avgLogprob: averageNumber(segments.map((segment) => segment.avg_logprob)),
+        compressionRatio: averageNumber(segments.map((segment) => segment.compression_ratio)),
+        noSpeechProbability: maxNumber(segments.map((segment) => segment.no_speech_prob)),
+        segmentCount: segments.length,
+        transcriptLength: rawText.length,
+        ...(segmentNoSpeechProbabilities.length > 0 ? { segmentNoSpeechProbabilities } : {}),
+      },
+    };
   },
 
   async isAvailable(): Promise<boolean> {
@@ -112,9 +104,17 @@ export const GroqSttProvider: TranscriptionProvider = {
   },
 
   async validateApiKey(apiKey): Promise<{ valid: boolean; message: string }> {
-    return validateBearerEndpoint("Groq", "https://api.groq.com/openai/v1/models", apiKey);
+    return validateBearerEndpoint("Groq", `${GROQ_BASE_URL}/models`, apiKey);
   },
 };
+
+// Opens a connection to Groq ahead of the real request, so the clip upload skips the TCP and TLS setup.
+export function warmGroqConnection(): void {
+  void fetch(`${GROQ_BASE_URL}/models`, {
+    method: "HEAD",
+    signal: AbortSignal.timeout(WARM_UP_TIMEOUT_MS),
+  }).catch(() => undefined);
+}
 
 function averageNumber(values: Array<number | undefined>): number | null {
   const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
@@ -126,12 +126,4 @@ function maxNumber(values: Array<number | undefined>): number | null {
   const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (finite.length === 0) return null;
   return Math.max(...finite);
-}
-
-function isNotRetryableError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return lower.includes("no speech") ||
-    lower.includes("401") || lower.includes("403") ||
-    lower.includes("unauthorized") || lower.includes("authentication") ||
-    lower.includes("invalid api key") || lower.includes("incorrect api key");
 }

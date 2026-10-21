@@ -29,7 +29,7 @@ describe("formatTranscript", () => {
     expect(createCompletionMock).not.toHaveBeenCalled();
   });
 
-  it("formats heading-based list text when the sentence introduces items", async () => {
+  it("rejects list numbers the speaker never said, matching the service's final guard", async () => {
     createCompletionMock.mockResolvedValue({
       choices: [
         {
@@ -44,8 +44,9 @@ describe("formatTranscript", () => {
     const rawText = "There are a few things about my project that I need. It is as follows the checklist. Keep UI, fix transcription, and change the AI prompt.";
     const result = await formatTranscript("test-key", rawText);
 
-    expect(result).toBe("There are a few things about my project that I need. It is as follows the checklist.\n\n1. Keep UI\n2. Fix transcription\n3. And change the AI prompt");
-    expect(createCompletionMock).toHaveBeenCalledTimes(1);
+    // Added numbers with no spoken cue are added words. The strict retry gets the same reply, so the text stays as spoken.
+    expect(result).toBe(rawText);
+    expect(createCompletionMock).toHaveBeenCalledTimes(2);
   });
 
   it("formats cue-driven list text through the chat model", async () => {
@@ -120,7 +121,8 @@ describe("formatTranscript", () => {
     const rawText = "I have some project checklist. The items are as follows. Fixed transcription, improved prompt, leave UI.";
     const result = await formatTranscript("test-key", rawText);
 
-    expect(result).toBe("I have some project checklist. The items are as follows.\n\n1. Fixed transcription\n2. Improved prompt\n3. Leave UI");
+    // The retry still adds unspoken list numbers, so it is rejected too.
+    expect(result).toBe(rawText);
     expect(createCompletionMock).toHaveBeenCalledTimes(2);
   });
 

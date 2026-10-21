@@ -14,7 +14,8 @@ export async function validateBearerEndpoint(
   url: string,
   apiKey: string,
   authScheme: "Bearer" | "Token" | "x-api-key" = "Bearer",
-  extraHeaders: Record<string, string> = {}
+  extraHeaders: Record<string, string> = {},
+  inspectOkReply?: (response: Response) => Promise<ApiKeyValidationResult | null>
 ): Promise<ApiKeyValidationResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS);
@@ -28,7 +29,8 @@ export async function validateBearerEndpoint(
 
     const response = await fetch(url, { method: "GET", headers, signal: controller.signal });
     if (response.ok) {
-      return { valid: true, message: `${providerName} API key is valid.` };
+      const verdict = inspectOkReply ? await inspectOkReply(response) : null;
+      return verdict ?? { valid: true, message: `${providerName} API key is valid.` };
     }
     if (response.status === 401 || response.status === 403) {
       return { valid: false, message: `${providerName} rejected the API key.` };

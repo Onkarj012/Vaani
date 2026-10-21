@@ -1,4 +1,4 @@
-import type { AudioClip, AudioInputDevice, AudioVisualFrame, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
+import type { AudioClip, AudioInputDevice, AudioVisualFrame, CaptureTrackSettings, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
 import { PcmRingBuffer, PRE_ROLL_MS, TARGET_SAMPLE_RATE, mergePcmChunks, pcmToAudioClip, trimLeadingSilence } from "@shared/pcmUtils";
 import { debug, error } from "@main/log";
 import { nativeBridge } from "@main/nativeBridge";
@@ -15,6 +15,8 @@ const BAR_NOISE_FLOOR_MIN = 0.003;
 const BAR_NOISE_FLOOR_MARGIN = 1.8;
 // Bar height shown while a session is paused.
 const PAUSED_BAR_LEVEL = 0.12;
+// VoiceProcessingIO runs echo cancellation. voice_capture.mm turns AGC off and never sets noise suppression, so only these two are reported.
+const NATIVE_CAPTURE_SETTINGS: CaptureTrackSettings = { echoCancellation: true, autoGainControl: false };
 
 export interface NativeCaptureSink {
   reportRecorderStarted(sessionId: string): void;
@@ -76,8 +78,13 @@ export function selectNativeInputDevice(devices: AudioInputDevice[], preferredUi
     : { ok: false, message: "No built-in microphone found. Choose a microphone in Settings." };
 }
 
-export function shouldUseNativeBackend(config: Pick<RecorderConfig, "captureBackend">, nativeUnavailable: boolean, bridge: NativeCaptureBridge = nativeBridge): boolean {
-  return config.captureBackend !== "renderer" && !nativeUnavailable && typeof bridge.audioCaptureStart === "function";
+// Native capture always processes audio, so unprocessed capture has to stay on the renderer.
+export function prefersNativeCapture(config: Pick<RecorderConfig, "captureBackend" | "captureProcessing">): boolean {
+  return config.captureBackend !== "renderer" && config.captureProcessing !== "unprocessed";
+}
+
+export function shouldUseNativeBackend(config: Pick<RecorderConfig, "captureBackend" | "captureProcessing">, nativeUnavailable: boolean, bridge: NativeCaptureBridge = nativeBridge): boolean {
+  return prefersNativeCapture(config) && !nativeUnavailable && typeof bridge.audioCaptureStart === "function";
 }
 
 export class NativeCaptureService implements RecorderCommands {
@@ -95,6 +102,7 @@ export class NativeCaptureService implements RecorderCommands {
   private transportGeneration = 0;
   private suspended = false;
   private paused = false;
+  private awaitingFirstFrame = false;
 
   constructor(
     private readonly getConfig: () => RecorderConfig,
@@ -104,6 +112,11 @@ export class NativeCaptureService implements RecorderCommands {
 
   isReady(): boolean {
     return typeof this.bridge.audioCaptureStart === "function";
+  }
+
+  // True from start until the clip is finalized, including the stop drain.
+  hasActiveSession(): boolean {
+    return this.activeSessionId !== null;
   }
 
   warm(): boolean {
@@ -118,7 +131,7 @@ export class NativeCaptureService implements RecorderCommands {
     this.currentConfig = nextConfig;
     if (!keyChanged || this.activeSessionId) return;
     this.shutdown();
-    if (nextConfig.preWarmMic && nextConfig.captureBackend !== "renderer") {
+    if (nextConfig.preWarmMic && prefersNativeCapture(nextConfig)) {
       this.ensureCapture(nextConfig);
     }
   }
@@ -137,7 +150,7 @@ export class NativeCaptureService implements RecorderCommands {
     const preRoll = trimLeadingSilence(this.ring.snapshot(Math.floor(TARGET_SAMPLE_RATE * PRE_ROLL_MS / 1000)), TARGET_SAMPLE_RATE);
     if (preRoll.length > 0) this.chunks.push(preRoll);
     this.activeSessionId = sessionId;
-    this.sink.reportRecorderStarted(sessionId);
+    this.awaitingFirstFrame = true;
     return true;
   }
 
@@ -157,7 +170,7 @@ export class NativeCaptureService implements RecorderCommands {
         this.sink.handleRecorderFailure({ sessionId, message: "Recording could not be finalized." });
         return;
       }
-      void this.sink.submitAudioClip({ sessionId, clip: pcmToAudioClip(merged, TARGET_SAMPLE_RATE), tailMetrics: {
+      void this.sink.submitAudioClip({ sessionId, clip: pcmToAudioClip(merged, TARGET_SAMPLE_RATE), captureSettings: NATIVE_CAPTURE_SETTINGS, tailMetrics: {
         lastFrameAfterStopMs: this.lastFrameAt ? this.lastFrameAt - stopRequestedAt : 0,
         trailingRms: trailingRms(merged, TARGET_SAMPLE_RATE),
       } });
@@ -224,7 +237,7 @@ export class NativeCaptureService implements RecorderCommands {
       const devices = listNativeInputDevices(this.bridge);
       const selected = selectNativeInputDevice(devices, this.currentConfig.micDeviceId);
       if (!selected.ok) return { ok: false, selectedDeviceUid: null, message: selected.message };
-      if (!this.currentConfig.preWarmMic && !this.activeSessionId) {
+      if ((!this.currentConfig.preWarmMic || !prefersNativeCapture(this.currentConfig)) && !this.activeSessionId) {
         this.suspended = false;
         return { ok: true, selectedDeviceUid: selected.uid };
       }
@@ -288,6 +301,11 @@ export class NativeCaptureService implements RecorderCommands {
       return;
     }
     this.chunks.push(samples.slice());
+    // Started means audio is arriving, not that the device opened.
+    if (this.awaitingFirstFrame && samples.length > 0) {
+      this.awaitingFirstFrame = false;
+      this.sink.reportRecorderStarted(this.activeSessionId);
+    }
     this.publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT, this.noiseFloor));
   }
 
@@ -335,7 +353,7 @@ export class NativeCaptureService implements RecorderCommands {
   }
 
   private restartCaptureIfPrewarmed(): void {
-    if (!this.currentConfig.preWarmMic || this.currentConfig.captureBackend === "renderer") return;
+    if (!this.currentConfig.preWarmMic || !prefersNativeCapture(this.currentConfig)) return;
     try {
       this.ensureCapture(this.currentConfig);
     } catch (err) {
@@ -361,11 +379,12 @@ export class NativeCaptureService implements RecorderCommands {
       micDeviceId: config.micDeviceId,
       preWarmMic: config.preWarmMic ?? false,
       captureBackend: config.captureBackend ?? "renderer",
+      captureProcessing: config.captureProcessing ?? "default",
     };
   }
 
   private configKey(config: RecorderConfig): string {
-    return `${config.captureBackend ?? "renderer"}:${config.preWarmMic ? "warm" : "ondemand"}:${config.micDeviceId ?? ""}`;
+    return `${config.captureBackend ?? "renderer"}:${config.captureProcessing ?? "default"}:${config.preWarmMic ? "warm" : "ondemand"}:${config.micDeviceId ?? ""}`;
   }
 
   private resetBars(): void {
@@ -377,6 +396,8 @@ export class NativeCaptureService implements RecorderCommands {
 export class CaptureBackendController implements RecorderCommands {
   private nativeUnavailable = false;
   private activeBackend: "native" | "renderer" | null = null;
+  // Set at suspend so resume returns to the same backend, even if config changed meanwhile.
+  private suspendedBackend: "native" | "renderer" | null = null;
 
   constructor(
     private readonly getConfig: () => RecorderConfig,
@@ -425,17 +446,20 @@ export class CaptureBackendController implements RecorderCommands {
   }
 
   suspendForLifecycle(): CaptureSuspendResult | Promise<CaptureSuspendResult> {
-    if (this.activeBackend === "renderer" || this.getConfig().captureBackend === "renderer") {
+    this.suspendedBackend = this.lifecycleBackend();
+    if (this.suspendedBackend === "renderer") {
       return this.rendererRecorder.suspendForLifecycle?.() ?? { wasRunning: false, sessionId: null };
     }
     return this.nativeCapture.suspendForLifecycle();
   }
 
   resumeAfterLifecycle(): CaptureResumeResult {
-    if (this.activeBackend === "renderer" || this.getConfig().captureBackend === "renderer") {
-      return this.rendererRecorder.resumeAfterLifecycle?.() ?? { ok: true, selectedDeviceUid: null };
-    }
-    return this.nativeCapture.resumeAfterLifecycle();
+    const backend = this.suspendedBackend ?? this.lifecycleBackend();
+    const result = backend === "renderer"
+      ? this.rendererRecorder.resumeAfterLifecycle?.() ?? { ok: true, selectedDeviceUid: null }
+      : this.nativeCapture.resumeAfterLifecycle();
+    if (result.ok) this.suspendedBackend = null;
+    return result;
   }
 
   abortRecording(sessionId: string): void {
@@ -473,6 +497,13 @@ export class CaptureBackendController implements RecorderCommands {
     }
   }
 
+  // A live native session keeps lifecycle on native; otherwise the last renderer session or the configured backend decides.
+  private lifecycleBackend(): "native" | "renderer" {
+    if (this.activeBackend === "renderer") return "renderer";
+    if (this.activeBackend === "native" && this.nativeCapture.hasActiveSession()) return "native";
+    return prefersNativeCapture(this.getConfig()) ? "native" : "renderer";
+  }
+
   private markNativeUnavailable(reason: string): void {
     if (!this.nativeUnavailable) {
       debug("native-capture", `native unavailable until restart: ${reason}`);
@@ -481,8 +512,8 @@ export class CaptureBackendController implements RecorderCommands {
     this.nativeCapture.shutdown();
   }
 
-  private shouldTryNative(config: Pick<RecorderConfig, "captureBackend">): boolean {
-    return config.captureBackend !== "renderer" && !this.nativeUnavailable && this.nativeCapture.isReady();
+  private shouldTryNative(config: Pick<RecorderConfig, "captureBackend" | "captureProcessing">): boolean {
+    return prefersNativeCapture(config) && !this.nativeUnavailable && this.nativeCapture.isReady();
   }
 }
 

@@ -91,17 +91,17 @@ describe("TranscriptionService failover chain", () => {
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
     const { TranscriptionService } = await import("@main/transcription");
     await new TranscriptionService(() => settings).formatTranscript("hello", { sessionSettings: snapshot });
-    expect(format).toHaveBeenCalledWith("hello", expect.objectContaining({ model: "original-model", systemPrompt: "original-prompt" }));
+    expect(format).toHaveBeenCalledWith("hello", expect.objectContaining({ model: "original-model", systemPrompt: expect.stringMatching(/^original-prompt/) }));
   });
 
   it("keeps the live session route after offline mode is enabled during a request", async () => {
-    const settings = { ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "key", failoverEnabled: true, providerApiKeys: [{ providerId: "openai", key: "other-key" }] };
+    const settings = { ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "key", failoverEnabled: true, providerApiKeys: [{ providerId: "openrouter", key: "other-key" }] };
     const other = vi.fn(async () => ({ rawText: "fallback", formattedText: "fallback", language: "en" }));
     registryState.providers.set("groq", provider("groq", vi.fn(async () => {
       settings.offlineMode = "always-offline";
       throw new Error("failed");
     })));
-    registryState.providers.set("openai", provider("openai", other));
+    registryState.providers.set("openrouter", provider("openrouter", other));
     const { TranscriptionService } = await import("@main/transcription");
     await expect(new TranscriptionService(() => settings).transcribe(clip)).resolves.toMatchObject({ rawText: "fallback" });
     expect(other).toHaveBeenCalledOnce();
@@ -254,7 +254,7 @@ describe("TranscriptionService failover chain", () => {
     expect(groqTranscribe).toHaveBeenCalledTimes(1);
   });
 
-  it("retries a suspicious successful transcript with the same provider before falling back", async () => {
+  it("sends the second STT request to the fallback when the primary comes back suspicious", async () => {
     const openaiTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
       rawText: "thank you",
       formattedText: "thank you",
@@ -289,16 +289,15 @@ describe("TranscriptionService failover chain", () => {
       retryClip: { ...clip, durationSeconds: 2 },
     });
 
+    // The primary gets one attempt because a fallback is left, so the second request goes to the fallback.
     expect(result.rawText).toBe("real fallback");
-    expect(openaiTranscribe).toHaveBeenCalledTimes(2);
-    expect(openaiTranscribe).toHaveBeenNthCalledWith(1, clip, expect.anything());
-    expect(openaiTranscribe).toHaveBeenNthCalledWith(2, expect.objectContaining({ durationSeconds: 2 }), expect.anything());
+    expect(openaiTranscribe).toHaveBeenCalledTimes(1);
+    expect(openaiTranscribe).toHaveBeenCalledWith(clip, expect.anything());
     expect(groqTranscribe).toHaveBeenCalledTimes(1);
-    expect(result.quality?.attemptCount).toBe(3);
-    expect(result.providerAttempts).toHaveLength(3);
+    expect(result.providerAttempts).toHaveLength(2);
   });
 
-  it("makes three total attempts for a suspicious transcript with a single provider", async () => {
+  it("makes at most two STT requests for a suspicious transcript with a single provider", async () => {
     const groqTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
       rawText: "thank you",
       formattedText: "thank you",
@@ -326,13 +325,12 @@ describe("TranscriptionService failover chain", () => {
       retryClip: { ...clip, durationSeconds: 2 },
     });
 
-    expect(groqTranscribe).toHaveBeenCalledTimes(3);
+    expect(groqTranscribe).toHaveBeenCalledTimes(2);
     expect(result.rawText).toBe("thank you");
-    expect(result.quality?.attemptCount).toBe(3);
-    expect(result.providerAttempts).toHaveLength(3);
+    expect(result.providerAttempts).toHaveLength(2);
   });
 
-  it("returns the same provider retry result without calling fallback when retry succeeds", async () => {
+  it("retries the same provider when no fallback is enabled", async () => {
     const openaiTranscribe = vi.fn()
       .mockResolvedValueOnce({
         rawText: "thank you",
@@ -363,7 +361,7 @@ describe("TranscriptionService failover chain", () => {
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
       transcriptionProvider: "openai",
-      failoverEnabled: true,
+      failoverEnabled: false,
       groqApiKey: "groq-key",
       providerApiKeys: [{ providerId: "openai", key: "openai-key" }],
     }));
@@ -569,7 +567,34 @@ describe("TranscriptionService failover chain", () => {
     expect(groqTranscribe).not.toHaveBeenCalled();
   });
 
-  it("chunks long recordings at silence-snapped boundaries and merges the full transcript in order", async () => {
+  // Long live recordings must retain every sample without sending extra chunk requests.
+  it("caps long live dictation at two whole-recording requests including fallback", async () => {
+    const groqTranscribe = vi.fn(async (): Promise<TranscriptionResult> => {
+      throw new Error("Request timed out.");
+    });
+    const fallbackTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
+      rawText: "full recording", formattedText: "full recording", language: "en",
+    }));
+    registryState.providers.set("groq", provider("groq", groqTranscribe));
+    registryState.providers.set("openrouter", provider("openrouter", fallbackTranscribe));
+    const { TranscriptionService } = await import("@main/transcription");
+    const longClip: AudioClip = {
+      pcmData: new Array(60 * 16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 60, rmsFrames: [],
+    };
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS, groqApiKey: "groq-key",
+      providerApiKeys: [{ providerId: "openrouter", key: "router-key" }],
+    }));
+
+    const result = await service.transcribe(longClip);
+
+    expect(groqTranscribe).toHaveBeenCalledExactlyOnceWith(longClip, expect.anything());
+    expect(fallbackTranscribe).toHaveBeenCalledExactlyOnceWith(longClip, expect.anything());
+    expect(result).toMatchObject({ rawText: "full recording" });
+    expect(result.providerAttempts).toHaveLength(2);
+  });
+
+  it("chunks long recovery recordings at silence-snapped boundaries and merges the full transcript in order", async () => {
     const groqTranscribe = vi.fn(async (nextClip: AudioClip): Promise<TranscriptionResult> => {
       const chunkNumber = groqTranscribe.mock.calls.length;
       return {
@@ -602,7 +627,7 @@ describe("TranscriptionService failover chain", () => {
       groqApiKey: "groq-key",
     }));
 
-    const result = await service.transcribe(longClip);
+    const result = await service.transcribe(longClip, { recovery: true });
 
     expect(groqTranscribe).toHaveBeenCalledTimes(6);
     expect(groqTranscribe.mock.calls.map(([candidate]) => Math.round(candidate.durationSeconds))).toEqual([28, 28, 28, 28, 28, 20]);
@@ -632,7 +657,7 @@ describe("TranscriptionService failover chain", () => {
         groqApiKey: "groq-key",
       }));
       const deadlineAt = Date.now() + getTranscriptionTimeoutMs(longClip);
-      const result = service.transcribe(longClip, { deadlineAt });
+      const result = service.transcribe(longClip, { deadlineAt, recovery: true });
       const timedOut = expect(result).rejects.toThrow("Transcription deadline exceeded.");
 
       await vi.advanceTimersByTimeAsync(50_000);
@@ -654,7 +679,7 @@ describe("TranscriptionService failover chain", () => {
     expect(getTranscriptionTimeoutMs(clip)).toBe(50_000);
   });
 
-  it("deduplicates overlapped words when merging long-recording chunks", async () => {
+  it("deduplicates overlapped words when merging recovery chunks", async () => {
     const transcripts = [
       "alpha beta gamma delta",
       "beta gamma delta epsilon zeta",
@@ -693,7 +718,7 @@ describe("TranscriptionService failover chain", () => {
       groqApiKey: "groq-key",
     }));
 
-    const result = await service.transcribe(longClip);
+    const result = await service.transcribe(longClip, { recovery: true });
 
     expect(groqTranscribe).toHaveBeenCalledTimes(3);
     expect(result.rawText).toBe("alpha beta gamma delta epsilon zeta eta");
@@ -715,28 +740,86 @@ describe("TranscriptionService failover chain", () => {
     expect(openaiTranscribe).not.toHaveBeenCalled();
   });
 
+  it("treats a request deadline as a retryable network failure, not a permanent one", async () => {
+    const { classifyTranscriptionError } = await import("@main/transcription");
+    expect(classifyTranscriptionError(new Error("Request timed out."))).toEqual({ class: "transient_network", retryable: true, permanent: false });
+  });
+
   it("surfaces the last provider error when every configured provider fails", async () => {
     registryState.providers.set("groq", provider("groq", vi.fn(async () => {
       throw new Error("first failure");
     })));
-    registryState.providers.set("openai", provider("openai", vi.fn(async () => {
+    registryState.providers.set("openrouter", provider("openrouter", vi.fn(async () => {
       throw new Error("last failure");
     })));
-    const { TranscriptionService } = await import("@main/transcription");
+    const { TranscriptionChainError, TranscriptionService } = await import("@main/transcription");
 
     const service = new TranscriptionService(() => ({
       ...DEFAULT_SETTINGS,
       transcriptionProvider: "groq",
       failoverEnabled: true,
       groqApiKey: "groq-key",
-      providerApiKeys: [{ providerId: "openai", key: "openai-key" }],
+      providerApiKeys: [{ providerId: "openrouter", key: "openrouter-key" }],
     }));
 
-    await expect(service.transcribe(clip)).rejects.toThrow("last failure");
+    const failure = await service.transcribe(clip).catch((error: unknown) => error);
+    if (!(failure instanceof TranscriptionChainError)) throw new Error("expected a TranscriptionChainError");
+    expect(failure.message).toBe("last failure");
+    // The trace needs every provider's error, not only the last one.
+    expect(failure.providerAttempts.map(a => [a.provider, a.error])).toEqual([
+      ["groq", "first failure"],
+      ["openrouter", "last failure"],
+    ]);
+  });
+
+  it("falls back from a rejected Groq key to OpenRouter", async () => {
+    const openRouterTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
+      rawText: "from openrouter", formattedText: "from openrouter", language: "en",
+    }));
+    registryState.providers.set("openrouter", provider("openrouter", openRouterTranscribe));
+    const { GroqSttProvider } = await import("@main/providers/groq/groqStt");
+    registryState.providers.set("groq", GroqSttProvider);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    try {
+      const service = new TranscriptionService(() => ({
+        ...DEFAULT_SETTINGS,
+        transcriptionProvider: "groq",
+        failoverEnabled: true,
+        groqApiKey: "bad-key",
+        providerApiKeys: [{ providerId: "openrouter", key: "openrouter-key" }],
+      }));
+
+      const result = await service.transcribe(clip);
+
+      expect(result.rawText).toBe("from openrouter");
+      expect(openRouterTranscribe).toHaveBeenCalledTimes(1);
+      expect(result.providerAttempts?.map((attempt) => [attempt.provider, attempt.errorClass])).toEqual([
+        ["groq", "authentication"],
+        ["openrouter", undefined],
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sends Hindi and Marathi dictation to the large Groq model first", async () => {
+    const groqTranscribe = vi.fn(async (): Promise<TranscriptionResult> => ({
+      rawText: "नमस्ते", formattedText: "नमस्ते", language: "hi",
+    }));
+    registryState.providers.set("groq", provider("groq", groqTranscribe));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", groqApiKey: "groq-key", language: "hi" }));
+
+    await service.transcribe(clip);
+
+    expect(groqTranscribe).toHaveBeenCalledTimes(1);
+    expect(groqTranscribe).toHaveBeenCalledWith(clip, expect.objectContaining({ model: "whisper-large-v3" }));
   });
 
   it("marks content-guard rejection as literal fallback", async () => {
-    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "I this.")));
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "This.")));
     const { TranscriptionService } = await import("@main/transcription");
 
     const service = new TranscriptionService(() => ({
@@ -748,12 +831,13 @@ describe("TranscriptionService failover chain", () => {
 
     const result = await service.formatTranscriptDetailed("um I like this");
 
+    // The rejected reply is replaced by the transcript with speech noise removed by fixed rules.
     expect(result).toEqual({
-      text: "um I like this",
+      text: "I like this",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
-      formatterStatusReason: "The formatter changed words in the transcript.",
-      contentGuardVerdict: { passed: false, missingWords: ["like"] },
+      formatterStatusReason: "The formatter dropped too many words.",
+      contentGuardVerdict: { passed: false, missingWords: ["i", "like"] },
     });
   });
 
@@ -780,17 +864,17 @@ describe("TranscriptionService failover chain", () => {
     });
   });
 
-  it("falls back to corrected raw text when the formatter omits the last word", async () => {
-    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "We ship it.")));
+  it("falls back to corrected raw text when the formatter omits a number", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "We ship boxes Tuesday.")));
     const { TranscriptionService } = await import("@main/transcription");
     const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
-    expect(await service.formatTranscriptDetailed("we ship it Tuesday")).toEqual({
-      text: "we ship it Tuesday",
+    expect(await service.formatTranscriptDetailed("we ship 2 boxes Tuesday")).toEqual({
+      text: "we ship 2 boxes Tuesday",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
-      formatterStatusReason: "The formatter changed words in the transcript.",
-      contentGuardVerdict: { passed: false, missingWords: ["tuesday"] },
+      formatterStatusReason: "The formatter changed a number or a negation.",
+      contentGuardVerdict: { passed: false, missingWords: ["2"] },
     });
   });
 
@@ -806,13 +890,13 @@ describe("TranscriptionService failover chain", () => {
     });
   });
 
-  it("rejects a dropped Devanagari word", async () => {
-    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "मुझे ऑफिस जाना है।")));
+  it("rejects a dropped Devanagari negation", async () => {
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", vi.fn(async () => "मुझे कल ऑफिस जाना है।")));
     const { TranscriptionService } = await import("@main/transcription");
     const service = new TranscriptionService(() => ({ ...DEFAULT_SETTINGS, transcriptionProvider: "groq", formattingProvider: "groq-llm", groqApiKey: "groq-key" }));
 
-    expect(await service.formatTranscriptDetailed("मुझे कल ऑफिस जाना है")).toMatchObject({
-      text: "मुझे कल ऑफिस जाना है",
+    expect(await service.formatTranscriptDetailed("मुझे कल ऑफिस नहीं जाना है")).toMatchObject({
+      text: "मुझे कल ऑफिस नहीं जाना है",
       formatterStatus: "rejected",
     });
   });
@@ -874,7 +958,7 @@ describe("TranscriptionService failover chain", () => {
 
   it("falls back only the multiline block that fails content guard", async () => {
     const format = vi.fn(async (text: string) => text === "alpha beta"
-      ? "Alpha."
+      ? "Alpha beta not."
       : "Gamma delta.");
     registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
     const { TranscriptionService } = await import("@main/transcription");
@@ -893,10 +977,29 @@ describe("TranscriptionService failover chain", () => {
       text: "alpha beta\n\nGamma delta.",
       formatterUsed: "guard-fallback",
       formatterStatus: "rejected",
-      formatterStatusReason: "The formatter changed words in the transcript.",
-      contentGuardVerdict: { passed: false, missingWords: ["beta"] },
+      formatterStatusReason: "The formatter changed a number or a negation.",
+      contentGuardVerdict: { passed: false, missingWords: [] },
       partiallyFormatted: true,
     });
+  });
+
+  it("drops a withdrawn sentence across paragraphs before formatting", async () => {
+    const format = vi.fn(async (text: string) => text);
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
+      formattingProvider: "groq-llm",
+      groqApiKey: "groq-key",
+    }));
+
+    const result = await service.formatTranscriptDetailed("I will be late.\n\nScratch that.\n\nI will be on time.");
+
+    expect(format).toHaveBeenCalledTimes(1);
+    expect(format).toHaveBeenCalledWith("I will be on time.", expect.anything());
+    expect(result.text).toBe("I will be on time.");
   });
 
   it("retries one transient recovery failure before accepting the provider result", async () => {
@@ -1091,6 +1194,64 @@ describe("formatter outcome at the transcription seam", () => {
     });
   });
 
+  function sentBody(fetchMock: ReturnType<typeof vi.fn>): { model: string; reasoning?: unknown; messages: { role: string; content: string }[] } {
+    return JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+  }
+
+  it("turns reasoning off for Haiku and sends the Roman script rule for an English session with Devanagari", async () => {
+    const hinglish = "कल सुबह की मीटिंग कैंसल हो गई है, तो please client को email भेज देना।";
+    const roman = "Kal subah ki meeting cancel ho gayi hai, toh please client ko email bhej dena.";
+    const fetchMock = stubFetch(jsonResponse({ choices: [{ message: { content: roman } }] }));
+
+    const result = await (await serviceFor("openrouter")).formatTranscriptDetailed(hinglish, { language: "en" });
+
+    const body = sentBody(fetchMock);
+    expect(body.model).toBe("anthropic/claude-haiku-5.5");
+    expect(body.reasoning).toEqual({ enabled: false });
+    expect(body.messages[0]?.content).toContain("Script: write every word in Roman letters.");
+    expect(result).toMatchObject({ text: roman, formatterUsed: "llm", formatterStatus: "ran" });
+  });
+
+  it("sends the one-script-per-sentence rule for auto, and no script rule for English-only text", async () => {
+    const fetchMock = stubFetch(jsonResponse({ choices: [{ message: { content: "We ship it Tuesday." } }] }));
+    const service = await serviceFor("openrouter");
+
+    await service.formatTranscriptDetailed("मी उद्या पुण्याला येतोय, संध्याकाळी भेटू.", { language: "auto" });
+    expect(sentBody(fetchMock).messages[0]?.content).toContain("Script: give each sentence one script.");
+
+    fetchMock.mockClear();
+    await service.formatTranscriptDetailed(rawText, { language: "auto" });
+    expect(sentBody(fetchMock).messages[0]?.content).not.toContain("Script:");
+  });
+
+  it("keeps the script rule on the strict retry after the guard rejects a reply", async () => {
+    groqCreate
+      .mockResolvedValueOnce({ choices: [{ message: { content: "Meeting cancel." } }] })
+      .mockResolvedValueOnce({ choices: [{ message: { content: "Kal subah ki meeting cancel ho gayi hai." } }] });
+
+    await (await serviceFor("groq-llm")).formatTranscriptDetailed("कल सुबह की मीटिंग कैंसल हो गई है", { language: "en" });
+
+    const retrySystemPrompt = groqCreate.mock.calls[1]?.[0]?.messages?.[0]?.content;
+    expect(retrySystemPrompt).toMatch(/^You clean up dictated text\. Your previous reply added, reworded, or dropped words/);
+    expect(retrySystemPrompt).toContain("Script: write every word in Roman letters.");
+  });
+
+  it("leaves reasoning alone for a model that cannot turn it off", async () => {
+    const fetchMock = stubFetch(jsonResponse({ choices: [{ message: { content: "We ship it Tuesday." } }] }));
+    const { TranscriptionService } = await import("@main/transcription");
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
+      formattingProvider: "openrouter",
+      formattingModel: "openai/gpt-oss-120b",
+      providerApiKeys: [{ providerId: "openrouter", key: "test-key" }],
+    }));
+
+    await service.formatTranscriptDetailed(rawText);
+
+    expect(sentBody(fetchMock)).not.toHaveProperty("reasoning");
+  });
+
   it.each([
     {
       id: "groq-llm",
@@ -1249,7 +1410,7 @@ describe("formatter outcome at the transcription seam", () => {
 
     if (id === "groq-llm") {
       expect(groqCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ messages: [{ role: "system", content: customPrompt }, expect.anything()] }),
+        expect.objectContaining({ messages: [{ role: "system", content: expect.stringContaining(customPrompt) }, expect.anything()] }),
         expect.anything(),
       );
     } else {

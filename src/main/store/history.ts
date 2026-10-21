@@ -37,6 +37,8 @@ export class HistoryStore {
 
   async clear(): Promise<void> {
     await this.enqueueMutation(async () => {
+      // Reads first so an unreadable file is never overwritten by the clear.
+      await this.ensureLoaded();
       await writeJsonFile(this.filePath, []);
       this.cache = [];
     });
@@ -82,7 +84,7 @@ export class HistoryStore {
     if (this.cache) {
       return this.cache;
     }
-    const raw = await readJsonFile<unknown>(this.filePath, []);
+    const raw = await readJsonFile<unknown>(this.filePath, [], Array.isArray);
     this.cache = normalizeHistory(raw);
     return this.cache;
   }
