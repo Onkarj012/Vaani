@@ -29,6 +29,7 @@ import type {
   TranscriptionResult
 } from "@shared/types";
 import { ERROR_RESET_MS, MAX_AUDIO_DURATION_SECONDS, SUCCESS_RESET_MS } from "@shared/defaults";
+import { PRE_ROLL_MS } from "@shared/pcmUtils";
 import { resolveSessionModels } from "@shared/modelList";
 import { IpcChannel } from "@shared/ipc";
 import { trimSilence, isValidClip } from "./audio/vad";
@@ -65,8 +66,10 @@ const FORMATTING_TIMEOUT_MS = 20_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
-// One second under the IPC clip limit, so a clip cut at the cap is never rejected.
-const RECORDING_CAP_MS = (MAX_AUDIO_DURATION_SECONDS - 1) * 1000;
+// Room under the IPC clip limit for the pre-roll added before the timer starts and the tail captured after the stop,
+// so a recording ended at the cap is never rejected as too long.
+const RECORDING_CAP_HEADROOM_MS = PRE_ROLL_MS + 8_000;
+const RECORDING_CAP_MS = MAX_AUDIO_DURATION_SECONDS * 1000 - RECORDING_CAP_HEADROOM_MS;
 const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 const EDIT_WATCH_INTERVAL_MS = 500;
 const EDIT_WATCH_TIMEOUT_MS = 60_000;

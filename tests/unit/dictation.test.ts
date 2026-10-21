@@ -2628,7 +2628,8 @@ describe("DictationService", () => {
 });
 
 describe("recording length cap", () => {
-  const CAP_MS = 599_000;
+  // 600 s IPC limit minus room for 2 s of pre-roll and the stop tail.
+  const CAP_MS = 590_000;
   const SPEECH_CLIP: AudioClip = { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] };
 
   beforeEach(() => {
