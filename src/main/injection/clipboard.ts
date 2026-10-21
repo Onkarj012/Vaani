@@ -304,12 +304,16 @@ function writeClipboardItems(items: PasteboardItem[]): PasteboardWriteResult {
   return nativeBridge.writePasteboard?.(items) ?? null;
 }
 
-// Puts every saved item back. Falls back to the saved plain text if the native write fails.
+// Puts every saved item back, trying the full write twice. Falls back to the saved plain text, and never writes "" over the user's clipboard.
 function restoreClipboard(items: PasteboardItem[]): void {
-  const result = writeClipboardItems(items);
-  if (typeof result === "number") return;
-  if (result && clipboardChangeCount() !== result.failedChangeCount) return;
-  clipboard.writeText(items.flat().find((entry) => entry.type === PLAIN_TEXT_TYPE)?.data.toString("utf8") ?? "");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = writeClipboardItems(items);
+    if (typeof result === "number") return;
+    // Something else wrote the pasteboard after the failed write. It is no longer ours to restore.
+    if (result && clipboardChangeCount() !== result.failedChangeCount) return;
+  }
+  const text = items.flat().find((entry) => entry.type === PLAIN_TEXT_TYPE)?.data.toString("utf8");
+  if (text) clipboard.writeText(text);
 }
 
 async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCount: number, delayMs: number, generation: number): Promise<void> {

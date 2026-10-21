@@ -392,6 +392,10 @@ async function bootstrap(): Promise<void> {
   settingsStore = settings;
   const history = new HistoryStore();
   const traces = new DictationTraceStore();
+  // Queued before any dictation, so only traces from an earlier run are closed.
+  void traces.closeUnfinished()
+    .then((closed) => { if (closed > 0) log("traces:closed-unfinished", { closed }); })
+    .catch((err: unknown) => log("traces:close-unfinished-failed", { message: err instanceof Error ? err.message : String(err) }));
   const recovery = new RecoveryJournalStore();
   const recoveryAudio = new EncryptedRecoveryAudioStore(recovery, undefined, join(home, APP_DATA_DIR, "recovery-audio"));
   recoveryJournal = recovery;
@@ -695,6 +699,7 @@ app.on("second-instance", () => { log("second-instance:focus"); showMainWindow()
 
 app.on("before-quit", createQuitHandler({
   flush: async () => {
+    await dictationService?.closeForQuit();
     await dictationService?.flushRecovery();
     await lifecycleCoordinator?.flush();
     await recoveryJournal?.flush();

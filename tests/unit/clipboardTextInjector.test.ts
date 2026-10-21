@@ -13,6 +13,9 @@ let releaseAppleScriptPaste: (() => void) | null = null;
 let hangAppleScript = false;
 let refuseClipboardWrite = false;
 let clearThenFailOnce = false;
+// Fails the native write with this call number (1-based) after clearing the pasteboard.
+let failOnWriteCall: number | null = null;
+let writeCalls = 0;
 const helperTimeouts: number[] = [];
 const writes: { value: string; t: number }[] = [];
 
@@ -85,8 +88,9 @@ const bridge = vi.hoisted(() => ({
     return total > maxBytes ? null : cloneItems(pasteboard);
   },
   writePasteboard: (items: Item[]) => {
+    writeCalls += 1;
     // Clears the pasteboard, then fails, like NSPasteboard.writeObjects returning NO after clearContents.
-    if (clearThenFailOnce) {
+    if (clearThenFailOnce || failOnWriteCall === writeCalls) {
       clearThenFailOnce = false;
       storeItems([]);
       return { failedChangeCount: pasteboardChangeCount };
@@ -128,6 +132,8 @@ describe("ClipboardTextInjector restore timing", () => {
     bridge.pasteText.mockReset().mockReturnValue(true);
     bridge.typeText.mockReset().mockReturnValue(true);
     bridge.getFocusedSelection = undefined;
+    failOnWriteCall = null;
+    writeCalls = 0;
     failAppleScriptAction = false;
     holdAppleScriptPaste = false;
     releaseAppleScriptPaste = null;
@@ -577,6 +583,8 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
     bridge.pasteText.mockReset().mockReturnValue(true);
     bridge.typeText.mockReset().mockReturnValue(true);
     bridge.getFocusedSelection = undefined;
+    failOnWriteCall = null;
+    writeCalls = 0;
     failAppleScriptAction = false;
     holdAppleScriptPaste = false;
     hangAppleScript = false;
@@ -599,6 +607,20 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
     await expect(attempt).resolves.toEqual({ success: false, reason: "insertion_failed" });
     expect(pasteboard).toEqual(original);
     expect(bridge.pasteText).not.toHaveBeenCalled();
+  });
+
+  it("restores an image-only clipboard when the first restore write fails", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const original: Item[] = [[{ type: "public.png", data: Buffer.from([137, 80, 78, 71]) }]];
+    pasteboard = cloneItems(original);
+    // Write 1 puts the dictated text on the clipboard. Write 2 is the restore, and it fails after clearing.
+    failOnWriteCall = 2;
+
+    const attempt = new ClipboardTextInjector().inject("dictated", chromeTarget);
+    await vi.runAllTimersAsync();
+
+    await expect(attempt).resolves.toMatchObject({ success: true });
+    expect(pasteboard).toEqual(original);
   });
 
   it("keeps a new user copy made while verifying the dictated text", async () => {
