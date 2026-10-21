@@ -60,7 +60,8 @@ export function splitSentences(text: string): string[] {
 // A sentence that only withdraws the sentence before it.
 // Hesitations speech-noise cleanup removes. Lives here so the withdrawal pass, which runs first, uses the same list.
 export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "hm", "mm", "mmm", "mhm"];
-const HESITATION = `(?:${HESITATION_WORDS.join("|")})`;
+// The last letter may repeat, as in "Uhhh" or "Hmmmm".
+const HESITATION = `(?:${HESITATION_WORDS.map(word => `${word}+`).join("|")})`;
 // A sentence that is only hesitation, such as "Um." or "Mhm, uh...".
 const HESITATION_ONLY_RE = new RegExp(String.raw`^\s*(?:${HESITATION}[,.!?।\s]*)+$`, "iu");
 // A hesitation before the cue ("Um, scratch that.") still counts as the cue.
