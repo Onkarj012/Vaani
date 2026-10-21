@@ -9,6 +9,7 @@ import { buildFormattingPrompt, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVID
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { judgeFormatterReply, stripReasoningBlocks } from "@shared/contentGuard";
+import { dropScratchedSentences } from "@shared/scratchThat";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
 import { formatterDropWords, removeSpeechNoise } from "./text/cleanup";
 import { warmOpenRouterConnection } from "./providers/openrouter/client";
@@ -399,11 +400,13 @@ export class TranscriptionService {
     language: string,
     signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
-    if (!hasParagraphBreak(rawText)) {
-      return this.formatTranscriptBlock(rawText, provider, apiKey, settings, language, signal);
+    // Withdrawn sentences go first, so a "Scratch that." in its own paragraph still drops the sentence before it.
+    const spoken = settings.cleanupEnabled ? dropScratchedSentences(rawText) : rawText;
+    if (!hasParagraphBreak(spoken)) {
+      return this.formatTranscriptBlock(spoken, provider, apiKey, settings, language, signal);
     }
 
-    const parts = splitParagraphParts(rawText);
+    const parts = splitParagraphParts(spoken);
     const formattedParts: string[] = [];
     const missingWords: string[] = [];
     const blockResults: FormatTranscriptTraceResult[] = [];
