@@ -54,6 +54,17 @@ describe("applySelfCorrections", () => {
     expect(removeSpeechNoise("I will be late.\nScratch that.\nI will be on time.")).toBe("I will be on time.");
   });
 
+  it("withdraws a whole sentence with an abbreviation or a list number", () => {
+    expect(applySelfCorrections("Meet at 5 p.m. tomorrow. Scratch that. Call me.")).toBe("Call me.");
+    expect(judgeFormatterReply("Meet at 5 p.m. tomorrow. Scratch that. Call me.", "Call me.").rejection).toBeNull();
+    expect(applySelfCorrections("1. Buy milk.\n2. Buy eggs.\nScratch that.\n3. Buy bread.")).toBe("1. Buy milk.\n3. Buy bread.");
+    expect(judgeFormatterReply("1. Buy milk.\n2. Buy eggs.\nScratch that.\n3. Buy bread.", "1. Buy milk.\n3. Buy bread.").rejection).toBeNull();
+  });
+
+  it("swaps in a sentence that runs into the next without a space", () => {
+    expect(applySelfCorrections("Wait 3.5, no, 4.5 minutes.Next item.")).toBe("Wait 4.5 minutes.Next item.");
+  });
+
   it("rejects a dropped sentence without a scratch cue", () => {
     expect(preservesContentWords("I'll be late today. I'll be on time.", "I'll be on time.")).toBe(false);
   });
