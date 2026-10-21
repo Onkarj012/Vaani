@@ -44,7 +44,10 @@ describe("DictationTraceStore", () => {
 
     await expect(store.closeUnfinished()).resolves.toBe(1);
 
-    expect(await store.getById("left-open")).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
+    const closed = await store.getById("left-open");
+    expect(closed).toMatchObject({ outcome: "failed", rejectionReason: "cancelled" });
+    // Startup may be hours after the stop, so the repaired trace claims no completion time.
+    expect(closed?.completedAt).toBeUndefined();
     expect(await store.getById("done")).toMatchObject({ outcome: "verified", completedAt: "2026-06-29T00:00:01.000Z" });
     await expect(store.closeUnfinished()).resolves.toBe(0);
   });

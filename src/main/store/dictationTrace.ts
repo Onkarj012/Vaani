@@ -34,11 +34,11 @@ export class DictationTraceStore {
   }
 
   // Marks traces left "started" by a quit or crash as failed. Run at startup, before any new dictation.
+  // The completion time stays unknown: startup can be hours after the stop, and timing reports skip traces without it.
   async closeUnfinished(): Promise<number> {
     let closed = 0;
     await this.enqueueMutation(async () => {
       const traces = await this.ensureLoaded();
-      const completedAt = new Date().toISOString();
       const next = traces.map((trace) => {
         if (trace.outcome !== "started") return trace;
         closed += 1;
@@ -48,7 +48,6 @@ export class DictationTraceStore {
           rejectionReason: "cancelled" as const,
           userMessage: "Vaani closed before this dictation finished.",
           stages: { ...trace.stages, outcome: "failed" as const },
-          completedAt,
         };
       });
       if (closed === 0) return;
