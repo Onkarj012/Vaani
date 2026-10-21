@@ -447,19 +447,20 @@ export function applyDictionary(text: string, settings: Settings, trace?: TextCl
   );
 }
 
-function applySnippets(
-  text: string,
-  snippets: Snippet[],
-  appProfileId: string | null | undefined,
-  placeholderResolver?: (name: "date" | "time" | "clipboard") => string,
-): string {
+interface SnippetMatcher {
+  pattern: RegExp;
+  contentByTrigger: Map<string, string>;
+}
+
+// Builds the trigger pattern for the snippets that apply to this app profile, or null if none do.
+function buildSnippetMatcher(snippets: Snippet[], appProfileId: string | null | undefined): SnippetMatcher | null {
   // Longest-trigger-first so overlapping triggers resolve to the longest match.
   const ordered = [...snippets]
     .map(snippet => ({ ...snippet, trigger: snippet.trigger.trim() }))
     .filter(({ trigger, appProfileIds }) => trigger.length > 0 && (!appProfileIds || (appProfileId !== null && appProfileId !== undefined && appProfileIds.includes(appProfileId))))
     .sort((left, right) => right.trigger.length - left.trigger.length);
 
-  if (ordered.length === 0) return text;
+  if (ordered.length === 0) return null;
 
   // Match BOTH the typed (`/name`) and spoken (`snippet name`) forms in a single
   // combined regex and replace in ONE pass over the original text. A single pass
@@ -479,11 +480,35 @@ function applySnippets(
     "gi",
   );
 
-  const byTrigger = new Map(ordered.map(snippet => [snippet.trigger.toLowerCase(), snippet.content]));
-  const lookup = (raw: string): string => (byTrigger.get(raw.toLowerCase()) ?? raw).replace(/\{\{(date|time|clipboard)\}\}/g, (_match, name: "date" | "time" | "clipboard") => placeholderResolver?.(name) ?? `{{${name}}}`);
+  return {
+    pattern: combined,
+    contentByTrigger: new Map(ordered.map(snippet => [snippet.trigger.toLowerCase(), snippet.content])),
+  };
+}
+
+// True when a snippet that uses {{clipboard}} would expand in this text for this app profile.
+export function clipboardSnippetExpands(text: string, snippets: Snippet[], appProfileId: string | null | undefined): boolean {
+  const matcher = buildSnippetMatcher(snippets, appProfileId);
+  if (!matcher) return false;
+  return [...text.matchAll(matcher.pattern)].some(match => {
+    // Groups 2, 4, 6, and 8 hold the trigger name for the typed, spoken, slash, and bare forms.
+    const trigger = match[2] ?? match[4] ?? match[6] ?? match[8] ?? "";
+    return matcher.contentByTrigger.get(trigger.toLowerCase())?.includes("{{clipboard}}") === true;
+  });
+}
+
+function applySnippets(
+  text: string,
+  snippets: Snippet[],
+  appProfileId: string | null | undefined,
+  placeholderResolver?: (name: "date" | "time" | "clipboard") => string,
+): string {
+  const matcher = buildSnippetMatcher(snippets, appProfileId);
+  if (!matcher) return text;
+  const lookup = (raw: string): string => (matcher.contentByTrigger.get(raw.toLowerCase()) ?? raw).replace(/\{\{(date|time|clipboard)\}\}/g, (_match, name: "date" | "time" | "clipboard") => placeholderResolver?.(name) ?? `{{${name}}}`);
 
   return text.replace(
-    combined,
+    matcher.pattern,
     (_match, typedPrefix: string, typedName: string, snippetPrefix: string, snippetName: string, slashPrefix: string, slashName: string, barePrefix: string, bareName: string) =>
       typedName !== undefined
         ? `${typedPrefix}${lookup(typedName)}`

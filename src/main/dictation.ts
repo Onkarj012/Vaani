@@ -42,7 +42,7 @@ import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
-import { applyDictionary, cleanupText, hasSpokenContent } from "./text/cleanup";
+import { applyDictionary, cleanupText, clipboardSnippetExpands, hasSpokenContent } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
 import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
@@ -498,7 +498,7 @@ export class DictationService {
         const cleanupTrace = { correctionsApplied: [] };
         const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
-        const cleanedText = cleanupText({ rawText: correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: await snippetPlaceholderResolver(settings) });
+        const cleanedText = cleanupText({ rawText: correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: await snippetPlaceholderResolver(settings, correctedText, appProfile?.id) });
         void this.patchTrace(payload.sessionId, { formatDoneAt: new Date().toISOString() });
         void this.patchTrace(payload.sessionId, {
           stages: {
@@ -573,7 +573,7 @@ export class DictationService {
 
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
       const formatNotice = formatNoticeFor(formatTrace);
-      const cleanedText = cleanupText({ rawText: formattedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: await snippetPlaceholderResolver(settings) });
+      const cleanedText = cleanupText({ rawText: formattedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: await snippetPlaceholderResolver(settings, formattedText, appProfile?.id) });
       void this.patchTrace(payload.sessionId, {
         formatDoneAt: new Date().toISOString(),
         stages: {
@@ -927,7 +927,7 @@ export class DictationService {
       const correctedText = applyDictionary(rawText, settings, cleanupTrace);
       const formatted = await this.formatTranscriptWithTrace(correctedText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS, entry.settingsSnapshot);
       if (action.signal.aborted) return false;
-      const cleanedText = cleanupText({ rawText: formatted.text, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: await snippetPlaceholderResolver(settings) });
+      const cleanedText = cleanupText({ rawText: formatted.text, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: await snippetPlaceholderResolver(settings, formatted.text, appProfile?.id) });
       const current = await this.recovery.getById(id);
       if (!current) return false;
       if (!await this.transitionRecoveryEntry(current, "text_ready", { text: { formattedText: formatted.text, cleanedText }, error: { class: "none" } }, action.signal)) return false;
@@ -2333,10 +2333,10 @@ function resolveAppProfile(appProfiles: NonNullable<Settings["appProfiles"]>, bu
   return appProfiles.find(p => p.appBundleIds.some(b => b.toLowerCase() === id)) ?? null;
 }
 
-// Reads the clipboard only when a snippet uses {{clipboard}}, since Electron 44 made readText async.
-async function snippetPlaceholderResolver(settings: Settings): Promise<(name: "date" | "time" | "clipboard") => string> {
-  const usesClipboard = (settings.snippets ?? []).some(snippet => snippet.content.includes("{{clipboard}}"));
-  const clipboardText = usesClipboard ? await electron.clipboard.readText() : "";
+// Reads the clipboard once, only when a {{clipboard}} snippet expands in this text. Electron 44 made readText async.
+export async function snippetPlaceholderResolver(settings: Settings, text: string, appProfileId: string | null | undefined): Promise<(name: "date" | "time" | "clipboard") => string> {
+  const needsClipboard = clipboardSnippetExpands(text, settings.snippets ?? [], appProfileId);
+  const clipboardText = needsClipboard ? await electron.clipboard.readText() : "";
   return (name) => {
     const now = new Date();
     if (name === "date") return now.toLocaleDateString();
