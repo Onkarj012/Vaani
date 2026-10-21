@@ -58,7 +58,8 @@ export function splitSentences(text: string): string[] {
 }
 
 // A sentence that only withdraws the sentence before it.
-const SCRATCH_SENTENCE_RE = /^\s*(?:scratch|delete)\s+that[.!?।]*\s*$/i;
+// A hesitation before the cue ("Um, scratch that.") still counts as the cue.
+const SCRATCH_SENTENCE_RE = /^\s*(?:(?:um+|uh+|erm|hmm+)[,\s]+)*(?:scratch|delete)\s+that[.!?।]*\s*$/i;
 // A sentence with a letter or number, as opposed to a bare separator such as "\n" or "...".
 const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
 

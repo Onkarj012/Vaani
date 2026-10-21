@@ -98,6 +98,11 @@ describe("applySelfCorrections", () => {
     expect(applySelfCorrections("1. Delete that.txt. Scratch that. 2. Buy milk.")).toBe("2. Buy milk.");
   });
 
+  it("counts a cue that opens with a hesitation", () => {
+    expect(applySelfCorrections("Pay 500. Um, scratch that. Pay 200.")).toBe("Pay 200.");
+    expect(applySelfCorrections("Pay 500. Um, scratch that. Scratch that. Pay 200.")).not.toContain("500");
+  });
+
   it("swaps inside a quoted sentence", () => {
     expect(applySelfCorrections('He said "Send 3, no, 4."')).toBe('He said "Send 4."');
   });
