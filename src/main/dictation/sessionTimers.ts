@@ -4,6 +4,7 @@ export type SessionTimerName =
   | "audioFrame"
   | "recorderStart"
   | "staleSession"
+  | "recordingCap"
   | "uptimeLog"
   | "editWatch"
   | "editWatchTimeout"

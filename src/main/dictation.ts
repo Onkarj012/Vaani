@@ -29,7 +29,8 @@ import type {
   Settings,
   TranscriptionResult
 } from "@shared/types";
-import { ERROR_RESET_MS, SUCCESS_RESET_MS } from "@shared/defaults";
+import { ERROR_RESET_MS, MAX_AUDIO_DURATION_SECONDS, SUCCESS_RESET_MS } from "@shared/defaults";
+import { PRE_ROLL_MS } from "@shared/pcmUtils";
 import { resolveSessionModels } from "@shared/modelList";
 import { IpcChannel } from "@shared/ipc";
 import { trimSilence, isValidClip } from "./audio/vad";
@@ -66,6 +67,10 @@ const REFORMAT_TIMEOUT_MS = 20_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
+// Room under the IPC clip limit for the pre-roll added before the timer starts and the tail captured after the stop,
+// so a recording ended at the cap is never rejected as too long.
+const RECORDING_CAP_HEADROOM_MS = PRE_ROLL_MS + 8_000;
+const RECORDING_CAP_MS = MAX_AUDIO_DURATION_SECONDS * 1000 - RECORDING_CAP_HEADROOM_MS;
 // Extra time past the transcription and cleanup deadlines before the stale guard ends a session.
 const STALE_GUARD_GRACE_MS = 15_000;
 // Recent sessions whose History write is remembered, so each session is saved once.
@@ -89,6 +94,8 @@ interface RecorderCommands {
   startRecording: (sessionId: string) => boolean;
   stopRecording: (sessionId: string) => boolean;
   abortRecording?: (sessionId: string) => void;
+  pauseRecording?: (sessionId: string) => void;
+  resumeRecording?: (sessionId: string) => void;
 }
 
 type DictationTraceDeps = Pick<DictationTraceStore, "upsert" | "updateById" | "getById" | "getBySessionId">
@@ -141,6 +148,7 @@ export class DictationService {
   private activeTargetIdentity: string | null = null;
   private releaseRequestedDuringStart = false;
   private pendingStopRequestedAt: string | null = null;
+  private paused = false;
   private readonly recorder: RecorderCommands | null;
   private pasteLatestInProgress = false;
   // Set when quit starts. No new dictation may start after it.
@@ -197,6 +205,13 @@ export class DictationService {
       const uptimeHrs = Math.round(process.uptime() / 3600);
       debug("dictation", `uptime checkpoint: ${uptimeHrs}h, state=${this.state.status}, session=${this.activeSessionId ?? "none"}`);
     }, UPTIME_LOG_INTERVAL_MS);
+  }
+
+  // Ends a recording that hits the length limit with the same path as Send, keeping its audio.
+  private armRecordingCap(sessionId: string): void {
+    this.timers.setTimeout("recordingCap", () => {
+      if (this.isCurrentSession(sessionId) && this.state.status === "recording") this.endHotkeySession();
+    }, RECORDING_CAP_MS);
   }
 
   // Ends a session that stops making progress. Long stages pass a longer timeout so their own deadlines win.
@@ -349,6 +364,7 @@ export class DictationService {
     this.transcription.warmUp?.();
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
+    this.clearRecordingCapTimer();
     if (!this.recorder?.stopRecording(sessionId)) {
       this.failSession(sessionId, "Recording could not be finalized.", "recorder_failure");
       return;
@@ -369,6 +385,7 @@ export class DictationService {
     this.clearRecorderStartTimer();
     this.setState({ status: "recording", sessionId });
     this.rearmStaleSessionGuard();
+    this.armRecordingCap(sessionId);
     this.clearAudioFrameTimer();
     this.timers.setTimeout("audioFrame", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "recording") {
@@ -1277,6 +1294,22 @@ export class DictationService {
     return this.state.status === "starting" || this.state.status === "recording";
   }
 
+  // Pauses the active recording. The mic stays open but its audio is left out of the clip.
+  pauseRecording(): void {
+    if (this.state.status !== "recording" || this.paused) return;
+    this.paused = true;
+    this.recorder?.pauseRecording?.(this.state.sessionId);
+    this.overlay.setPaused?.(true);
+  }
+
+  // Resumes a paused recording so its audio is appended again.
+  resumeRecording(): void {
+    if (this.state.status !== "recording" || !this.paused) return;
+    this.paused = false;
+    this.recorder?.resumeRecording?.(this.state.sessionId);
+    this.overlay.setPaused?.(false);
+  }
+
   // True while a dictation is starting, recording, finalizing, or transcribing.
   // True while the recorder may hold the mic for the active session.
   private isCaptureStage(): boolean {
@@ -1502,6 +1535,7 @@ export class DictationService {
       });
     }
     this.clearAudioFrameTimer();
+    this.clearRecordingCapTimer();
     this.setState({ status: "completed", sessionId, outcome, text, message, detectedLanguage, ...(recoveryOutcome ? { recoveryOutcome } : {}), ...(insertionOutcome ? { insertionOutcome } : {}) });
     this.scheduleReset(SUCCESS_RESET_MS);
   }
@@ -1567,6 +1601,7 @@ export class DictationService {
     this.clearRecorderStartTimer();
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
+    this.clearRecordingCapTimer();
     this.setState({ status: "error", sessionId, message });
     // The trace keeps every provider attempt, so a failed dictation shows which provider failed and how.
     const attemptsPatch = providerAttempts.length > 0 ? { providerAttempts } : {};
@@ -1605,6 +1640,7 @@ export class DictationService {
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
     this.clearStaleSessionTimer();
+    this.clearRecordingCapTimer();
   }
 
   private clearResetTimer(): void { this.timers.clear("reset"); }
@@ -1612,6 +1648,7 @@ export class DictationService {
   private clearAudioFrameTimer(): void { this.timers.clear("audioFrame"); }
   private clearRecorderStartTimer(): void { this.timers.clear("recorderStart"); }
   private clearStaleSessionTimer(): void { this.timers.clear("staleSession"); }
+  private clearRecordingCapTimer(): void { this.timers.clear("recordingCap"); }
   private clearEditWatch(): void {
     this.timers.clear("editWatch");
     this.timers.clear("editWatchTimeout");
@@ -1633,6 +1670,7 @@ export class DictationService {
     this.clearResetTimer();
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
+    this.clearRecordingCapTimer();
     this.clearRecorderStartTimer();
     this.clearStaleSessionTimer();
     this.clearEditWatch();
@@ -1954,13 +1992,18 @@ export class DictationService {
   }
 
   private setState(state: DictationState): void {
+    // Leaving recording ends any pause, so the next session starts unpaused.
+    if (this.paused && state.status !== "recording") {
+      this.paused = false;
+      this.overlay.setPaused?.(false);
+    }
     this.state = state;
     if (state.status === "idle") {
       this.updateTrayStatus("Ready"); this.overlay.setStatusMessage?.(null); this.overlay.hide();
     } else if (state.status === "starting") {
       this.updateTrayStatus("Opening microphone…"); this.overlay.setStatusMessage?.(null); this.overlay.setPressed();
     } else if (state.status === "recording") {
-      this.updateTrayStatus("Recording…"); this.overlay.setRecording();
+      this.updateTrayStatus("Recording…"); this.overlay.setRecording(state.sessionId);
     } else if (state.status === "finalizing") {
       this.updateTrayStatus("Processing…"); this.overlay.setProcessing();
     } else if (state.status === "transcribing") {

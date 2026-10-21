@@ -631,6 +631,8 @@ declare global {
       onAbortRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       onSuspendRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       onResumeRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onPauseCapture: (cb: (payload: RecorderCommand) => void) => () => void;
+      onResumeCapture: (cb: (payload: RecorderCommand) => void) => () => void;
       submitAudioClip: (payload: RecorderSubmission) => Promise<void>;
       reportRecorderReady: () => Promise<void>;
       reportRecorderStarted: (sessionId: string) => Promise<void>;

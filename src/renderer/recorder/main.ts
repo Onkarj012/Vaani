@@ -13,6 +13,8 @@ import { quietThresholdFromNoise, trailingRms, waitForRendererDrain } from "@sha
 const FRAME_REPORT_INTERVAL_MS = 50;
 const VISUAL_BAR_COUNT = 9;
 const DEFAULT_INPUT_SAMPLE_RATE = 48_000;
+// Bar height shown while a session is paused.
+const PAUSED_BAR_LEVEL = 0.12;
 
 declare global {
   interface Window {
@@ -22,6 +24,8 @@ declare global {
       onAbortRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       onSuspendRecording: (cb: (payload: RecorderCommand) => void) => () => void;
       onResumeRecording: (cb: (payload: RecorderCommand) => void) => () => void;
+      onPauseCapture: (cb: (payload: RecorderCommand) => void) => () => void;
+      onResumeCapture: (cb: (payload: RecorderCommand) => void) => () => void;
       submitAudioClip: (payload: RecorderSubmission) => Promise<void>;
       reportRecorderReady: () => Promise<void>;
       reportRecorderStarted: (sessionId: string) => Promise<void>;
@@ -46,6 +50,7 @@ let sourceNode: MediaStreamAudioSourceNode | null = null;
 let processorNode: PcmProcessorNode | null = null;
 let ringBuffer = new PcmRingBuffer(Math.floor(DEFAULT_INPUT_SAMPLE_RATE * PRE_ROLL_MS / 1000));
 let activeSessionId: string | null = null;
+let paused = false;
 const pendingStarts = new Map<string, { cancelled: boolean }>();
 // Starts run one at a time, so a cancelled start never cleans up capture a newer start is using.
 let startQueue: Promise<void> = Promise.resolve();
@@ -83,6 +88,14 @@ window.__VAANI_RECORDER__.onSuspendRecording(({ sessionId }) => {
 
 window.__VAANI_RECORDER__.onResumeRecording(() => {
   void resumeAfterLifecycle();
+});
+
+window.__VAANI_RECORDER__.onPauseCapture(({ sessionId }) => {
+  if (activeSessionId === sessionId) paused = true;
+});
+
+window.__VAANI_RECORDER__.onResumeCapture(({ sessionId }) => {
+  if (activeSessionId === sessionId) paused = false;
 });
 
 window.__VAANI_RECORDER__.onRecorderConfigChanged((config) => {
@@ -124,6 +137,7 @@ async function startRecording({ sessionId, config }: RecorderCommand): Promise<v
     if (start.cancelled) return;
     currentConfig = normalizeConfig(config);
     sessionChunks = [];
+    paused = false;
     lastFrameAt = 0;
     lastLoudFrameAt = 0;
     sessionFrames = [];
@@ -391,19 +405,26 @@ async function startPcmCapture(inputStream: MediaStream): Promise<void> {
 }
 
 function handlePcmData(samples: Float32Array): void {
-  ringBuffer.append(samples);
+  // Paused speech stays out of the pre-roll too, or the next recording would import it.
+  if (!paused) ringBuffer.append(samples);
 
   if (!activeSessionId) {
     return;
   }
 
-  sessionChunks.push(samples.slice());
   // Started means audio is arriving, not that the device opened.
   if (awaitingFirstFrame && samples.length > 0) {
     awaitingFirstFrame = false;
     void window.__VAANI_RECORDER__.reportRecorderStarted(activeSessionId);
   }
   lastFrameAt = Date.now();
+  // Paused frames keep the watchdog fed but never reach the clip.
+  if (paused) {
+    publishBars(new Array(VISUAL_BAR_COUNT).fill(PAUSED_BAR_LEVEL));
+    return;
+  }
+
+  sessionChunks.push(samples.slice());
   let sumSquares = 0;
   for (const sample of samples) sumSquares += sample * sample;
   if (samples.length > 0) {
@@ -449,6 +470,10 @@ async function cleanupSession(): Promise<void> {
   activeSessionId = null;
   awaitingFirstFrame = false;
   sessionChunks = [];
+  ringBuffer.clear();
+  paused = false;
+  sessionFrames = [];
+  quietThreshold = null;
 
   if (previousInputDevice !== null) {
     const deviceId = previousInputDevice;

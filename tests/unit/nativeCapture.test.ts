@@ -476,4 +476,42 @@ describe("NativeCaptureService", () => {
     expect(service.stopRecording("native-session")).toBe(true);
     expect(sink.submitAudioClip).not.toHaveBeenCalled();
   });
+
+  it("leaves paused frames out of the clip and publishes flat bars while the mic stays open", async () => {
+    vi.useFakeTimers();
+    try {
+      let onData: ((samples: Float32Array) => void) | undefined;
+      const submitAudioClip = vi.fn<(payload: RecorderSubmission) => void>();
+      const updateAudioLevel = vi.fn();
+      const bridge = {
+        audioCaptureStart: vi.fn((options: { onData: (samples: Float32Array) => void }) => {
+          onData = options.onData;
+          return true;
+        }),
+        audioCaptureStop: vi.fn(),
+        audioCaptureListInputDevices: vi.fn(() => [device({ uid: "built-in", isDefault: true })]),
+      };
+      const service = new NativeCaptureService(
+        () => ({ preWarmMic: false, captureBackend: "native" }),
+        { reportRecorderStarted: vi.fn(), submitAudioClip, updateAudioLevel, handleRecorderFailure: vi.fn() },
+        bridge,
+      );
+
+      expect(service.startRecording("s1")).toBe(true);
+      onData?.(new Float32Array(1_600).fill(0.5));
+      service.pauseRecording("s1");
+      await vi.advanceTimersByTimeAsync(60);
+      onData?.(new Float32Array(1_600).fill(0.5));
+      expect(updateAudioLevel).toHaveBeenLastCalledWith({ level: 0.12, bars: new Array(9).fill(0.12) });
+      service.resumeRecording("s1");
+      await vi.advanceTimersByTimeAsync(60);
+      onData?.(new Float32Array(1_600).fill(0.5));
+      expect(service.stopRecording("s1")).toBe(true);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(submitAudioClip.mock.calls[0]?.[0].clip.pcmData.length).toBe(3_200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

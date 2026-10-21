@@ -582,6 +582,7 @@ async function bootstrap(): Promise<void> {
     () => { dictation.pasteLatestEntry().catch((err) => { error("main", `paste latest failed: ${err instanceof Error ? err.message : String(err)}`); }); },
     (message) => dictation.reportHotkeyUnavailable(message)
   );
+  hotkeyManager.setHandsFreeListener((handsFree) => overlayController?.setHandsFree(handsFree));
 
   registerIpcHandlers({
     mainWindow,

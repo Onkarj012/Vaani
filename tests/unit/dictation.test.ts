@@ -84,6 +84,7 @@ function createDictationService(deps: {
     setSuccess: vi.fn(),
     setError: vi.fn(),
     setStatusMessage: vi.fn(),
+    setPaused: vi.fn(),
     hide: vi.fn(),
     updateBars: vi.fn(),
     showDictionaryPrompt: vi.fn((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => resolve(true)),
@@ -113,7 +114,9 @@ function createDictationService(deps: {
     isReady: vi.fn(() => true),
     startRecording: vi.fn(() => true),
     stopRecording: vi.fn(() => true),
-    abortRecording: vi.fn((_sessionId: string) => undefined)
+    abortRecording: vi.fn((_sessionId: string) => undefined),
+    pauseRecording: vi.fn((_sessionId: string) => undefined),
+    resumeRecording: vi.fn((_sessionId: string) => undefined)
   };
 
   const transcription = {
@@ -246,6 +249,29 @@ describe("DictationService", () => {
     const { service, transcription } = createDictationService({ recoveryReady: () => true });
     await submitHelloWorld(service);
     expect(transcription.transcribe.mock.calls[0]?.[1]?.recovery).toBeUndefined();
+  });
+
+  it("pauses and resumes only the active recording and tells the overlay", async () => {
+    const { service, overlay, recorder } = createDictationService({});
+    service.pauseRecording();
+    expect(recorder.pauseRecording).not.toHaveBeenCalled();
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.pauseRecording();
+    service.pauseRecording();
+    expect(recorder.pauseRecording).toHaveBeenCalledOnce();
+    expect(recorder.pauseRecording).toHaveBeenCalledWith(sessionId);
+    expect(overlay.setPaused).toHaveBeenLastCalledWith(true);
+
+    service.resumeRecording();
+    expect(recorder.resumeRecording).toHaveBeenCalledWith(sessionId);
+    expect(overlay.setPaused).toHaveBeenLastCalledWith(false);
+
+    service.pauseRecording();
+    service.endHotkeySession();
+    expect(overlay.setPaused).toHaveBeenLastCalledWith(false);
   });
 
   it("does not replace a verified trace when cancellation follows completion", async () => {
@@ -3030,5 +3056,82 @@ describe("DictationService", () => {
     await Promise.resolve();
 
     expect(overlay.showSnippetPrompt).not.toHaveBeenCalled();
+  });
+});
+
+describe("recording length cap", () => {
+  // 600 s IPC limit minus room for 2 s of pre-roll and the stop tail.
+  const CAP_MS = 590_000;
+  const SPEECH_CLIP: AudioClip = { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Starts a hotkey session and reports the recorder live. Returns its session id.
+  function startRecording(service: ReturnType<typeof createDictationService>["service"]): string {
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    return sessionId;
+  }
+
+  // Advances time while sending audio frames, as the real recorder does, so the stale-session guard stays quiet.
+  function advanceWithFrames(service: ReturnType<typeof createDictationService>["service"], ms: number): void {
+    for (let elapsed = 0; elapsed < ms; elapsed += 1_000) {
+      vi.advanceTimersByTime(Math.min(1_000, ms - elapsed));
+      service.updateAudioLevel({ level: 0, bars: [] });
+    }
+  }
+
+  it("ends and processes a paused hands-free session at the cap", async () => {
+    const { service, recorder, transcription } = createDictationService({});
+    const sessionId = startRecording(service);
+    service.pauseRecording();
+
+    advanceWithFrames(service, CAP_MS - 1);
+    expect(recorder.stopRecording).not.toHaveBeenCalled();
+
+    advanceWithFrames(service, 1);
+    expect(recorder.stopRecording).toHaveBeenCalledWith(sessionId);
+    expect(service.getState()).toMatchObject({ status: "finalizing", sessionId });
+
+    await service.submitAudioClip({ sessionId, clip: SPEECH_CLIP });
+    expect(transcription.transcribe).toHaveBeenCalledOnce();
+  });
+
+  it("counts paused time toward the cap, so pause and resume do not extend it", () => {
+    const { service, recorder } = createDictationService({});
+    const sessionId = startRecording(service);
+
+    advanceWithFrames(service, 300_000);
+    service.pauseRecording();
+    advanceWithFrames(service, 100_000);
+    service.resumeRecording();
+    advanceWithFrames(service, CAP_MS - 400_000 - 1);
+    expect(recorder.stopRecording).not.toHaveBeenCalled();
+
+    advanceWithFrames(service, 1);
+    expect(recorder.stopRecording).toHaveBeenCalledWith(sessionId);
+  });
+
+  it("does not stop a later session with a timer from an earlier one", () => {
+    const { service, recorder } = createDictationService({});
+    startRecording(service);
+    advanceWithFrames(service, 10_000);
+    service.cancelSession();
+
+    advanceWithFrames(service, 10_000);
+    const laterSessionId = startRecording(service);
+    advanceWithFrames(service, 600_000 - 20_000);
+    expect(recorder.stopRecording).not.toHaveBeenCalled();
+
+    advanceWithFrames(service, 20_000);
+    expect(recorder.stopRecording).toHaveBeenCalledWith(laterSessionId);
+    expect(recorder.stopRecording).toHaveBeenCalledOnce();
   });
 });
