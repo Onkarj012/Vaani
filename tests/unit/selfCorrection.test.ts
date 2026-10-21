@@ -92,6 +92,11 @@ describe("applySelfCorrections", () => {
     expect(applySelfCorrections('"Meet at 5 p.m." pay 200. Scratch that. Call me.')).toBe('"Meet at 5 p.m." Call me.');
   });
 
+  it("treats a list number before a cue as an answer, but only for a whole cue", () => {
+    expect(applySelfCorrections("500.\u00a0Scratch that. Pay 200.")).toBe("Pay 200.");
+    expect(applySelfCorrections("1. Delete that file. Scratch that. 2. Buy milk.")).toBe("2. Buy milk.");
+  });
+
   it("swaps inside a quoted sentence", () => {
     expect(applySelfCorrections('He said "Send 3, no, 4."')).toBe('He said "Send 4."');
   });
