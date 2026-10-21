@@ -71,6 +71,7 @@ describe("applySelfCorrections", () => {
     expect(applySelfCorrections("Meet at 3, no, 4 p.m. tomorrow.")).toBe("Meet at 4 p.m. tomorrow.");
     expect(applySelfCorrections("Send 3, no, 4 to Dr. Rao.")).toBe("Send 4 to Dr. Rao.");
     expect(applySelfCorrections("Send it to John, sorry, Dr. Smith.")).toBe("Send it to Dr. Smith.");
+    expect(applySelfCorrections("Send it to Dr. John, sorry, Dr. Smith.")).toBe("Send it to Dr. Smith.");
   });
 
   it("withdraws a sentence that ends in a closing quote or holds a title", () => {

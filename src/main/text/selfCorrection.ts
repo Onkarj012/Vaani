@@ -47,7 +47,7 @@ function fixSentence(sentence: string): string {
   const groups = CORRECTION_SENTENCE_RE.exec(sentence)?.groups;
   if (!groups) return sentence;
   const { lead = "", before = "", after = "", end = "", trail = "" } = groups;
-  const words = before.split(/\s+/).filter(Boolean);
+  const words = joinTitles(before.split(/\s+/).filter(Boolean));
   const tokens = joinTitles(after.trim().split(/\s+/));
   const clean = tokens.map(token => token.replace(/,$/, ""));
   for (let count = 1; count <= Math.min(MAX_AFTER_WORDS, tokens.length); count += 1) {
