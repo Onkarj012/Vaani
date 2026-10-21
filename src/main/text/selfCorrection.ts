@@ -6,7 +6,9 @@ const MAX_AFTER_WORDS = 3;
 // Words that open a new clause. A swapped number followed by one of these may start that clause ("3, sorry, 4 were out").
 const CLAUSE_STARTERS = new Set(["was", "were", "is", "are", "am", "will", "would", "can", "could", "should", "have", "has", "had",
   "did", "do", "does", "i", "you", "he", "she", "we", "they", "it", "there", "that", "which", "who", "and", "but", "so", "or", "if"]);
-const WORD_SHAPE_RE = /^[\p{L}\p{N}'’:-]+(?:\.\p{N}+)*$/u;
+const WORD_SHAPE_RE = /^(?:(?:Mr|Mrs|Ms|Dr|Prof)\. )?[\p{L}\p{N}'’:-]+(?:\.\p{N}+)*$/u;
+// A title, which joins the name after it into one word ("Dr. Smith").
+const TITLE_TOKEN_RE = /^(?:Mr|Mrs|Ms|Dr|Prof)\.$/u;
 // Before-words, a cue, then the rest of the sentence. A bare "no" counts only between commas ("Friday, no, Thursday").
 const CORRECTION_SENTENCE_RE = new RegExp(
   String.raw`^(?<lead>\s*)(?<before>[^\n]*?)(?:\s*,?\s*\b(?:${CORRECTION_PHRASES})\b\s*,?|\s*,\s*no\s*,)\s+(?<after>[^\n]+?)(?<end>[.!?]*["'”’»)\]]*)(?<trail>\s*)$`,
@@ -16,7 +18,7 @@ const CORRECTION_SENTENCE_RE = new RegExp(
 // The kind of a word that may replace another: "number" or "name", or null for anything else.
 function wordKind(word: string): "number" | "name" | null {
   if (/^\d/.test(word) || NUMBER_WORDS.includes(word.toLowerCase())) return "number";
-  return /^\p{Lu}\p{Ll}+$/u.test(word) ? "name" : null;
+  return /^(?:(?:Mr|Mrs|Ms|Dr|Prof)\. )?\p{Lu}\p{Ll}+$/u.test(word) ? "name" : null;
 }
 
 // True when each before-word is the same word as its after-word, or the same kind.
@@ -28,6 +30,17 @@ function sameSlots(before: string[], after: string[]): boolean {
   });
 }
 
+// Joins each title with the word after it, so "Dr. Smith" swaps as one name.
+function joinTitles(tokens: string[]): string[] {
+  const joined: string[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index] ?? "";
+    const next = tokens[index + 1];
+    if (TITLE_TOKEN_RE.test(token) && next !== undefined) { joined.push(`${token} ${next}`); index += 1; } else joined.push(token);
+  }
+  return joined;
+}
+
 // Rewrites one sentence "<before> <cue> <after>" by swapping the last before-words for the first after-words,
 // or returns it unchanged when unsafe. Words may follow the swap only when it is a number ("3.5, no, 4.5 minutes").
 function fixSentence(sentence: string): string {
@@ -35,7 +48,7 @@ function fixSentence(sentence: string): string {
   if (!groups) return sentence;
   const { lead = "", before = "", after = "", end = "", trail = "" } = groups;
   const words = before.split(/\s+/).filter(Boolean);
-  const tokens = after.trim().split(/\s+/);
+  const tokens = joinTitles(after.trim().split(/\s+/));
   const clean = tokens.map(token => token.replace(/,$/, ""));
   for (let count = 1; count <= Math.min(MAX_AFTER_WORDS, tokens.length); count += 1) {
     const replacement = clean.slice(0, count);

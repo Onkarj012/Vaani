@@ -23,7 +23,7 @@ function endsSentence(text: string, start: number, markEnd: number, end: number)
   if (LIST_MARKER_RE.test(before)) return false;
   // A title counts only as written, right before a name: "500 ms. Pay" and 'Dr." Next' still split.
   if (TITLE_RE.test(before) && end === markEnd && /^[ \t]+\p{Lu}/u.test(text.slice(end))) return false;
-  return !(DOTTED_ABBREVIATION_RE.test(before) && /^[ \t]+\p{Ll}/u.test(text.slice(end)));
+  return !(end === markEnd && DOTTED_ABBREVIATION_RE.test(before) && /^[ \t]+\p{Ll}/u.test(text.slice(end)));
 }
 
 // Splits dictated text into sentences, each with the spaces after it. A run of line breaks is its own piece.
