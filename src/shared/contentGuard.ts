@@ -515,7 +515,7 @@ function isCorrection(run: readonly (string | null)[], { words, gone, pause, bou
   if (!sameSentence(boundary, start, start + rest - 1)) return false;
   const firstCue = start + rest;
   // A cue that opens a new sentence does not correct a number in the sentence before it ("3. Sorry, 4").
-  if (boundary[firstCue] && replaced.some(word => word !== null && isNumber(word))) return false;
+  if (boundary[firstCue] && !boundary[end + 1] && replaced.some(word => word !== null && isNumber(word))) return false;
   // A replacement in the next sentence needs the cue to stand as its own sentence ("Priyanka, run... Sorry. Priya").
   // Otherwise "He said no. No one agreed." would read as a correction.
   if (boundary[end + 1] && !boundary[firstCue]) return false;
@@ -608,10 +608,49 @@ function outputWordsOf(candidate: string): string[] {
   return outputUnits(candidate).flatMap(unitWords);
 }
 
+// Positions of the source words the output drops. Words that occur once on each side pin the order, so a repeated
+// word ("3" kept later in the sentence) pairs with its own place. Only the gaps between pins use bag matching.
+function droppedPositions(words: readonly string[], output: readonly string[]): number[] {
+  const sourceCounts = countWords(words);
+  const outputCounts = countWords(output);
+  const outputIndex = new Map(output.map((word, position) => [word, position]));
+  const pins: [number, number][] = [];
+  let outputFrom = 0;
+  words.forEach((word, position) => {
+    const outputPosition = outputIndex.get(word) ?? -1;
+    if (sourceCounts.get(word) !== 1 || outputCounts.get(word) !== 1 || outputPosition < outputFrom) return;
+    pins.push([position, outputPosition]);
+    outputFrom = outputPosition + 1;
+  });
+  pins.push([words.length, output.length]);
+  const dropped: number[] = [];
+  let sourceFrom = 0;
+  let outputStart = 0;
+  for (const [sourceEnd, outputEnd] of pins) {
+    dropped.push(...gapDropped(words.slice(sourceFrom, sourceEnd), output.slice(outputStart, outputEnd)).map(position => position + sourceFrom));
+    sourceFrom = sourceEnd + 1;
+    outputStart = outputEnd + 1;
+  }
+  return dropped;
+}
+
+// Positions of a gap's source words that the gap's output drops. Aligns in order, or bag-matches when the gap is too big.
+function gapDropped(words: readonly string[], output: readonly string[]): number[] {
+  const asUnits = (list: readonly string[]): Unit[] => list.map((text): Unit => ({ kind: "word", text }));
+  return alignSections(asUnits(words), asUnits(output))?.dropped ?? unmatchedPositions(words, output);
+}
+
+// How many times each word occurs in a list.
+function countWords(words: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const word of words) counts.set(word, (counts.get(word) ?? 0) + 1);
+  return counts;
+}
+
 // Long transcripts: the source words left after excusing the numbers and cues of each dropped run that isCorrection accepts.
 // wordUnits maps each word to its source unit index. Only a whole word unit can be excused, never a list or line cue.
 function countedSourceWords(units: Unit[], words: readonly string[], wordUnits: readonly number[], output: readonly string[]): string[] {
-  const droppedUnits = new Set(unmatchedPositions(words, output).map(position => wordUnits[position] ?? -1));
+  const droppedUnits = new Set(droppedPositions(words, output).map(position => wordUnits[position] ?? -1));
   const core = units.flatMap((unit, index) => (unit.kind === "filler" ? [] : [index]));
   const info = coreOf(units, core, droppedUnits);
   const excused = new Set<number>();

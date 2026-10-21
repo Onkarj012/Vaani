@@ -89,6 +89,7 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("The answer is 3. Sorry, 4 people are waiting.", "The answer is 4 people are waiting.", [])).toBe(false);
     expect(preservesContentWords("Meet at 3, sorry, 4.", "Meet at 4.", [])).toBe(true);
     expect(preservesContentWords("Meet at 3, no wait, 4.", "Meet at 4.", [])).toBe(true);
+    expect(preservesContentWords("Meet at 3. Sorry. 4.", "Meet at 4.", [])).toBe(true);
   });
 
   it("keeps every word when speech noise is not allowed (cleanup off)", () => {
@@ -286,6 +287,16 @@ describe("long transcripts over the alignment limit", () => {
     const verdict = judgeFormatterReply(raw, `The answer is 4 people are waiting. ${tail} finished.`);
     expect(verdict.rejection).not.toBeNull();
     expect(verdict.dropped).toEqual(expect.arrayContaining(["3", "sorry"]));
+  });
+
+  it("accepts a correction when the kept reply repeats the corrected number", () => {
+    const raw = `Start at 3, no, 4. Keep 3 seats. ${tail} done`;
+    expect(judgeFormatterReply(raw, `Start at 4. Keep 3 seats. ${tail} finished`).rejection).toBeNull();
+  });
+
+  it("accepts a correction whose cue opens a sentence and its replacement does too", () => {
+    const raw = `Done. Meet at 3. Sorry. 4. ${tail} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Meet at 4. ${tail} finish.`).rejection).toBeNull();
   });
 
   it("accepts a genuine correction inside one sentence, dropped or kept", () => {
