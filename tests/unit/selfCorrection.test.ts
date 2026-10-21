@@ -81,6 +81,7 @@ describe("applySelfCorrections", () => {
     expect(applySelfCorrections("Do not pay 500.Pay 200. Scratch that. Call me.")).toBe("Do not pay 500.Call me.");
     expect(applySelfCorrections("यह सही है।वह गलत है। Scratch that. Call me.")).toBe("यह सही है।Call me.");
     expect(applySelfCorrections("Do not pay 500!2 is enough. Scratch that. Call me.")).toBe("Do not pay 500!Call me.");
+    expect(applySelfCorrections("The latency is 500 ms. Pay 200. Scratch that. Call me.")).toBe("The latency is 500 ms. Call me.");
   });
 
   it("swaps inside a quoted sentence", () => {

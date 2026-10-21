@@ -4,7 +4,7 @@ const CLOSER_RE = /["'”’»)\]]/u;
 // A dotted abbreviation that ends at the mark, such as "p.m" in "p.m.".
 const DOTTED_ABBREVIATION_RE = /(?:^|\s)(?:\p{L}\.)+\p{L}$/u;
 // A title that a name always follows, such as "Dr" in "Dr. Smith".
-const TITLE_RE = /(?:^|\s)(?:mr|mrs|ms|dr|prof)$/iu;
+const TITLE_RE = /(?:^|\s)(?:Mr|Mrs|Ms|Dr|Prof)$/u;
 // A list number at the start of a line, such as "2" in "2. Buy eggs.".
 const LIST_MARKER_RE = /(?:^|\n)[ \t]*\p{N}+$/u;
 
@@ -20,7 +20,9 @@ function endsSentence(text: string, start: number, markEnd: number, end: number)
   if (marks.includes("।")) return true;
   if (next !== undefined && !/\s/u.test(next)) return !(marks === "." && end === markEnd && /[\p{L}\p{N}]$/u.test(before) && /[\p{Ll}\p{N}]/u.test(next));
   if (marks !== ".") return true;
-  if (LIST_MARKER_RE.test(before) || TITLE_RE.test(before)) return false;
+  if (LIST_MARKER_RE.test(before)) return false;
+  // A title counts only as written, right before a name: "500 ms. Pay" and 'Dr." Next' still split.
+  if (TITLE_RE.test(before) && end === markEnd && /^[ \t]+\p{Lu}/u.test(text.slice(end))) return false;
   return !(DOTTED_ABBREVIATION_RE.test(before) && /^[ \t]+\p{Ll}/u.test(text.slice(end)));
 }
 
