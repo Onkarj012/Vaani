@@ -76,7 +76,7 @@ describe("OverlayController lifecycle characterization", () => {
     const { OverlayController } = await import("@main/overlay");
     const controller = new OverlayController();
 
-    controller.setRecording();
+    controller.setRecording("s1");
     await Promise.resolve();
     await Promise.resolve();
 
@@ -93,7 +93,7 @@ describe("OverlayController lifecycle characterization", () => {
     const { OverlayController } = await import("@main/overlay");
     const controller = new OverlayController();
 
-    controller.setRecording();
+    controller.setRecording("s1");
     await Promise.resolve();
     await Promise.resolve();
     const win = windows[0];
@@ -112,7 +112,7 @@ describe("OverlayController lifecycle characterization", () => {
   it("clears status text on hide and on new recording modes", async () => {
     const { OverlayController } = await import("@main/overlay");
     const controller = new OverlayController();
-    controller.setRecording();
+    controller.setRecording("s1");
     await Promise.resolve();
     await Promise.resolve();
     const win = windows[0];
@@ -131,7 +131,42 @@ describe("OverlayController lifecycle characterization", () => {
     expect(win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-status").slice(beforePressed)).toEqual([["capsule:set-status", null]]);
     controller.setStatusMessage("Old failure");
     const beforeRecording = win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-status").length;
-    controller.setRecording();
+    controller.setRecording("s1");
     expect(win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-status").slice(beforeRecording)).toEqual([["capsule:set-status", null]]);
+  });
+
+  it("resends hands-free state after each mode update so a replayed pressed cannot hide the controls", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+    controller.setRecording("s1");
+    await Promise.resolve();
+    await Promise.resolve();
+    const win = windows[0];
+    if (!win) throw new Error("Expected overlay window.");
+    win.webContents.ipc.handlers.get("capsule:ready")?.();
+    await Promise.resolve();
+
+    controller.setHandsFree(true);
+    win.webContents.send.mockClear();
+    controller.setPressed();
+    vi.advanceTimersByTime(200);
+
+    const sent = win.webContents.send.mock.calls.filter(([channel]) => channel === "capsule:set-mode" || channel === "capsule:set-hands-free");
+    expect(sent.at(-1)).toEqual(["capsule:set-hands-free", true]);
+  });
+
+  it("sends the recording session id to the overlay", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+    controller.setRecording("s1");
+    await Promise.resolve();
+    await Promise.resolve();
+    const win = windows[0];
+    if (!win) throw new Error("Expected overlay window.");
+    win.webContents.ipc.handlers.get("capsule:ready")?.();
+    await Promise.resolve();
+
+    controller.setHandsFree(true);
+    expect(win.webContents.send).toHaveBeenLastCalledWith("capsule:set-session", "s1");
   });
 });

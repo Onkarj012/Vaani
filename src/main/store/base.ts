@@ -1,22 +1,42 @@
 import { readFile, writeFile, mkdir, rename, unlink, chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { error } from "@main/log";
 
-export async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
+// Thrown when a store file exists but cannot be read, parsed, or validated.
+export class JsonFileReadError extends Error {
+  constructor(filePath: string, reason: string) {
+    super(`Could not read ${filePath} (${reason}). The file was left unchanged.`);
+    this.name = "JsonFileReadError";
+  }
+}
+
+// Returns the fallback only when the file is missing. Any other failure throws, so the caller never overwrites the file.
+export async function readJsonFile<T>(filePath: string, fallback: T, isValid: (data: unknown) => boolean): Promise<T> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
-  } catch {
-    return fallback;
+  } catch (err) {
+    const code = err instanceof Error && "code" in err ? String(err.code) : null;
+    if (code === "ENOENT") return fallback;
+    throw failRead(filePath, code ? `file error ${code}` : "file error");
   }
-  let data: T;
+  let data: unknown;
   try {
-    data = JSON.parse(raw) as T;
+    data = JSON.parse(raw);
   } catch {
-    return fallback;
+    // Parser messages can quote the file, which may hold transcripts or keys.
+    throw failRead(filePath, "invalid JSON");
   }
+  if (!isValid(data)) throw failRead(filePath, "unexpected JSON shape");
   await chmod(filePath, 0o600).catch(() => undefined);
-  return data;
+  return data as T;
+}
+
+// Logs a failed read and returns the error to throw. The reason never includes file contents.
+function failRead(filePath: string, reason: string): JsonFileReadError {
+  error("store", `Could not read ${filePath}: ${reason}`);
+  return new JsonFileReadError(filePath, reason);
 }
 
 export async function repairJsonFilePermissions(filePath: string): Promise<void> {

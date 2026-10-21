@@ -5,6 +5,9 @@ export const DEFAULT_FILLER_WORDS = [
   "um", "uh"
 ];
 
+// Bumped when transcription defaults change. Existing visible provider choices are preserved.
+export const STT_DEFAULT_VERSION = 2;
+
 export const DEFAULT_SETTINGS: Settings = {
   onboardingCompleted: false,
   groqApiKey: "",
@@ -34,12 +37,14 @@ export const DEFAULT_SETTINGS: Settings = {
   // Phase 0
   dictationMode: "toggle",
   saveRecordings: false,
+  suggestDictionaryWords: false,
   recordingsPath: "",
   recoveryRetentionDays: 3,
   retainFailedAudio: false,
   // Phase 1
-  transcriptionProvider: "openrouter",
-  transcriptionModel: defaultModelFor("transcription", "openrouter"),
+  transcriptionProvider: "groq",
+  transcriptionModel: defaultModelFor("transcription", "groq"),
+  sttDefaultVersion: STT_DEFAULT_VERSION,
   formattingProvider: "openrouter",
   formattingModel: defaultModelFor("cleanup", "openrouter"),
   providerApiKeys: [],
@@ -52,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   micDeviceId: undefined,
   preWarmMic: false,
   captureBackend: "renderer",
+  captureProcessing: "default",
   stylePreset: "plain",
   // Onboarding tracking
   dictionaryOnboarded: false,
@@ -127,6 +133,7 @@ export function isLanguageSupportedByProvider(
 export const HISTORY_LIMIT = 2000;
 export const SUCCESS_RESET_MS = 600;
 export const ERROR_RESET_MS = 1_800;
+export const MAX_AUDIO_DURATION_SECONDS = 600;
 export const HOTKEY_DOUBLE_PRESS_WINDOW_MS = 350;
 export const APP_DATA_DIR = ".vaani";
 

@@ -12,11 +12,13 @@ export function readFocusedSelection(): SelectionRange | null {
 }
 
 // Puts the caret after text just inserted at start when the app left it exactly at start.
-export function moveCaretAfterInsertion(text: string, start: number | undefined): void {
-  if (start === undefined) return;
+// Returns false only while the caret is still at start and the text has not reached the field, so a caller may try again.
+export function moveCaretAfterInsertion(text: string, start: number | undefined): boolean {
+  if (start === undefined) return true;
   const end = start + text.length;
   let before = -1;
   let moved = false;
+  let landed = true;
   try {
     const caret = readFocusedSelection();
     before = caret?.location ?? -1;
@@ -24,11 +26,13 @@ export function moveCaretAfterInsertion(text: string, start: number | undefined)
     // Some Electron editors leave the caret at the paste start; any other position is the user's own move.
     const stale = caret !== null && caret.length === 0 && caret.location === start;
     // Never guess: move only when the field has our text exactly at start..end.
-    if (stale && value?.slice(start, end) === text) {
+    landed = !stale || value?.slice(start, end) === text;
+    if (stale && landed) {
       moved = nativeBridge.setFocusedSelection?.(end, 0) ?? false;
     }
   } catch {
     moved = false;
   }
-  debug("injection", "insertion:caret", { start, end, before, moved });
+  debug("injection", "insertion:caret", { start, end, before, moved, landed });
+  return landed;
 }

@@ -6,6 +6,7 @@ import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { defaultModelFor } from "@shared/modelList";
 import { isCanonicalHotkey } from "@shared/hotkeys";
+import { MAX_AUDIO_DURATION_SECONDS } from "@shared/defaults";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioVisualFrame,
@@ -15,6 +16,7 @@ import type {
   ProviderApiKey,
   ProviderKeyValidation,
   RecorderFailure,
+  CaptureTrackSettings,
   RecorderSubmission,
   RecorderSuspensionAck,
   Settings,
@@ -87,9 +89,9 @@ const MAX_TEXT_LENGTH = 100_000;
 const MAX_SECRET_LENGTH = 8_192;
 const MAX_LIST_LENGTH = 500;
 const MAX_CUSTOM_CORRECTION_HIT_COUNT = 1_000_000;
-const MAX_AUDIO_DURATION_SECONDS = 600;
 const MAX_AUDIO_SAMPLES = 10_000_000;
 const MAX_RMS_FRAMES = 100_000;
+const MAX_AUDIO_GAIN = 100;
 
 type IpcSenderEvent = Electron.IpcMainEvent | Electron.IpcMainInvokeEvent;
 type IpcWindow = { webContents: { send: (channel: string, ...args: unknown[]) => void }; isDestroyed: () => boolean };
@@ -227,6 +229,7 @@ const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) =
   capsuleDesign: (value) => isOneOf(value, ["dot", "bar", "rule", "pill"]),
   dictationMode: (value) => isOneOf(value, ["toggle", "push-to-talk", "toggle-double"]),
   saveRecordings: (value) => typeof value === "boolean",
+  suggestDictionaryWords: (value) => typeof value === "boolean",
   recordingsPath: (value) => {
     if (!isBoundedString(value, 4_096)) return false;
     if (value === "") return true;
@@ -249,11 +252,13 @@ const SETTINGS_VALIDATORS: { [K in keyof Required<Settings>]: (value: unknown) =
   micDeviceId: (value) => value === undefined || isBoundedString(value, MAX_SHORT_TEXT_LENGTH),
   preWarmMic: (value) => typeof value === "boolean",
   captureBackend: (value) => isOneOf(value, ["native", "renderer"]),
+  captureProcessing: (value) => isOneOf(value, ["default", "unprocessed"]),
   stylePreset: (value) => isOneOf(value, ["plain", "developer", "casual", "formal", "email"]),
   dictionaryOnboarded: (value) => typeof value === "boolean",
   snippetsOnboarded: (value) => typeof value === "boolean",
   setupChecklistDismissed: (value) => typeof value === "boolean",
   openRouterKeyPromptShown: (value) => typeof value === "boolean",
+  sttDefaultVersion: (value) => value === undefined || typeof value === "number",
   appProfiles: (value) => value === undefined || (Array.isArray(value) && value.length <= 100 && value.every(isAppProfile)),
 };
 
@@ -265,9 +270,12 @@ function isSettingsPatch(value: unknown): value is Partial<Settings> {
   });
 }
 
+const CAPTURE_SETTING_KEYS = ["echoCancellation", "autoGainControl", "noiseSuppression"] as const;
+
 function isAudioClip(value: unknown): value is RecorderSubmission["clip"] {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["pcmData", "sampleRate", "durationSeconds", "rmsFrames"])) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["pcmData", "sampleRate", "durationSeconds", "rmsFrames", "gain"])) return false;
   if (!isFiniteNumberInRange(value.sampleRate, 8_000, 192_000)) return false;
+  if (value.gain !== undefined && !isFiniteNumberInRange(value.gain, 1, MAX_AUDIO_GAIN)) return false;
   if (!isFiniteNumberInRange(value.durationSeconds, 0, MAX_AUDIO_DURATION_SECONDS)) return false;
   if (!Array.isArray(value.pcmData) || value.pcmData.length === 0 || value.pcmData.length > MAX_AUDIO_SAMPLES) return false;
   const sampleCheckCount = Math.min(value.pcmData.length, 4_096);
@@ -284,15 +292,23 @@ function isAudioClip(value: unknown): value is RecorderSubmission["clip"] {
     && value.rmsFrames.every((frame) => isFiniteNumberInRange(frame, 0, 1));
 }
 
+// Accepts only the boolean processing flags the renderer reports.
+function isCaptureTrackSettings(value: unknown): value is CaptureTrackSettings {
+  return isRecord(value)
+    && hasOnlyKeys(value, CAPTURE_SETTING_KEYS)
+    && CAPTURE_SETTING_KEYS.every((key) => value[key] === undefined || typeof value[key] === "boolean");
+}
+
 function isRecorderSubmission(value: unknown): value is RecorderSubmission {
   return isRecord(value)
-    && hasOnlyKeys(value, ["sessionId", "clip", "tailMetrics"])
+    && hasOnlyKeys(value, ["sessionId", "clip", "tailMetrics", "captureSettings"])
     && isBoundedString(value.sessionId, MAX_ID_LENGTH, false)
     && isAudioClip(value.clip)
     && (value.tailMetrics === undefined || (isRecord(value.tailMetrics)
       && hasOnlyKeys(value.tailMetrics, ["lastFrameAfterStopMs", "trailingRms"])
       && isFiniteNumberInRange(value.tailMetrics.lastFrameAfterStopMs, -MAX_AUDIO_DURATION_SECONDS * 1000, 5_000)
-      && isFiniteNumberInRange(value.tailMetrics.trailingRms, 0, 1)));
+      && isFiniteNumberInRange(value.tailMetrics.trailingRms, 0, 1)))
+    && (value.captureSettings === undefined || isCaptureTrackSettings(value.captureSettings));
 }
 
 function isAudioVisualFrame(value: unknown): value is AudioVisualFrame {
@@ -378,10 +394,10 @@ async function openPermissionSettings(permission: keyof PermissionStatus): Promi
 
 export interface RegisterIpcHandlersOptions {
   mainWindow: IpcWindow | null;
-  dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry">;
+  dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry" | "pauseRecording" | "resumeRecording">;
   history: Pick<HistoryStore, "getAll" | "getById" | "updateById" | "getLatest" | "delete" | "clear">;
-  settings: Pick<SettingsStore, "get" | "update" | "flush">;
-  hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "reregister" | "setCaptureActive">;
+  settings: Pick<SettingsStore, "get" | "update" | "flush" | "saveBlockedReason">;
+  hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "isHandsFree" | "reregister" | "setCaptureActive" | "stopFromMenu">;
   recorder?: { getWindow: () => IpcWindow | null; markReady: () => void; acknowledgeLifecycleSuspension?: (ack: RecorderSuspensionAck) => boolean };
   overlay?: { getWindow: () => IpcWindow | null };
   credentials?: Pick<CredentialsStore, "has" | "set" | "delete">;
@@ -429,6 +445,12 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
       sanitized.providerApiKeys = await buildRendererApiKeys(current.providerApiKeys ?? [], credentials);
     }
     return sanitized;
+  }
+
+  // Refuses key changes while settings can't be saved, so Keychain and settings never disagree.
+  // Callers refresh settings next, which shows the blocked-save banner.
+  function keyChangeBlocked(): boolean {
+    return settings.saveBlockedReason() !== null;
   }
 
   function syncProviderApiKeyMetadata(
@@ -611,6 +633,8 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.UpdateSettings, async (event, patch: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isSettingsPatch(patch)) return getSanitizedSettings();
+    const blocked = settings.saveBlockedReason();
+    if (blocked) throw new Error(blocked);
     let settingsPatch: Partial<Settings> = { ...patch };
 
     if ("groqApiKey" in settingsPatch) {
@@ -771,6 +795,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
       micDeviceId: settings.get().micDeviceId,
       preWarmMic: settings.get().preWarmMic,
       captureBackend: settings.get().captureBackend,
+      captureProcessing: settings.get().captureProcessing,
     };
   });
 
@@ -778,7 +803,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.SetProviderApiKey, async (event, providerId: unknown, apiKey: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(providerId, MAX_ID_LENGTH, false) || !isBoundedString(apiKey, MAX_SECRET_LENGTH, false)) return getSanitizedSettings();
-    if (!credentials) return getSanitizedSettings();
+    if (!credentials || keyChangeBlocked()) return getSanitizedSettings();
     await credentials.set(providerId, apiKey);
     syncProviderApiKeyMetadata(providerId, true, null);
     return getSanitizedSettings();
@@ -787,7 +812,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.ClearProviderApiKey, async (event, providerId: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(providerId, MAX_ID_LENGTH, false)) return getSanitizedSettings();
-    if (!credentials) return getSanitizedSettings();
+    if (!credentials || keyChangeBlocked()) return getSanitizedSettings();
     await credentials.delete(providerId);
     syncProviderApiKeyMetadata(providerId, false, null);
     return getSanitizedSettings();
@@ -803,7 +828,8 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     const hasKey = credentials
       ? await credentials.has(providerId)
       : settings.get().providerApiKeys?.some((pk) => pk.providerId === providerId && pk.hasKey === true) ?? false;
-    syncProviderApiKeyMetadata(providerId, hasKey, { ...result, testedAt: new Date().toISOString() });
+    // A blocked settings file only loses the "last tested" note; the result still reaches the user.
+    if (!settings.saveBlockedReason()) syncProviderApiKeyMetadata(providerId, hasKey, { ...result, testedAt: new Date().toISOString() });
     return result;
   });
 
@@ -828,6 +854,33 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     if (latest) {
       dictation.navigateToHistoryEntry(latest.id);
     }
+  });
+
+  // Overlay clicks act only on the hands-free recording the overlay was showing.
+  const isOverlayControlTarget = (sessionId: unknown): sessionId is string => {
+    if (!isBoundedString(sessionId, MAX_ID_LENGTH, false)) return false;
+    const state = dictation.getState();
+    return state.status === "recording" && state.sessionId === sessionId && hotkeys.isHandsFree();
+  };
+
+  // Capsule overlay hands-free controls
+  ipcMain.on("capsule:pause", (event, sessionId: unknown) => {
+    if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    if (!isOverlayControlTarget(sessionId)) return;
+    dictation.pauseRecording();
+  });
+
+  ipcMain.on("capsule:resume", (event, sessionId: unknown) => {
+    if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    if (!isOverlayControlTarget(sessionId)) return;
+    dictation.resumeRecording();
+  });
+
+  // Send ends the session the same way a hotkey release or toggle press does.
+  ipcMain.on("capsule:send", (event, sessionId: unknown) => {
+    if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    if (!isOverlayControlTarget(sessionId)) return;
+    hotkeys.stopFromMenu();
   });
 
   // Demo transcription (bypasses history and injection)

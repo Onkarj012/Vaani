@@ -1,9 +1,8 @@
 import type { FormattingProvider, FormattingResult } from "../types";
 import { formatterErrorReason, formatterResult } from "../types";
-import { diffContentWords, stripReasoningBlocks } from "@shared/contentGuard";
+import { judgeFormatterReply, stripReasoningBlocks } from "@shared/contentGuard";
 import { defaultModelFor, providerModels } from "@shared/modelList";
 import {
-  CHANGED_WORDS_REASON,
   CHAT_REPLY_REASON,
   EMPTY_REPLY_REASON,
   EMPTY_TRANSCRIPT_REASON,
@@ -18,15 +17,12 @@ import {
 import { validateBearerEndpoint } from "../validation";
 import { isAbortError, runWithDeadline } from "@main/cancellation";
 
-const ADDED_CONTENT_WORD_SLACK = 3;
 
 const ASSISTANT_REPLY_PATTERN = /\b(please provide|i['\u2019]ll format|i will format|here['\u2019]s the|let me|as requested|i hope|i think|i believe|the answer is|based on|as an ai|sure!?|certainly!?|of course!?)\b/i;
 
-// Why the formatter reply must be rejected, or null when its words check out.
-function contentRejection(rawText: string, candidate: string, fillers: readonly string[]): string | null {
-  const diff = diffContentWords(rawText, candidate, fillers);
-  if (diff.rejection) return diff.rejection;
-  return diff.missing.length > 0 || diff.added.length > ADDED_CONTENT_WORD_SLACK ? CHANGED_WORDS_REASON : null;
+// Why the formatter reply must be rejected, or null when its words check out. Matches the service's final guard.
+function contentRejection(rawText: string, candidate: string, fillers: readonly string[], literal: boolean | undefined): string | null {
+  return judgeFormatterReply(rawText, candidate, fillers, { speechNoise: !literal }).rejection;
 }
 
 async function requestFormatting(text: string, options: Parameters<FormattingProvider["format"]>[1], prompt: string): Promise<string | null> {
@@ -48,7 +44,7 @@ async function requestFormatting(text: string, options: Parameters<FormattingPro
       }),
       signal,
     });
-    if (!response.ok) throw new Error(`OpenAI API request failed with status ${response.status}.`);
+    if (!response.ok) throw Object.assign(new Error(`OpenAI API request failed with status ${response.status}.`), { status: response.status });
     return await response.json() as { choices: { message: { content: string } }[] };
   });
   return stripReasoningBlocks(data.choices[0]?.message?.content ?? "") || null;
@@ -70,11 +66,11 @@ export const OpenAILlmProvider: FormattingProvider = {
       const formatted = await requestFormatting(text, options, options.systemPrompt || FORMATTING_PROMPT);
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
       if (ASSISTANT_REPLY_PATTERN.test(formatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
-      if (contentRejection(text, formatted, options.fillerWords)) {
-        const strictFormatted = await requestFormatting(text, options, STRICT_FORMATTING_PROMPT);
+      if (contentRejection(text, formatted, options.fillerWords, options.literal)) {
+        const strictFormatted = await requestFormatting(text, options, options.strictSystemPrompt || STRICT_FORMATTING_PROMPT);
         if (!strictFormatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
         if (ASSISTANT_REPLY_PATTERN.test(strictFormatted)) return formatterResult("rejected", text, CHAT_REPLY_REASON);
-        const strictRejection = contentRejection(text, strictFormatted, options.fillerWords);
+        const strictRejection = contentRejection(text, strictFormatted, options.fillerWords, options.literal);
         if (strictRejection) return formatterResult("rejected", text, strictRejection);
         return formatterResult("ran", strictFormatted, FORMATTED_REASON);
       }

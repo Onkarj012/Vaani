@@ -317,6 +317,25 @@ describe("HotkeyManager", () => {
     expect(unregisterMock).toHaveBeenCalledWith("Escape");
   });
 
+  it("reports hands-free start and end to the listener", async () => {
+    const listener = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, dictationMode: "toggle" }),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+    manager.setHandsFreeListener(listener);
+
+    manager.startFromMenu();
+    manager.stopFromMenu();
+
+    expect(listener.mock.calls).toEqual([[true], [false]]);
+  });
+
   it("drops the hands-free lock and Escape when the recording ended on its own", async () => {
     startHotkeyMonitorMock.mockReturnValue(true);
     startPasteLatestMonitorMock.mockReturnValue(true);

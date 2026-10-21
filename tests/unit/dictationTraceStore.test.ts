@@ -37,6 +37,21 @@ afterEach(async () => {
 });
 
 describe("DictationTraceStore", () => {
+  it("closes traces an earlier run left started and leaves finished ones alone", async () => {
+    const store = await createStore();
+    await store.upsert(trace("left-open"));
+    await store.upsert({ ...trace("done"), outcome: "verified", completedAt: "2026-06-29T00:00:01.000Z" });
+
+    await expect(store.closeUnfinished()).resolves.toBe(1);
+
+    const closed = await store.getById("left-open");
+    expect(closed).toMatchObject({ outcome: "failed", rejectionReason: "cancelled" });
+    // Startup may be hours after the stop, so the repaired trace claims no completion time.
+    expect(closed?.completedAt).toBeUndefined();
+    expect(await store.getById("done")).toMatchObject({ outcome: "verified", completedAt: "2026-06-29T00:00:01.000Z" });
+    await expect(store.closeUnfinished()).resolves.toBe(0);
+  });
+
   it.each(["verified", "unconfirmed", "refused", "copy-only", "failed"] as const)("reloads the %s insertion outcome", async (outcome) => {
     const store = await createStore();
     await store.upsert({ ...trace(outcome), outcome, stages: { outcome } });
@@ -140,6 +155,8 @@ describe("DictationTraceStore", () => {
         {
           provider: "groq",
           success: true,
+          model: "whisper-large-v3-turbo",
+          fallbackReason: "openrouter failed",
           latencyMs: "slow",
           quality: {
             provider: "groq",
@@ -171,6 +188,7 @@ describe("DictationTraceStore", () => {
     expect(loaded?.qualityDecision).toEqual({ action: "save", reason: "quiet-short-fragment" });
     expect(loaded?.providerAttempts).toHaveLength(1);
     expect(loaded?.providerAttempts?.[0]?.latencyMs).toBeUndefined();
+    expect(loaded?.providerAttempts?.[0]).toMatchObject({ model: "whisper-large-v3-turbo", fallbackReason: "openrouter failed" });
     expect(loaded?.providerAttempts?.[0]?.quality?.noSpeechProbability).toBe(0.8);
     expect(loaded?.injectionAttempts?.[0]).toMatchObject({ targetAppBundleId: null, targetAppName: "TextEdit", success: true });
     expect(loaded?.injectionAttempts?.[0]?.method).toBeUndefined();
@@ -181,6 +199,65 @@ describe("DictationTraceStore", () => {
     await store.updateById("malformed", (current) => ({ ...current, userMessage: "Future schema retained" }));
     const reloaded = new DictationTraceStore(filePath);
     expect((await reloaded.getById("malformed"))?.outcome).toBe("nonsense");
+  });
+
+  it("sanitizes capture, gate, and segment fields on load", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vaani-trace-test-"));
+    const filePath = join(tempDir, "traces.json");
+    await writeFile(filePath, JSON.stringify([{
+      id: "capture",
+      sessionId: "session-capture",
+      startedAt: "2026-06-29T00:00:00.000Z",
+      targetAppBundleId: null,
+      targetAppName: null,
+      captureSettings: { echoCancellation: true, autoGainControl: "yes", noiseSuppression: false, extra: 1 },
+      captureLevels: { preGainPeak: 0.02, preGainRms: "loud", gain: 5 },
+      speechGate: { pass: true, reason: "speech", noiseFloor: 0.01, enterThreshold: 0.03, longestRunMs: 200, totalSpeechMs: 300 },
+      quality: { provider: "groq", attemptCount: 1, supportsConfidence: true, transcriptLength: 9, segmentNoSpeechProbabilities: [0.1, "x", 0.4] },
+      outcome: "verified",
+    }, {
+      id: "gate-decision",
+      sessionId: "session-gate-decision",
+      startedAt: "2026-06-29T00:00:00.000Z",
+      targetAppBundleId: null,
+      targetAppName: null,
+      speechGate: { pass: true, decision: "uncertain", reason: "no-speech-contrast", noiseFloor: 0.004, enterThreshold: 0.01, longestRunMs: 0, totalSpeechMs: 0 },
+      outcome: "verified",
+    }, {
+      id: "gate-bad-decision",
+      sessionId: "session-gate-bad-decision",
+      startedAt: "2026-06-29T00:00:00.000Z",
+      targetAppBundleId: null,
+      targetAppName: null,
+      speechGate: { pass: true, decision: "maybe", reason: "speech", noiseFloor: 0.01, enterThreshold: 0.03, longestRunMs: 200, totalSpeechMs: 300 },
+      outcome: "verified",
+    }]), "utf8");
+
+    const { DictationTraceStore } = await import("@main/store/dictationTrace");
+    const store = new DictationTraceStore(filePath);
+    const loaded = await store.getById("capture");
+
+    expect(loaded?.captureSettings).toEqual({ echoCancellation: true, noiseSuppression: false });
+    expect(loaded?.captureLevels).toBeUndefined();
+    expect(loaded?.speechGate).toEqual({ pass: true, reason: "speech", noiseFloor: 0.01, enterThreshold: 0.03, longestRunMs: 200, totalSpeechMs: 300 });
+    expect((await store.getById("gate-decision"))?.speechGate?.decision).toBe("uncertain");
+    expect((await store.getById("gate-bad-decision"))?.speechGate?.decision).toBeUndefined();
+    expect(loaded?.quality?.segmentNoSpeechProbabilities).toEqual([0.1, 0.4]);
+  });
+
+  it("caps the per-segment no-speech list at 50 entries on write", async () => {
+    const store = await createStore();
+    await store.upsert({
+      ...trace("long-clip"),
+      quality: {
+        provider: "groq",
+        attemptCount: 1,
+        supportsConfidence: true,
+        transcriptLength: 9,
+        segmentNoSpeechProbabilities: Array.from({ length: 60 }, () => 0.1),
+      },
+    });
+    expect((await store.getById("long-clip"))?.quality?.segmentNoSpeechProbabilities).toHaveLength(50);
   });
 
   it("retains baseline-unreadable insertion verification reasons on load", async () => {

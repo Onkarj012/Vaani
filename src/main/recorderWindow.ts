@@ -132,6 +132,14 @@ export class RecorderWindowController {
     return this.sendOrQueue(IpcChannel.StopRecording, sessionId);
   }
 
+  pauseRecording(sessionId: string): void {
+    if (this.isReady()) this.send(IpcChannel.PauseCapture, sessionId);
+  }
+
+  resumeRecording(sessionId: string): void {
+    if (this.isReady()) this.send(IpcChannel.ResumeCapture, sessionId);
+  }
+
   abortRecording(sessionId: string): void {
     if (this.pendingCommand?.channel === IpcChannel.StartRecording && this.pendingCommand.sessionId === sessionId) {
       this.pendingCommand = null;
@@ -222,7 +230,7 @@ export class RecorderWindowController {
     return true;
   }
 
-  private send(channel: IpcChannel.StartRecording | IpcChannel.StopRecording | IpcChannel.AbortRecording | IpcChannel.SuspendRecording | IpcChannel.ResumeRecording, sessionId: string): void {
+  private send(channel: IpcChannel.StartRecording | IpcChannel.StopRecording | IpcChannel.AbortRecording | IpcChannel.SuspendRecording | IpcChannel.ResumeRecording | IpcChannel.PauseCapture | IpcChannel.ResumeCapture, sessionId: string): void {
     if (!this.window || this.window.isDestroyed()) {
       return;
     }

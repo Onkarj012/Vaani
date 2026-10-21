@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RecorderCommand } from "@shared/types";
+import type { AudioClip, RecorderCommand } from "@shared/types";
 
 // Hold an input operation open until the test chooses to finish it.
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -9,18 +9,24 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 // Loads the renderer recorder with stubbed input preparation and microphone access.
-async function loadRecorder(prepareInput: () => Promise<number | null>) {
+async function loadRecorder(prepareInput: () => Promise<number | null>, closeContext: () => Promise<void> = async () => {}, preWarmMic = false) {
   vi.resetModules();
   const microphones: Array<{ resolve: (stream: MediaStream) => void; track: { onended: null; onmute: null; stop: ReturnType<typeof vi.fn> } }> = [];
   let onStart: ((command: RecorderCommand) => void) | undefined;
   let onAbort: ((command: RecorderCommand) => void) | undefined;
+  let onStop: ((command: { sessionId: string }) => void) | undefined;
+  let onPause: ((command: { sessionId: string }) => void) | undefined;
+  type AudioProcessHandler = ((event: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null;
+  const processors: Array<{ onaudioprocess: AudioProcessHandler }> = [];
 
   const recorderApi = {
     onStartRecording: (callback: (command: RecorderCommand) => void) => { onStart = callback; return () => {}; },
-    onStopRecording: () => () => {},
+    onStopRecording: (callback: (command: { sessionId: string }) => void) => { onStop = callback; return () => {}; },
     onAbortRecording: (callback: (command: RecorderCommand) => void) => { onAbort = callback; return () => {}; },
     onSuspendRecording: () => () => {},
     onResumeRecording: () => () => {},
+    onPauseCapture: (callback: (command: { sessionId: string }) => void) => { onPause = callback; return () => {}; },
+    onResumeCapture: () => () => {},
     onRecorderConfigChanged: () => () => {},
     getRecorderConfig: async () => ({ preWarmMic: false }),
     reportRecorderReady: async () => {},
@@ -28,7 +34,7 @@ async function loadRecorder(prepareInput: () => Promise<number | null>) {
     reportAudioFrame: async () => {},
     reportRecorderFailure: async () => {},
     reportRecorderSuspended: async () => {},
-    submitAudioClip: async () => {},
+    submitAudioClip: vi.fn(async (_payload: { sessionId: string; clip: AudioClip }) => {}),
     prepareRecordingInput: vi.fn(prepareInput),
     restoreRecordingInput: vi.fn(async () => true),
     listAudioInputDevices: async () => [{ uid: "built-in", name: "Built-in Microphone", transportType: "built-in", isPhysical: true }],
@@ -39,6 +45,8 @@ async function loadRecorder(prepareInput: () => Promise<number | null>) {
     track = { onended: null, onmute: null, stop: vi.fn() };
     // Expose the microphone track so cancellation can release it.
     getTracks() { return [this.track]; }
+    // Report no processing flags, so a stop can read capture settings.
+    getAudioTracks() { return [{ getSettings: () => ({}) }]; }
   });
   vi.stubGlobal("navigator", {
     mediaDevices: {
@@ -59,19 +67,29 @@ async function loadRecorder(prepareInput: () => Promise<number | null>) {
     // Supply the source node used to connect microphone capture.
     createMediaStreamSource() { return { connect: () => {}, disconnect: () => {} }; }
     // Supply the fallback processor used when worklets are unavailable.
-    createScriptProcessor() { return { onaudioprocess: null, connect: () => {}, disconnect: () => {} }; }
+    createScriptProcessor() {
+      const processor = { onaudioprocess: null as AudioProcessHandler, connect: () => {}, disconnect: () => {} };
+      processors.push(processor);
+      return processor;
+    }
     resume = async () => {};
-    close = async () => {};
+    close = closeContext;
   });
 
   await import("@renderer/recorder/main");
-  const command = (sessionId: string): RecorderCommand => ({ sessionId, config: { preWarmMic: false } });
+  const command = (sessionId: string): RecorderCommand => ({ sessionId, config: { preWarmMic } });
   return {
     recorderApi,
     microphones,
     getUserMedia: navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>,
     start: (sessionId: string) => onStart?.(command(sessionId)),
     abort: (sessionId: string) => onAbort?.(command(sessionId)),
+    stop: (sessionId: string) => onStop?.({ sessionId }),
+    pause: (sessionId: string) => onPause?.({ sessionId }),
+    // Deliver one block of samples at the given level to the open capture.
+    feed: (level: number) => processors.at(-1)?.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(2048).fill(level) } }),
+    // Delivers one audio frame through the newest capture, which is when the recorder reports a start.
+    sendFrame: () => processors.at(-1)?.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(2048).fill(0.1) } }),
   };
 }
 
@@ -101,6 +119,36 @@ describe("renderer recorder start cancellation", () => {
     }
   });
 
+  it("keeps paused speech out of the next recording's pre-roll", async () => {
+    const recorder = await loadRecorder(async () => 7, undefined, true);
+    recorder.start("A");
+    await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledOnce());
+    recorder.microphones[0]?.resolve(new MediaStream());
+    // A start is reported once audio arrives, so each wait feeds a frame.
+    await vi.waitFor(() => {
+      recorder.feed(0.05);
+      expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("A");
+    });
+
+    recorder.pause("A");
+    recorder.feed(0.5);
+    recorder.stop("A");
+    await vi.waitFor(() => expect(recorder.recorderApi.submitAudioClip).toHaveBeenCalledTimes(1), { timeout: 3000 });
+
+    recorder.start("B");
+    await vi.waitFor(() => {
+      recorder.feed(0);
+      expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("B");
+    });
+    recorder.stop("B");
+    await vi.waitFor(() => expect(recorder.recorderApi.submitAudioClip).toHaveBeenCalledTimes(2), { timeout: 3000 });
+
+    // B only ever heard silence, so any loud sample in its clip is A's paused speech (0.5) leaking in through the pre-roll.
+    const clipB = recorder.recorderApi.submitAudioClip.mock.calls[1]?.[0].clip;
+    expect(clipB).toBeDefined();
+    expect(Math.max(...(clipB?.pcmData ?? []).map((sample) => Math.abs(sample)))).toBeLessThan(0.25);
+  });
+
   it("keeps the next recording's microphone open when it starts during a cancelled open", async () => {
     const recorder = await loadRecorder(async () => 7);
     recorder.start("cancelled");
@@ -112,8 +160,39 @@ describe("renderer recorder start cancellation", () => {
     await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledTimes(2));
     recorder.microphones[1]?.resolve(new MediaStream());
 
-    await vi.waitFor(() => expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("next"));
+    await vi.waitFor(() => {
+      recorder.sendFrame();
+      expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("next");
+    });
     expect(recorder.recorderApi.reportRecorderStarted).not.toHaveBeenCalledWith("cancelled");
+    expect(recorder.microphones[0]?.track.stop).toHaveBeenCalledOnce();
+    expect(recorder.microphones[1]?.track.stop).not.toHaveBeenCalled();
+  });
+
+  it("keeps the next recording's microphone when an abort is still closing the old one", async () => {
+    const closing = deferred<void>();
+    let closeCalls = 0;
+    const recorder = await loadRecorder(async () => null, () => { closeCalls += 1; return closeCalls === 1 ? closing.promise : Promise.resolve(); });
+    recorder.start("old");
+    await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledOnce());
+    recorder.microphones[0]?.resolve(new MediaStream());
+    await vi.waitFor(() => {
+      recorder.sendFrame();
+      expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("old");
+    });
+
+    recorder.abort("old");
+    recorder.start("next");
+    // The next mic opens while the old close() is still pending.
+    await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledTimes(2));
+    recorder.microphones[1]?.resolve(new MediaStream());
+    await vi.waitFor(() => {
+      recorder.sendFrame();
+      expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("next");
+    });
+    closing.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
     expect(recorder.microphones[0]?.track.stop).toHaveBeenCalledOnce();
     expect(recorder.microphones[1]?.track.stop).not.toHaveBeenCalled();
   });

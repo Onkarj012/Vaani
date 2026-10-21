@@ -54,7 +54,11 @@ export const MODEL_ENTRIES: readonly ModelEntry[] = [
   },
   {
     role: "transcription", provider: "groq", modelId: "whisper-large-v3-turbo", displayName: "Whisper Large v3 Turbo",
-    price: { unit: "audio hour", amount: 0.04 }, acceptsVocabularyHints: true, isReasoning: false, isHiddenFallback: true,
+    price: { unit: "audio hour", amount: 0.04 }, acceptsVocabularyHints: true, isReasoning: false, isHiddenFallback: false,
+  },
+  {
+    role: "transcription", provider: "groq", modelId: "whisper-large-v3", displayName: "Whisper Large v3",
+    price: { unit: "audio hour", amount: 0.111 }, acceptsVocabularyHints: true, isReasoning: false, isHiddenFallback: false,
   },
   {
     role: "cleanup", provider: "openrouter", modelId: "anthropic/claude-haiku-5.5", displayName: "Claude Haiku 5.5",

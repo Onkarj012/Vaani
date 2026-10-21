@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("__VAANI_RECORDER__", {
   onAbortRecording: (cb: (payload: RecorderCommand) => void) => subscribe<RecorderCommand>(IpcChannel.AbortRecording, cb),
   onSuspendRecording: (cb: (payload: RecorderCommand) => void) => subscribe<RecorderCommand>(IpcChannel.SuspendRecording, cb),
   onResumeRecording: (cb: (payload: RecorderCommand) => void) => subscribe<RecorderCommand>(IpcChannel.ResumeRecording, cb),
+  onPauseCapture: (cb: (payload: RecorderCommand) => void) => subscribe<RecorderCommand>(IpcChannel.PauseCapture, cb),
+  onResumeCapture: (cb: (payload: RecorderCommand) => void) => subscribe<RecorderCommand>(IpcChannel.ResumeCapture, cb),
   submitAudioClip: (payload: RecorderSubmission) => ipcRenderer.invoke(IpcChannel.SubmitAudioClip, payload),
   reportRecorderReady: () => ipcRenderer.invoke(IpcChannel.RecorderReady),
   reportRecorderStarted: (sessionId: string) => ipcRenderer.invoke(IpcChannel.RecorderStarted, sessionId),

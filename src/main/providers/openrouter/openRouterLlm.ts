@@ -11,10 +11,17 @@ import {
 } from "../formatting-constants";
 import { openRouterPostJson, validateOpenRouterKey } from "./client";
 import { isAbortError } from "@main/cancellation";
-import { defaultModelFor, providerModels } from "@shared/modelList";
+import { defaultModelFor, modelEntries, providerModels } from "@shared/modelList";
 
 interface ChatCompletionReply {
   choices: { message: { content: string | null } }[];
+}
+
+// Turns reasoning off for listed models that allow it. Cleanup is mechanical, and Haiku 5.5 reasons by default,
+// which cost 1-2 s per call. Reasoning models such as gpt-oss reply 400 when asked to turn it off.
+function reasoningOption(model: string): { reasoning?: { enabled: false } } {
+  const entry = modelEntries("cleanup", "openrouter").find(candidate => candidate.modelId === model);
+  return entry && !entry.isReasoning ? { reasoning: { enabled: false } } : {};
 }
 
 export const OpenRouterLlmProvider: FormattingProvider = {
@@ -31,12 +38,14 @@ export const OpenRouterLlmProvider: FormattingProvider = {
     if (!options.apiKey) return formatterResult("skipped", text, NO_API_KEY_REASON);
 
     try {
+      const model = options.model || defaultModelFor("cleanup", "openrouter");
       const reply = await openRouterPostJson<ChatCompletionReply>({
         path: "/chat/completions",
         apiKey: options.apiKey,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: options.model || defaultModelFor("cleanup", "openrouter"),
+          model,
+          ...reasoningOption(model),
           temperature: 0,
           max_tokens: Math.max(256, text.length * 2),
           messages: [

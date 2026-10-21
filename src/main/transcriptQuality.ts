@@ -34,17 +34,23 @@ const HALLUCINATION_SUBSTRINGS = [
 
 // Retry reasons that indicate the audio likely contained no real speech.
 // When retries are exhausted these must never be inserted at the cursor.
+// Whisper's average log-probability below which a hint echo counts as unclear audio.
+const HINT_ECHO_LOGPROB = -0.5;
+
 const NO_SPEECH_REASONS = new Set([
   "common-silence-hallucination",
   "known-hallucination-phrase",
   "provider-no-speech-probability",
   "script-mismatch-quiet-audio",
+  "vocabulary-hint-echo",
 ]);
 
+// Decides whether a transcript may be inserted. hints are the dictionary words sent to the provider with the clip.
 export function decideTranscriptInsertion(
   rawText: string,
   clip: Pick<AudioClip, "rmsFrames">,
   quality?: TranscriptionQualityMetadata,
+  hints: readonly string[] = [],
 ): TranscriptQualityDecision {
   const text = rawText.trim();
   if (!text) return { action: "reject", reason: "empty-transcript" };
@@ -56,6 +62,11 @@ export function decideTranscriptInsertion(
   const normalized = tokens.join(" ").toLowerCase();
   const lowSpeechAudio = looksLikeLowSpeechAudio(clip);
   const lowConfidence = hasLowProviderConfidence(quality);
+  // On unclear audio Whisper can return the hint list it was given ("Onkar, CLAUDE.md, Unslop") instead of the speech.
+  // It counts only with a sign the audio was unclear, so a clear "Onkar Jadhav" or "Onkar, Groq, CLAUDE.md" still inserts.
+  const hintTermCount = hintEchoTermCount(tokens, hints);
+  const unclear = lowSpeechAudio || lowConfidence || (quality?.avgLogprob != null && quality.avgLogprob < HINT_ECHO_LOGPROB);
+  if (hintTermCount >= 2 && unclear) return { action: "retry", reason: "vocabulary-hint-echo" };
 
   if (HALLUCINATION_SUBSTRINGS.some((phrase) => normalized.includes(phrase.toLowerCase())) && (lowSpeechAudio || lowConfidence)) {
     return { action: "retry", reason: "known-hallucination-phrase" };
@@ -97,6 +108,26 @@ export function finalizeTranscriptDecision(decision: TranscriptQualityDecision):
     return { action: "save", reason: decision.reason };
   }
   return { action: "insert", reason: decision.reason };
+}
+
+// Fewest hint terms that spell out the whole transcript, or 0 when it holds any other word.
+function hintEchoTermCount(tokens: readonly string[], hints: readonly string[]): number {
+  const termTokens = hints
+    .map(hint => (hint.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)?/gu) ?? []).map(token => token.toLowerCase()))
+    .filter(term => term.length > 0);
+  const words = tokens.map(token => token.toLowerCase());
+  if (words.length === 0 || termTokens.length === 0) return 0;
+  // fewest[i] is the fewest terms that cover words[i..], or Infinity when they cannot.
+  const fewest: number[] = new Array(words.length + 1).fill(Number.POSITIVE_INFINITY);
+  fewest[words.length] = 0;
+  for (let index = words.length - 1; index >= 0; index -= 1) {
+    for (const term of termTokens) {
+      if (!term.every((token, offset) => words[index + offset] === token)) continue;
+      fewest[index] = Math.min(fewest[index] ?? Number.POSITIVE_INFINITY, (fewest[index + term.length] ?? Number.POSITIVE_INFINITY) + 1);
+    }
+  }
+  const count = fewest[0] ?? Number.POSITIVE_INFINITY;
+  return Number.isFinite(count) ? count : 0;
 }
 
 function hasLowProviderConfidence(quality: TranscriptionQualityMetadata | undefined): boolean {

@@ -18,6 +18,8 @@ const CAPSULE_BOTTOM_MARGIN = 16;
 // Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)
 const PILL_W = 120;
 const PILL_H = 52;
+// Hands-free: the pill plus two 24 px Pause/Send buttons and gaps.
+const HANDS_FREE_PILL_W = 184;
 const STATUS_W = 440;
 const STATUS_H = 72;
 // Prompt card: matches CapsuleOverlay.tsx prompt width (340px) + shadow clearance
@@ -41,6 +43,9 @@ export class OverlayController {
   private pendingPromptResponder: ((accepted: boolean) => void) | null = null;
   private promptGeneration = 0;
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
+  private handsFree = false;
+  private paused = false;
+  private sessionId: string | null = null;
   private accentColor = "#FF006E";
   // ── Public setters ────────────────────────────────────────────────────────
 
@@ -138,11 +143,27 @@ export class OverlayController {
     this.pendingMode = null;
     this.pendingBars = null;
     this.pendingDetectedLanguage = null;
+    this.resetHandsFreeState();
   }
 
-  setRecording(): void {
+  // Shows or hides the Pause and Send controls. The pill widens while they show.
+  setHandsFree(on: boolean): void {
+    this.handsFree = on;
+    if (!on) this.paused = false;
+    void this.resizeWindow(false);
+    this.sendHandsFreeState();
+  }
+
+  // Shows the paused state on the pill and its Pause button.
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    this.sendHandsFreeState();
+  }
+
+  setRecording(sessionId: string): void {
     this.finishActivePrompt();
     this.setStatusMessage(null);
+    this.sessionId = sessionId;
     this.pendingMode = "recording";
     this.pendingBars = null;
     this.show();
@@ -319,6 +340,9 @@ export class OverlayController {
     this.loadReady = false;
     this.pendingMode = null;
     this.pendingBars = null;
+    this.handsFree = false;
+    this.paused = false;
+    this.sessionId = null;
   }
 
   // ── Private ──────────────────────────────────────────────────────────────
@@ -335,7 +359,7 @@ export class OverlayController {
   private async resizeWindow(expanded: boolean): Promise<void> {
     if (!this.window || this.window.isDestroyed()) return;
     const { x, y, width, height } = this.getTargetWorkArea();
-    const targetW = expanded ? PROMPT_W : this.pendingStatusMessage ? STATUS_W : PILL_W;
+    const targetW = expanded ? PROMPT_W : this.pendingStatusMessage ? STATUS_W : this.pillWidth();
     const targetH = expanded ? PROMPT_H : this.pendingStatusMessage ? STATUS_H : PILL_H;
     const targetX = Math.round(x + width  / 2 - targetW / 2);
     const targetY = Math.round(y + height - targetH - CAPSULE_BOTTOM_MARGIN);
@@ -390,6 +414,37 @@ export class OverlayController {
       this.hideTimer = null;
       if (!this.promptActive) this.hide();
     }, 400);
+  }
+
+  // Clears hands-free, paused, and pointer state once the pill goes idle.
+  private resetHandsFreeState(): void {
+    this.handsFree = false;
+    this.paused = false;
+    this.sessionId = null;
+    void this.resizeWindow(false);
+    this.sendHandsFreeState();
+    if (this.window && !this.window.isDestroyed() && !this.promptActive) {
+      this.window.setIgnoreMouseEvents(true, { forward: true });
+    }
+  }
+
+  // Lets the pointer reach the Pause and Send controls. Prompts always take clicks.
+  private setInteractive(interactive: boolean): void {
+    if (!this.window || this.window.isDestroyed()) return;
+    this.window.setIgnoreMouseEvents(this.promptActive ? false : !interactive, { forward: true });
+  }
+
+  // Sends the hands-free, paused, and session values the renderer needs for its controls.
+  private sendHandsFreeState(): void {
+    if (!this.loadReady || !this.window || this.window.isDestroyed()) return;
+    this.window.webContents.send("capsule:set-hands-free", this.handsFree);
+    this.window.webContents.send("capsule:set-paused", this.paused);
+    this.window.webContents.send("capsule:set-session", this.sessionId);
+  }
+
+  // Pill width, widened while hands-free so the two buttons fit.
+  private pillWidth(): number {
+    return this.handsFree ? HANDS_FREE_PILL_W : PILL_W;
   }
 
   private resetPromptWindowState(): void {
@@ -473,6 +528,8 @@ export class OverlayController {
   private tryUpdateMode(mode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error"): void {
     if (!this.loadReady || !this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:set-mode", mode);
+    // A mode update can reach the renderer after hands-free was sent, so resend it last.
+    this.sendHandsFreeState();
   }
 
   private flushPendingDetectedLanguage(): void {
@@ -529,7 +586,7 @@ export class OverlayController {
     }
 
     const { x, y, width, height } = this.getTargetWorkArea();
-    const targetW = this.promptActive ? PROMPT_W : this.pendingStatusMessage ? STATUS_W : PILL_W;
+    const targetW = this.promptActive ? PROMPT_W : this.pendingStatusMessage ? STATUS_W : this.pillWidth();
     const targetH = this.promptActive ? PROMPT_H : this.pendingStatusMessage ? STATUS_H : PILL_H;
     this.window.setBounds({
       x: Math.round(x + width / 2 - targetW / 2),
@@ -639,6 +696,7 @@ export class OverlayController {
       log("overlay:ready");
       this.clearLoadTimeout();
       this.loadReady = true;
+      if (this.handsFree || this.paused) this.sendHandsFreeState();
       if (this.accentColor !== "#FF006E") {
         this.window?.webContents.send("capsule:set-accent", this.accentColor);
       }
@@ -653,6 +711,11 @@ export class OverlayController {
       if (this.pendingStatusMessage) this.window?.webContents.send("capsule:set-status", this.pendingStatusMessage);
     });
 
+    // Only the overlay renderer can report pointer position over its controls.
+    win.webContents.ipc.on("capsule:set-interactive", (_event, interactive: unknown) => {
+      if (typeof interactive === "boolean") this.setInteractive(interactive);
+    });
+
     // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
     win.webContents.on("did-finish-load", () => {
       log("overlay:loaded", { url: win.webContents.getURL() });
@@ -661,6 +724,7 @@ export class OverlayController {
           log("overlay:ready-fallback");
           this.clearLoadTimeout();
           this.loadReady = true;
+          if (this.handsFree || this.paused) this.sendHandsFreeState();
           if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
           if (this.pendingBars) this.updateBars(this.pendingBars);
           this.flushPendingDetectedLanguage();
