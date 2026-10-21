@@ -441,6 +441,7 @@ describe("DictationService", () => {
   it("drops typed continuation after the inserted text", () => {
     expect(extractCorrectedInsertedText("open Code", "open Code and more", "open Code")).toBeNull();
     expect(extractCorrectedInsertedText("open Code", "open Code.", "open Code")).toBeNull();
+    expect(extractCorrectedInsertedText("open Code.", "open Code.a", "open Code.")).toBeNull();
   });
 
   it("aborts recovery formatting when a new dictation starts and does not store the late result", async () => {

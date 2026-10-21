@@ -2357,7 +2357,8 @@ function withoutPureContinuation(corrected: string, insertedText: string): strin
   const inserted = insertedText.trim();
   if (!inserted || corrected === inserted) return corrected;
   if (corrected.endsWith(inserted)) return null;
-  if (corrected.startsWith(inserted) && !/^[\p{L}\p{N}]/u.test(corrected.slice(inserted.length))) return null;
+  // Letters glued onto the last word ("Code" -> "CodePen") are a correction; anything after a space or a mark is new writing.
+  if (corrected.startsWith(inserted) && !(/[\p{L}\p{N}]$/u.test(inserted) && /^[\p{L}\p{N}]/u.test(corrected.slice(inserted.length)))) return null;
   return corrected;
 }
 
