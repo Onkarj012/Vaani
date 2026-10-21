@@ -9,7 +9,15 @@ import { defaultModelFor, providerModels } from "@shared/modelList";
 
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 const REQUEST_TIMEOUT_MS = 6_000;
+// Extra time per second of audio for the upload. A 16 kHz WAV is 32 KB/s; this covers about a 1.3 Mbps upload.
+const UPLOAD_MS_PER_AUDIO_SECOND = 200;
 const WARM_UP_TIMEOUT_MS = 3_000;
+
+// Deadline for one transcription request: 6 s for a short clip, longer for a long one so a slow upload can finish.
+// A 5-minute clip gets 66 s, still inside the session's transcription budget.
+export function groqRequestTimeoutMs(durationSeconds: number): number {
+  return REQUEST_TIMEOUT_MS + Math.max(0, durationSeconds) * UPLOAD_MS_PER_AUDIO_SECOND;
+}
 
 interface GroqVerboseReply {
   text?: string;
@@ -47,7 +55,7 @@ export const GroqSttProvider: TranscriptionProvider = {
     if (prompt) form.append("prompt", prompt);
 
     // The Groq SDK call is replaced by a direct POST. A deadline timeout becomes a readable message below.
-    const reply = await runWithDeadline(options.signal, REQUEST_TIMEOUT_MS, async (signal) => {
+    const reply = await runWithDeadline(options.signal, groqRequestTimeoutMs(clip.durationSeconds), async (signal) => {
       const response = await fetch(`${GROQ_BASE_URL}/audio/transcriptions`, {
         method: "POST",
         headers: { Authorization: `Bearer ${options.apiKey}` },
