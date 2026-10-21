@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -14,7 +14,8 @@ import type { RecoveryJournalStore } from "@main/store/recoveryJournal";
 import type { EncryptedRecoveryAudioStore } from "@main/audio/recoveryAudio";
 import { createRecoveryEntry, type RecoveryEntry, type RecoveryEntrySeed, type RecoveryErrorClass, type RecoveryInsertionPreparation, type RecoveryTransitionInput } from "@shared/recovery";
 import { DictationService } from "./dictation.fixture";
-import { selectRecoveryText } from "@main/dictation";
+import { extractCorrectedInsertedText, selectRecoveryText } from "@main/dictation";
+import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { nativeBridge } from "@main/nativeBridge";
 import type { InjectionOptions, InjectionTarget } from "@main/injection";
 import { TranscriptionChainError, TranscriptionDeadlineExceededError, TranscriptionService, type TranscribeOptions } from "@main/transcription";
@@ -352,6 +353,7 @@ describe("DictationService", () => {
       const files = await readdir(directory);
       expect(files).toHaveLength(count);
       expect(files.every((name) => name.endsWith(".wav"))).toBe(true);
+      for (const name of files) expect((await stat(join(directory, name))).mode & 0o777).toBe(0o600);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -428,6 +430,18 @@ describe("DictationService", () => {
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: "formatted" })).toBe("formatted");
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: null })).toBe("cleaned");
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: null, formattedText: null })).toBe("raw");
+  });
+
+  it("keeps a correction that extends the last inserted word so the dictionary can suggest it", () => {
+    const corrected = extractCorrectedInsertedText("open Code", "open CodePen", "open Code");
+    expect(corrected).toBe("open CodePen");
+    expect(detectDictionarySuggestions("open Code", corrected ?? "")).toEqual([{ spoken: "Code", written: "CodePen" }]);
+  });
+
+  it("drops typed continuation after the inserted text", () => {
+    expect(extractCorrectedInsertedText("open Code", "open Code and more", "open Code")).toBeNull();
+    expect(extractCorrectedInsertedText("open Code", "open Code.", "open Code")).toBeNull();
+    expect(extractCorrectedInsertedText("open Code.", "open Code.a", "open Code.")).toBeNull();
   });
 
   it("aborts recovery formatting when a new dictation starts and does not store the late result", async () => {
@@ -2557,6 +2571,44 @@ describe("DictationService", () => {
     expect(settings.update).toHaveBeenCalledWith({
       customCorrections: [{ spoken: "get hub", written: "GitHub", source: "auto-suggested" }]
     });
+  });
+
+  it("shows an error when Paste Latest can't read History", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getLatest.mockRejectedValueOnce(new Error("Could not read history.json (invalid JSON). The file was left unchanged."));
+
+    await expect(service.pasteLatestEntry()).resolves.toBeUndefined();
+
+    expect(service.getState()).toMatchObject({ status: "error", message: "History could not be read, so there is nothing to paste." });
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
+  it("treats typing after the inserted text as new writing, not a correction", async () => {
+    const { service, overlay, settings } = createDictationService();
+    const nativeBridge = await import("@main/nativeBridge");
+    const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("Open get hub.")
+      .mockReturnValueOnce("Open get hub.")
+      .mockReturnValue("Open get hub.a");
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
+    expect(settings.update).not.toHaveBeenCalledWith(expect.objectContaining({ customCorrections: expect.anything() }));
   });
 
   it("keeps watching long enough for a delayed manual correction", async () => {

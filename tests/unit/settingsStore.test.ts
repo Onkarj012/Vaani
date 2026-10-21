@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -80,10 +80,12 @@ describe("SettingsStore", () => {
   it("surfaces failed consent writes and allows a later write to recover", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vaani-consent-test-"));
     const blockedDir = join(tempDir, "blocked");
-    await writeFile(blockedDir, "not a directory");
+    await mkdir(blockedDir);
     const { SettingsStore } = await import("@main/store/settings");
     const store = new SettingsStore(join(blockedDir, "settings.json"));
     await store.init();
+    await rm(blockedDir, { recursive: true });
+    await writeFile(blockedDir, "not a directory");
     store.update({ retainFailedAudio: false });
     await expect(store.flush()).rejects.toThrow();
     expect(store.get().retainFailedAudio).toBe(false);
@@ -154,7 +156,7 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ captureBackend: "native" });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const freshStore = new SettingsStore(filePath);
     await freshStore.init();
@@ -170,12 +172,12 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ captureBackend: "native" });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const reloaded = new SettingsStore(filePath);
     await reloaded.init();
     reloaded.update({ saveRecordings: true });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await reloaded.flush();
 
     const freshStore = new SettingsStore(filePath);
     await freshStore.init();
@@ -206,7 +208,7 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ preWarmMic: true });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const freshStore = new SettingsStore(filePath);
     await freshStore.init();
@@ -222,12 +224,12 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ preWarmMic: true });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const reloaded = new SettingsStore(filePath);
     await reloaded.init();
     reloaded.update({ saveRecordings: true });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await reloaded.flush();
 
     const freshStore = new SettingsStore(filePath);
     await freshStore.init();
@@ -244,7 +246,7 @@ describe("SettingsStore", () => {
     await store.init();
 
     expect(store.update({ fillerWords: ["um"] }).fillerWordsCustomized).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
   });
 
   it("persists provider validation metadata across reloads", async () => {
@@ -260,7 +262,7 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(filePath);
     await store.init();
     store.update({ providerApiKeys: [{ providerId: "openai", key: "", hasKey: true, lastValidation: validation }] });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await store.flush();
 
     const reloaded = new SettingsStore(filePath);
     await reloaded.init();

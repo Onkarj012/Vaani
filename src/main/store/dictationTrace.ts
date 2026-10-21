@@ -89,7 +89,7 @@ export class DictationTraceStore {
 
   private async ensureLoaded(): Promise<DictationTrace[]> {
     if (this.cache) return this.cache;
-    const raw = await readJsonFile<unknown>(this.filePath, []);
+    const raw = await readJsonFile<unknown>(this.filePath, [], Array.isArray);
     this.cache = normalizeTraces(raw);
     return this.cache;
   }

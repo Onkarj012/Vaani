@@ -82,7 +82,7 @@ class RendererErrorBoundary extends React.Component<React.PropsWithChildren, { m
 function AppRoot() {
   const dictation = useDictation();
   const history = useHistory();
-  const { settings, loading: settingsLoading, updateSettings } = useSettings();
+  const { settings, loading: settingsLoading, updateSettings, saveError, dismissSaveError } = useSettings();
   const [bars, setBars] = useState<number[]>(new Array(9).fill(0));
 
   useEffect(() => {
@@ -106,6 +106,8 @@ function AppRoot() {
       settings={settings}
       settingsLoading={settingsLoading}
       updateSettings={updateSettings}
+      settingsSaveError={saveError}
+      dismissSettingsSaveError={dismissSaveError}
       history={history}
     >
       {App && <App />}

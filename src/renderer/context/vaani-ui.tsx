@@ -97,6 +97,8 @@ interface VaaniUiContextValue {
   settings: Settings;
   settingsLoading: boolean;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
+  settingsSaveError: string | null;
+  dismissSettingsSaveError: () => void;
   resetSettings: () => Promise<void>;
   historyLoading: boolean;
   historyEntries: DictationEntry[];
@@ -145,6 +147,8 @@ export function VaaniUiProvider({
   settings,
   settingsLoading,
   updateSettings,
+  settingsSaveError,
+  dismissSettingsSaveError,
   history
 }: {
   children: ReactNode;
@@ -153,6 +157,8 @@ export function VaaniUiProvider({
   settings: Settings;
   settingsLoading: boolean;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
+  settingsSaveError: string | null;
+  dismissSettingsSaveError: () => void;
   history: HistoryModel;
 }) {
   // Aurora is the only theme. Older settings values are migrated transparently.
@@ -321,6 +327,8 @@ export function VaaniUiProvider({
     settings,
     settingsLoading,
     updateSettings,
+    settingsSaveError,
+    dismissSettingsSaveError,
     resetSettings,
     historyLoading: history.loading,
     historyEntries: history.entries,
@@ -378,6 +386,8 @@ export function VaaniUiProvider({
     snippets,
     theme,
     updateSettings,
+    settingsSaveError,
+    dismissSettingsSaveError,
     updateStatus,
     userDictionary,
     weeklyActivity,

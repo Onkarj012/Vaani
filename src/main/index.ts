@@ -561,7 +561,13 @@ async function bootstrap(): Promise<void> {
       },
       reinjectEntry: (id) => dictation.reinjectEntry(id),
       getLanguage: () => settings.get().language,
-      setLanguage: (language) => { settings.update({ language }); },
+      setLanguage: (language) => {
+        try {
+          settings.update({ language });
+        } catch (err) {
+          log("tray:language-not-saved", { message: err instanceof Error ? err.message : String(err) });
+        }
+      },
     });
     trayReady = true;
   } catch (error) {

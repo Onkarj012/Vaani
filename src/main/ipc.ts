@@ -396,7 +396,7 @@ export interface RegisterIpcHandlersOptions {
   mainWindow: IpcWindow | null;
   dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry">;
   history: Pick<HistoryStore, "getAll" | "getById" | "updateById" | "getLatest" | "delete" | "clear">;
-  settings: Pick<SettingsStore, "get" | "update" | "flush">;
+  settings: Pick<SettingsStore, "get" | "update" | "flush" | "saveBlockedReason">;
   hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "reregister" | "setCaptureActive">;
   recorder?: { getWindow: () => IpcWindow | null; markReady: () => void; acknowledgeLifecycleSuspension?: (ack: RecorderSuspensionAck) => boolean };
   overlay?: { getWindow: () => IpcWindow | null };
@@ -445,6 +445,12 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
       sanitized.providerApiKeys = await buildRendererApiKeys(current.providerApiKeys ?? [], credentials);
     }
     return sanitized;
+  }
+
+  // Refuses key changes while settings can't be saved, so Keychain and settings never disagree.
+  // Callers refresh settings next, which shows the blocked-save banner.
+  function keyChangeBlocked(): boolean {
+    return settings.saveBlockedReason() !== null;
   }
 
   function syncProviderApiKeyMetadata(
@@ -627,6 +633,8 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.UpdateSettings, async (event, patch: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isSettingsPatch(patch)) return getSanitizedSettings();
+    const blocked = settings.saveBlockedReason();
+    if (blocked) throw new Error(blocked);
     let settingsPatch: Partial<Settings> = { ...patch };
 
     if ("groqApiKey" in settingsPatch) {
@@ -795,7 +803,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.SetProviderApiKey, async (event, providerId: unknown, apiKey: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(providerId, MAX_ID_LENGTH, false) || !isBoundedString(apiKey, MAX_SECRET_LENGTH, false)) return getSanitizedSettings();
-    if (!credentials) return getSanitizedSettings();
+    if (!credentials || keyChangeBlocked()) return getSanitizedSettings();
     await credentials.set(providerId, apiKey);
     syncProviderApiKeyMetadata(providerId, true, null);
     return getSanitizedSettings();
@@ -804,7 +812,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.ClearProviderApiKey, async (event, providerId: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(providerId, MAX_ID_LENGTH, false)) return getSanitizedSettings();
-    if (!credentials) return getSanitizedSettings();
+    if (!credentials || keyChangeBlocked()) return getSanitizedSettings();
     await credentials.delete(providerId);
     syncProviderApiKeyMetadata(providerId, false, null);
     return getSanitizedSettings();
@@ -820,7 +828,8 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     const hasKey = credentials
       ? await credentials.has(providerId)
       : settings.get().providerApiKeys?.some((pk) => pk.providerId === providerId && pk.hasKey === true) ?? false;
-    syncProviderApiKeyMetadata(providerId, hasKey, { ...result, testedAt: new Date().toISOString() });
+    // A blocked settings file only loses the "last tested" note; the result still reaches the user.
+    if (!settings.saveBlockedReason()) syncProviderApiKeyMetadata(providerId, hasKey, { ...result, testedAt: new Date().toISOString() });
     return result;
   });
 

@@ -1080,7 +1080,17 @@ export class DictationService {
     this.pasteLatestInProgress = true;
     try {
       const generation = this.sessionGeneration;
-      const latest = await this.history.getLatest();
+      let latest: DictationEntry | undefined;
+      try {
+        latest = await this.history.getLatest();
+      } catch (err) {
+        if (generation !== this.sessionGeneration) return;
+        // An unreadable History file must not fail silently from a hotkey.
+        debug("dictation", "paste latest could not read History", { message: err instanceof Error ? err.message : String(err) });
+        this.setState({ status: "error", sessionId: null, message: "History could not be read, so there is nothing to paste." });
+        this.scheduleReset(ERROR_RESET_MS);
+        return;
+      }
       if (generation !== this.sessionGeneration) return;
       if (!latest) {
         this.setState({ status: "error", sessionId: null, message: "No previous dictation is available yet." });
@@ -1201,7 +1211,7 @@ export class DictationService {
 
     const current = this.settings.get().snippets ?? [];
     if (current.some((snippet) => snippet.trigger.toLowerCase() === trigger.toLowerCase())) return;
-    this.settings.update({ snippets: [...current, { trigger, content }] });
+    this.updateSettingsQuietly({ snippets: [...current, { trigger, content }] }, "snippet");
   }
 
   navigateToHistoryEntry(entryId: string): void {
@@ -1215,7 +1225,7 @@ export class DictationService {
     try {
       if (!settings.saveRecordings || !this.settings.get().saveRecordings) return null;
       const dir = settings.recordingsPath || join(homedir(), "Documents", "Vaani Recordings");
-      if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+      if (!existsSync(dir)) await mkdir(dir, { recursive: true, mode: 0o700 });
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = `vaani-recording-${timestamp}.wav`;
@@ -1241,7 +1251,8 @@ export class DictationService {
         buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
       }
       if (!this.settings.get().saveRecordings) return null;
-      await writeFile(filepath, buf);
+      // Voice audio is private: owner read/write only.
+      await writeFile(filepath, buf, { mode: 0o600 });
       if (!this.settings.get().saveRecordings) { await unlink(filepath); return null; }
       return filepath;
     } catch {
@@ -1371,7 +1382,16 @@ export class DictationService {
     const nextCorrections = existingIndex >= 0
       ? current.map((entry, index) => index === existingIndex ? { ...entry, spoken, written, source: "auto-suggested" as const } : entry)
       : [...current, { spoken, written, source: "auto-suggested" as const }];
-    this.settings.update({ customCorrections: nextCorrections });
+    this.updateSettingsQuietly({ customCorrections: nextCorrections }, "dictionary");
+  }
+
+  // Saves a background settings change. A blocked settings file only logs, so dictation keeps working.
+  private updateSettingsQuietly(patch: Partial<Settings>, scope: string): void {
+    try {
+      this.settings.update(patch);
+    } catch (err) {
+      debug(scope, "settings change not saved", { message: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   private watchForManualEdits(insertedText: string, target: Pick<AppContextResult, "appBundleId" | "appName"> | null): void {
@@ -2359,10 +2379,10 @@ function extractInsertedFragment(initialValue: string | null, currentValue: stri
   return currentValue.slice(prefixLength, end);
 }
 
-function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {
+export function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {
   if (!initialValue) return null;
   const insertedAt = initialValue.indexOf(insertedText);
-  if (insertedAt < 0) return currentValue.trim() || null;
+  if (insertedAt < 0) return withoutPureContinuation(currentValue.trim(), insertedText);
 
   const prefix = initialValue.slice(0, insertedAt);
   const suffix = initialValue.slice(insertedAt + insertedText.length);
@@ -2372,7 +2392,20 @@ function extractCorrectedInsertedText(initialValue: string | null, currentValue:
 
   const end = suffix.length === 0 ? currentValue.length : currentValue.length - suffix.length;
   const corrected = currentValue.slice(prefix.length, end).trim();
-  return corrected || null;
+  return withoutPureContinuation(corrected, insertedText);
+}
+
+// Text typed after a space or punctuation, or before the inserted dictation, is
+// continued writing. Letters glued onto the last word ("Code" → "CodePen") are a
+// correction, so they pass through to the dictionary suggestion logic.
+function withoutPureContinuation(corrected: string, insertedText: string): string | null {
+  if (!corrected) return null;
+  const inserted = insertedText.trim();
+  if (!inserted || corrected === inserted) return corrected;
+  if (corrected.endsWith(inserted)) return null;
+  // Letters glued onto the last word ("Code" -> "CodePen") are a correction; anything after a space or a mark is new writing.
+  if (corrected.startsWith(inserted) && !(/[\p{L}\p{N}]$/u.test(inserted) && /^[\p{L}\p{N}]/u.test(corrected.slice(inserted.length)))) return null;
+  return corrected;
 }
 
 function shouldSuggestSnippet(originalText: string, correctedText: string): boolean {
