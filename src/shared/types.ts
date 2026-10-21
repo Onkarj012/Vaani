@@ -442,6 +442,8 @@ export interface Settings {
   // Phase 0: New settings
   dictationMode: DictationMode;
   saveRecordings: boolean;
+  /** Offer a dictionary entry after the user fixes a pasted word by hand. Off by default. */
+  suggestDictionaryWords: boolean;
   recordingsPath: string;
   recoveryRetentionDays: 1 | 3 | 7 | 14;
   retainFailedAudio: boolean;
@@ -454,6 +456,7 @@ export interface Settings {
   failoverEnabled: boolean;
   /** Set once the user has seen the OpenRouter key prompt, so it is not shown again. */
   openRouterKeyPromptShown: boolean;
+  sttDefaultVersion?: number;
   // Phase 2: Local model settings
   localWhisperModel: string;
   offlineMode: "auto" | "always-offline" | "always-online";

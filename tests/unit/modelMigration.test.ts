@@ -31,12 +31,12 @@ async function loadWithStoredSettings(stored: Record<string, unknown>) {
 }
 
 describe("model settings migration", () => {
-  it("moves a retired cleanup model to OpenRouter and moves Groq transcription to OpenRouter", async () => {
+  it("moves a retired cleanup model to OpenRouter and preserves the saved transcription provider", async () => {
     const { store, filePath } = await loadWithStoredSettings({
       formattingProvider: "groq-llm",
       formattingModel: "llama-3.1-8b-instant",
-      transcriptionProvider: "groq",
-      transcriptionModel: "whisper-large-v3",
+      transcriptionProvider: "openrouter",
+      transcriptionModel: "openai/gpt-transcribe",
     });
 
     expect(store.get()).toMatchObject({
@@ -50,6 +50,7 @@ describe("model settings migration", () => {
       formattingModel: "anthropic/claude-haiku-5.5",
       transcriptionProvider: "openrouter",
       transcriptionModel: "openai/gpt-transcribe",
+      sttDefaultVersion: 2,
     });
   });
 
@@ -92,41 +93,45 @@ describe("model settings migration", () => {
     expect(store.get()).toMatchObject({ formattingProvider: "openai-llm", formattingModel: "gpt-6-luna" });
   });
 
-  it("moves a saved Deepgram transcription provider to OpenRouter", async () => {
+  it("keeps a saved Deepgram transcription provider", async () => {
     const { store } = await loadWithStoredSettings({
       transcriptionProvider: "deepgram",
       transcriptionModel: "nova-2",
     });
 
-    expect(store.get()).toMatchObject({ transcriptionProvider: "openrouter", transcriptionModel: "openai/gpt-transcribe" });
+    expect(store.get()).toMatchObject({ transcriptionProvider: "deepgram", transcriptionModel: "nova-2" });
   });
 
-  it("keeps a valid OpenRouter transcription model the user chose", async () => {
+  it("keeps a valid OpenRouter transcription model the user chose after the default has moved", async () => {
     const { store, filePath } = await loadWithStoredSettings({
       transcriptionProvider: "openrouter",
       transcriptionModel: "google/gemini-3.5-transcribe",
+      sttDefaultVersion: 2,
     });
 
     expect(store.get()).toMatchObject({ transcriptionProvider: "openrouter", transcriptionModel: "google/gemini-3.5-transcribe" });
     expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject({ transcriptionModel: "google/gemini-3.5-transcribe" });
   });
 
-  it("moves a saved transcription choice to OpenRouter once and leaves the file alone on reload", async () => {
-    const { filePath } = await loadWithStoredSettings({ transcriptionProvider: "groq", transcriptionModel: "whisper-large-v3" });
-    const afterFirstLoad = await readFile(filePath, "utf8");
+  it("keeps a saved OpenRouter choice with failover disabled across migration and reload", async () => {
+    const { store, filePath } = await loadWithStoredSettings({ transcriptionProvider: "openrouter", transcriptionModel: "openai/gpt-transcribe", failoverEnabled: false });
+    expect(store.get()).toMatchObject({ transcriptionProvider: "openrouter", transcriptionModel: "openai/gpt-transcribe", failoverEnabled: false, sttDefaultVersion: 2 });
+    expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject({ sttDefaultVersion: 2, transcriptionProvider: "openrouter" });
+
+    store.update({ transcriptionProvider: "openrouter", transcriptionModel: "openai/gpt-transcribe" });
+    await store.flush();
 
     const { SettingsStore } = await import("@main/store/settings");
     const reloaded = new SettingsStore(filePath);
     await reloaded.init();
 
     expect(reloaded.get()).toMatchObject({ transcriptionProvider: "openrouter", transcriptionModel: "openai/gpt-transcribe" });
-    expect(await readFile(filePath, "utf8")).toBe(afterFirstLoad);
   });
 
-  it("uses OpenRouter for new installs and leaves the one-time key prompt unshown", () => {
+  it("uses Groq for new installs and leaves the one-time key prompt unshown", () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
-      transcriptionProvider: "openrouter",
-      transcriptionModel: "openai/gpt-transcribe",
+      transcriptionProvider: "groq",
+      transcriptionModel: "whisper-large-v3-turbo",
       openRouterKeyPromptShown: false,
     });
   });

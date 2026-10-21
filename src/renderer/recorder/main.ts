@@ -420,7 +420,8 @@ async function handleCaptureEnded(): Promise<void> {
   await shutdownWarmCapture();
   if (failedSessionId) {
     await reportFailure(failedSessionId, "Microphone input stopped. Check your selected microphone.");
-    await cleanupSession();
+    // A newer session may have started during the shutdown. Leave it alone.
+    if (activeSessionId === failedSessionId) await cleanupSession();
   }
 }
 
@@ -460,40 +461,41 @@ async function cleanupSession(): Promise<void> {
   }
 }
 
+// Takes the current capture out of the globals first, then closes only that capture.
+// A start that runs while close() is pending opens its own stream, which this never touches.
 async function shutdownWarmCapture(): Promise<void> {
-  if (processorNode) {
-    processorNode.disconnect();
-    if ("port" in processorNode) {
-      processorNode.port.onmessage = null;
+  const processor = processorNode;
+  const source = sourceNode;
+  const context = audioContext;
+  const ownedStream = stream;
+  processorNode = null;
+  sourceNode = null;
+  audioContext = null;
+  stream = null;
+  captureConfigKey = null;
+  ringBuffer.clear();
+
+  if (processor) {
+    processor.disconnect();
+    if ("port" in processor) {
+      processor.port.onmessage = null;
     } else {
-      processorNode.onaudioprocess = null;
+      processor.onaudioprocess = null;
     }
-    processorNode = null;
   }
-
-  if (sourceNode) {
-    sourceNode.disconnect();
-    sourceNode = null;
-  }
-
-  if (audioContext) {
-    const context = audioContext;
-    audioContext = null;
+  source?.disconnect();
+  ownedStream?.getTracks().forEach((track) => {
+    track.onended = null;
+    track.onmute = null;
+    track.stop();
+  });
+  if (context) {
     try {
       await context.close();
     } catch {
       // ignore
     }
   }
-
-  stream?.getTracks().forEach((track) => {
-    track.onended = null;
-    track.onmute = null;
-    track.stop();
-  });
-  stream = null;
-  captureConfigKey = null;
-  ringBuffer.clear();
 }
 
 function recorderConfigKey(config: RecorderConfig): string {

@@ -1,11 +1,12 @@
-// Dev-only: runs a folder of WAV clips through each OpenRouter transcription model and writes a comparison.
-// Usage: OPENROUTER_API_KEY=... bun scripts/ab-transcription.ts [--dir ab-test] [--models a,b]
+// Dev-only: runs a folder of WAV clips through each OpenRouter and Groq transcription model and writes a comparison.
+// Usage: OPENROUTER_API_KEY=... GROQ_API_KEY=... bun scripts/ab-transcription.ts [--dir ab-test] [--models a,b]
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { AudioClip } from "@shared/types";
 import { modelEntries, type ModelEntry } from "@shared/modelList";
 import { transcribeWithOpenRouter } from "@main/providers/openrouter/openRouterStt";
+import { GroqSttProvider } from "@main/providers/groq/groqStt";
 import { scoreClip, type ClipScore } from "./ab/scoring";
 
 interface ClipInput {
@@ -119,10 +120,24 @@ function loadClips(clipsDir: string, warnings: string[]): ClipInput[] {
 }
 
 // Sends one clip to one model and scores it. A failed call scores as an empty transcript, so failures count as misses.
-async function runClip(model: ModelEntry, clip: ClipInput, apiKey: string, hints: string[]): Promise<ClipResult> {
+// Sends one clip to Groq the way Vaani does: hints joined into the Whisper prompt, language auto.
+async function transcribeWithGroq(clip: ClipInput, apiKey: string, model: string, hints: string[]): Promise<{ text: string; hintsSent: boolean }> {
+  const prompt = hints.join(", ") || undefined;
+  const result = await GroqSttProvider.transcribe(clip.audio, { apiKey, model, prompt });
+  return { text: result.rawText, hintsSent: prompt !== undefined };
+}
+
+async function runClip(model: ModelEntry, clip: ClipInput, keys: ApiKeys, hints: string[]): Promise<ClipResult> {
   const startedAt = performance.now();
   try {
-    const reply = await transcribeWithOpenRouter({ clip: clip.audio, apiKey, model: model.modelId, vocabularyHints: hints });
+    if (model.provider === "groq") {
+      const reply = await transcribeWithGroq(clip, keys.groq ?? "", model.modelId, hints);
+      return {
+        clip: clip.name, model: model.modelId, ok: true, error: null, transcript: reply.text,
+        latencyMs: performance.now() - startedAt, costUsd: null, hintsSent: reply.hintsSent, score: scoreClip(clip.reference, reply.text, clip.terms),
+      };
+    }
+    const reply = await transcribeWithOpenRouter({ clip: clip.audio, apiKey: keys.openrouter ?? "", model: model.modelId, vocabularyHints: hints });
     return {
       clip: clip.name, model: model.modelId, ok: true, error: null, transcript: reply.text,
       latencyMs: performance.now() - startedAt, costUsd: typeof reply.usage?.cost === "number" ? reply.usage.cost : null,
@@ -208,16 +223,22 @@ function renderMarkdown(summaries: ModelSummary[], results: ClipResult[], warnin
   return lines.join("\n") + "\n";
 }
 
+interface ApiKeys {
+  openrouter?: string;
+  groq?: string;
+}
+
 // Runs the comparison, prints the table, and writes the .md and .json results.
 async function main(): Promise<void> {
   const { dir, models: requestedModels } = parseArgs(process.argv.slice(2));
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set. Export it in your shell, then run the script again.");
+  const keys: ApiKeys = { openrouter: process.env.OPENROUTER_API_KEY?.trim() || undefined, groq: process.env.GROQ_API_KEY?.trim() || undefined };
 
-  const allModels = modelEntries("transcription", "openrouter");
+  const allModels = [...modelEntries("transcription", "openrouter"), ...modelEntries("transcription", "groq")];
   const unknown = (requestedModels ?? []).filter((id) => !allModels.some((model) => model.modelId === id));
   if (unknown.length) throw new Error(`Unknown model(s): ${unknown.join(", ")}. Choose from: ${allModels.map((model) => model.modelId).join(", ")}.`);
   const models = requestedModels ? allModels.filter((model) => requestedModels.includes(model.modelId)) : allModels;
+  if (models.some((model) => model.provider === "openrouter") && !keys.openrouter) throw new Error("OPENROUTER_API_KEY is not set. Export it in your shell, then run the script again.");
+  if (models.some((model) => model.provider === "groq") && !keys.groq) throw new Error("GROQ_API_KEY is not set. Export it in your shell, then run the script again.");
 
   const clipsDir = resolve(dir, "clips");
   if (!existsSync(clipsDir)) throw new Error(`No clips folder at ${clipsDir}. See scripts/ab/README.md for how to record the test set.`);
@@ -230,7 +251,7 @@ async function main(): Promise<void> {
   const total = models.length * clips.length;
   for (const model of models) {
     for (const clip of clips) {
-      const result = await runClip(model, clip, apiKey, hints);
+      const result = await runClip(model, clip, keys, hints);
       results.push(result);
       const status = result.ok ? `ok ${Math.round(result.latencyMs)} ms` : `failed: ${result.error}`;
       console.error(`[${results.length}/${total}] ${model.modelId} ${clip.name} ${status}`);

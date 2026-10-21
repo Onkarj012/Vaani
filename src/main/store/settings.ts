@@ -1,10 +1,10 @@
 import { app } from "electron";
 import { join } from "node:path";
-import { APP_DATA_DIR, DEFAULT_SETTINGS, isHiddenProvider } from "@shared/defaults";
+import { APP_DATA_DIR, DEFAULT_SETTINGS, STT_DEFAULT_VERSION, isHiddenProvider } from "@shared/defaults";
 import { modelEntries, modelForProvider } from "@shared/modelList";
 import type { Settings } from "@shared/types";
 import { error } from "@main/log";
-import { readJsonFile, writeJsonFile } from "./base";
+import { JsonFileReadError, readJsonFile, writeJsonFile } from "./base";
 
 type StoredSettings = Partial<Settings> & {
   nativeCaptureOptIn?: boolean;
@@ -38,6 +38,7 @@ export class SettingsStore {
   private nativeCaptureOptedIn = false;
   private preWarmMicOptedIn = false;
   private failedAudioRetentionOptedIn = false;
+  private readError: JsonFileReadError | null = null;
 
   constructor(filePath = join(app.getPath("home"), APP_DATA_DIR, "settings.json")) {
     this.filePath = filePath;
@@ -49,7 +50,7 @@ export class SettingsStore {
   }
 
   private async load(): Promise<Settings> {
-    const stored = await readJsonFile<StoredSettings>(this.filePath, {});
+    const stored = await readJsonFile<StoredSettings>(this.filePath, {}, isPlainObject);
     const migrated = await this.migrateSettings(stored);
     this.nativeCaptureOptedIn = migrated.nativeCaptureOptIn === true;
     this.preWarmMicOptedIn = migrated.preWarmMicOptIn === true;
@@ -107,11 +108,15 @@ export class SettingsStore {
       changed = true;
     }
 
-    // Transcription moves to OpenRouter. Any other saved provider gets OpenRouter's default model. Repeat loads change nothing.
-    if (next.transcriptionProvider !== undefined && next.transcriptionProvider !== DEFAULT_SETTINGS.transcriptionProvider) {
-      next.transcriptionProvider = DEFAULT_SETTINGS.transcriptionProvider;
-      next.transcriptionModel = DEFAULT_SETTINGS.transcriptionModel;
-      changed = true;
+    // Retire hidden providers once, while preserving saved providers and their credentials.
+    if ((next.sttDefaultVersion ?? 0) < STT_DEFAULT_VERSION) {
+      if (isHiddenProvider(next.transcriptionProvider)) {
+        next.transcriptionProvider = DEFAULT_SETTINGS.transcriptionProvider;
+        next.transcriptionModel = DEFAULT_SETTINGS.transcriptionModel;
+        changed = true;
+      }
+      next.sttDefaultVersion = STT_DEFAULT_VERSION;
+      if (next.transcriptionProvider !== undefined) changed = true;
     }
 
     // Always Offline only ever routed to the hidden local provider, so it moves to Auto.
@@ -149,7 +154,9 @@ export class SettingsStore {
     return next;
   }
 
+  // Throws, changing nothing, while an unreadable settings file blocks saving.
   update(patch: Partial<Settings>): Settings {
+    if (this.readError) throw this.readError;
     const next: Settings = { ...this.get(), ...patch, theme: "aurora" };
     if (patch.fillerWords !== undefined || patch.extraFillerWords !== undefined) {
       next.fillerWordsCustomized = true;
@@ -187,18 +194,33 @@ export class SettingsStore {
     return next;
   }
 
+  // Why saving is blocked, or null when settings can be saved.
+  saveBlockedReason(): string | null {
+    return this.readError?.message ?? null;
+  }
+
   async flush(): Promise<void> {
     await this.pendingWrite;
   }
 
+  // An unreadable file keeps defaults in memory and blocks writes until restart.
   async init(): Promise<void> {
-    await this.load();
+    try {
+      await this.load();
+    } catch (err) {
+      if (!(err instanceof JsonFileReadError)) throw err;
+      this.readError = err;
+    }
   }
 }
 
 // True when the provider lists this cleanup model. A missing provider never matches.
 function isListedCleanupChoice(provider: string | undefined, model: string | undefined): boolean {
   return provider !== undefined && modelEntries("cleanup", provider).some((entry) => entry.modelId === model);
+}
+
+function isPlainObject(value: unknown): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function arraysEqual(left: unknown, right: string[]): left is string[] {

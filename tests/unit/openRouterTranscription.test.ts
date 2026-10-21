@@ -36,6 +36,8 @@ function jsonReply(body: unknown, status = 200): Response {
 function settingsWith(overrides: Partial<Settings> = {}): Settings {
   return {
     ...DEFAULT_SETTINGS,
+    transcriptionProvider: "openrouter",
+    transcriptionModel: "openai/gpt-transcribe",
     providerApiKeys: [{ providerId: "openrouter", key: "or-key" }],
     groqApiKey: "groq-key",
     ...overrides,

@@ -37,6 +37,21 @@ afterEach(async () => {
 });
 
 describe("DictationTraceStore", () => {
+  it("closes traces an earlier run left started and leaves finished ones alone", async () => {
+    const store = await createStore();
+    await store.upsert(trace("left-open"));
+    await store.upsert({ ...trace("done"), outcome: "verified", completedAt: "2026-06-29T00:00:01.000Z" });
+
+    await expect(store.closeUnfinished()).resolves.toBe(1);
+
+    const closed = await store.getById("left-open");
+    expect(closed).toMatchObject({ outcome: "failed", rejectionReason: "cancelled" });
+    // Startup may be hours after the stop, so the repaired trace claims no completion time.
+    expect(closed?.completedAt).toBeUndefined();
+    expect(await store.getById("done")).toMatchObject({ outcome: "verified", completedAt: "2026-06-29T00:00:01.000Z" });
+    await expect(store.closeUnfinished()).resolves.toBe(0);
+  });
+
   it.each(["verified", "unconfirmed", "refused", "copy-only", "failed"] as const)("reloads the %s insertion outcome", async (outcome) => {
     const store = await createStore();
     await store.upsert({ ...trace(outcome), outcome, stages: { outcome } });
@@ -140,6 +155,8 @@ describe("DictationTraceStore", () => {
         {
           provider: "groq",
           success: true,
+          model: "whisper-large-v3-turbo",
+          fallbackReason: "openrouter failed",
           latencyMs: "slow",
           quality: {
             provider: "groq",
@@ -171,6 +188,7 @@ describe("DictationTraceStore", () => {
     expect(loaded?.qualityDecision).toEqual({ action: "save", reason: "quiet-short-fragment" });
     expect(loaded?.providerAttempts).toHaveLength(1);
     expect(loaded?.providerAttempts?.[0]?.latencyMs).toBeUndefined();
+    expect(loaded?.providerAttempts?.[0]).toMatchObject({ model: "whisper-large-v3-turbo", fallbackReason: "openrouter failed" });
     expect(loaded?.providerAttempts?.[0]?.quality?.noSpeechProbability).toBe(0.8);
     expect(loaded?.injectionAttempts?.[0]).toMatchObject({ targetAppBundleId: null, targetAppName: "TextEdit", success: true });
     expect(loaded?.injectionAttempts?.[0]?.method).toBeUndefined();

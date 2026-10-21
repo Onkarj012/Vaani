@@ -41,7 +41,7 @@ export function openRouterPostJson<T>(request: OpenRouterPostRequest): Promise<T
       body: request.body,
       signal,
     });
-    if (!response.ok) throw new Error(`OpenRouter API request failed with status ${response.status}.`);
+    if (!response.ok) throw Object.assign(new Error(`OpenRouter API request failed with status ${response.status}.`), { status: response.status });
     return await response.json() as T;
   });
 }

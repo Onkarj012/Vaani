@@ -95,6 +95,7 @@ describe("IPC security boundaries", () => {
     get: vi.fn(() => DEFAULT_SETTINGS),
     update: vi.fn((patch: Partial<Settings>) => ({ ...DEFAULT_SETTINGS, ...patch })),
     flush: vi.fn(async (): Promise<void> => undefined),
+    saveBlockedReason: vi.fn((): string | null => null),
   };
 
   beforeEach(async () => {
@@ -155,6 +156,12 @@ describe("IPC security boundaries", () => {
   it("reports consent persistence failure instead of acknowledging a saved preference", async () => {
     settings.flush.mockRejectedValueOnce(new Error("disk unavailable"));
     await expect(invokeHandlers.get(IpcChannel.UpdateSettings)?.({ sender: mainSender }, { retainFailedAudio: false })).rejects.toThrow("disk unavailable");
+  });
+
+  it("refuses a settings change while the settings file is unreadable", async () => {
+    settings.saveBlockedReason.mockReturnValueOnce("Could not read settings.json (Unexpected token). The file was left unchanged.");
+    await expect(invokeHandlers.get(IpcChannel.UpdateSettings)?.({ sender: mainSender }, { language: "en" })).rejects.toThrow("Could not read settings.json");
+    expect(settings.update).not.toHaveBeenCalled();
   });
 
   it("returns the live post-request microphone status", async () => {
@@ -276,6 +283,7 @@ describe("IPC security boundaries", () => {
     const state: Settings = { ...DEFAULT_SETTINGS, providerApiKeys: [] };
     const stateStore = {
       flush: vi.fn(async (): Promise<void> => undefined),
+      saveBlockedReason: vi.fn((): string | null => null),
       get: vi.fn(() => state),
       update: vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch)),
     };
@@ -324,6 +332,29 @@ describe("IPC security boundaries", () => {
       hasKey: false,
       lastValidation: null,
     }]);
+  });
+
+  it("leaves Keychain alone while the settings file can't be saved", async () => {
+    const backend = new MemoryCredentialBackend();
+    const credentials = new CredentialsStore(backend);
+    await credentials.set("groq", "groq-secret");
+    settings.saveBlockedReason.mockReturnValue("Could not read settings.json (invalid JSON). The file was left unchanged.");
+    try {
+      const { registerIpcHandlers } = await import("@main/ipc");
+      registerIpcHandlers({
+        mainWindow: windowFor(mainSender), dictation, history, settings, credentials,
+        hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn() },
+      });
+
+      await invokeHandlers.get(IpcChannel.SetProviderApiKey)?.({ sender: mainSender }, "openai", "openai-secret");
+      await invokeHandlers.get(IpcChannel.ClearProviderApiKey)?.({ sender: mainSender }, "groq");
+
+      expect(await credentials.has("openai")).toBe(false);
+      expect(await credentials.has("groq")).toBe(true);
+      expect(settings.update).not.toHaveBeenCalled();
+    } finally {
+      settings.saveBlockedReason.mockReturnValue(null);
+    }
   });
 
   it("clears exactly the named provider credential", async () => {

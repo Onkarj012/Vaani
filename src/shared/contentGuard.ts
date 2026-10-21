@@ -6,12 +6,14 @@
 // A Devanagari word may come back in Roman letters when it sounds alike ("कैंसल" → "cancel").
 // With speech noise allowed, these may also be dropped: a stutter next to a kept copy ("the, the", "on the, on the"),
 // a cut-off word ("ru-", or a short fragment the next word starts with), and up to four words replaced right after a
-// correction cue ("Arjun, sorry, Aditya"). Negations and numbers are never cut-off words or bare cues. Any other dropped
+// correction cue ("Arjun, sorry, Aditya"), and a sentence withdrawn by "scratch that" or "delete that" along with that cue.
+// Negations and numbers are never cut-off words or bare cues. Any other dropped
 // word, and any added word, is a change.
 // Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one",
 // a sentence-opening "First,") may disappear only when the output has a line break or a list item with the same number there,
 // or keeps the cue words.
 
+import { dropScratchedSentences } from "./scratchThat";
 import { isDevanagariNumberWord, isDevanagariWord, soundsAlike } from "./scriptMatch";
 
 const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
@@ -40,7 +42,7 @@ const CAMEL_CASE_RE = /\p{L}*\p{Ll}\p{Lu}\p{L}*/gu;
 
 // Hesitation sounds. Cleanup adds them to the filler words it removes.
 // "er" and "ah" are left out: they are words in other languages ("Er ist da").
-export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "hm", "mm", "mmm", "mhm"];
+export { HESITATION_WORDS } from "./scratchThat";
 // Phrases that mark the speaker correcting what came just before, longest first.
 const CORRECTION_CUES: readonly (readonly string[])[] = [["scratch", "that"], ["or", "rather"], ["no", "wait"], ["i", "mean"], ["sorry"], ["wait"], ["actually"], ["rather"], ["no"]];
 const MAX_REPLACED_WORDS = 4;
@@ -580,6 +582,18 @@ export interface GuardVerdict {
 // Decides whether a formatter reply may replace the transcript. Cleanup off: every word must stay.
 // Cleanup on: rejects only a large drop, added words, or a changed number or negation.
 export function judgeFormatterReply(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): GuardVerdict {
+  const verdict = judgeAgainst(rawText, candidate, fillers, options);
+  if (verdict.rejection === null || options.speechNoise === false) return verdict;
+  // A reply may also drop a sentence the speaker withdrew with "scratch that". It is judged against the input
+  // without that sentence, since the word alignment can match a repeated opening ("I'll be … I'll be") to it.
+  const scratched = dropScratchedSentences(rawText);
+  if (scratched === rawText) return verdict;
+  const scratchedVerdict = judgeAgainst(scratched, candidate, fillers, options);
+  return scratchedVerdict.rejection === null ? scratchedVerdict : verdict;
+}
+
+// Judges a reply against one version of the input.
+function judgeAgainst(rawText: string, candidate: string, fillers: readonly string[], options: DiffOptions): GuardVerdict {
   const strict = options.speechNoise === false;
   const diff = diffContentWords(rawText, candidate, fillers, options);
   if (strict) {

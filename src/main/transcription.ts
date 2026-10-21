@@ -5,13 +5,15 @@ import { getProviderRegistry } from "./providers";
 import { defaultModelFor } from "@shared/modelList";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { formatterErrorReason } from "./providers/types";
-import { buildFormattingPrompt, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON } from "./providers/formatting-constants";
+import { buildFormattingPrompt, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON, FORMATTER_KEY_REJECTED_REASON } from "./providers/formatting-constants";
 import { CredentialsStore } from "./store/credentials";
 import { debug, warn } from "@main/log";
 import { judgeFormatterReply, stripReasoningBlocks } from "@shared/contentGuard";
+import { dropScratchedSentences } from "@shared/scratchThat";
 import { createCancellationScope, isAbortError, throwIfAborted } from "@main/cancellation";
 import { formatterDropWords, removeSpeechNoise } from "./text/cleanup";
 import { warmOpenRouterConnection } from "./providers/openrouter/client";
+import { warmGroqConnection } from "./providers/groq/groqStt";
 
 export const MAX_SINGLE_STT_CLIP_SECONDS = 30;
 const STT_CHUNK_OVERLAP_SECONDS = 2;
@@ -24,6 +26,14 @@ const FALLBACK_RESERVE_MS = 10_000;
 
 const STRONGER_STT_MODELS: Record<string, string> = {
   groq: "whisper-large-v3",
+};
+// Languages where the stronger model is the first choice, not only the low-confidence retry.
+const STRONGER_FIRST_LANGUAGES = new Set(["hi", "mr"]);
+// Hard cap on STT requests per dictation across the whole chain. Recovery keeps its own rules.
+const MAX_DICTATION_STT_REQUESTS = 2;
+const STT_FALLBACKS: Record<string, string[]> = {
+  groq: ["openrouter"],
+  openrouter: ["groq"],
 };
 
 export interface TranscriptionAttempt {
@@ -151,6 +161,7 @@ export class TranscriptionService {
   warmUp(): void {
     const settings = this.settingsProvider();
     if (settings.offlineMode === "always-offline") return;
+    if (settings.transcriptionProvider === "groq") warmGroqConnection();
     if (settings.transcriptionProvider === "openrouter" || settings.formattingProvider === "openrouter") warmOpenRouterConnection();
   }
 
@@ -175,11 +186,13 @@ export class TranscriptionService {
       let lastError: Error = new Error("All transcription providers failed.");
       let lastRejectedResult: TranscriptionResult | null = null;
       const providerAttempts: ProviderAttemptTrace[] = [];
-      for (let providerIndex = 0; providerIndex < chain.length; providerIndex += 1) {
+      let sttRequestCount = 0;
+      providerLoop: for (let providerIndex = 0; providerIndex < chain.length; providerIndex += 1) {
         const { id, provider, apiKey } = chain[providerIndex]!;
         const clips = options?.retryClip ? [clip, options.retryClip] : [clip];
-        const attempts = buildTranscriptionAttempts(id, provider.models, clips, settings.transcriptionModel);
-        if (options?.recovery) {
+        const attempts = buildTranscriptionAttempts(id, provider.models, clips, settings.transcriptionModel, language);
+        // Recovery gets one attempt. A live dictation with a fallback left also gets one, so the second request goes to the fallback.
+        if (options?.recovery || providerIndex < chain.length - 1) {
           const firstAttempt = attempts[0];
           attempts.splice(0, attempts.length, ...(firstAttempt ? [firstAttempt] : []));
         }
@@ -190,6 +203,8 @@ export class TranscriptionService {
         const providerDeadlineAt = providerIndex < chain.length - 1 ? reserveFallbackDeadline(options?.deadlineAt) : options?.deadlineAt;
         for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
           if (options?.shouldYieldToActiveDictation?.()) throw new RecoveryYieldedError();
+          if (!options?.recovery && sttRequestCount >= MAX_DICTATION_STT_REQUESTS) break providerLoop;
+          sttRequestCount += 1;
           const attempt = attempts[attemptIndex]!;
           const startedAt = Date.now();
           const startedAtIso = new Date(startedAt).toISOString();
@@ -276,8 +291,8 @@ export class TranscriptionService {
                 attempts.push(attempt);
                 continue;
               }
-            } else if (isAuthError(error) && id !== "openrouter") {
-              // A rejected OpenRouter key falls back to Groq, so a revoked key does not stop dictation.
+            } else if (isAuthError(error) && id !== "openrouter" && id !== "groq") {
+              // A rejected Groq or OpenRouter key falls back to the other, so a revoked key does not stop dictation.
               throw new TranscriptionChainError(lastError.message, providerAttempts, failure.class);
             }
             if (!settings.failoverEnabled || chain.length === 1) {
@@ -332,8 +347,8 @@ export class TranscriptionService {
     await tryAdd(primaryId);
 
     if (settings.failoverEnabled) {
-      // OpenRouter falls back only to Groq direct. Other primaries keep the older chain.
-      const fallbackIds = primaryId === "openrouter" ? ["groq"] : ["groq", "openai", "deepgram"];
+      // Groq and OpenRouter fall back only to each other. Other primaries keep the older chain.
+      const fallbackIds = STT_FALLBACKS[primaryId] ?? ["groq", "openai", "deepgram"];
       for (const fallbackId of fallbackIds) {
         if (fallbackId !== primaryId) await tryAdd(fallbackId);
       }
@@ -385,14 +400,17 @@ export class TranscriptionService {
     language: string,
     signal: AbortSignal,
   ): Promise<FormatTranscriptTraceResult> {
-    if (!hasParagraphBreak(rawText)) {
-      return this.formatTranscriptBlock(rawText, provider, apiKey, settings, language, signal);
+    // Withdrawn sentences go first, so a "Scratch that." in its own paragraph still drops the sentence before it.
+    const spoken = settings.cleanupEnabled ? dropScratchedSentences(rawText) : rawText;
+    if (!hasParagraphBreak(spoken)) {
+      return this.formatTranscriptBlock(spoken, provider, apiKey, settings, language, signal);
     }
 
-    const parts = splitParagraphParts(rawText);
+    const parts = splitParagraphParts(spoken);
     const formattedParts: string[] = [];
     const missingWords: string[] = [];
     const blockResults: FormatTranscriptTraceResult[] = [];
+    let keyRejected = false;
 
     for (const part of parts) {
       if (part.type === "separator") {
@@ -402,8 +420,11 @@ export class TranscriptionService {
 
       const text = part.value.trim();
       if (!text) continue;
+      // A rejected key fails every later paragraph too, so keep the rest unformatted instead of waiting on them.
+      if (keyRejected) { formattedParts.push(fallbackText(text, settings)); continue; }
       throwIfAborted(signal);
       const result = await this.formatTranscriptBlock(text, provider, apiKey, settings, language, signal);
+      if (result.formatterStatusReason === FORMATTER_KEY_REJECTED_REASON) keyRejected = true;
       blockResults.push(result);
       formattedParts.push(result.text.trim());
       if (result.contentGuardVerdict?.missingWords) missingWords.push(...result.contentGuardVerdict.missingWords);
@@ -411,7 +432,8 @@ export class TranscriptionService {
 
     const usedFallback = blockResults.some(r => r.formatterUsed === "guard-fallback");
     // A failed or rejected block sets the trace status, so one bad paragraph is never hidden behind a good one.
-    const summary = blockResults.find(r => r.formatterStatus === "failed" || r.formatterStatus === "rejected")
+    const summary = blockResults.find(r => r.formatterStatusReason === FORMATTER_KEY_REJECTED_REASON)
+      ?? blockResults.find(r => r.formatterStatus === "failed" || r.formatterStatus === "rejected")
       ?? blockResults.find(r => r.formatterUsed === "llm")
       ?? blockResults[0];
     // Only a ran aggregate counts as LLM output; a failed or rejected paragraph makes the whole result unformatted.
@@ -519,7 +541,8 @@ async function transcribePossiblyChunked(
   shouldYieldToActiveDictation?: () => boolean,
   beforeProviderCall?: () => void,
 ): Promise<TranscriptionResult> {
-  if (clip.durationSeconds <= MAX_SINGLE_STT_CLIP_SECONDS) {
+  // Live attempts upload the whole recording so chunking cannot exceed the two-request cap.
+  if (!options.recovery || clip.durationSeconds <= MAX_SINGLE_STT_CLIP_SECONDS) {
     if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
       throw new TranscriptionDeadlineExceededError();
     }
@@ -547,16 +570,19 @@ async function transcribePossiblyChunked(
   return mergeChunkedTranscriptionResults(results, chunks);
 }
 
+// The first attempt's model, then a retry with the stronger model when the provider has one.
 export function buildTranscriptionAttempts(
   providerId: string,
   providerModels: TranscriptionProvider["models"],
   clips: AudioClip[],
   configuredModel: string,
+  language?: string,
 ): TranscriptionAttempt[] {
-  const model = providerModels.some((candidate) => candidate.id === configuredModel) ? configuredModel : "";
-  const attempts = clips.map((clip) => ({ clip, model }));
   const strongerModel = STRONGER_STT_MODELS[providerId];
-  if (strongerModel && configuredModel !== strongerModel) {
+  const configured = providerModels.some((candidate) => candidate.id === configuredModel) ? configuredModel : "";
+  const model = strongerModel && STRONGER_FIRST_LANGUAGES.has(language ?? "") ? strongerModel : configured;
+  const attempts = clips.map((clip) => ({ clip, model }));
+  if (strongerModel && model !== strongerModel) {
     const firstClip = clips[0];
     if (firstClip) attempts.push({ clip: firstClip, model: strongerModel });
   }
@@ -712,6 +738,7 @@ function messageForEmptyChain(settings: Settings, primaryId: string): string {
 }
 
 function isAuthError(error: unknown): boolean {
+  if (isRecord(error) && (error.status === 401 || error.status === 403)) return true;
   if (!(error instanceof Error)) return false;
   const msg = error.message.toLowerCase();
   return msg.includes("401") || msg.includes("403") || msg.includes("unauthorized") || msg.includes("authentication") || msg.includes("invalid api key") || msg.includes("incorrect api key");
@@ -728,7 +755,7 @@ export function classifyTranscriptionError(error: unknown): { class: RecoveryErr
   if (message.includes("malformed") || message.includes("invalid audio") || message.includes("unsupported audio")) return { class: "malformed_audio", retryable: false, permanent: true };
   if (status === 429 || message.includes("rate limit") || message.includes("too many requests")) return { class: "rate_limit", retryable: true, permanent: false };
   if ((status !== null && status >= 500) || message.includes("temporarily unavailable") || message.includes("service unavailable")) return { class: "provider_5xx", retryable: true, permanent: false };
-  if (message.includes("network") || message.includes("fetch failed") || message.includes("econn") || message.includes("timeout") || message.includes("timed out") || message.includes("temporar")) return { class: "transient_network", retryable: true, permanent: false };
+  if (message.includes("network") || message.includes("fetch failed") || message.includes("econn") || message.includes("timeout") || message.includes("timed out") || message.includes("did not answer in time") || message.includes("temporar")) return { class: "transient_network", retryable: true, permanent: false };
   return { class: "transcription_error", retryable: false, permanent: true };
 }
 
