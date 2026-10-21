@@ -79,6 +79,7 @@ describe("question punctuation and spoken file names", () => {
       ["vi behöver 3 st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
       ["vi behöver 3  st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
       ["the weight is one st. now", "The weight is one st. Now."],
+      ["One st. is the weight", "One st. Is the weight."],
       ["we visited (st. louis) yesterday", "We visited (St. Louis) yesterday."],
       ["where is st. louis\nwhere is st. paul", "Where is St. Louis?\nWhere is St. Paul?"],
     ] satisfies [string, string][]) {

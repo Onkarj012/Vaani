@@ -38,7 +38,7 @@ function removeFillers(text: string, fillers: string[]): string {
 // "st. louis" -> "St. Louis"). After a number it is a count or a weight ("3 st." in Swedish, "one st." for stone),
 // and inside a filename or URL it is not a word, so both stay as typed.
 function capitalizeSaint(text: string): string {
-  return text.replace(/(?<=(?:^|\s)[("'“‘]?)(?<!(?:\p{N}|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))\s+)st\.(\s+)(\p{L})/gu, (_match, space: string, letter: string) => `St.${space}${letter.toUpperCase()}`);
+  return text.replace(/(?<=(?:^|\s)[("'“‘]?)(?<!(?:\p{N}|\b(?:[Oo]ne|[Tt]wo|[Tt]hree|[Ff]our|[Ff]ive|[Ss]ix|[Ss]even|[Ee]ight|[Nn]ine|[Tt]en|[Ee]leven|[Tt]welve))\s+)st\.(\s+)(\p{L})/gu, (_match, space: string, letter: string) => `St.${space}${letter.toUpperCase()}`);
 }
 
 function capitalizeSentences(text: string): string {
