@@ -1072,6 +1072,17 @@ describe("DictationService", () => {
     expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
   });
 
+  it("finishes the last paste's caret move before paste latest records the caret", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getLatest.mockResolvedValue({ id: "entry-1", cleanedText: "Hello there.", rawText: "hello there" });
+    vi.mocked(settlePendingCaretMove).mockClear();
+
+    await service.pasteLatestEntry();
+
+    expect(settlePendingCaretMove).toHaveBeenCalled();
+    expect(vi.mocked(settlePendingCaretMove).mock.invocationCallOrder[0]).toBeLessThan(injector.inject.mock.invocationCallOrder[0] ?? 0);
+  });
+
   it("refuses to paste latest when the latest entry is punctuation only", async () => {
     const { service, history, injector } = createDictationService();
     history.getLatest.mockResolvedValue({ id: "entry-1", cleanedText: ".", rawText: "um" });

@@ -1238,6 +1238,8 @@ export class DictationService {
   }
 
   private currentInjectionTarget(_entry: Pick<DictationEntry, "appBundleId" | "appName">) {
+    // Finish the last paste's caret move first, so the manual insert's caret baseline already includes it.
+    settlePendingCaretMove();
     const current = this.appDetector.getContext();
     if (isExternalTarget(current)) {
       return { appBundleId: current.appBundleId, appName: current.appName, pid: current.pid, selection: this.captureSelection(current) };
