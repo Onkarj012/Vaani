@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addedContentWords, diffContentWords, missingContentWords, preservesContentWords, stripReasoningBlocks } from "../../src/shared/contentGuard";
+import { addedContentWords, diffContentWords, judgeFormatterReply, missingContentWords, preservesContentWords, stripReasoningBlocks } from "../../src/shared/contentGuard";
 
 describe("preservesContentWords", () => {
   it("accepts punctuation and capitalization changes", () => {
@@ -260,6 +260,26 @@ describe("preservesContentWords", () => {
     const candidate = Array.from({ length: 1_001 }, (_, index) => `beta${index}`).join(" ");
     expect(diffContentWords(raw, candidate, []).rejection).toBe("Transcript too long to verify formatting.");
     expect(preservesContentWords(raw, candidate, [])).toBe(false);
+  });
+});
+
+describe("long transcripts over the alignment limit", () => {
+  // A long body that pushes the transcript past the alignment limit.
+  const tail = Array.from({ length: 1_100 }, (_, index) => `word${index}`).join(" ");
+
+  it("rejects a reply that drops a number from a separate statement", () => {
+    const raw = `The answer is 3. Sorry, 4 people are waiting. ${tail} done`;
+    const candidate = `The answer is sorry, 4 people are waiting. ${tail} finished.`;
+    const verdict = judgeFormatterReply(raw, candidate);
+    expect(verdict.rejection).not.toBeNull();
+    expect(verdict.dropped).toContain("3");
+  });
+
+  it("accepts a genuine correction inside one sentence, dropped or kept", () => {
+    // The edits sit at both ends so the long body stays in the unaligned middle.
+    const raw = `Done. Start at 3, no, 4 for the team. ${tail} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Start at 4 for the team. ${tail} finish.`).rejection).toBeNull();
+    expect(judgeFormatterReply(raw, `Finished. Start at 3, no, 4 for the team. ${tail} finish.`).rejection).toBeNull();
   });
 });
 

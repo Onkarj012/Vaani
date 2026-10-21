@@ -424,24 +424,38 @@ function speechNoise(source: Unit[], dropped: ReadonlySet<number>, phrases: read
   // The core sequence skips filler phrases and cut-off words, so "the uh the" and "there sh- there" read as stutters.
   const inPhrase = (index: number): boolean => phrases.some(([start, end]) => start <= index && index < end);
   const core = source.map((_, index) => index).filter(index => !noise.has(index) && !inPhrase(index));
-  const info: Core = {
+  const info = coreOf(source, core, dropped);
+  for (const [start, end] of droppedRuns(info.gone)) {
+    const run = info.words.slice(start, end + 1);
+    if (isStutter(run, info, start, end) || isCorrection(run, info, start, end)) {
+      for (let position = start; position <= end; position += 1) noise.add(core[position] ?? -1);
+    }
+  }
+  return noise;
+}
+
+// The core sequence for the source units at the given indices, with the dropped ones marked.
+function coreOf(source: Unit[], core: readonly number[], dropped: ReadonlySet<number>): Core {
+  return {
     words: core.map(index => unitText(source[index])),
     gone: core.map(index => dropped.has(index)),
     pause: core.map(index => { const unit = source[index]; return unit?.kind === "word" && unit.pause === true; }),
     boundary: core.map(index => { const unit = source[index]; return unit?.kind !== "word" || unit.boundary === true; }),
   };
-  const { gone } = info;
-  for (let start = 0; start < core.length;) {
+}
+
+// Each run of consecutive dropped positions, as [start, end] inclusive.
+function droppedRuns(gone: readonly boolean[]): [number, number][] {
+  const runs: [number, number][] = [];
+  let start = 0;
+  while (start < gone.length) {
     if (!gone[start]) { start += 1; continue; }
     let end = start;
-    while (end + 1 < core.length && gone[end + 1]) end += 1;
-    const run = info.words.slice(start, end + 1);
-    if (isStutter(run, info, start, end) || isCorrection(run, info, start, end)) {
-      for (let position = start; position <= end; position += 1) noise.add(core[position] ?? -1);
-    }
+    while (end + 1 < gone.length && gone[end + 1]) end += 1;
+    runs.push([start, end]);
     start = end + 1;
   }
-  return noise;
+  return runs;
 }
 
 // True when no sentence starts at any core position in (from, to].
@@ -570,10 +584,13 @@ export function judgeFormatterReply(rawText: string, candidate: string, fillers:
     const rejection = diff.rejection ?? (diff.missing.length > 0 || diff.added.length > 0 ? CHANGED_WORDS_REASON : null);
     return { rejection, dropped: diff.missing, added: diff.added };
   }
-  const sourceWords = inputUnits(rawText, fillers).units.flatMap(unit => (unit.kind === "filler" ? [] : unitWords(unit)));
-  // Too long to align: compare the words as counts instead. A number with a correction cue right after it may go.
-  const countedWords = diff.rejection ? withoutCorrectedNumbers(sourceWords) : sourceWords;
-  const { missing, added } = diff.rejection ? { missing: bagDifference(countedWords, outputWordsOf(candidate)), added: bagDifference(outputWordsOf(candidate), countedWords) } : diff;
+  const input = inputUnits(rawText, fillers);
+  const sourceWords = input.units.flatMap(unit => (unit.kind === "filler" ? [] : unitWords(unit)));
+  // Too long to align: compare the words as counts instead, excusing only corrections the reply dropped.
+  const output = outputWordsOf(candidate);
+  const wordUnits = input.units.flatMap((unit, index) => (unit.kind === "filler" ? [] : unitWords(unit).map(() => index)));
+  const countedWords = diff.rejection ? countedSourceWords(input.units, sourceWords, wordUnits, output) : sourceWords;
+  const { missing, added } = diff.rejection ? { missing: bagDifference(countedWords, output), added: bagDifference(output, countedWords) } : diff;
   // A word that only moved is in both lists. Ordinals count as their numbers, so "second" may come back as "2".
   const dropped = bagDifference(missing, added);
   const newWords = bagDifference(added, missing);
@@ -589,13 +606,22 @@ function outputWordsOf(candidate: string): string[] {
   return outputUnits(candidate).flatMap(unitWords);
 }
 
-// Drops each number that a correction cue follows, and the cue, from a word list ("3.5 no 4.5" keeps "4.5").
-function withoutCorrectedNumbers(words: readonly string[]): string[] {
-  return words.filter((word, index) => {
-    const next = words[index + 1] ?? "";
-    if (isNumber(word) && CORRECTION_CUE_WORDS.has(next) && isNumber(words[index + 2] ?? "")) return false;
-    return !(CORRECTION_CUE_WORDS.has(word) && isNumber(words[index - 1] ?? "") && isNumber(next));
-  });
+// Long transcripts: the source words left after excusing the numbers and cues of each dropped run that isCorrection accepts.
+// wordUnits maps each word to its source unit index. Only a whole word unit can be excused, never a list or line cue.
+function countedSourceWords(units: Unit[], words: readonly string[], wordUnits: readonly number[], output: readonly string[]): string[] {
+  const droppedUnits = new Set(unmatchedPositions(words, output).map(position => wordUnits[position] ?? -1));
+  const core = units.flatMap((unit, index) => (unit.kind === "filler" ? [] : [index]));
+  const info = coreOf(units, core, droppedUnits);
+  const excused = new Set<number>();
+  for (const [start, end] of droppedRuns(info.gone)) {
+    if (!isCorrection(info.words.slice(start, end + 1), info, start, end)) continue;
+    for (let position = start; position <= end; position += 1) {
+      const index = core[position] ?? -1;
+      const unit = units[index];
+      if (unit?.kind === "word" && (isNumber(unit.text) || CORRECTION_CUE_WORDS.has(unit.text))) excused.add(index);
+    }
+  }
+  return words.filter((_, position) => !excused.has(wordUnits[position] ?? -1));
 }
 
 // The number an ordinal names ("second", "2nd" → "2"), or the word itself.
@@ -609,13 +635,19 @@ function sameBagWord(left: string, right: string): boolean {
   return (isDevanagariWord(left) && soundsAlike(left, right)) || (isDevanagariWord(right) && soundsAlike(right, left));
 }
 
+// Positions of a that are left after removing one matching copy of each word of b.
+function unmatchedPositions(a: readonly string[], b: readonly string[]): number[] {
+  const remaining = [...b];
+  return a.flatMap((word, position) => {
+    const index = remaining.findIndex(other => sameBagWord(word, other));
+    if (index < 0) return [position];
+    remaining.splice(index, 1);
+    return [];
+  });
+}
+
 // Words of a that are left after removing one matching copy of each word of b.
 function bagDifference(a: readonly string[], b: readonly string[]): string[] {
-  const remaining = [...b];
-  return a.filter(word => {
-    const index = remaining.findIndex(other => sameBagWord(word, other));
-    if (index < 0) return true;
-    remaining.splice(index, 1);
-    return false;
-  });
+  const left = new Set(unmatchedPositions(a, b));
+  return a.filter((_, position) => left.has(position));
 }
