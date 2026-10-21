@@ -127,6 +127,7 @@ export function isLanguageSupportedByProvider(
 export const HISTORY_LIMIT = 2000;
 export const SUCCESS_RESET_MS = 600;
 export const ERROR_RESET_MS = 1_800;
+export const MAX_AUDIO_DURATION_SECONDS = 600;
 export const HOTKEY_DOUBLE_PRESS_WINDOW_MS = 350;
 export const APP_DATA_DIR = ".vaani";
 

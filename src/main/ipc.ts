@@ -6,6 +6,7 @@ import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { defaultModelFor } from "@shared/modelList";
 import { isCanonicalHotkey } from "@shared/hotkeys";
+import { MAX_AUDIO_DURATION_SECONDS } from "@shared/defaults";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioVisualFrame,
@@ -87,7 +88,6 @@ const MAX_TEXT_LENGTH = 100_000;
 const MAX_SECRET_LENGTH = 8_192;
 const MAX_LIST_LENGTH = 500;
 const MAX_CUSTOM_CORRECTION_HIT_COUNT = 1_000_000;
-const MAX_AUDIO_DURATION_SECONDS = 600;
 const MAX_AUDIO_SAMPLES = 10_000_000;
 const MAX_RMS_FRAMES = 100_000;
 

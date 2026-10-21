@@ -28,7 +28,7 @@ import type {
   Settings,
   TranscriptionResult
 } from "@shared/types";
-import { ERROR_RESET_MS, SUCCESS_RESET_MS } from "@shared/defaults";
+import { ERROR_RESET_MS, MAX_AUDIO_DURATION_SECONDS, SUCCESS_RESET_MS } from "@shared/defaults";
 import { resolveSessionModels } from "@shared/modelList";
 import { IpcChannel } from "@shared/ipc";
 import { trimSilence, isValidClip } from "./audio/vad";
@@ -65,6 +65,8 @@ const FORMATTING_TIMEOUT_MS = 20_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
+// One second under the IPC clip limit, so a clip cut at the cap is never rejected.
+const RECORDING_CAP_MS = (MAX_AUDIO_DURATION_SECONDS - 1) * 1000;
 const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 const EDIT_WATCH_INTERVAL_MS = 500;
 const EDIT_WATCH_TIMEOUT_MS = 60_000;
@@ -191,6 +193,13 @@ export class DictationService {
       const uptimeHrs = Math.round(process.uptime() / 3600);
       debug("dictation", `uptime checkpoint: ${uptimeHrs}h, state=${this.state.status}, session=${this.activeSessionId ?? "none"}`);
     }, UPTIME_LOG_INTERVAL_MS);
+  }
+
+  // Ends a recording that hits the length limit with the same path as Send, keeping its audio.
+  private armRecordingCap(sessionId: string): void {
+    this.timers.setTimeout("recordingCap", () => {
+      if (this.isCurrentSession(sessionId) && this.state.status === "recording") this.endHotkeySession();
+    }, RECORDING_CAP_MS);
   }
 
   private armStaleSessionGuard(sessionId: string): void {
@@ -337,6 +346,7 @@ export class DictationService {
     this.setState({ status: "finalizing", sessionId });
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
+    this.clearRecordingCapTimer();
     if (!this.recorder?.stopRecording(sessionId)) {
       this.failSession(sessionId, "Recording could not be finalized.", "recorder_failure");
       return;
@@ -354,6 +364,7 @@ export class DictationService {
     this.clearRecorderStartTimer();
     this.setState({ status: "recording", sessionId });
     this.rearmStaleSessionGuard();
+    this.armRecordingCap(sessionId);
     this.clearAudioFrameTimer();
     this.timers.setTimeout("audioFrame", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "recording") {
@@ -1461,6 +1472,7 @@ export class DictationService {
       });
     }
     this.clearAudioFrameTimer();
+    this.clearRecordingCapTimer();
     this.setState({ status: "completed", sessionId, outcome, text, message, detectedLanguage, ...(recoveryOutcome ? { recoveryOutcome } : {}), ...(insertionOutcome ? { insertionOutcome } : {}) });
     this.scheduleReset(SUCCESS_RESET_MS);
   }
@@ -1521,6 +1533,7 @@ export class DictationService {
     this.clearRecorderStartTimer();
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
+    this.clearRecordingCapTimer();
     this.setState({ status: "error", sessionId, message });
     void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message, tracePatch);
     this.scheduleReset(ERROR_RESET_MS);
@@ -1556,6 +1569,7 @@ export class DictationService {
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
     this.clearStaleSessionTimer();
+    this.clearRecordingCapTimer();
   }
 
   private clearResetTimer(): void { this.timers.clear("reset"); }
@@ -1563,6 +1577,7 @@ export class DictationService {
   private clearAudioFrameTimer(): void { this.timers.clear("audioFrame"); }
   private clearRecorderStartTimer(): void { this.timers.clear("recorderStart"); }
   private clearStaleSessionTimer(): void { this.timers.clear("staleSession"); }
+  private clearRecordingCapTimer(): void { this.timers.clear("recordingCap"); }
   private clearEditWatch(): void {
     this.timers.clear("editWatch");
     this.timers.clear("editWatchTimeout");
@@ -1584,6 +1599,7 @@ export class DictationService {
     this.clearResetTimer();
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
+    this.clearRecordingCapTimer();
     this.clearRecorderStartTimer();
     this.clearStaleSessionTimer();
     this.clearEditWatch();
