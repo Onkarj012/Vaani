@@ -11,6 +11,8 @@ export interface FormattingResult {
   status: DictationFormatterStatus;
   reason: string;
   text: string;
+  /** Cost the provider reported for this call, in USD. Only OpenRouter reports it. */
+  costUsd?: number;
 }
 
 export interface TranscriptionProvider {

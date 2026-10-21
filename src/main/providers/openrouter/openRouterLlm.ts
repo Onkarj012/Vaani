@@ -15,6 +15,7 @@ import { defaultModelFor, modelEntries, providerModels } from "@shared/modelList
 
 interface ChatCompletionReply {
   choices: { message: { content: string | null } }[];
+  usage?: { cost?: number };
 }
 
 // Turns reasoning off for listed models that allow it. Cleanup is mechanical, and Haiku 5.5 reasons by default,
@@ -57,7 +58,8 @@ export const OpenRouterLlmProvider: FormattingProvider = {
       });
       const formatted = reply.choices[0]?.message?.content?.trim();
       if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
-      return formatterResult("ran", formatted, FORMATTED_REASON);
+      const result = formatterResult("ran", formatted, FORMATTED_REASON);
+      return typeof reply.usage?.cost === "number" ? { ...result, costUsd: reply.usage.cost } : result;
     } catch (error) {
       if (options.signal?.aborted || isAbortError(error)) throw error;
       return formatterResult("failed", text, formatterErrorReason(error));

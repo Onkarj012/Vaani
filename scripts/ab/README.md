@@ -82,3 +82,35 @@ When a new model appears in `src/shared/modelList.ts`, run the script again.
 | Hints sent | `yes`, `partial`, or `no`. `no` on a model that takes hints means the hints did not go out. Check that `hints.txt` has terms. |
 
 Pick the model with the lowest WER and the fewest term misses. Break ties on latency and cost. Do not pick a model with many failed calls, even if its other numbers look good.
+
+## 6. Cleanup model bake-off
+
+`scripts/ab-cleanup.ts` runs the same clips through the cleanup (formatting) models. It is dev-only, like the transcription script.
+
+1. Record the 30 lines in [`recording-script.md`](recording-script.md). The file names match the table there.
+2. Type each line's **Say** text into `ab-test/clips/<name>.txt`.
+3. Run it:
+
+```bash
+export OPENROUTER_API_KEY=your-key-here
+export GROQ_API_KEY=your-key-here
+export OPENAI_API_KEY=your-key-here
+bun scripts/ab-cleanup.ts
+```
+
+Options:
+
+- `--models <id,id>` picks models. The default is `anthropic/claude-haiku-5.5` (OpenRouter), `openai/gpt-oss-20b` (Groq), and `gpt-6-luna` (OpenAI). OpenRouter also lists `openai/gpt-6-luna`.
+- `--fillers "like,you know"` adds filler words the model may drop, as if you added them in Settings. Lines 19 and 20 need it.
+- `--stt-results ab-test/results/<time>.json --stt-model <id>` cleans the transcripts from `ab-transcription.ts` instead of the typed text.
+
+A model whose key is not set is skipped, and the report says so. The script writes `ab-test/results/cleanup-<time>.md` and `.json`.
+
+| Column | Meaning |
+| --- | --- |
+| Formatted | The model's reply passed the content guard and was used. |
+| Guard rejected | The reply failed the content guard. The app would use the speech-noise fallback instead. |
+| Skipped | Vaani does not send lines under four words to the model. The fallback is used. |
+| Exact matches | Clips where the text matches the expected cleanup line by line. Case and punctuation count. |
+| Mean WER | Word error rate against the expected cleanup. Lower is better. |
+| Total cost | OpenRouter's reported cost. Groq and OpenAI do not report cost here. |
