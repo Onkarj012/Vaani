@@ -487,8 +487,9 @@ describe("ClipboardTextInjector dispatch safety", () => {
     bridge.setFocusedSelection.mockImplementation((location: number) => { caret = location; return true; });
     bridge.pasteText.mockImplementation((text: string) => {
       const at = caret;
-      // The first session ends once its paste lands, after the 300 ms caret check found nothing yet.
-      setTimeout(() => { field = field.slice(0, at) + text + field.slice(at); firstSessionActive = false; }, 500);
+      // The first session ends 200 ms after Cmd+V, before the 300 ms caret check, and the paste lands at 500 ms.
+      setTimeout(() => { firstSessionActive = false; }, 200);
+      setTimeout(() => { field = field.slice(0, at) + text + field.slice(at); }, 500);
       return true;
     });
     try {

@@ -333,13 +333,15 @@ async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCo
 
 // Moves the caret after the inserted text once the app has applied it, unless focus moved or a newer insert started.
 // A paste that has not reached the field yet keeps its move pending, so the next insert retries it once.
-// That last try skips the guard: the text is already sent, and the session ending or Vaani's clipboard restore
-// must not leave the next insert at the wrong position.
+// That last try skips the guard, so the session ending or Vaani's clipboard restore can't leave the next insert
+// at the wrong position.
 function scheduleCaretMove(text: string, insertionStart: number | undefined, fieldIdentity: string | null, guard: InjectionGuard): void {
   const check = { timer: setTimeout(() => run(false), CARET_SETTLE_MS), run: () => run(true) };
   const run = (last: boolean): void => {
     if (pendingCaretCheck !== check) return;
-    if ((!last && guard()) || !fieldIdentity || readFocusedElementIdentity() !== fieldIdentity) { pendingCaretCheck = null; return; }
+    if (!fieldIdentity || readFocusedElementIdentity() !== fieldIdentity) { pendingCaretCheck = null; return; }
+    // A guard failure only skips the timed try. The final try still runs, since the text was already sent.
+    if (!last && guard()) return;
     if (moveCaretAfterInsertion(text, insertionStart) || last) pendingCaretCheck = null;
   };
   pendingCaretCheck = check;
