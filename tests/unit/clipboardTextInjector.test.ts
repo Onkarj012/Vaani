@@ -604,7 +604,7 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
   it("keeps a new user copy made while verifying the dictated text", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const { clipboard } = await import("electron");
-    const read = vi.spyOn(clipboard, "readText").mockImplementationOnce(() => {
+    const read = vi.spyOn(clipboard, "readText").mockImplementationOnce(async () => {
       storeItems(textItems("userCopy"));
       return clipboardText();
     });
