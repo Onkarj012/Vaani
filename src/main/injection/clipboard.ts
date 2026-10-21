@@ -20,6 +20,8 @@ const DISPATCH_TIMEOUT_MS = 20_000;
 export const PASTEBOARD_SNAPSHOT_MAX_BYTES = 50 * 1024 * 1024;
 const PLAIN_TEXT_TYPE = "public.utf8-plain-text";
 const CARET_SETTLE_MS = 300;
+// Timed caret checks after a paste, 300 ms apart, before the move waits for the next insert.
+const CARET_MAX_TIMED_TRIES = 5;
 // Apps can read the pasteboard well after Cmd+V. An insert that follows a paste this
 // closely waits before writing the clipboard, so it can't swap the text being pasted.
 const PASTE_LANDING_MS = 700;
@@ -96,7 +98,7 @@ export class ClipboardTextInjector {
         if (outcome === "dispatched") {
           if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
           consecutiveFailures = 0;
-          scheduleCaretMove(text, insertionStart, insertionFieldIdentity, dispatchGuard);
+          scheduleCaretMove(text, insertionStart, insertionFieldIdentity);
           return { success: true, method: "clipboard" };
         }
         if (outcome !== "failed") return { success: false, reason: outcome };
@@ -150,7 +152,7 @@ export class ClipboardTextInjector {
       if (pasted) {
         if (dispatchGuard()) return { success: false, reason: "outcome_uncertain" };
         consecutiveFailures = 0;
-        scheduleCaretMove(text, insertionStart, insertionFieldIdentity, dispatchGuard);
+        scheduleCaretMove(text, insertionStart, insertionFieldIdentity);
         return { success: true, method: "clipboard" };
       }
       consecutiveFailures += 1;
@@ -332,17 +334,17 @@ async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCo
 }
 
 // Moves the caret after the inserted text once the app has applied it, unless focus moved or a newer insert started.
-// A paste that has not reached the field yet keeps its move pending, so the next insert retries it once.
-// That last try skips the guard, so the session ending or Vaani's clipboard restore can't leave the next insert
-// at the wrong position.
-function scheduleCaretMove(text: string, insertionStart: number | undefined, fieldIdentity: string | null, guard: InjectionGuard): void {
+// A paste that has not reached the field yet is checked again a few times, then kept pending for the next insert.
+// The session guard is not consulted: the text is already sent, and the session usually ends right after the insert.
+function scheduleCaretMove(text: string, insertionStart: number | undefined, fieldIdentity: string | null): void {
+  let tries = 0;
   const check = { timer: setTimeout(() => run(false), CARET_SETTLE_MS), run: () => run(true) };
   const run = (last: boolean): void => {
     if (pendingCaretCheck !== check) return;
     if (!fieldIdentity || readFocusedElementIdentity() !== fieldIdentity) { pendingCaretCheck = null; return; }
-    // A guard failure only skips the timed try. The final try still runs, since the text was already sent.
-    if (!last && guard()) return;
-    if (moveCaretAfterInsertion(text, insertionStart) || last) pendingCaretCheck = null;
+    if (moveCaretAfterInsertion(text, insertionStart) || last) { pendingCaretCheck = null; return; }
+    tries += 1;
+    if (tries < CARET_MAX_TIMED_TRIES) check.timer = setTimeout(() => run(false), CARET_SETTLE_MS);
   };
   pendingCaretCheck = check;
 }

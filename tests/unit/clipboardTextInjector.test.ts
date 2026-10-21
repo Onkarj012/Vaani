@@ -282,7 +282,7 @@ describe("ClipboardTextInjector dispatch safety", () => {
     vi.useRealTimers();
   });
 
-  it("moves the delayed caret only while the original field and guard remain valid", async () => {
+  it("moves the delayed caret only while the original field keeps focus", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const { createInjectionGuard } = await import("@main/injection/guard");
     for (const scenario of ["same-field", "other-field", "cancelled", "unknown-field"] as const) {
@@ -301,7 +301,8 @@ describe("ClipboardTextInjector dispatch safety", () => {
       if (scenario === "cancelled") controller.abort();
       await vi.advanceTimersByTimeAsync(300);
 
-      if (scenario === "same-field") {
+      // The text is already in the field, so a session cancelled after dispatch still gets its caret moved.
+      if (scenario === "same-field" || scenario === "cancelled") {
         expect(bridge.setFocusedSelection).toHaveBeenCalledExactlyOnceWith(8, 0);
       } else {
         expect(bridge.setFocusedSelection).not.toHaveBeenCalled();
@@ -502,6 +503,39 @@ describe("ClipboardTextInjector dispatch safety", () => {
       await second;
 
       expect(field).toBe("firstsecond");
+    } finally {
+      bridge.getFocusedSelection = undefined;
+      bridge.getFocusedElementIdentity.mockReset().mockReturnValue(null);
+      bridge.getFocusedValue.mockReset().mockReturnValue(null);
+      bridge.setFocusedSelection.mockReset().mockReturnValue(true);
+    }
+  });
+
+  it("moves the caret after a late paste with no later Vaani action, once the session has ended", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    // The paste reaches the field 500 ms after Cmd+V, and the app leaves the caret at the paste start.
+    let field = "";
+    let caret = 0;
+    let sessionActive = true;
+    bridge.getFocusedSelection = () => ({ location: caret, length: 0 });
+    bridge.getFocusedElementIdentity.mockReturnValue("field");
+    bridge.getFocusedValue.mockImplementation(() => field);
+    bridge.setFocusedSelection.mockImplementation((location: number) => { caret = location; return true; });
+    bridge.pasteText.mockImplementation((text: string) => {
+      const at = caret;
+      setTimeout(() => { field = field.slice(0, at) + text + field.slice(at); }, 500);
+      return true;
+    });
+    try {
+      const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ isTargetValid: () => sessionActive }));
+      await vi.advanceTimersByTimeAsync(1_000);
+      await promise;
+      sessionActive = false;
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(field).toBe("dictated");
+      expect(caret).toBe(8);
     } finally {
       bridge.getFocusedSelection = undefined;
       bridge.getFocusedElementIdentity.mockReset().mockReturnValue(null);
