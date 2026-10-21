@@ -36,7 +36,7 @@ import { trimSilence, isValidClip } from "./audio/vad";
 import { evaluateSpeechGate } from "./audio/speechGate";
 import { AppDetector, type AppContextResult } from "./context/appDetector";
 import { TextInjector } from "./injection";
-import { cancelPendingClipboardRestore } from "./injection/clipboard";
+import { cancelPendingClipboardRestore, settlePendingCaretMove } from "./injection/clipboard";
 import { nativeBridge } from "./nativeBridge";
 import { debug } from "@main/log";
 import { OverlayController } from "./overlay";
@@ -256,6 +256,7 @@ export class DictationService {
       language: resolveProfileLanguage(profile?.language, settings.language),
       customPrompt: profile?.customPrompt ?? settings.customPrompt,
     });
+    settlePendingCaretMove();
     this.activeSelection = this.captureSelection(this.activeTarget);
     this.activeTargetValue = isExternalTarget(this.activeTarget) ? safeFocusedValue() : null;
     this.activeTargetIdentity = isExternalTarget(this.activeTarget) ? safeFocusedElementIdentity() : null;

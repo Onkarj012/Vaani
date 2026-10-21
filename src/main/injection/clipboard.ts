@@ -66,7 +66,7 @@ export class ClipboardTextInjector {
     try {
       await waitForPreviousPasteToLand();
       // The previous paste has landed, so finish its caret move before this insert reads the selection.
-      flushPendingCaretMove();
+      settlePendingCaretMove();
       // Settle only after switching apps. A target already in front takes the clipboard write at once.
       if (await activateTargetApp(target)) await delay(180);
       const blockedBeforeWrite = dispatchGuard();
@@ -347,8 +347,9 @@ function scheduleCaretMove(text: string, insertionStart: number | undefined, fie
   pendingCaretCheck = check;
 }
 
-// Runs the last paste's caret move now instead of on its timer, as its final try.
-function flushPendingCaretMove(): void {
+// Runs the last paste's caret move now instead of on its timer, as its final try. A new dictation calls it before
+// it records the caret, so the finished move is not mistaken for the user moving the caret.
+export function settlePendingCaretMove(): void {
   if (!pendingCaretCheck) return;
   clearTimeout(pendingCaretCheck.timer);
   pendingCaretCheck.run();

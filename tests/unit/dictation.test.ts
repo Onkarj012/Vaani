@@ -16,6 +16,7 @@ import { createRecoveryEntry, type RecoveryEntry, type RecoveryEntrySeed, type R
 import { DictationService } from "./dictation.fixture";
 import { selectRecoveryText } from "@main/dictation";
 import { nativeBridge } from "@main/nativeBridge";
+import { settlePendingCaretMove } from "@main/injection/clipboard";
 import type { InjectionOptions, InjectionTarget } from "@main/injection";
 import { TranscriptionChainError, TranscriptionDeadlineExceededError, TranscriptionService, type TranscribeOptions } from "@main/transcription";
 
@@ -582,6 +583,15 @@ describe("DictationService", () => {
     expect(overlay.setPressed).toHaveBeenCalledTimes(1);
     expect(overlay.setRecording).not.toHaveBeenCalled();
     expect(recorder.startRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("finishes the last paste's caret move before recording the new session's caret", () => {
+    const { service } = createDictationService();
+    vi.mocked(settlePendingCaretMove).mockClear();
+
+    service.beginHotkeySession();
+
+    expect(settlePendingCaretMove).toHaveBeenCalledTimes(1);
   });
 
   it("queues recording while the recorder warms up and errors only after timeout", () => {
