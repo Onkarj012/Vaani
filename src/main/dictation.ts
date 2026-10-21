@@ -50,7 +50,7 @@ import { buildVocabularyTerms, getTranscriptionTimeoutMs, TranscriptionCancelled
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
-import { FORMATTER_KEY_REJECTED_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON } from "./providers/formatting-constants";
+import { FORMATTER_KEY_REJECTED_REASON, liveFormattingTimeoutMs, NO_API_KEY_REASON, NO_PROVIDER_REASON } from "./providers/formatting-constants";
 import { formatBuildIdentifier } from "@shared/buildIdentifier";
 import { evaluateInsertionAcceptance } from "@shared/insertionAcceptance";
 import { resolveProfileLanguage } from "@main/providers/language";
@@ -2138,11 +2138,6 @@ const OUTCOME_UNCERTAIN_DETAIL = "outcome_uncertain";
 const NOTHING_TO_INSERT_MESSAGE = "Nothing to insert. The transcript was empty after cleanup.";
 const FORMAT_NOTICE = "Formatting did not apply. Inserted the unformatted text.";
 const FORMAT_PARTIAL_NOTICE = "Formatting applied only in part. Some text was inserted unformatted.";
-
-// Groq formats fast. Slower providers get a longer live deadline so their reply is not cut off. An unset provider means Groq.
-export function liveFormattingTimeoutMs(provider: string | undefined): number {
-  return (provider ?? "groq-llm") === "groq-llm" ? 1_500 : 3_500;
-}
 
 // Short warning added to the insert message when formatting did not apply. Offline and too-short skips get no warning.
 function formatNoticeFor(trace: FormatTranscriptTraceResult): string | null {

@@ -6,14 +6,14 @@ import { join, resolve } from "node:path";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { judgeFormatterReply, stripReasoningBlocks } from "@shared/contentGuard";
 import { modelEntries, type ModelEntry } from "@shared/modelList";
-import { buildFormattingPrompt, EMPTY_REPLY_REASON, FORMATTED_REASON } from "@main/providers/formatting-constants";
+import { buildFormattingPrompt, EMPTY_REPLY_REASON, FORMATTED_REASON, liveFormattingTimeoutMs } from "@main/providers/formatting-constants";
 import type { FormattingProvider, FormattingResult } from "@main/providers/types";
 import { OpenRouterLlmProvider } from "@main/providers/openrouter/openRouterLlm";
 import { GroqLlmProvider } from "@main/providers/groq/groqLlm";
 import { OpenAILlmProvider } from "@main/providers/openai/openaiLlm";
 import { formatterDropWords, removeSpeechNoise } from "@main/text/cleanup";
 import { wordErrorRate } from "./ab/scoring";
-import { isExactMatch, mean, parseExpectedCleanup, percentile, transcriptsFromResults } from "./ab/cleanupScoring";
+import { isExactMatch, mean, parseExpectedCleanup, percentile, redactSecrets, transcriptsFromResults } from "./ab/cleanupScoring";
 
 // Models compared when --models is not given. Ids come from src/shared/modelList.ts.
 const DEFAULT_MODEL_IDS = ["anthropic/claude-haiku-5.5", "openai/gpt-oss-20b", "gpt-6-luna"];
@@ -25,7 +25,7 @@ const CLEANUP_ADAPTERS: Record<string, { adapter: FormattingProvider; envVar: st
   "openai-llm": { adapter: OpenAILlmProvider, envVar: "OPENAI_API_KEY" },
 };
 
-type Outcome = "formatted" | "guard-rejected" | "skipped" | "failed";
+type Outcome = "formatted" | "guard-rejected" | "skipped" | "failed" | "timeout";
 
 interface Args {
   dir: string;
@@ -70,6 +70,7 @@ interface ModelSummary {
   guardRejected: number;
   skipped: number;
   failed: number;
+  timeouts: number;
   exactMatches: number;
   meanWer: number | null;
   meanLatencyMs: number | null;
@@ -127,6 +128,11 @@ function loadClips(expected: Map<string, string>, clipsDir: string, transcripts:
   return clips;
 }
 
+// Removes the configured API keys from text before it is stored or printed.
+function redactKeys(text: string): string {
+  return redactSecrets(text, Object.values(CLEANUP_ADAPTERS).map(({ envVar }) => process.env[envVar]?.trim() ?? ""));
+}
+
 // Builds one clip result. Latency and cost count only when the model answered.
 function buildResult(run: RunModel, clip: ClipInput, reply: { outcome: Outcome; reason: string; output: string; latencyMs: number; costUsd?: number }): ClipResult {
   const answered = reply.outcome === "formatted" || reply.outcome === "guard-rejected";
@@ -134,7 +140,7 @@ function buildResult(run: RunModel, clip: ClipInput, reply: { outcome: Outcome; 
     clip: clip.name,
     model: run.entry.modelId,
     outcome: reply.outcome,
-    reason: reply.reason,
+    reason: redactKeys(reply.reason),
     input: clip.raw,
     output: reply.output,
     expected: clip.expected,
@@ -145,11 +151,15 @@ function buildResult(run: RunModel, clip: ClipInput, reply: { outcome: Outcome; 
   };
 }
 
-// Sends one clip to one formatter with the app's prompts, then applies the content guard and the speech-noise fallback.
+// Sends one clip to one formatter with the app's prompts and live deadline, then applies the content guard and the speech-noise fallback.
 async function runClip(run: RunModel, clip: ClipInput, fillerWords: string[]): Promise<ClipResult> {
   const fallback = removeSpeechNoise(clip.raw);
   const language = DEFAULT_SETTINGS.language;
+  const timeoutMs = liveFormattingTimeoutMs(run.entry.provider);
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), timeoutMs);
   const startedAt = performance.now();
+  const timedOut = () => buildResult(run, clip, { outcome: "timeout", reason: `No reply within ${timeoutMs} ms. Vaani would insert the speech-noise fallback.`, output: fallback, latencyMs: performance.now() - startedAt });
   let reply: FormattingResult;
   try {
     reply = await run.adapter.format(clip.raw, {
@@ -158,10 +168,14 @@ async function runClip(run: RunModel, clip: ClipInput, fillerWords: string[]): P
       systemPrompt: buildFormattingPrompt({ language, text: clip.raw, fillerWords }),
       strictSystemPrompt: buildFormattingPrompt({ strict: true, language, text: clip.raw, fillerWords }),
       fillerWords,
+      signal: deadline.signal,
     });
   } catch (error) {
-    return buildResult(run, clip, { outcome: "failed", reason: errorMessage(error), output: fallback, latencyMs: performance.now() - startedAt });
+    return deadline.signal.aborted ? timedOut() : buildResult(run, clip, { outcome: "failed", reason: errorMessage(error), output: fallback, latencyMs: performance.now() - startedAt });
+  } finally {
+    clearTimeout(timer);
   }
+  if (deadline.signal.aborted) return timedOut();
   const latencyMs = performance.now() - startedAt;
   const costUsd = reply.costUsd;
   if (reply.status === "skipped") return buildResult(run, clip, { outcome: "skipped", reason: reply.reason, output: fallback, latencyMs });
@@ -188,6 +202,7 @@ function summarize(run: RunModel, results: ClipResult[]): ModelSummary {
     guardRejected: countOf("guard-rejected"),
     skipped: countOf("skipped"),
     failed: countOf("failed"),
+    timeouts: countOf("timeout"),
     exactMatches: results.filter((result) => result.exact).length,
     meanWer: mean(results.map((result) => result.wer)),
     meanLatencyMs: mean(timed),
@@ -220,11 +235,11 @@ function renderMarkdown(summaries: ModelSummary[], runs: RunModel[], results: Cl
     "",
     `Clips: ${clipNames.length}. Input: ${inputLabel}.`,
     "",
-    "| Model | Clips | Formatted | Guard rejected | Skipped | Failed | Exact matches | Mean WER | Mean latency (ms) | p90 latency (ms) | Total cost |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    "| Model | Clips | Formatted | Guard rejected | Skipped | Failed | Timeouts | Exact matches | Mean WER | Mean latency (ms) | p90 latency (ms) | Total cost |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ...summaries.map((s) => {
       const cost = s.totalCostUsd === null ? "not reported" : `$${s.totalCostUsd.toFixed(4)} (${s.costReportedClips}/${s.clips} clips)`;
-      return `| ${s.displayName} (\`${s.model}\`) | ${s.clips} | ${s.formatted} | ${s.guardRejected} | ${s.skipped} | ${s.failed} | ${s.exactMatches} | ${percent(s.meanWer)} | ${ms(s.meanLatencyMs)} | ${ms(s.p90LatencyMs)} | ${cost} |`;
+      return `| ${s.displayName} (\`${s.model}\`) | ${s.clips} | ${s.formatted} | ${s.guardRejected} | ${s.skipped} | ${s.failed} | ${s.timeouts} | ${s.exactMatches} | ${percent(s.meanWer)} | ${ms(s.meanLatencyMs)} | ${ms(s.p90LatencyMs)} | ${cost} |`;
     }),
     "",
     "## Per clip",
@@ -308,6 +323,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(errorMessage(error));
+  console.error(redactKeys(errorMessage(error)));
   process.exitCode = 1;
 });

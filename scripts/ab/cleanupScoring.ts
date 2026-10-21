@@ -51,6 +51,15 @@ function normalizeLines(text: string): string {
   return text.split("\n").map((line) => line.trim().replace(/\s+/g, " ")).filter((line) => line.length > 0).join("\n");
 }
 
+// Replaces each secret value with [redacted]. Empty values are skipped so an unset key cannot match everywhere.
+export function redactSecrets(text: string, secrets: readonly string[]): string {
+  let redacted = text;
+  for (const secret of secrets) {
+    if (secret) redacted = redacted.replaceAll(secret, "[redacted]");
+  }
+  return redacted;
+}
+
 // Arithmetic mean. Returns null for an empty list.
 export function mean(values: number[]): number | null {
   if (values.length === 0) return null;

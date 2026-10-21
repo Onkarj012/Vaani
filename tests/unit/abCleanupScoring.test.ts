@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isExactMatch, mean, parseExpectedCleanup, percentile, transcriptsFromResults } from "@scripts/ab/cleanupScoring";
+import { isExactMatch, mean, parseExpectedCleanup, percentile, redactSecrets, transcriptsFromResults } from "@scripts/ab/cleanupScoring";
 
 describe("parseExpectedCleanup", () => {
   it("reads file name and expected text from table rows", () => {
@@ -63,5 +63,19 @@ describe("transcriptsFromResults", () => {
 
   it("rejects a file without results", () => {
     expect(() => transcriptsFromResults({ summaries: [] }, "a")).toThrow("not an ab-transcription results file");
+  });
+});
+
+describe("redactSecrets", () => {
+  it("replaces every copy of each secret", () => {
+    expect(redactSecrets("bad key sk-abc, again sk-abc", ["sk-abc"])).toBe("bad key [redacted], again [redacted]");
+  });
+
+  it("handles a key with an embedded newline", () => {
+    expect(redactSecrets("header value gsk_12\n34 is invalid", ["gsk_12\n34"])).toBe("header value [redacted] is invalid");
+  });
+
+  it("skips empty secrets and leaves other text alone", () => {
+    expect(redactSecrets("nothing to hide", ["", "sk-abc"])).toBe("nothing to hide");
   });
 });

@@ -2,6 +2,11 @@ export const MIN_WORDS_FOR_FORMATTING = 4;
 // Deadline for one formatter request, including reading its reply body.
 export const LLM_TIMEOUT_MS = 20_000;
 
+// Groq formats fast. Slower providers get a longer live deadline so their reply is not cut off. An unset provider means Groq.
+export function liveFormattingTimeoutMs(provider: string | undefined): number {
+  return (provider ?? "groq-llm") === "groq-llm" ? 1_500 : 3_500;
+}
+
 export const FORMATTED_REASON = "Formatted.";
 export const EMPTY_TRANSCRIPT_REASON = "Transcript is empty.";
 export const TOO_SHORT_REASON = "Too few words to format.";
