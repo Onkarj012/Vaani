@@ -988,6 +988,37 @@ describe("DictationService", () => {
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", completedAt: expect.any(String) });
   });
 
+  it("does not let an older insertion finishing late claim a newer session's quit", async () => {
+    const traceDeps = createTraceDeps();
+    const fixture = createInsertionRecovery("unused");
+    let releaseRecoveryWrite: () => void = () => undefined;
+    fixture.recovery.recordInsertionOutcome.mockImplementationOnce(() => new Promise<RecoveryEntry>((resolve) => {
+      releaseRecoveryWrite = () => resolve(fixture.getEntry());
+    }));
+    const { service } = createDictationService({ traces: traceDeps.traces, recovery: fixture.recovery, recoveryReady: () => true });
+
+    service.beginHotkeySession();
+    const sessionA = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionA);
+    service.endHotkeySession();
+    void service.submitAudioClip({
+      sessionId: sessionA,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] },
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fixture.recovery.recordInsertionOutcome).toHaveBeenCalledOnce();
+
+    service.beginHotkeySession();
+    const sessionB = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionB);
+    releaseRecoveryWrite();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await service.closeForQuit();
+
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
+  });
+
   it("closes a transcription at quit without inserting late text", async () => {
     const traceDeps = createTraceDeps();
     const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
