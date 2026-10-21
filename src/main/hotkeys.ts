@@ -100,6 +100,11 @@ export class HotkeyManager {
     this.handsFreeListener = listener;
   }
 
+  // True while a hands-free (toggle) recording is locked on.
+  isHandsFree(): boolean {
+    return this.isToggleRecording;
+  }
+
   isPrimaryHotkeyActive(): boolean {
     return this.usingNativeMonitor;
   }

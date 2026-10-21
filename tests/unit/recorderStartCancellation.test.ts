@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RecorderCommand } from "@shared/types";
+import type { AudioClip, RecorderCommand } from "@shared/types";
 
 // Hold an input operation open until the test chooses to finish it.
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -9,19 +9,22 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 // Loads the renderer recorder with stubbed input preparation and microphone access.
-async function loadRecorder(prepareInput: () => Promise<number | null>) {
+async function loadRecorder(prepareInput: () => Promise<number | null>, preWarmMic = false) {
   vi.resetModules();
   const microphones: Array<{ resolve: (stream: MediaStream) => void; track: { onended: null; onmute: null; stop: ReturnType<typeof vi.fn> } }> = [];
+  const processors: Array<{ onaudioprocess: ((event: { inputBuffer: { getChannelData: (channel: number) => Float32Array } }) => void) | null }> = [];
   let onStart: ((command: RecorderCommand) => void) | undefined;
   let onAbort: ((command: RecorderCommand) => void) | undefined;
+  let onStop: ((command: { sessionId: string }) => void) | undefined;
+  let onPause: ((command: { sessionId: string }) => void) | undefined;
 
   const recorderApi = {
     onStartRecording: (callback: (command: RecorderCommand) => void) => { onStart = callback; return () => {}; },
-    onStopRecording: () => () => {},
+    onStopRecording: (callback: (command: { sessionId: string }) => void) => { onStop = callback; return () => {}; },
     onAbortRecording: (callback: (command: RecorderCommand) => void) => { onAbort = callback; return () => {}; },
     onSuspendRecording: () => () => {},
     onResumeRecording: () => () => {},
-    onPauseCapture: () => () => {},
+    onPauseCapture: (callback: (command: { sessionId: string }) => void) => { onPause = callback; return () => {}; },
     onResumeCapture: () => () => {},
     onRecorderConfigChanged: () => () => {},
     getRecorderConfig: async () => ({ preWarmMic: false }),
@@ -30,7 +33,7 @@ async function loadRecorder(prepareInput: () => Promise<number | null>) {
     reportAudioFrame: async () => {},
     reportRecorderFailure: async () => {},
     reportRecorderSuspended: async () => {},
-    submitAudioClip: async () => {},
+    submitAudioClip: vi.fn(async (_payload: { sessionId: string; clip: AudioClip }) => {}),
     prepareRecordingInput: vi.fn(prepareInput),
     restoreRecordingInput: vi.fn(async () => true),
     listAudioInputDevices: async () => [{ uid: "built-in", name: "Built-in Microphone", transportType: "built-in", isPhysical: true }],
@@ -61,19 +64,27 @@ async function loadRecorder(prepareInput: () => Promise<number | null>) {
     // Supply the source node used to connect microphone capture.
     createMediaStreamSource() { return { connect: () => {}, disconnect: () => {} }; }
     // Supply the fallback processor used when worklets are unavailable.
-    createScriptProcessor() { return { onaudioprocess: null, connect: () => {}, disconnect: () => {} }; }
+    createScriptProcessor() {
+      const processor: { onaudioprocess: ((event: { inputBuffer: { getChannelData: (channel: number) => Float32Array } }) => void) | null; connect: () => void; disconnect: () => void } = { onaudioprocess: null, connect: () => {}, disconnect: () => {} };
+      processors.push(processor);
+      return processor;
+    }
     resume = async () => {};
     close = async () => {};
   });
 
   await import("@renderer/recorder/main");
-  const command = (sessionId: string): RecorderCommand => ({ sessionId, config: { preWarmMic: false } });
+  const command = (sessionId: string): RecorderCommand => ({ sessionId, config: { preWarmMic } });
   return {
     recorderApi,
     microphones,
     getUserMedia: navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>,
     start: (sessionId: string) => onStart?.(command(sessionId)),
     abort: (sessionId: string) => onAbort?.(command(sessionId)),
+    stop: (sessionId: string) => onStop?.({ sessionId }),
+    pause: (sessionId: string) => onPause?.({ sessionId }),
+    // Deliver one block of samples at the given level to the open capture.
+    feed: (level: number) => processors.at(-1)?.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(2048).fill(level) } }),
   };
 }
 
@@ -101,6 +112,29 @@ describe("renderer recorder start cancellation", () => {
       expect(recorder.recorderApi.reportRecorderStarted).not.toHaveBeenCalled();
       expect(recorder.getUserMedia).toHaveBeenCalledTimes(abortAt === "microphone" ? 1 : 0);
     }
+  });
+
+  it("keeps paused speech out of the next recording's pre-roll", async () => {
+    const recorder = await loadRecorder(async () => 7, true);
+    recorder.start("A");
+    await vi.waitFor(() => expect(recorder.getUserMedia).toHaveBeenCalledOnce());
+    recorder.microphones[0]?.resolve(new MediaStream());
+    await vi.waitFor(() => expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("A"));
+
+    recorder.feed(0.05);
+    recorder.pause("A");
+    recorder.feed(0.5);
+    recorder.stop("A");
+    await vi.waitFor(() => expect(recorder.recorderApi.submitAudioClip).toHaveBeenCalledTimes(1), { timeout: 3000 });
+
+    recorder.start("B");
+    await vi.waitFor(() => expect(recorder.recorderApi.reportRecorderStarted).toHaveBeenCalledWith("B"));
+    recorder.feed(0);
+    recorder.stop("B");
+    await vi.waitFor(() => expect(recorder.recorderApi.submitAudioClip).toHaveBeenCalledTimes(2), { timeout: 3000 });
+
+    // Only B's 2048 samples (about 43 ms at 48 kHz) belong in its clip; imported paused audio would double it.
+    expect(recorder.recorderApi.submitAudioClip.mock.calls[1]?.[0].clip.durationSeconds).toBeLessThan(0.06);
   });
 
   it("keeps the next recording's microphone open when it starts during a cancelled open", async () => {

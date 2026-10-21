@@ -1895,7 +1895,7 @@ export class DictationService {
     } else if (state.status === "starting") {
       this.updateTrayStatus("Opening microphone…"); this.overlay.setStatusMessage?.(null); this.overlay.setPressed();
     } else if (state.status === "recording") {
-      this.updateTrayStatus("Recording…"); this.overlay.setRecording();
+      this.updateTrayStatus("Recording…"); this.overlay.setRecording(state.sessionId);
     } else if (state.status === "finalizing") {
       this.updateTrayStatus("Processing…"); this.overlay.setProcessing();
     } else if (state.status === "transcribing") {

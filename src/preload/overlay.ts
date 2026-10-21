@@ -11,6 +11,7 @@ const OVERLAY_CHANNELS = [
   'capsule:hide-expanded',
   'capsule:set-hands-free',
   'capsule:set-paused',
+  'capsule:set-session',
 ] as const
 
 contextBridge.exposeInMainWorld('capsuleBridge', {
@@ -35,6 +36,9 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   onPaused: (cb: (on: boolean) => void) => {
     ipcRenderer.on('capsule:set-paused', (_e, on: boolean) => cb(on))
   },
+  onSession: (cb: (sessionId: string | null) => void) => {
+    ipcRenderer.on('capsule:set-session', (_e, sessionId: string | null) => cb(sessionId))
+  },
   onShowSnippet: (cb: (data: { trigger: string }) => void) => {
     ipcRenderer.on('capsule:show-snippet', (_e, d: { trigger: string }) => cb(d))
   },
@@ -48,9 +52,9 @@ contextBridge.exposeInMainWorld('capsuleBridge', {
   sendSnippetResp: (accepted: boolean) => ipcRenderer.send('capsule:snippet-response', { accepted }),
   sendDictResp: (accepted: boolean) => ipcRenderer.send('capsule:dictionary-response', { accepted }),
   sendOpenLastEntry: () => ipcRenderer.send('capsule:open-last-entry'),
-  sendPause: () => ipcRenderer.send('capsule:pause'),
-  sendResume: () => ipcRenderer.send('capsule:resume'),
-  sendSend: () => ipcRenderer.send('capsule:send'),
+  sendPause: (sessionId: string) => ipcRenderer.send('capsule:pause', sessionId),
+  sendResume: (sessionId: string) => ipcRenderer.send('capsule:resume', sessionId),
+  sendSend: (sessionId: string) => ipcRenderer.send('capsule:send', sessionId),
   setInteractive: (on: boolean) => ipcRenderer.send('capsule:set-interactive', on),
   cleanup: () => {
     for (const ch of OVERLAY_CHANNELS) ipcRenderer.removeAllListeners(ch)

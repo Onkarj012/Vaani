@@ -112,7 +112,7 @@ describe("IPC security boundaries", () => {
       history,
       settings,
       onSettingsUpdated,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, isHandsFree: () => false, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
     });
   });
 
@@ -125,7 +125,7 @@ describe("IPC security boundaries", () => {
     const { registerIpcHandlers } = await import("@main/ipc");
     registerIpcHandlers({
       mainWindow: windowFor(mainSender), dictation, history, settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, isHandsFree: () => false, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       recoveryReadiness: () => ({ state: "ready", entryCount: null }),
       recovery: { getById: vi.fn(), getUnresolved: vi.fn(async () => { if (fails) throw new Error("disk failed"); return []; }) },
     });
@@ -211,6 +211,45 @@ describe("IPC security boundaries", () => {
     expect(dictation.navigateToHistoryEntry).toHaveBeenCalledWith("entry-1");
   });
 
+  it("acts on overlay pause, resume, and send only for the hands-free recording the overlay shows", async () => {
+    const stopFromMenu = vi.fn();
+    const liveDictation = { ...dictation, getState: vi.fn(() => ({ status: "recording" as const, sessionId: "live" })) };
+    const { registerIpcHandlers } = await import("@main/ipc");
+    registerIpcHandlers({
+      mainWindow: windowFor(mainSender),
+      overlay: { getWindow: () => windowFor(overlaySender) },
+      dictation: liveDictation, history, settings,
+      hotkeys: { isPrimaryHotkeyActive: () => true, isHandsFree: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu },
+    });
+
+    eventHandlers.get("capsule:pause")?.({ sender: overlaySender }, "stale");
+    eventHandlers.get("capsule:resume")?.({ sender: overlaySender }, undefined);
+    eventHandlers.get("capsule:send")?.({ sender: overlaySender }, "stale");
+    expect(dictation.pauseRecording).not.toHaveBeenCalled();
+    expect(dictation.resumeRecording).not.toHaveBeenCalled();
+    expect(stopFromMenu).not.toHaveBeenCalled();
+
+    eventHandlers.get("capsule:pause")?.({ sender: overlaySender }, "live");
+    eventHandlers.get("capsule:send")?.({ sender: overlaySender }, "live");
+    expect(dictation.pauseRecording).toHaveBeenCalledOnce();
+    expect(stopFromMenu).toHaveBeenCalledOnce();
+  });
+
+  it("does not let overlay send stop a push-to-talk recording", async () => {
+    const stopFromMenu = vi.fn();
+    const liveDictation = { ...dictation, getState: vi.fn(() => ({ status: "recording" as const, sessionId: "live" })) };
+    const { registerIpcHandlers } = await import("@main/ipc");
+    registerIpcHandlers({
+      mainWindow: windowFor(mainSender),
+      overlay: { getWindow: () => windowFor(overlaySender) },
+      dictation: liveDictation, history, settings,
+      hotkeys: { isPrimaryHotkeyActive: () => true, isHandsFree: () => false, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu },
+    });
+
+    eventHandlers.get("capsule:send")?.({ sender: overlaySender }, "live");
+    expect(stopFromMenu).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed renderer payloads before calling services", async () => {
     await invokeHandlers.get(IpcChannel.UpdateHistoryEntry)?.(
       { sender: mainSender },
@@ -246,7 +285,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, isHandsFree: () => false, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       credentials,
     });
 
@@ -281,7 +320,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings: stateStore,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, isHandsFree: () => false, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       credentials,
     });
 
@@ -333,7 +372,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, isHandsFree: () => false, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       credentials,
     });
 
@@ -365,7 +404,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, isHandsFree: () => false, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       credentials,
     });
 
@@ -462,7 +501,7 @@ describe("IPC security boundaries", () => {
       dictation,
       history,
       settings,
-      hotkeys: { isPrimaryHotkeyActive: () => true, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
+      hotkeys: { isPrimaryHotkeyActive: () => true, isHandsFree: () => false, reregister: vi.fn(), setCaptureActive: vi.fn(), stopFromMenu: vi.fn() },
       recovery,
       recoveryAudio,
       recoveryReady: () => false,

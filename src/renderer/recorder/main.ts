@@ -363,7 +363,8 @@ async function startPcmCapture(inputStream: MediaStream): Promise<void> {
 }
 
 function handlePcmData(samples: Float32Array): void {
-  ringBuffer.append(samples);
+  // Paused speech stays out of the pre-roll too, or the next recording would import it.
+  if (!paused) ringBuffer.append(samples);
 
   if (!activeSessionId) {
     return;
@@ -419,6 +420,7 @@ function publishBars(nextBars: number[]): void {
 async function cleanupSession(): Promise<void> {
   activeSessionId = null;
   sessionChunks = [];
+  ringBuffer.clear();
   paused = false;
   frameRms = [];
   quietThreshold = 0;

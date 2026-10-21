@@ -381,7 +381,7 @@ export interface RegisterIpcHandlersOptions {
   dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry" | "pauseRecording" | "resumeRecording">;
   history: Pick<HistoryStore, "getAll" | "getById" | "updateById" | "getLatest" | "delete" | "clear">;
   settings: Pick<SettingsStore, "get" | "update" | "flush">;
-  hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "reregister" | "setCaptureActive" | "stopFromMenu">;
+  hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "isHandsFree" | "reregister" | "setCaptureActive" | "stopFromMenu">;
   recorder?: { getWindow: () => IpcWindow | null; markReady: () => void; acknowledgeLifecycleSuspension?: (ack: RecorderSuspensionAck) => boolean };
   overlay?: { getWindow: () => IpcWindow | null };
   credentials?: Pick<CredentialsStore, "has" | "set" | "delete">;
@@ -830,20 +830,30 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     }
   });
 
+  // Overlay clicks act only on the hands-free recording the overlay was showing.
+  const isOverlayControlTarget = (sessionId: unknown): sessionId is string => {
+    if (!isBoundedString(sessionId, MAX_ID_LENGTH, false)) return false;
+    const state = dictation.getState();
+    return state.status === "recording" && state.sessionId === sessionId && hotkeys.isHandsFree();
+  };
+
   // Capsule overlay hands-free controls
-  ipcMain.on("capsule:pause", (event) => {
+  ipcMain.on("capsule:pause", (event, sessionId: unknown) => {
     if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    if (!isOverlayControlTarget(sessionId)) return;
     dictation.pauseRecording();
   });
 
-  ipcMain.on("capsule:resume", (event) => {
+  ipcMain.on("capsule:resume", (event, sessionId: unknown) => {
     if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    if (!isOverlayControlTarget(sessionId)) return;
     dictation.resumeRecording();
   });
 
   // Send ends the session the same way a hotkey release or toggle press does.
-  ipcMain.on("capsule:send", (event) => {
+  ipcMain.on("capsule:send", (event, sessionId: unknown) => {
     if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    if (!isOverlayControlTarget(sessionId)) return;
     hotkeys.stopFromMenu();
   });
 

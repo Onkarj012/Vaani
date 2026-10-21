@@ -45,6 +45,7 @@ export class OverlayController {
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private handsFree = false;
   private paused = false;
+  private sessionId: string | null = null;
   private accentColor = "#FF006E";
   // ── Public setters ────────────────────────────────────────────────────────
 
@@ -159,9 +160,10 @@ export class OverlayController {
     this.sendHandsFreeState();
   }
 
-  setRecording(): void {
+  setRecording(sessionId: string): void {
     this.finishActivePrompt();
     this.setStatusMessage(null);
+    this.sessionId = sessionId;
     this.pendingMode = "recording";
     this.pendingBars = null;
     this.show();
@@ -340,6 +342,7 @@ export class OverlayController {
     this.pendingBars = null;
     this.handsFree = false;
     this.paused = false;
+    this.sessionId = null;
   }
 
   // ── Private ──────────────────────────────────────────────────────────────
@@ -417,6 +420,7 @@ export class OverlayController {
   private resetHandsFreeState(): void {
     this.handsFree = false;
     this.paused = false;
+    this.sessionId = null;
     void this.resizeWindow(false);
     this.sendHandsFreeState();
     if (this.window && !this.window.isDestroyed() && !this.promptActive) {
@@ -430,11 +434,12 @@ export class OverlayController {
     this.window.setIgnoreMouseEvents(this.promptActive ? false : !interactive, { forward: true });
   }
 
-  // Sends the pending hands-free and paused values to the renderer once it is ready.
+  // Sends the hands-free, paused, and session values the renderer needs for its controls.
   private sendHandsFreeState(): void {
     if (!this.loadReady || !this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:set-hands-free", this.handsFree);
     this.window.webContents.send("capsule:set-paused", this.paused);
+    this.window.webContents.send("capsule:set-session", this.sessionId);
   }
 
   // Pill width, widened while hands-free so the two buttons fit.
@@ -523,6 +528,8 @@ export class OverlayController {
   private tryUpdateMode(mode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error"): void {
     if (!this.loadReady || !this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:set-mode", mode);
+    // A mode update can reach the renderer after hands-free was sent, so resend it last.
+    this.sendHandsFreeState();
   }
 
   private flushPendingDetectedLanguage(): void {

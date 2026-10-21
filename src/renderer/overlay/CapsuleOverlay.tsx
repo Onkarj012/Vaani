@@ -17,6 +17,7 @@ const WAVEFORM_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
       onStatus: (cb: (message: string | null) => void) => void
       onHandsFree: (cb: (on: boolean) => void) => void
       onPaused: (cb: (on: boolean) => void) => void
+      onSession: (cb: (sessionId: string | null) => void) => void
       onShowSnippet: (cb: (data: { trigger: string }) => void) => void
       onShowDict: (cb: (data: { word: string; correction: string }) => void) => void
       onHideExpanded: (cb: () => void) => void
@@ -24,9 +25,9 @@ const WAVEFORM_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
       sendSnippetResp: (accepted: boolean) => void
       sendDictResp: (accepted: boolean) => void
       sendOpenLastEntry: () => void
-      sendPause: () => void
-      sendResume: () => void
-      sendSend: () => void
+      sendPause: (sessionId: string | null) => void
+      sendResume: (sessionId: string | null) => void
+      sendSend: (sessionId: string | null) => void
       setInteractive: (on: boolean) => void
       cleanup: () => void
     }
@@ -89,7 +90,7 @@ function ControlButton({ label, onClick, accentColor, children }: {
 }
 
 // Pause/resume and send buttons. Clicks pass through to the app until the pointer is over them.
-function HandsFreeControls({ paused, accentColor }: { paused: boolean; accentColor: string }) {
+function HandsFreeControls({ paused, accentColor, sessionId }: { paused: boolean; accentColor: string; sessionId: string | null }) {
   useEffect(() => () => window.capsuleBridge.setInteractive(false), [])
 
   return (
@@ -100,11 +101,11 @@ function HandsFreeControls({ paused, accentColor }: { paused: boolean; accentCol
     >
       <ControlButton
         label={paused ? 'Resume' : 'Pause'}
-        onClick={() => (paused ? window.capsuleBridge.sendResume() : window.capsuleBridge.sendPause())}
+        onClick={() => (paused ? window.capsuleBridge.sendResume(sessionId) : window.capsuleBridge.sendPause(sessionId))}
       >
         {paused ? <Play size={13} /> : <Pause size={13} />}
       </ControlButton>
-      <ControlButton label="Send" accentColor={accentColor} onClick={() => window.capsuleBridge.sendSend()}>
+      <ControlButton label="Send" accentColor={accentColor} onClick={() => window.capsuleBridge.sendSend(sessionId)}>
         <ArrowUp size={13} />
       </ControlButton>
     </div>
@@ -136,6 +137,7 @@ export default function CapsuleOverlay() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [handsFree, setHandsFree] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const modeRef = useRef<VisualMode>('hidden')
 
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -176,6 +178,7 @@ export default function CapsuleOverlay() {
     bridge.onStatus((message) => setStatusMessage(message))
     bridge.onHandsFree((on) => setHandsFree(on))
     bridge.onPaused((on) => setPaused(on))
+    bridge.onSession((id) => setSessionId(id))
 
     bridge.onShowSnippet((data) => {
       setPromptData({ trigger: data.trigger })
@@ -279,7 +282,7 @@ export default function CapsuleOverlay() {
                 <WaveformBars bars={bars} accentColor={accentColor} paused={paused} />
                 {handsFree && (
                   <div className="ml-2">
-                    <HandsFreeControls paused={paused} accentColor={accentColor} />
+                    <HandsFreeControls paused={paused} accentColor={accentColor} sessionId={sessionId} />
                   </div>
                 )}
               </motion.div>
