@@ -85,6 +85,12 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("there sh- there are certain times", "There are certain times.", [])).toBe(true);
   });
 
+  it("keeps a number from a separate sentence when its cue is dropped too", () => {
+    expect(preservesContentWords("The answer is 3. Sorry, 4 people are waiting.", "The answer is 4 people are waiting.", [])).toBe(false);
+    expect(preservesContentWords("Meet at 3, sorry, 4.", "Meet at 4.", [])).toBe(true);
+    expect(preservesContentWords("Meet at 3, no wait, 4.", "Meet at 4.", [])).toBe(true);
+  });
+
   it("keeps every word when speech noise is not allowed (cleanup off)", () => {
     expect(diffContentWords("Please send the the report.", "Please send the report.", [], { speechNoise: false }).missing).toEqual(["the"]);
   });
@@ -273,6 +279,13 @@ describe("long transcripts over the alignment limit", () => {
     const verdict = judgeFormatterReply(raw, candidate);
     expect(verdict.rejection).not.toBeNull();
     expect(verdict.dropped).toContain("3");
+  });
+
+  it("rejects a reply that drops a number and its cue from the previous sentence", () => {
+    const raw = `The answer is 3. Sorry, 4 people are waiting. ${tail} done`;
+    const verdict = judgeFormatterReply(raw, `The answer is 4 people are waiting. ${tail} finished.`);
+    expect(verdict.rejection).not.toBeNull();
+    expect(verdict.dropped).toEqual(expect.arrayContaining(["3", "sorry"]));
   });
 
   it("accepts a genuine correction inside one sentence, dropped or kept", () => {

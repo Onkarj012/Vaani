@@ -514,6 +514,8 @@ function isCorrection(run: readonly (string | null)[], { words, gone, pause, bou
   if (rest > MAX_REPLACED_WORDS || replaced.some((word, index) => word !== null && isProtected(word) && !correctable(word, index))) return false;
   if (!sameSentence(boundary, start, start + rest - 1)) return false;
   const firstCue = start + rest;
+  // A cue that opens a new sentence does not correct a number in the sentence before it ("3. Sorry, 4").
+  if (boundary[firstCue] && replaced.some(word => word !== null && isNumber(word))) return false;
   // A replacement in the next sentence needs the cue to stand as its own sentence ("Priyanka, run... Sorry. Priya").
   // Otherwise "He said no. No one agreed." would read as a correction.
   if (boundary[end + 1] && !boundary[firstCue]) return false;
