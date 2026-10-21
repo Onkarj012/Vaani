@@ -63,11 +63,28 @@ describe("question punctuation and spoken file names", () => {
       ["send it to John Jr. is it ready", "Send it to John Jr. Is it ready?"],
       ["where is St. Louis", "Where is St. Louis?"],
       ["where is Mount St. Helens", "Where is Mount St. Helens?"],
-      ["where is st. louis", "Where is st. Louis?"],
+      ["where is st. louis", "Where is St. Louis?"],
       ["who won India vs. Australia", "Who won India vs. Australia?"],
     ] satisfies [string, string][]) {
       expect(cleanupText({ rawText, settings })).toBe(expected);
       expect(deterministicFormat(rawText)).toBe(expected);
+    }
+  });
+
+  it("leaves st. alone inside filenames, URLs and counts", () => {
+    for (const [rawText, expected] of [
+      ["open test.st. then run it", "Open test.st. Then run it."],
+      ["open https://example.com/st. then continue", "Open https://example.com/st. Then continue."],
+      ["open https://example.com/(st. then continue", "Open https://example.com/(st. Then continue."],
+      ["vi behöver 3 st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
+      ["vi behöver 3  st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
+      ["the weight is one st. now", "The weight is one st. Now."],
+      ["One st. is the weight", "One st. Is the weight."],
+      ["we visited (st. louis) yesterday", "We visited (St. Louis) yesterday."],
+      ["we visited [st. louis] yesterday", "We visited [St. Louis] yesterday."],
+      ["where is st. louis\nwhere is st. paul", "Where is St. Louis?\nWhere is St. Paul?"],
+    ] satisfies [string, string][]) {
+      expect(cleanupText({ rawText, settings })).toBe(expected);
     }
   });
 

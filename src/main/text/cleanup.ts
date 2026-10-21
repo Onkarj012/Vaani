@@ -34,8 +34,15 @@ function removeFillers(text: string, fillers: string[]): string {
   }, text);
 }
 
+// Writes a standalone "st." before a word as "St." with the name after it capitalized (Saint or Street:
+// "st. louis" -> "St. Louis"). After a number it is a count or a weight ("3 st." in Swedish, "one st." for stone),
+// and inside a filename or URL it is not a word, so both stay as typed.
+function capitalizeSaint(text: string): string {
+  return text.replace(/(?<=(?:^|\s)[(\["'“‘]?)(?<!(?:\p{N}|\b(?:[Oo]ne|[Tt]wo|[Tt]hree|[Ff]our|[Ff]ive|[Ss]ix|[Ss]even|[Ee]ight|[Nn]ine|[Tt]en|[Ee]leven|[Tt]welve))\s+)st\.(\s+)(\p{L})/gu, (_match, space: string, letter: string) => `St.${space}${letter.toUpperCase()}`);
+}
+
 function capitalizeSentences(text: string): string {
-  return text.replace(/(^\s*[a-z])|([.!?]\s+[a-z])/g, m => m.toUpperCase());
+  return capitalizeSaint(text).replace(/(^\s*[a-z])|([.!?]\s+[a-z])/g, m => m.toUpperCase());
 }
 
 function applySmartPunctuation(text: string): string {
@@ -314,7 +321,7 @@ function formatLineBlock(text: string, settings: Settings): string {
     .split(/\r?\n/)
     .map(line => normalizeWhitespace(line))
     .filter((line, index, lines) => line.length > 0 || (index > 0 && index < lines.length - 1))
-    .map(line => (line ? capitalizeLine(line) : line))
+    .map(line => (line ? capitalizeLine(capitalizeSaint(line)) : line))
     .map(line => (settings.smartPunctuation ? applySmartPunctuation(line) : line))
     .map(line => (line ? ensureLinePunctuation(line) : line));
 
