@@ -8,7 +8,7 @@ const TITLE_RE = /(?:^|\s)(?:Mr|Mrs|Ms|Dr|Prof)$/u;
 // A list number at the start of a line, such as "2" in "2. Buy eggs.".
 const LIST_MARKER_RE = /(?:^|\n)[ \t]*\p{N}+$/u;
 // A "Scratch that" cue right after a number, such as "500. Scratch that.", starts a sentence of its own.
-const CUE_AFTER_RE = /^[\p{Zs}\t]+(?:scratch|delete)\s+that(?:[.!?।]+|\s*$)/iu;
+const CUE_AFTER_RE = /^[\p{Zs}\t]+(?:scratch|delete)\s+that(?:[.!?।]+(?=\s|$)|\s*$)/iu;
 
 // True when the marks at text[start..markEnd), with any closers up to end, close a sentence. When unsure it says yes:
 // a wrong split only keeps text, while a wrong merge lets "Scratch that." withdraw two sentences. Only a single dot
