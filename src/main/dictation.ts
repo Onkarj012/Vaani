@@ -1493,7 +1493,8 @@ export class DictationService {
     copied = false,
     formatNotice: string | null = null,
   ): Promise<void> {
-    this.activeFinishedInsertion = { outcome, entry, tracePatch, reason };
+    // An older session finishing late must not claim the field a newer session's quit will read.
+    if (this.isCurrentSession(sessionId)) this.activeFinishedInsertion = { outcome, entry, tracePatch, reason };
     const historySaved = await this.persistHistoryOnce(sessionId, entry);
     if (!this.isCurrentSession(sessionId)) return;
     const statusText = insertionStatusText(outcome, historySaved, historySaved ? failedStage : "History", copied);

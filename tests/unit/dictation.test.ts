@@ -1042,6 +1042,36 @@ describe("DictationService", () => {
     expect(injector.inject).not.toHaveBeenCalled();
   });
 
+  it("stretches the stale guard past 60 s for a long recording", async () => {
+    const { getTranscriptionTimeoutMs } = await import("@main/transcription");
+    const { liveFormattingTimeoutMs } = await import("@main/dictation");
+    const { service, transcription, settings } = createDictationService();
+    const provider = settings.get().formattingProvider;
+    let resolveTranscription: ((result: TranscriptionResult) => void) | undefined;
+    transcription.transcribe.mockImplementation(() => new Promise((resolve) => { resolveTranscription = resolve; }));
+    const clip = { pcmData: new Array(16_000 * 120).fill(0.1), sampleRate: 16_000, durationSeconds: 120, rmsFrames: [0.1] };
+    const deadline = getTranscriptionTimeoutMs(clip) + liveFormattingTimeoutMs(provider) + 15_000;
+    expect(deadline).toBeGreaterThan(60_000);
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    const submission = service.submitAudioClip({ sessionId, clip });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Alive past the old 60 s cap, then stopped at the extended deadline.
+    await vi.advanceTimersByTimeAsync(60_001);
+    expect(service.getState().status).toBe("transcribing");
+    await vi.advanceTimersByTimeAsync(deadline - 60_001 - 1);
+    expect(service.getState().status).toBe("transcribing");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(service.getState()).toMatchObject({ status: "error", message: "Dictation stopped while transcribing. Please try again." });
+
+    resolveTranscription?.({ rawText: "late text", formattedText: "late text", language: "en" });
+    await submission;
+  });
+
   it("settles a stale session as unconfirmed after paste dispatch and preserves History", async () => {
     const traceDeps = createTraceDeps();
     const { service, injector, history } = createDictationService({ traces: traceDeps.traces });
