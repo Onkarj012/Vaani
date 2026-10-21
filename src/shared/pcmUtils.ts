@@ -1,4 +1,5 @@
 import type { AudioClip } from "./types";
+import { quietSpeechGain } from "./quietSpeechGain";
 
 export const TARGET_SAMPLE_RATE = 16_000;
 export const PRE_ROLL_MS = 2_000;
@@ -120,42 +121,25 @@ export function calculateRmsFrames(pcmData: Float32Array, sampleRate: number): n
   return rmsFrames;
 }
 
-const NORMALIZE_PEAK_BELOW = 0.1;
-const NORMALIZE_SILENCE_PEAK = 0.001;
-const NORMALIZE_SILENCE_EPSILON = 1e-9;
-const NORMALIZE_TARGET_PEAK = 0.3;
-const NORMALIZE_MAX_GAIN = 20;
-
-// Boost multiplier for a clip. 1 means the clip is left alone.
-function quietPcmGain(input: Float32Array): number {
-  let peak = 0;
-  for (let index = 0; index < input.length; index += 1) {
-    peak = Math.max(peak, Math.abs(input[index] ?? 0));
-  }
-  if (peak >= NORMALIZE_PEAK_BELOW || peak <= NORMALIZE_SILENCE_PEAK + NORMALIZE_SILENCE_EPSILON) return 1;
-  return Math.min(NORMALIZE_MAX_GAIN, NORMALIZE_TARGET_PEAK / peak);
-}
-
-// Gentle peak normalization for quiet-but-real speech so STT gets a usable
-// level. Near-silence is left untouched — boosting it would only feed noise to
-// Whisper and defeat the silence gates.
+// Lifts quiet or whispered speech to a usable level for STT. Near-silence and
+// room noise are left untouched, since boosting them only feeds Whisper noise.
 export function normalizeQuietPcm(input: Float32Array): Float32Array {
-  const gain = quietPcmGain(input);
+  const gain = quietSpeechGain(input);
   return gain === 1 ? input : scalePcm(input, gain);
 }
 
-// Multiplies every sample by gain.
+// Multiplies every sample by gain, clipped to [-1, 1].
 function scalePcm(input: Float32Array, gain: number): Float32Array {
   const output = new Float32Array(input.length);
   for (let index = 0; index < input.length; index += 1) {
-    output[index] = (input[index] ?? 0) * gain;
+    output[index] = Math.max(-1, Math.min(1, (input[index] ?? 0) * gain));
   }
   return output;
 }
 
 export function pcmToAudioClip(input: Float32Array, inputRate: number): AudioClip {
   const resampled = resampleToTargetRate(input, inputRate, TARGET_SAMPLE_RATE);
-  const gain = quietPcmGain(resampled);
+  const gain = quietSpeechGain(resampled);
   // Frame levels come from the boosted samples, so the gate and trim judge exactly what STT receives.
   const pcmData = gain === 1 ? resampled : scalePcm(resampled, gain);
   return {

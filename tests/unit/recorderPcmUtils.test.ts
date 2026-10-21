@@ -72,12 +72,12 @@ describe("pcmToAudioClip", () => {
     const input = new Float32Array(320).fill(0.03);
     const clip = pcmToAudioClip(input, 16_000);
 
-    expect(Math.max(...clip.pcmData)).toBeCloseTo(0.3);
-    expect(clip.rmsFrames[0]).toBeCloseTo(0.3);
+    expect(Math.max(...clip.pcmData)).toBeCloseTo(0.6);
+    expect(clip.rmsFrames[0]).toBeCloseTo(0.6);
   });
 
   it("reports the gain applied to a quiet clip and 1 for a loud one", () => {
-    expect(pcmToAudioClip(new Float32Array(320).fill(0.03), 16_000).gain).toBeCloseTo(10);
+    expect(pcmToAudioClip(new Float32Array(320).fill(0.03), 16_000).gain).toBe(20);
     expect(pcmToAudioClip(new Float32Array(320).fill(0.5), 16_000).gain).toBe(1);
   });
 });
@@ -86,8 +86,8 @@ describe("normalizeQuietPcm", () => {
   it("boosts quiet speech toward the target peak", () => {
     const normalized = normalizeQuietPcm(new Float32Array([0.03, -0.015]));
 
-    expect(normalized[0]).toBeCloseTo(0.3);
-    expect(normalized[1]).toBeCloseTo(-0.15);
+    expect(normalized[0]).toBeCloseTo(0.6);
+    expect(normalized[1]).toBeCloseTo(-0.3);
   });
 
   it("caps quiet speech boost at 20x", () => {
@@ -103,7 +103,7 @@ describe("normalizeQuietPcm", () => {
   });
 
   it("leaves normal levels untouched", () => {
-    const input = new Float32Array([0.1, -0.05]);
+    const input = new Float32Array([0.3, -0.15]);
 
     expect(normalizeQuietPcm(input)).toBe(input);
   });

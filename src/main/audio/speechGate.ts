@@ -10,7 +10,7 @@ export type SpeechGateResult = SpeechGateTrace & { decision: SpeechGateDecision 
 
 export const SPEECH_GATE_FRAME_MS = 20;
 
-const MIN_ENTER_THRESHOLD = 0.003;
+const MIN_ENTER_THRESHOLD = 0.002;
 const MIN_EXIT_THRESHOLD = 0.0018;
 const ENTER_FLOOR_MULTIPLIER = 2.5;
 const ENTER_FLOOR_OFFSET = 0.002;
