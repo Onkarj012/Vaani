@@ -63,6 +63,20 @@ describe("applySelfCorrections", () => {
 
   it("swaps in a sentence that runs into the next without a space", () => {
     expect(applySelfCorrections("Wait 3.5, no, 4.5 minutes.Next item.")).toBe("Wait 4.5 minutes.Next item.");
+    expect(applySelfCorrections("Send 3, no, 4!Next item.")).toBe("Send 4!Next item.");
+  });
+
+  it("swaps in a sentence with dots inside a word", () => {
+    expect(applySelfCorrections("Send 3, no, 4 emails to priya@example.com.")).toBe("Send 4 emails to priya@example.com.");
+  });
+
+  it("withdraws a sentence that ends in a closing quote or holds a title", () => {
+    expect(applySelfCorrections('He said "Do not pay 500." Scratch that. Call me.')).toBe("Call me.");
+    expect(applySelfCorrections("Ask Dr. Rao about 500. Scratch that. Call me.")).toBe("Call me.");
+  });
+
+  it("keeps an abbreviation before a capital as a sentence end, so unclear cuts keep text", () => {
+    expect(applySelfCorrections("Meet at 5 p.m. Monday. Scratch that. Call me.")).toBe("Meet at 5 p.m. Call me.");
   });
 
   it("rejects a dropped sentence without a scratch cue", () => {

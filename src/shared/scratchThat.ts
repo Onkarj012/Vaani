@@ -1,18 +1,26 @@
 const MARK_RE = /[.!?।]/u;
+// Quotes and brackets that close a sentence right after its mark: 'He said "Stop."'.
+const CLOSER_RE = /["'”’»)\]]/u;
 // A dotted abbreviation that ends at the mark, such as "p.m" in "p.m.".
 const DOTTED_ABBREVIATION_RE = /(?:^|\s)(?:\p{L}\.)+\p{L}$/u;
+// A title that a name always follows, such as "Dr" in "Dr. Smith".
+const TITLE_RE = /(?:^|\s)(?:mr|mrs|ms|dr|prof)$/iu;
 // A list number at the start of a line, such as "2" in "2. Buy eggs.".
 const LIST_MARKER_RE = /(?:^|\n)[ \t]*\p{N}+$/u;
 
-// True when the marks at text[start..end) close a sentence. Marks inside a word ("3.5", "priya@example.com") do not,
-// unless a lowercase letter meets a capital ("minutes.Next"). A dotted abbreviation before a lowercase word ("5 p.m.
-// tomorrow") and a list number ("2. Buy") do not either. The Devanagari danda "।" ends a sentence too.
-function endsSentence(text: string, start: number, end: number): boolean {
+// True when the marks at text[start..markEnd), with any closers up to end, close a sentence. Marks inside a word
+// ("3.5", "priya@example.com") do not, unless they meet a capital after a lowercase letter ("minutes.Next") or are
+// "!" or "?" ("4!Next"). A title ("Dr. Smith"), a dotted abbreviation before a lowercase word ("5 p.m. tomorrow")
+// and a list number ("2. Buy") do not either. The Devanagari danda "।" ends a sentence too.
+function endsSentence(text: string, start: number, markEnd: number, end: number): boolean {
   const next = text[end];
   const before = text.slice(0, start);
-  if (next !== undefined && !/\s/u.test(next)) return /\p{Ll}$/u.test(before) && /\p{Lu}/u.test(next);
-  if (text.slice(start, end) !== ".") return true;
-  if (LIST_MARKER_RE.test(before)) return false;
+  const marks = text.slice(start, markEnd);
+  if (next !== undefined && !/\s/u.test(next)) {
+    return /\p{Lu}/u.test(next) && (/[!?।]/u.test(marks) || /\p{Ll}$/u.test(before));
+  }
+  if (marks !== ".") return true;
+  if (LIST_MARKER_RE.test(before) || TITLE_RE.test(before)) return false;
   return !(DOTTED_ABBREVIATION_RE.test(before) && /^[ \t]+\p{Ll}/u.test(text.slice(end)));
 }
 
@@ -31,7 +39,9 @@ export function splitSentences(text: string): string[] {
     } else if (MARK_RE.test(text[index] ?? "")) {
       const markStart = index;
       while (index < text.length && MARK_RE.test(text[index] ?? "")) index += 1;
-      if (!endsSentence(text, markStart, index)) continue;
+      const markEnd = index;
+      while (index < text.length && CLOSER_RE.test(text[index] ?? "")) index += 1;
+      if (!endsSentence(text, markStart, markEnd, index)) continue;
       while (text[index] === " " || text[index] === "\t") index += 1;
       pieces.push(text.slice(start, index));
       start = index;
