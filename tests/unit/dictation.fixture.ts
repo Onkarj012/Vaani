@@ -17,7 +17,9 @@ vi.mock("@main/injection/accessibility", () => ({
 }));
 
 vi.mock("@main/injection/clipboard", () => ({
-  ClipboardTextInjector: class ClipboardTextInjectorMock {}
+  ClipboardTextInjector: class ClipboardTextInjectorMock {},
+  cancelPendingClipboardRestore: vi.fn(),
+  settlePendingCaretMove: vi.fn()
 }));
 
 vi.mock("@main/nativeBridge", () => ({

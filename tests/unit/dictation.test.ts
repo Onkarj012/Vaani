@@ -17,6 +17,7 @@ import { DictationService } from "./dictation.fixture";
 import { extractCorrectedInsertedText, selectRecoveryText } from "@main/dictation";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { nativeBridge } from "@main/nativeBridge";
+import { settlePendingCaretMove } from "@main/injection/clipboard";
 import type { InjectionOptions, InjectionTarget } from "@main/injection";
 import { TranscriptionChainError, TranscriptionDeadlineExceededError, TranscriptionService, type TranscribeOptions } from "@main/transcription";
 
@@ -596,6 +597,15 @@ describe("DictationService", () => {
     expect(overlay.setPressed).toHaveBeenCalledTimes(1);
     expect(overlay.setRecording).not.toHaveBeenCalled();
     expect(recorder.startRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("finishes the last paste's caret move before recording the new session's caret", () => {
+    const { service } = createDictationService();
+    vi.mocked(settlePendingCaretMove).mockClear();
+
+    service.beginHotkeySession();
+
+    expect(settlePendingCaretMove).toHaveBeenCalledTimes(1);
   });
 
   it("queues recording while the recorder warms up and errors only after timeout", () => {
@@ -1258,6 +1268,17 @@ describe("DictationService", () => {
 
     expect(injector.inject).not.toHaveBeenCalled();
     expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+  });
+
+  it("finishes the last paste's caret move before paste latest records the caret", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getLatest.mockResolvedValue({ id: "entry-1", cleanedText: "Hello there.", rawText: "hello there" });
+    vi.mocked(settlePendingCaretMove).mockClear();
+
+    await service.pasteLatestEntry();
+
+    expect(settlePendingCaretMove).toHaveBeenCalled();
+    expect(vi.mocked(settlePendingCaretMove).mock.invocationCallOrder[0]).toBeLessThan(injector.inject.mock.invocationCallOrder[0] ?? 0);
   });
 
   it("refuses to paste latest when the latest entry is punctuation only", async () => {
