@@ -42,7 +42,7 @@ const CAMEL_CASE_RE = /\p{L}*\p{Ll}\p{Lu}\p{L}*/gu;
 
 // Hesitation sounds. Cleanup adds them to the filler words it removes.
 // "er" and "ah" are left out: they are words in other languages ("Er ist da").
-export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "hm", "mm", "mmm", "mhm"];
+export { HESITATION_WORDS } from "./scratchThat";
 // Phrases that mark the speaker correcting what came just before, longest first.
 const CORRECTION_CUES: readonly (readonly string[])[] = [["scratch", "that"], ["or", "rather"], ["no", "wait"], ["i", "mean"], ["sorry"], ["wait"], ["actually"], ["rather"], ["no"]];
 const MAX_REPLACED_WORDS = 4;

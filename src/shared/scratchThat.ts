@@ -58,10 +58,13 @@ export function splitSentences(text: string): string[] {
 }
 
 // A sentence that only withdraws the sentence before it.
-// A sentence that is only hesitation, such as "Um." or "Uh, um...".
-const HESITATION_ONLY_RE = /^\s*(?:(?:um+|uh+|erm|hmm+)[,.!?।\s]*)+$/i;
+// Hesitations speech-noise cleanup removes. Lives here so the withdrawal pass, which runs first, uses the same list.
+export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "hm", "mm", "mmm", "mhm"];
+const HESITATION = `(?:${HESITATION_WORDS.join("|")})`;
+// A sentence that is only hesitation, such as "Um." or "Mhm, uh...".
+const HESITATION_ONLY_RE = new RegExp(String.raw`^\s*(?:${HESITATION}[,.!?।\s]*)+$`, "iu");
 // A hesitation before the cue ("Um, scratch that.") still counts as the cue.
-const SCRATCH_SENTENCE_RE = /^\s*(?:(?:um+|uh+|erm|hmm+)[,\s]+)*(?:scratch|delete)\s+that[.!?।]*\s*$/i;
+const SCRATCH_SENTENCE_RE = new RegExp(String.raw`^\s*(?:${HESITATION}[,\s]+)*(?:scratch|delete)\s+that[.!?।]*\s*$`, "iu");
 // A sentence with a letter or number, as opposed to a bare separator such as "\n" or "...".
 const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
 
