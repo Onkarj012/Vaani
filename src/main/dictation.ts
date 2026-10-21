@@ -23,6 +23,7 @@ import type {
   InjectionFailureReason,
   ProviderAttemptTrace,
   RecorderFailure,
+  CaptureLevels,
   RecorderSubmission,
   SelectionRange,
   Settings,
@@ -35,7 +36,7 @@ import { trimSilence, isValidClip } from "./audio/vad";
 import { evaluateSpeechGate } from "./audio/speechGate";
 import { AppDetector, type AppContextResult } from "./context/appDetector";
 import { TextInjector } from "./injection";
-import { cancelPendingClipboardRestore } from "./injection/clipboard";
+import { cancelPendingClipboardRestore, settlePendingCaretMove } from "./injection/clipboard";
 import { nativeBridge } from "./nativeBridge";
 import { debug } from "@main/log";
 import { OverlayController } from "./overlay";
@@ -43,13 +44,13 @@ import { HistoryStore } from "./store/history";
 import { DictationTraceStore } from "./store/dictationTrace";
 import { SettingsStore } from "./store/settings";
 import { CredentialsStore } from "./store/credentials";
-import { applyDictionary, cleanupText, hasSpokenContent } from "./text/cleanup";
+import { applyDictionary, cleanupText, hasSpokenContent, removeSpeechNoise, stripSoundTags } from "./text/cleanup";
 import { detectDictionarySuggestions, isAutoLearnableDictionarySuggestion, isValidDictionarySuggestion } from "@shared/dictionarySuggestions";
-import { getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
+import { buildVocabularyTerms, getTranscriptionTimeoutMs, TranscriptionCancelledError, TranscriptionDeadlineExceededError, TranscriptionChainError, TranscriptionService, type FormatTranscriptTraceResult } from "./transcription";
 import { SessionTimers } from "./dictation/sessionTimers";
 import { decideTranscriptInsertion, finalizeTranscriptDecision } from "./transcriptQuality";
 import { mergeDictationTracePatch } from "./dictationTraceSnapshot";
-import { NO_API_KEY_REASON, NO_PROVIDER_REASON } from "./providers/formatting-constants";
+import { FORMATTER_KEY_REJECTED_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON } from "./providers/formatting-constants";
 import { formatBuildIdentifier } from "@shared/buildIdentifier";
 import { evaluateInsertionAcceptance } from "@shared/insertionAcceptance";
 import { resolveProfileLanguage } from "@main/providers/language";
@@ -61,10 +62,14 @@ import { intendedInjectionStrategy } from "./injection/policy";
 import { createDictationBugReport } from "./dictationBugReport";
 
 const FINALIZATION_TIMEOUT_MS = 4_000;
-const FORMATTING_TIMEOUT_MS = 20_000;
+const REFORMAT_TIMEOUT_MS = 20_000;
 const AUDIO_FRAME_TIMEOUT_MS = 1_600;
 const RECORDER_START_TIMEOUT_MS = 5_000;
 const STALE_SESSION_TIMEOUT_MS = 60_000;
+// Extra time past the transcription and cleanup deadlines before the stale guard ends a session.
+const STALE_GUARD_GRACE_MS = 15_000;
+// Recent sessions whose History write is remembered, so each session is saved once.
+const HISTORY_WRITE_MARKERS = 20;
 const UPTIME_LOG_INTERVAL_MS = 3_600_000;
 const EDIT_WATCH_INTERVAL_MS = 500;
 const EDIT_WATCH_TIMEOUT_MS = 60_000;
@@ -90,7 +95,7 @@ type DictationTraceDeps = Pick<DictationTraceStore, "upsert" | "updateById" | "g
   & Partial<Pick<DictationTraceStore, "getAll">>;
 
 interface DictationServiceDeps {
-  transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
+  transcription?: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed" | "warmUp">>;
   injector?: Pick<TextInjector, "inject">;
   appDetector?: Pick<AppDetector, "getContext">;
   getMicrophonePermission?: () => string;
@@ -108,7 +113,7 @@ interface DictationServiceDeps {
 
 export class DictationService {
   private state: DictationState = { status: "idle" };
-  private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed">>;
+  private readonly transcription: Pick<TranscriptionService, "transcribe" | "formatTranscript"> & Partial<Pick<TranscriptionService, "formatTranscriptDetailed" | "warmUp">>;
   private readonly injector: Pick<TextInjector, "inject">;
   private readonly appDetector: Pick<AppDetector, "getContext">;
   private readonly getMicrophonePermission: () => string;
@@ -138,6 +143,8 @@ export class DictationService {
   private pendingStopRequestedAt: string | null = null;
   private readonly recorder: RecorderCommands | null;
   private pasteLatestInProgress = false;
+  // Set when quit starts. No new dictation may start after it.
+  private closingForQuit = false;
   private sessionAbortController: AbortController | null = null;
   private readonly recoveryActionAbortControllers = new Set<AbortController>();
   private sessionGeneration = 0;
@@ -147,6 +154,8 @@ export class DictationService {
   private activeInsertionPrepared = false;
   private activeInsertionDispatched = false;
   private activePreparedEntry: DictationEntry | null = null;
+  // The insertion result already known while its History write runs, so a quit records that result.
+  private activeFinishedInsertion: { outcome: DictationInsertionOutcome; entry: DictationEntry; tracePatch: Partial<DictationTrace>; reason?: DictationRejectionReason } | null = null;
   private readonly historyWrites = new Map<string, Promise<boolean>>();
   private readonly terminalTraceSessions = new Set<string>();
 
@@ -190,7 +199,8 @@ export class DictationService {
     }, UPTIME_LOG_INTERVAL_MS);
   }
 
-  private armStaleSessionGuard(sessionId: string): void {
+  // Ends a session that stops making progress. Long stages pass a longer timeout so their own deadlines win.
+  private armStaleSessionGuard(sessionId: string, timeoutMs = STALE_SESSION_TIMEOUT_MS): void {
     this.clearStaleSessionTimer();
     this.timers.setTimeout("staleSession", () => {
       const stage = this.state.status;
@@ -205,7 +215,7 @@ export class DictationService {
           this.failSession(sessionId, `Dictation stopped while ${stage}. Please try again.`, "stale-session", [], undefined, undefined, { stages: { staleStage: stage } });
         }
       }
-    }, STALE_SESSION_TIMEOUT_MS);
+    }, timeoutMs);
   }
 
   private rearmStaleSessionGuard(): void {
@@ -215,6 +225,7 @@ export class DictationService {
   }
 
   beginHotkeySession(): void {
+    if (this.closingForQuit) return;
     this.cancelRecoveryActions("new-dictation");
     this.cancelledRecoveryRetryIds.clear();
     if (this.state.status !== "idle") {
@@ -255,6 +266,7 @@ export class DictationService {
       language: resolveProfileLanguage(profile?.language, settings.language),
       customPrompt: profile?.customPrompt ?? settings.customPrompt,
     });
+    settlePendingCaretMove();
     this.activeSelection = this.captureSelection(this.activeTarget);
     this.activeTargetValue = isExternalTarget(this.activeTarget) ? safeFocusedValue() : null;
     this.activeTargetIdentity = isExternalTarget(this.activeTarget) ? safeFocusedElementIdentity() : null;
@@ -273,8 +285,10 @@ export class DictationService {
     }
 
     this.clearRecorderStartTimer();
+    // This budget covers the first audio frame, so a mic that stays silent is released here.
     this.timers.setTimeout("recorderStart", () => {
       if (this.isCurrentSession(sessionId) && this.state.status === "starting") {
+        this.recorder?.abortRecording?.(sessionId);
         this.failSession(sessionId, "Recorder is not ready yet. Please try again in a moment.", "recorder_unavailable");
       }
     }, RECORDER_START_TIMEOUT_MS);
@@ -332,6 +346,7 @@ export class DictationService {
     void this.patchTrace(sessionId, { stopRequestedAt, hotkeyReleasedAt: stopRequestedAt });
     void this.transitionRecovery(sessionId, "interrupted_recording", { error: { class: "interrupted", detail: "Recording finalized." } });
     this.setState({ status: "finalizing", sessionId });
+    this.transcription.warmUp?.();
     this.clearFinalizationTimer();
     this.clearAudioFrameTimer();
     if (!this.recorder?.stopRecording(sessionId)) {
@@ -345,6 +360,9 @@ export class DictationService {
 
   reportRecorderStarted(sessionId: string): void {
     if (!this.isCurrentSession(sessionId) || this.state.status !== "starting") {
+      // A mic that opens after its session ended must not stay open. A newer
+      // session in capture already takes the recorder over, so leave it alone.
+      if (!this.isCaptureStage()) this.recorder?.abortRecording?.(sessionId);
       return;
     }
 
@@ -387,9 +405,13 @@ export class DictationService {
     const settings = restoreSessionSettings(snapshot);
     const validationClip = trimSilence(payload.clip, settings.silenceThreshold);
     const rawAudio = analyzeAudioQuality(payload.clip, settings.silenceThreshold);
+    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames, payload.clip.pcmData);
     const tracePatch: Partial<DictationTrace> = {
       rawAudio,
+      captureLevels: captureLevelsFor(rawAudio, payload.clip.gain),
+      speechGate,
       trimmedAudio: analyzeAudioQuality(validationClip, settings.silenceThreshold),
+      ...(payload.captureSettings ? { captureSettings: payload.captureSettings } : {}),
       ...(payload.tailMetrics ? payload.tailMetrics : {}),
     };
 
@@ -415,8 +437,7 @@ export class DictationService {
       return;
     }
 
-    const speechGate = evaluateSpeechGate(payload.clip.rmsFrames);
-    if (!speechGate.pass) {
+    if (speechGate.decision === "silent") {
       debug("dictation", `submitAudioClip: speech gate rejected clip (${speechGate.reason}, floor=${speechGate.noiseFloor.toFixed(4)}, longest=${speechGate.longestRunMs}ms, total=${speechGate.totalSpeechMs}ms)`);
       this.failSession(payload.sessionId, "No speech detected. Try speaking louder or closer to the microphone.", "no_speech");
       return;
@@ -434,27 +455,30 @@ export class DictationService {
     await this.transitionRecovery(payload.sessionId, "transcribing");
     if (!this.isCurrentSession(payload.sessionId)) return;
     this.setState({ status: "transcribing", sessionId: payload.sessionId });
+    const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip);
+    this.armStaleSessionGuard(payload.sessionId, Math.max(STALE_SESSION_TIMEOUT_MS, transcriptionTimeoutMs + liveFormattingTimeoutMs(snapshot.formattingProvider) + STALE_GUARD_GRACE_MS));
 
     const operationSignal = this.sessionAbortController?.signal;
     try {
       const appProfile = resolveAppProfile(settings.appProfiles ?? [], this.activeTarget?.appBundleId ?? null);
       const language = resolveProfileLanguage(appProfile?.language, settings.language);
       const sttStartedAt = Date.now();
-      const transcriptionTimeoutMs = getTranscriptionTimeoutMs(payload.clip);
       const transcriptionDeadlineAt = sttStartedAt + transcriptionTimeoutMs;
+      const qualityClip = preGainClip(payload.clip);
+      const hintTerms = buildVocabularyTerms(settings);
       const transcription = await this.transcription.transcribe(payload.clip, {
         sessionSettings: snapshot,
-        speechContext: { trimmedDurationSeconds: validationClip.durationSeconds, speechGatePassed: speechGate.pass },
+        speechContext: { trimmedDurationSeconds: validationClip.durationSeconds, speechGatePassed: speechGate.decision === "speech" },
         languageOverride: language,
         ...(appProfile?.transcriptionProvider ? { providerOverride: appProfile.transcriptionProvider } : {}),
           retryClip: validationClip,
           deadlineAt: transcriptionDeadlineAt,
           signal: operationSignal,
-        rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, payload.clip, result.quality).action === "retry",
+        rejectResult: (result: TranscriptionResult) => decideTranscriptInsertion(result.rawText, qualityClip, result.quality, hintTerms).action === "retry",
       });
       if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
       void this.patchTrace(payload.sessionId, { sttDoneAt: new Date().toISOString() });
-      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, payload.clip, transcription.quality));
+      const qualityDecision = finalizeTranscriptDecision(decideTranscriptInsertion(transcription.rawText, qualityClip, transcription.quality, hintTerms));
       await this.transitionRecovery(payload.sessionId, "transcript_ready", {
         text: { rawTranscript: transcription.rawText },
         providerAttempts: transcription.providerAttempts?.map(mapProviderAttempt),
@@ -497,9 +521,9 @@ export class DictationService {
       if (qualityDecision.action === "save") {
         debug("dictation", `submitAudioClip: transcript saved instead of inserted (${qualityDecision.reason}): "${transcription.rawText}"`);
         const cleanupTrace = { correctionsApplied: [] };
-        const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
+        const correctedText = applyDictionary(stripSoundTags(transcription.rawText), settings, cleanupTrace);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
-        const cleanedText = cleanupText({ rawText: correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
+        const cleanedText = cleanupText({ rawText: settings.cleanupEnabled ? removeSpeechNoise(correctedText) : correctedText, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
         void this.patchTrace(payload.sessionId, { formatDoneAt: new Date().toISOString() });
         void this.patchTrace(payload.sessionId, {
           stages: {
@@ -531,7 +555,7 @@ export class DictationService {
 
       // Apply dictionary terms before the formatter so it sees the intended spelling.
       const cleanupTrace = { correctionsApplied: [] };
-      const correctedText = applyDictionary(transcription.rawText, settings, cleanupTrace);
+      const correctedText = applyDictionary(stripSoundTags(transcription.rawText), settings, cleanupTrace);
       // Kept so a new dictation that replaces this one during formatting can still save the transcript.
       this.activePreparedEntry = {
         id: crypto.randomUUID(),
@@ -555,20 +579,22 @@ export class DictationService {
         await this.transitionRecovery(payload.sessionId, "formatting", { text: { cleanedText: correctedText }, signal: operationSignal });
         const formattingStartedAt = Date.now();
         if (!electron.app.isPackaged && process.env.VAANI_DEV_FORCE_FORMAT_TIMEOUT === "1") throw new TranscriptionDeadlineExceededError();
-        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + FORMATTING_TIMEOUT_MS, snapshot);
+        formatTrace = await this.formatTranscriptWithTrace(correctedText, operationSignal, Date.now() + liveFormattingTimeoutMs(snapshot?.formattingProvider), snapshot, language);
         if (!this.isCurrentSession(payload.sessionId) || operationSignal?.aborted) return;
         formattedText = formatTrace.text;
         void this.patchTrace(payload.sessionId, { formattingLatencyMs: Date.now() - formattingStartedAt });
       } catch (error) {
         if (operationSignal?.aborted) return;
+        // Without the model's cleanup, fixed rules remove the speech noise (literal when cleanup is off).
+        const fallback = settings.cleanupEnabled ? removeSpeechNoise(correctedText) : correctedText;
         if (error instanceof TranscriptionDeadlineExceededError) {
-          formattedText = correctedText;
-          formatTrace = { text: correctedText, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: "Formatting timed out." };
+          formattedText = fallback;
+          formatTrace = { text: fallback, formatterUsed: "none", formatterStatus: "failed", formatterStatusReason: "Formatting timed out." };
           void this.patchTrace(payload.sessionId, { stages: { formatterStatus: "failed", formatterStatusReason: "Formatting timed out.", formatterReason: "timeout" } });
         } else {
           if (error instanceof TranscriptionCancelledError) return;
-          formattedText = correctedText;
-          formatTrace = { text: correctedText, formatterUsed: "none" };
+          formattedText = fallback;
+          formatTrace = { text: fallback, formatterUsed: "none" };
         }
       }
 
@@ -668,10 +694,13 @@ export class DictationService {
         }, "insertion_failed", transcription.detectedLanguage || transcription.language, failure.outcome);
         return;
       }
-      void this.patchTrace(payload.sessionId, { dispatchAt: new Date().toISOString() });
       const injection = await this.injector.inject(cleanedText, finalInjectionTarget, {
         signal: operationSignal,
-        onDispatch: () => { if (this.isCurrentSession(payload.sessionId)) this.activeInsertionDispatched = true; },
+        // dispatchAt marks the paste or keystrokes leaving Vaani, after the injector's preparation.
+        onDispatch: () => {
+          void this.patchTrace(payload.sessionId, { dispatchAt: new Date().toISOString() });
+          if (this.isCurrentSession(payload.sessionId)) this.activeInsertionDispatched = true;
+        },
         isTargetValid: () => this.isCurrentSession(payload.sessionId)
           && this.isSameFocusedTarget(finalInjectionTarget, initialTargetIdentity)
           && (this.activeInsertionDispatched || this.matchesFocusedAX(finalInjectionTarget, initialTargetValue, initialSelection)),
@@ -925,8 +954,8 @@ export class DictationService {
       const settings = restoreSessionSettings(entry.settingsSnapshot);
       const appProfile = resolveAppProfile(settings.appProfiles ?? [], entry.target.appBundleId);
       const cleanupTrace = { correctionsApplied: [] };
-      const correctedText = applyDictionary(rawText, settings, cleanupTrace);
-      const formatted = await this.formatTranscriptWithTrace(correctedText, action.signal, Date.now() + FORMATTING_TIMEOUT_MS, entry.settingsSnapshot);
+      const correctedText = applyDictionary(stripSoundTags(rawText), settings, cleanupTrace);
+      const formatted = await this.formatTranscriptWithTrace(correctedText, action.signal, Date.now() + REFORMAT_TIMEOUT_MS, entry.settingsSnapshot);
       if (action.signal.aborted) return false;
       const cleanedText = cleanupText({ rawText: formatted.text, settings, trace: cleanupTrace, skipCorrections: true, appProfileId: appProfile?.id, placeholderResolver: resolveSnippetPlaceholder });
       const current = await this.recovery.getById(id);
@@ -1052,7 +1081,17 @@ export class DictationService {
     this.pasteLatestInProgress = true;
     try {
       const generation = this.sessionGeneration;
-      const latest = await this.history.getLatest();
+      let latest: DictationEntry | undefined;
+      try {
+        latest = await this.history.getLatest();
+      } catch (err) {
+        if (generation !== this.sessionGeneration) return;
+        // An unreadable History file must not fail silently from a hotkey.
+        debug("dictation", "paste latest could not read History", { message: err instanceof Error ? err.message : String(err) });
+        this.setState({ status: "error", sessionId: null, message: "History could not be read, so there is nothing to paste." });
+        this.scheduleReset(ERROR_RESET_MS);
+        return;
+      }
       if (generation !== this.sessionGeneration) return;
       if (!latest) {
         this.setState({ status: "error", sessionId: null, message: "No previous dictation is available yet." });
@@ -1136,6 +1175,10 @@ export class DictationService {
   }
 
   async showDictionarySuggestions(suggestions: DictionarySuggestion[]): Promise<void> {
+    if (!this.settings.get().suggestDictionaryWords) {
+      debug("dictionary", "suggestions off", { count: suggestions.length });
+      return;
+    }
     const promptGeneration = this.dictionaryPromptGeneration;
     for (const suggestion of suggestions) {
       if (!this.isPromptableDictionarySuggestion(suggestion)) continue;
@@ -1169,7 +1212,7 @@ export class DictationService {
 
     const current = this.settings.get().snippets ?? [];
     if (current.some((snippet) => snippet.trigger.toLowerCase() === trigger.toLowerCase())) return;
-    this.settings.update({ snippets: [...current, { trigger, content }] });
+    this.updateSettingsQuietly({ snippets: [...current, { trigger, content }] }, "snippet");
   }
 
   navigateToHistoryEntry(entryId: string): void {
@@ -1183,7 +1226,7 @@ export class DictationService {
     try {
       if (!settings.saveRecordings || !this.settings.get().saveRecordings) return null;
       const dir = settings.recordingsPath || join(homedir(), "Documents", "Vaani Recordings");
-      if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+      if (!existsSync(dir)) await mkdir(dir, { recursive: true, mode: 0o700 });
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = `vaani-recording-${timestamp}.wav`;
@@ -1209,7 +1252,8 @@ export class DictationService {
         buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
       }
       if (!this.settings.get().saveRecordings) return null;
-      await writeFile(filepath, buf);
+      // Voice audio is private: owner read/write only.
+      await writeFile(filepath, buf, { mode: 0o600 });
       if (!this.settings.get().saveRecordings) { await unlink(filepath); return null; }
       return filepath;
     } catch {
@@ -1219,6 +1263,8 @@ export class DictationService {
   }
 
   private currentInjectionTarget(_entry: Pick<DictationEntry, "appBundleId" | "appName">) {
+    // Finish the last paste's caret move first, so the manual insert's caret baseline already includes it.
+    settlePendingCaretMove();
     const current = this.appDetector.getContext();
     if (isExternalTarget(current)) {
       return { appBundleId: current.appBundleId, appName: current.appName, pid: current.pid, selection: this.captureSelection(current) };
@@ -1232,6 +1278,11 @@ export class DictationService {
   }
 
   // True while a dictation is starting, recording, finalizing, or transcribing.
+  // True while the recorder may hold the mic for the active session.
+  private isCaptureStage(): boolean {
+    return this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing";
+  }
+
   private isLiveSession(): boolean {
     return this.state.status === "starting" || this.state.status === "recording" || this.state.status === "finalizing" || this.state.status === "transcribing";
   }
@@ -1334,7 +1385,16 @@ export class DictationService {
     const nextCorrections = existingIndex >= 0
       ? current.map((entry, index) => index === existingIndex ? { ...entry, spoken, written, source: "auto-suggested" as const } : entry)
       : [...current, { spoken, written, source: "auto-suggested" as const }];
-    this.settings.update({ customCorrections: nextCorrections });
+    this.updateSettingsQuietly({ customCorrections: nextCorrections }, "dictionary");
+  }
+
+  // Saves a background settings change. A blocked settings file only logs, so dictation keeps working.
+  private updateSettingsQuietly(patch: Partial<Settings>, scope: string): void {
+    try {
+      this.settings.update(patch);
+    } catch (err) {
+      debug(scope, "settings change not saved", { message: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   private watchForManualEdits(insertedText: string, target: Pick<AppContextResult, "appBundleId" | "appName"> | null): void {
@@ -1458,6 +1518,8 @@ export class DictationService {
     copied = false,
     formatNotice: string | null = null,
   ): Promise<void> {
+    // An older session finishing late must not claim the field a newer session's quit will read.
+    if (this.isCurrentSession(sessionId)) this.activeFinishedInsertion = { outcome, entry, tracePatch, reason };
     const historySaved = await this.persistHistoryOnce(sessionId, entry);
     if (!this.isCurrentSession(sessionId)) return;
     const statusText = insertionStatusText(outcome, historySaved, historySaved ? failedStage : "History", copied);
@@ -1477,6 +1539,8 @@ export class DictationService {
       return false;
     });
     this.historyWrites.set(sessionId, write);
+    // Kept past the session so a late finish can't append again; only the oldest markers are dropped.
+    if (this.historyWrites.size > HISTORY_WRITE_MARKERS) this.historyWrites.delete(this.historyWrites.keys().next().value ?? "");
     return write;
   }
 
@@ -1486,7 +1550,6 @@ export class DictationService {
     const saved = await this.persistHistoryOnce(sessionId, entry);
     await this.recordRecoveryInsertionOutcome(sessionId, "recoverable", null, "interrupted", OUTCOME_UNCERTAIN_DETAIL).catch(() => undefined);
     await this.finishTrace(sessionId, "unconfirmed", "cancelled", insertionStatusText("unconfirmed", saved, "processing"));
-    this.historyWrites.delete(sessionId);
   }
 
   // Saves a replaced session's transcript as not inserted. Touches only that session's history and trace.
@@ -1498,18 +1561,22 @@ export class DictationService {
 
   private failSession(sessionId: string, message: string, reason: DictationRejectionReason = "transcription_error", providerAttempts: ProviderAttemptTrace[] = [], signal?: AbortSignal, errorClass?: RecoveryErrorClass, tracePatch: Partial<DictationTrace> = {}): void {
     if (!this.isCurrentSession(sessionId)) return;
+    // Release the mic, including a start that is still opening.
+    if (this.isCaptureStage()) this.recorder?.abortRecording?.(sessionId);
     void this.transitionRecovery(sessionId, "recoverable", { error: { class: errorClass ?? recoveryErrorClass(reason), detail: message }, providerAttempts: providerAttempts.map(mapProviderAttempt), signal });
     this.clearRecorderStartTimer();
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
     this.setState({ status: "error", sessionId, message });
-    void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message, tracePatch);
+    // The trace keeps every provider attempt, so a failed dictation shows which provider failed and how.
+    const attemptsPatch = providerAttempts.length > 0 ? { providerAttempts } : {};
+    void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message, { ...attemptsPatch, ...tracePatch });
     this.scheduleReset(ERROR_RESET_MS);
   }
 
   private resetToIdle(): void {
     if (this.activeSessionId) {
-      this.historyWrites.delete(this.activeSessionId);
+      if (this.isCaptureStage()) this.recorder?.abortRecording?.(this.activeSessionId);
     }
     this.sessionAbortController?.abort("session-reset");
     this.clearTimers();
@@ -1522,6 +1589,7 @@ export class DictationService {
     this.activeInsertionPrepared = false;
     this.activeInsertionDispatched = false;
     this.activePreparedEntry = null;
+    this.activeFinishedInsertion = null;
     this.releaseRequestedDuringStart = false;
     this.setState({ status: "idle" });
   }
@@ -1569,6 +1637,27 @@ export class DictationService {
     this.clearStaleSessionTimer();
     this.clearEditWatch();
     this.clearUptimeLogging();
+  }
+
+  // Ends an in-flight dictation at quit so its trace is not left "started" and a ready transcript reaches History.
+  async closeForQuit(): Promise<void> {
+    this.closingForQuit = true;
+    const sessionId = this.activeSessionId;
+    if (!sessionId || !this.isLiveSession()) return;
+    const stage = this.isCaptureStage() ? "recording" : "processing";
+    const known = this.activeFinishedInsertion;
+    const entry = known?.entry ?? this.activePreparedEntry;
+    const dispatched = this.activeInsertionDispatched;
+    const outcome: DictationInsertionOutcome = known?.outcome ?? (dispatched && entry ? "unconfirmed" : this.activeInsertionPrepared ? "refused" : "failed");
+    this.clearTimers();
+    if (this.isCaptureStage()) this.recorder?.abortRecording?.(sessionId);
+    this.sessionAbortController?.abort("app-quit");
+    // The trace goes first: quit gives the whole flush only 3 s, and a slow History write must not leave it "started".
+    // The History write may not finish before exit, so the trace makes no claim about it.
+    const message = outcome === "failed" ? `${stage === "recording" ? "Recording" : "Processing"} stopped when Vaani quit.` : insertionStatusText(outcome, false, stage);
+    const trace = this.finishTrace(sessionId, outcome, known ? known.reason : "cancelled", message, known?.tracePatch);
+    const saved = entry ? this.persistHistoryOnce(sessionId, entry) : Promise.resolve(false);
+    await Promise.all([trace, saved]);
   }
 
   async flushRecovery(): Promise<void> {
@@ -1954,9 +2043,9 @@ export class DictationService {
     });
   }
 
-  private async formatTranscriptWithTrace(rawText: string, signal?: AbortSignal, deadlineAt?: number, sessionSettings?: SessionSettingsSnapshot): Promise<FormatTranscriptTraceResult> {
+  private async formatTranscriptWithTrace(rawText: string, signal?: AbortSignal, deadlineAt?: number, sessionSettings?: SessionSettingsSnapshot, language?: string): Promise<FormatTranscriptTraceResult> {
     if (this.transcription.formatTranscriptDetailed) {
-      return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt, sessionSettings });
+      return this.transcription.formatTranscriptDetailed(rawText, { signal, deadlineAt, sessionSettings, language });
     }
     const text = await this.transcription.formatTranscript(rawText, { signal, deadlineAt, sessionSettings });
     return { text, formatterUsed: "none" };
@@ -2051,6 +2140,22 @@ function clippedCopy(clip: { pcmData: number[]; sampleRate: number; durationSeco
   return { pcmData: [...clip.pcmData], sampleRate: clip.sampleRate, durationSeconds: clip.durationSeconds, rmsFrames: [...clip.rmsFrames] };
 }
 
+// Undoes the boost on frame levels, so transcript heuristics keep judging the mic's own level.
+function preGainClip(clip: AudioClip): Pick<AudioClip, "rmsFrames"> {
+  const gain = clip.gain ?? 1;
+  return { rmsFrames: clip.rmsFrames.map((frame) => frame / gain) };
+}
+
+// Recovers pre-gain peak and RMS from the gain-adjusted clip, since the boost is a single multiplier.
+function captureLevelsFor(sent: AudioQualityMetrics, gain: number | undefined): CaptureLevels {
+  const appliedGain = gain ?? 1;
+  return {
+    preGainPeak: sent.peakAmplitude / appliedGain,
+    preGainRms: sent.rmsAverage / appliedGain,
+    gain: appliedGain,
+  };
+}
+
 function analyzeAudioQuality(clip: AudioClip, silenceThreshold: number): AudioQualityMetrics {
   const samples = clip.pcmData;
   let sumSquares = 0;
@@ -2103,8 +2208,14 @@ const NOTHING_TO_INSERT_MESSAGE = "Nothing to insert. The transcript was empty a
 const FORMAT_NOTICE = "Formatting did not apply. Inserted the unformatted text.";
 const FORMAT_PARTIAL_NOTICE = "Formatting applied only in part. Some text was inserted unformatted.";
 
+// Groq formats fast. Slower providers get a longer live deadline so their reply is not cut off. An unset provider means Groq.
+export function liveFormattingTimeoutMs(provider: string | undefined): number {
+  return (provider ?? "groq-llm") === "groq-llm" ? 1_500 : 3_500;
+}
+
 // Short warning added to the insert message when formatting did not apply. Offline and too-short skips get no warning.
 function formatNoticeFor(trace: FormatTranscriptTraceResult): string | null {
+  if (trace.formatterStatusReason === FORMATTER_KEY_REJECTED_REASON) return FORMATTER_KEY_REJECTED_REASON;
   if (trace.partiallyFormatted) return FORMAT_PARTIAL_NOTICE;
   if (trace.formatterStatus === "failed" || trace.formatterStatus === "rejected") return FORMAT_NOTICE;
   const formatterUnavailable = trace.formatterStatusReason === NO_API_KEY_REASON || trace.formatterStatusReason === NO_PROVIDER_REASON;
@@ -2271,10 +2382,10 @@ function extractInsertedFragment(initialValue: string | null, currentValue: stri
   return currentValue.slice(prefixLength, end);
 }
 
-function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {
+export function extractCorrectedInsertedText(initialValue: string | null, currentValue: string, insertedText: string): string | null {
   if (!initialValue) return null;
   const insertedAt = initialValue.indexOf(insertedText);
-  if (insertedAt < 0) return currentValue.trim() || null;
+  if (insertedAt < 0) return withoutPureContinuation(currentValue.trim(), insertedText);
 
   const prefix = initialValue.slice(0, insertedAt);
   const suffix = initialValue.slice(insertedAt + insertedText.length);
@@ -2284,7 +2395,20 @@ function extractCorrectedInsertedText(initialValue: string | null, currentValue:
 
   const end = suffix.length === 0 ? currentValue.length : currentValue.length - suffix.length;
   const corrected = currentValue.slice(prefix.length, end).trim();
-  return corrected || null;
+  return withoutPureContinuation(corrected, insertedText);
+}
+
+// Text typed after a space or punctuation, or before the inserted dictation, is
+// continued writing. Letters glued onto the last word ("Code" → "CodePen") are a
+// correction, so they pass through to the dictionary suggestion logic.
+function withoutPureContinuation(corrected: string, insertedText: string): string | null {
+  if (!corrected) return null;
+  const inserted = insertedText.trim();
+  if (!inserted || corrected === inserted) return corrected;
+  if (corrected.endsWith(inserted)) return null;
+  // Letters glued onto the last word ("Code" -> "CodePen") are a correction; anything after a space or a mark is new writing.
+  if (corrected.startsWith(inserted) && !(/[\p{L}\p{N}]$/u.test(inserted) && /^[\p{L}\p{N}]/u.test(corrected.slice(inserted.length)))) return null;
+  return corrected;
 }
 
 function shouldSuggestSnippet(originalText: string, correctedText: string): boolean {

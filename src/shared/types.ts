@@ -75,6 +75,22 @@ export interface AudioClip {
   sampleRate: number;
   durationSeconds: number;
   rmsFrames: number[];
+  /** Boost applied to pcmData after capture. Absent means no boost. */
+  gain?: number;
+}
+
+/** Processing flags the capture track reports as active. Absent when the track did not report them. */
+export interface CaptureTrackSettings {
+  echoCancellation?: boolean;
+  autoGainControl?: boolean;
+  noiseSuppression?: boolean;
+}
+
+/** Clip levels before the boost applied for transcription. */
+export interface CaptureLevels {
+  preGainPeak: number;
+  preGainRms: number;
+  gain: number;
 }
 
 export interface AudioVisualFrame {
@@ -83,6 +99,8 @@ export interface AudioVisualFrame {
 }
 
 export type CaptureBackend = "native" | "renderer";
+// "unprocessed" turns off browser echo cancellation, auto gain, and noise suppression.
+export type CaptureProcessing = "default" | "unprocessed";
 
 export interface AudioInputDevice {
   uid: string;
@@ -125,7 +143,24 @@ export interface TranscriptionQualityMetadata {
   chunkOverlapSeconds?: number;
   /** True when the request carried vocabulary hints. Models without hint support report false. */
   vocabularyHintsSent?: boolean;
+  /** One no_speech probability per provider segment. Absent when the provider returns no segments. */
+  segmentNoSpeechProbabilities?: number[];
   decision?: TranscriptQualityDecision;
+}
+
+/** "speech": clear speech contrast. "uncertain": quiet audio with no contrast, still transcribed. "silent": empty or digitally silent, rejected. */
+export type SpeechGateDecision = "speech" | "uncertain" | "silent";
+
+export interface SpeechGateTrace {
+  /** False only when the clip was rejected before transcription. */
+  pass: boolean;
+  /** Absent on traces written before the decision existed. */
+  decision?: SpeechGateDecision;
+  reason: string;
+  noiseFloor: number;
+  enterThreshold: number;
+  longestRunMs: number;
+  totalSpeechMs: number;
 }
 
 // ─── History ─────────────────────────────────────────────────────────────────
@@ -224,7 +259,13 @@ export interface DictationTrace {
   verifyDoneAt?: string;
   targetAppBundleId: string | null;
   targetAppName: string | null;
+  /** Levels of the gain-adjusted clip sent for transcription. */
   rawAudio?: AudioQualityMetrics;
+  /** Peak and RMS before gain, and the gain applied. */
+  captureLevels?: CaptureLevels;
+  /** Processing the mic track actually reported. */
+  captureSettings?: CaptureTrackSettings;
+  speechGate?: SpeechGateTrace;
   trimmedAudio?: AudioQualityMetrics;
   rawAudioPath?: string | null;
   sttProvider?: string | null;
@@ -401,6 +442,8 @@ export interface Settings {
   // Phase 0: New settings
   dictationMode: DictationMode;
   saveRecordings: boolean;
+  /** Offer a dictionary entry after the user fixes a pasted word by hand. Off by default. */
+  suggestDictionaryWords: boolean;
   recordingsPath: string;
   recoveryRetentionDays: 1 | 3 | 7 | 14;
   retainFailedAudio: boolean;
@@ -413,6 +456,7 @@ export interface Settings {
   failoverEnabled: boolean;
   /** Set once the user has seen the OpenRouter key prompt, so it is not shown again. */
   openRouterKeyPromptShown: boolean;
+  sttDefaultVersion?: number;
   // Phase 2: Local model settings
   localWhisperModel: string;
   offlineMode: "auto" | "always-offline" | "always-online";
@@ -420,6 +464,7 @@ export interface Settings {
   micDeviceId?: string;
   preWarmMic: boolean;
   captureBackend: CaptureBackend;
+  captureProcessing: CaptureProcessing;
   stylePreset: "plain" | "developer" | "casual" | "formal" | "email";
   // Onboarding tracking
   dictionaryOnboarded: boolean;
@@ -464,6 +509,8 @@ export interface FormattingOptions {
   model?: string;
   style?: "default" | "strict" | "casual";
   systemPrompt?: string;
+  /** Prompt for the retry after the guard rejects a reply. Carries the same script and filler sections. */
+  strictSystemPrompt?: string;
   signal?: AbortSignal;
 }
 
@@ -475,6 +522,7 @@ export interface RecorderSubmission {
   sessionId: string;
   clip: AudioClip;
   tailMetrics?: { lastFrameAfterStopMs: number; trailingRms: number };
+  captureSettings?: CaptureTrackSettings;
 }
 
 export interface RecorderFailure {
@@ -495,6 +543,7 @@ export interface RecorderConfig {
   micDeviceId?: string;
   preWarmMic: boolean;
   captureBackend?: CaptureBackend;
+  captureProcessing?: CaptureProcessing;
 }
 
 export interface RecorderCommand {

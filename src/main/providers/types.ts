@@ -1,4 +1,5 @@
 import type { AudioClip, DictationFormatterStatus, TranscriptionResult, TranscriptionOptions, FormattingOptions } from "@shared/types";
+import { FORMATTER_KEY_REJECTED_REASON } from "./formatting-constants";
 
 export interface ApiKeyValidationResult {
   valid: boolean;
@@ -28,7 +29,8 @@ export interface FormattingProvider {
   readonly requiresApiKey: boolean;
   readonly models: { id: string; name: string }[];
   // fillerWords are the words the formatter may drop, and the only ones the content guard lets go.
-  format(rawText: string, options: FormattingOptions & { apiKey?: string; fillerWords: readonly string[] }): Promise<FormattingResult>;
+  // literal is true when cleanup is off: the reply must keep every word, stutters included.
+  format(rawText: string, options: FormattingOptions & { apiKey?: string; fillerWords: readonly string[]; literal?: boolean }): Promise<FormattingResult>;
   isAvailable(): Promise<boolean>;
   validateApiKey?(apiKey: string): Promise<ApiKeyValidationResult>;
 }
@@ -48,7 +50,8 @@ export function formatterResult(status: DictationFormatterStatus, text: string, 
   return { status, text, reason };
 }
 
-// Reason stored in the trace for an error a formatter adapter caught.
+// Reason stored in the trace for an error a formatter adapter caught. A 401 or 403 gets the key reason.
 export function formatterErrorReason(error: unknown): string {
+  if (typeof error === "object" && error !== null && "status" in error && (error.status === 401 || error.status === 403)) return FORMATTER_KEY_REJECTED_REASON;
   return error instanceof Error && error.message ? error.message : "Unknown formatter error.";
 }

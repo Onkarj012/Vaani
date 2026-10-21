@@ -12,12 +12,11 @@ import { hotkeyFromKeyEvent } from "@shared/hotkeys";
 import devanagariLightUrl from "../../../assets/iconset/devanagari/devanagari_light.svg?url";
 import devanagariDarkUrl from "../../../assets/iconset/devanagari/devanagari_dark.svg?url";
 import { useColorMode } from "../context/color-mode";
-import { decideProviderKeyDraft } from "@renderer/lib/providerKeyDraft";
+import { decideProviderKeyDraft, onboardingNeedsLlmKey } from "@renderer/lib/providerKeyDraft";
 import { Select } from "@/components/ui/Select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-const EXCLUDED_LLM_KEY_PROVIDERS = new Set(["openai-llm", "openrouter", "groq-llm"]);
 const TOTAL_SLIDES = 8;
 const ONBOARDING_LANGUAGES = [
   { value: "auto", label: "Auto-detect" },
@@ -183,7 +182,7 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
   const hasRequiredSttKey = !requiresApiKey || !!apiKey.trim() || hasConfiguredSttKey;
   const selectedLlmProvider = KNOWN_PROVIDERS.find((p) => p.id === settings.formattingProvider && p.type === "llm");
   const llmRequiresKey = selectedLlmProvider?.requiresApiKey !== false;
-  const llmNeedsOnboardingKey = llmRequiresKey && !EXCLUDED_LLM_KEY_PROVIDERS.has(selectedLlmProvider?.id ?? "");
+  const llmNeedsOnboardingKey = onboardingNeedsLlmKey(selectedLlmProvider?.id, settings.transcriptionProvider, llmRequiresKey);
   const hasConfiguredLlmKey = !!(settings.providerApiKeys ?? []).find((pk) => pk.providerId === settings.formattingProvider)?.hasKey;
   const hasRequiredLlmKey = !llmNeedsOnboardingKey || !!llmApiKey.trim() || hasConfiguredLlmKey;
   const hasRequiredApiKey = hasRequiredSttKey && hasRequiredLlmKey;
@@ -350,18 +349,18 @@ function ProviderApiSlide({
   onLanguageChange: (v: string) => void;
 }) {
   const isValid = apiKey.trim().length > 0 || hasConfiguredApiKey;
-  // Transcription runs only through OpenRouter. Its type is llm, so it is picked here by id.
-  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.id === "openrouter");
+  // OpenRouter also supports transcription despite being listed as an LLM provider.
+  const sttProviders = KNOWN_PROVIDERS.filter((p) => p.id === "groq" || p.id === "openrouter");
   const activeProvider = sttProviders.find((p) => p.id === settings.transcriptionProvider);
   const llmProviders = KNOWN_PROVIDERS.filter((p) => p.type === "llm");
   const activeLlm = llmProviders.find((p) => p.id === settings.formattingProvider);
-  const showLlmKeyInput = activeLlm?.requiresApiKey !== false && !EXCLUDED_LLM_KEY_PROVIDERS.has(activeLlm?.id ?? "");
+  const showLlmKeyInput = onboardingNeedsLlmKey(activeLlm?.id, settings.transcriptionProvider, activeLlm?.requiresApiKey !== false);
 
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Plug size={24} /></SlideIcon>
       <h2 className="text-display mb-1 text-3xl text-ink">Choose Providers &amp; Add Keys</h2>
-      <p className="mb-5 text-sm text-muted">Your keys stay on your device. One OpenRouter key covers transcription and cleanup.</p>
+      <p className="mb-5 text-sm text-muted">Choose your transcription and cleanup providers. Your keys stay on your device.</p>
 
       <div className="w-full space-y-3 text-left">
         <div>
@@ -380,7 +379,7 @@ function ProviderApiSlide({
             <label className="mb-1 block text-xs font-medium text-muted">{activeProvider?.name ?? "Provider"} API Key</label>
             <div className="relative">
               <Input type={showApiKey ? "text" : "password"} value={apiKey} onChange={(e) => onKeyChange(e.target.value)} onBlur={onKeyBlur} autoComplete="off" spellCheck={false}
-                placeholder="sk-or-..." className="pr-11 font-mono" />
+                placeholder={activeProvider?.id === "groq" ? "gsk_..." : "sk-or-..."} className="pr-11 font-mono" />
               <button type="button" onClick={onToggleShow} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
                 {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
@@ -400,7 +399,7 @@ function ProviderApiSlide({
             <label className="mb-1 block text-xs font-medium text-muted">{activeLlm?.name ?? "Provider"} API Key</label>
             <div className="relative">
               <Input type={showLlmApiKey ? "text" : "password"} value={llmApiKey} onChange={(e) => onLlmKeyChange(e.target.value)} onBlur={onLlmKeyBlur} autoComplete="off" spellCheck={false}
-                placeholder={activeLlm?.id === "anthropic" ? "sk-ant-..." : "sk-..."} className="pr-11 font-mono" />
+                placeholder={activeLlm?.id === "anthropic" ? "sk-ant-..." : activeLlm?.id === "openrouter" ? "sk-or-..." : "sk-..."} className="pr-11 font-mono" />
               <button type="button" onClick={onToggleLlmShow} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
                 {showLlmApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
@@ -415,13 +414,16 @@ function ProviderApiSlide({
         )}
 
         <div className="rounded-xl border border-line bg-surface p-4">
-          <p className="mb-2 text-xs font-semibold text-ink">How to get an OpenRouter key</p>
+          <p className="mb-2 text-xs font-semibold text-ink">Get your {activeProvider?.name ?? "provider"} key</p>
           <ol className="list-inside list-decimal space-y-1 text-xs text-muted">
-            <li>Go to <span className="font-medium text-ink">openrouter.ai/keys</span></li>
+            <li>Go to <span className="font-medium text-ink">{activeProvider?.id === "groq" ? "console.groq.com/keys" : "openrouter.ai/keys"}</span></li>
             <li>Sign up or log in</li>
             <li>Create a key</li>
             <li>Paste it above</li>
           </ol>
+          {showLlmKeyInput && activeLlm?.id === "openrouter" && (
+            <p className="mt-2 text-xs text-muted">Add a separate OpenRouter key from openrouter.ai/keys for cleanup and fallback.</p>
+          )}
         </div>
       </div>
     </div>

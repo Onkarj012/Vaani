@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addedContentWords, diffContentWords, missingContentWords, preservesContentWords, stripReasoningBlocks } from "../../src/shared/contentGuard";
+import { addedContentWords, diffContentWords, judgeFormatterReply, missingContentWords, preservesContentWords, stripReasoningBlocks } from "../../src/shared/contentGuard";
 
 describe("preservesContentWords", () => {
   it("accepts punctuation and capitalization changes", () => {
@@ -19,6 +19,16 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("मुझे कल ऑफिस जाना है", "मुझे, कल ऑफिस जाना है।", [])).toBe(true);
   });
 
+  it("keeps Hindi compound numbers distinct when written in Roman letters", () => {
+    expect(preservesContentWords("तेईस रुपये भेजो।", "Teis rupaye bhejo.")).toBe(true);
+    expect(preservesContentWords("तेईस रुपये भेजो।", "Tees rupaye bhejo.")).toBe(false);
+    expect(preservesContentWords("पच्चीस रुपये भेजो।", "Pachas rupaye bhejo.")).toBe(false);
+    expect(preservesContentWords("सत्ताईस रुपये भेजो।", "Sattais rupaye bhejo.")).toBe(true);
+    expect(preservesContentWords("पचहत्तर रुपये भेजो।", "Pachhattar rupaye bhejo.")).toBe(true);
+    expect(preservesContentWords("निन्यानवे रुपये भेजो।", "Ninyanve rupaye bhejo.")).toBe(true);
+    expect(preservesContentWords("तेईस रुपये भेजो।", "तेईस रुपये भेजो।")).toBe(true);
+  });
+
   it("rejects words moved out of order", () => {
     expect(preservesContentWords("we ship it Tuesday", "Tuesday, we ship it.", [])).toBe(false);
     expect(preservesContentWords("we ship it Tuesday", "We ship it Tuesday.", [])).toBe(true);
@@ -28,8 +38,80 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("contact Anthropic support", "contact support", [])).toBe(false);
   });
 
-  it("detects a repeated word that was collapsed", () => {
-    expect(missingContentWords("this is very very good", "This is very good.", [])).toEqual(["very"]);
+  it("accepts a stutter or repeat that was collapsed, and the repeat kept", () => {
+    expect(preservesContentWords("this is very very good", "This is very good.", [])).toBe(true);
+    expect(preservesContentWords("so I I tested it", "So I tested it.", [])).toBe(true);
+    expect(preservesContentWords("I had had enough", "I had had enough.", [])).toBe(true);
+  });
+
+  it("accepts dropped hesitation sounds, cut-off words, and a corrected phrase", () => {
+    expect(preservesContentWords("it went mm better hmm", "It went better.", ["mm", "hmm"])).toBe(true);
+    expect(preservesContentWords("the formatting is po-- uh, bad", "The formatting is bad.", ["uh"])).toBe(true);
+    expect(preservesContentWords("would it ru- run", "Would it run?", [])).toBe(true);
+    // Without a hyphen a short word stays: "her" before "here" is a word, not a cut-off.
+    expect(preservesContentWords("would it ru run", "Would it run?", [])).toBe(false);
+    expect(preservesContentWords("Priyanka, run... Sorry. Priya, run the test again", "Priya, run the test again.", [])).toBe(true);
+  });
+
+  it("rejects meaning changes that look like speech noise (Codex review)", () => {
+    expect(preservesContentWords("Do not notify Priya.", "Do notify Priya.", [])).toBe(false);
+    expect(preservesContentWords("Send no money today.", "Send money today.", [])).toBe(false);
+    expect(preservesContentWords("Do not send 500 to Priya. Sorry, I am late.", "I am late.", [])).toBe(false);
+    expect(preservesContentWords("What I mean is important.", "Important.", [])).toBe(false);
+    expect(preservesContentWords("Do not send, not today.", "Do send today.", [])).toBe(false);
+    expect(preservesContentWords("I am not ready, not yet.", "I am ready, not yet.", [])).toBe(false);
+    expect(preservesContentWords("Book 11- 12 seats.", "Book 12 seats.", [])).toBe(false);
+    expect(preservesContentWords("We met Priya— yesterday.", "We met yesterday.", [])).toBe(false);
+  });
+
+  it("rejects the meaning changes Codex found in round 2", () => {
+    expect(preservesContentWords("Do not pay 500. Sorry, call Priya.", "Call Priya.", [])).toBe(false);
+    expect(preservesContentWords("Write what I mean here.", "Write here.", [])).toBe(false);
+    expect(preservesContentWords("No, no, no, send it.", "Send it.", [])).toBe(false);
+    expect(preservesContentWords("He said no. No one agreed.", "He said no one agreed.", [])).toBe(false);
+    expect(preservesContentWords("Ship it. He said no. No one argued.", "Ship it. No one argued.", [])).toBe(false);
+    expect(preservesContentWords("Send her here today.", "Send here today.", [])).toBe(false);
+    expect(preservesContentWords("Please record values -1 -10 today.", "Please record values -10 today.", [])).toBe(false);
+    expect(preservesContentWords("The PIN is 1 1 2.", "The PIN is 1 2.", [])).toBe(false);
+    expect(preservesContentWords("Call Priya-- tomorrow.", "Call tomorrow.", [])).toBe(false);
+    expect(preservesContentWords("Use ten mm screws.", "Use ten screws.", ["mm"])).toBe(false);
+  });
+
+  it("accepts the owner's corrections and stutters", () => {
+    expect(preservesContentWords("Second, Arjun, sorry, Aditya needs to update the pricing page.", "Second, Aditya needs to update the pricing page.", [])).toBe(true);
+    expect(preservesContentWords("Second sorry, Aditya needs to update it.", "Second, Aditya needs to update it.", [])).toBe(true);
+    expect(preservesContentWords("send me the logs by by Friday no no no Thursday thanks", "Send me the logs by Thursday. Thanks.", [])).toBe(true);
+    expect(preservesContentWords("quick update on the, on the release and, and it looks good", "Quick update on the release and it looks good.", [])).toBe(true);
+    expect(preservesContentWords("there sh- there are certain times", "There are certain times.", [])).toBe(true);
+  });
+
+  it("keeps a number from a separate sentence when its cue is dropped too", () => {
+    expect(preservesContentWords("The answer is 3. Sorry, 4 people are waiting.", "The answer is 4 people are waiting.", [])).toBe(false);
+    expect(preservesContentWords("Meet at 3, sorry, 4.", "Meet at 4.", [])).toBe(true);
+    expect(preservesContentWords("Meet at 3, no wait, 4.", "Meet at 4.", [])).toBe(true);
+    expect(preservesContentWords("Meet at 3. Sorry. 4.", "Meet at 4.", [])).toBe(true);
+    expect(preservesContentWords("Meet at 3. Sorry. Four.", "Meet at 4.", [])).toBe(true);
+  });
+
+  it("keeps every word when speech noise is not allowed (cleanup off)", () => {
+    expect(diffContentWords("Please send the the report.", "Please send the report.", [], { speechNoise: false }).missing).toEqual(["the"]);
+  });
+
+  it("keeps a unit after a number even when it spells a hesitation sound", () => {
+    expect(preservesContentWords("Use 10 mm screws.", "Use 10 screws.", ["mm"])).toBe(false);
+  });
+
+  it("keeps a plain negation out of the correction cues", () => {
+    expect(preservesContentWords("There is no need to restart the server.", "Need to restart the server.", [])).toBe(false);
+    expect(missingContentWords("There is no need to restart the server.", "Need to restart the server.", [])).toEqual(["there", "is", "no"]);
+    expect(preservesContentWords("Meet at Pune, no, Mumbai.", "Meet at Mumbai.", [])).toBe(true);
+  });
+
+  it("rejects a dropped word that is not speech noise", () => {
+    expect(missingContentWords("do not send the report", "Send the report.", [])).toEqual(["do", "not"]);
+    expect(missingContentWords("send it to John and Mary", "Send it to Mary.", [])).toEqual(["john", "and"]);
+    // A correction cue at the very end has no replacement after it, so the run before it stays.
+    expect(preservesContentWords("send it to John sorry", "Send it to", [])).toBe(false);
   });
 
   it("accepts dropping a listed filler", () => {
@@ -39,8 +121,8 @@ describe("preservesContentWords", () => {
   });
 
   it("rejects dropping a filler that is not listed", () => {
-    expect(preservesContentWords("um hello uh world", "Hello, world.", [])).toBe(false);
-    expect(missingContentWords("um hello uh world", "Hello, world.", [])).toEqual(["um", "uh"]);
+    expect(preservesContentWords("basically hello world", "Hello, world.", [])).toBe(false);
+    expect(missingContentWords("basically hello world", "Hello, world.", [])).toEqual(["basically"]);
   });
 
   it("rejects a filler the output adds", () => {
@@ -189,6 +271,54 @@ describe("preservesContentWords", () => {
   });
 });
 
+describe("long transcripts over the alignment limit", () => {
+  // A long body that pushes the transcript past the alignment limit.
+  const tail = Array.from({ length: 1_100 }, (_, index) => `word${index}`).join(" ");
+
+  it("rejects a reply that drops a number from a separate statement", () => {
+    const raw = `The answer is 3. Sorry, 4 people are waiting. ${tail} done`;
+    const candidate = `The answer is sorry, 4 people are waiting. ${tail} finished.`;
+    const verdict = judgeFormatterReply(raw, candidate);
+    expect(verdict.rejection).not.toBeNull();
+    expect(verdict.dropped).toContain("3");
+  });
+
+  it("rejects a reply that drops a number and its cue from the previous sentence", () => {
+    const raw = `The answer is 3. Sorry, 4 people are waiting. ${tail} done`;
+    const verdict = judgeFormatterReply(raw, `The answer is 4 people are waiting. ${tail} finished.`);
+    expect(verdict.rejection).not.toBeNull();
+    expect(verdict.dropped).toEqual(expect.arrayContaining(["3", "sorry"]));
+  });
+
+  it("accepts a correction when the kept reply repeats the corrected number", () => {
+    const raw = `Start at 3, no, 4. Keep 3 seats. ${tail} done`;
+    expect(judgeFormatterReply(raw, `Start at 4. Keep 3 seats. ${tail} finished`).rejection).toBeNull();
+  });
+
+  it("accepts a correction in an oversized gap whose repeated words match in order", () => {
+    const repeated = "Start at 4. Keep 3 seats. ".repeat(200);
+    const raw = `Done. Start at 3, no, 4. Keep 3 seats. ${repeated} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Start at 4. Keep 3 seats. ${repeated} finish.`).rejection).toBeNull();
+  });
+
+  it("accepts a spoken number word that becomes a digit next to a sentence cue", () => {
+    const raw = `Done. Meet at 3. Sorry. Four. ${tail} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Meet at 4. ${tail} finish.`).rejection).toBeNull();
+  });
+
+  it("accepts a correction whose cue opens a sentence and its replacement does too", () => {
+    const raw = `Done. Meet at 3. Sorry. 4. ${tail} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Meet at 4. ${tail} finish.`).rejection).toBeNull();
+  });
+
+  it("accepts a genuine correction inside one sentence, dropped or kept", () => {
+    // The edits sit at both ends so the long body stays in the unaligned middle.
+    const raw = `Done. Start at 3, no, 4 for the team. ${tail} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Start at 4 for the team. ${tail} finish.`).rejection).toBeNull();
+    expect(judgeFormatterReply(raw, `Finished. Start at 3, no, 4 for the team. ${tail} finish.`).rejection).toBeNull();
+  });
+});
+
 describe("stripReasoningBlocks", () => {
   it("removes closed reasoning blocks", () => {
     expect(stripReasoningBlocks("<think>I will drop words</think>Send the report today.")).toBe("Send the report today.");
@@ -196,5 +326,35 @@ describe("stripReasoningBlocks", () => {
 
   it("removes an unclosed reasoning block to the end", () => {
     expect(stripReasoningBlocks("Send the report <thinking>maybe")).toBe("Send the report");
+  });
+});
+
+describe("guard false rejections", () => {
+  it("accepts a spoken leading number kept as a list item", () => {
+    expect(preservesContentWords("7. The spare key is under the pot.", "7. The spare key is under the pot.")).toBe(true);
+  });
+
+  it("accepts two spoken words joined into one name", () => {
+    expect(preservesContentWords("So did open router fail?", "So did OpenRouter fail?")).toBe(true);
+  });
+
+  it("rejects joins that change meaning", () => {
+    expect(preservesContentWords("We are now here.", "We are nowhere.")).toBe(false);
+    expect(preservesContentWords("Take 2 5 mg tablets.", "Take 25 mg tablets.")).toBe(false);
+  });
+
+  it("still rejects a joined word the input never had side by side", () => {
+    expect(preservesContentWords("open the router", "openrouter the")).toBe(false);
+  });
+
+  it("still rejects a list number the speaker never said", () => {
+    expect(preservesContentWords("The spare key is under the pot.", "7. The spare key is under the pot.")).toBe(false);
+  });
+});
+
+describe("Devanagari number words", () => {
+  it("never drops a repeated Hindi or Marathi digit as a stutter", () => {
+    expect(preservesContentWords("कोड दो दो तीन है।", "कोड दो तीन है।")).toBe(false);
+    expect(preservesContentWords("कोड दोन दोन तीन आहे.", "कोड दोन तीन आहे.")).toBe(false);
   });
 });
