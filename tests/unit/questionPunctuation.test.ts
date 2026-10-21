@@ -77,6 +77,8 @@ describe("question punctuation and spoken file names", () => {
       ["open https://example.com/st. then continue", "Open https://example.com/st. Then continue."],
       ["vi behöver 3 st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
       ["vi behöver 3  st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
+      ["we visited (st. louis) yesterday", "We visited (St. Louis) yesterday."],
+      ["where is st. louis\nwhere is st. paul", "Where is St. Louis?\nWhere is St. Paul?"],
     ] satisfies [string, string][]) {
       expect(cleanupText({ rawText, settings })).toBe(expected);
     }
