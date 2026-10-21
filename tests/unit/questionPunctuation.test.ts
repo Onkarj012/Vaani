@@ -75,6 +75,7 @@ describe("question punctuation and spoken file names", () => {
     for (const [rawText, expected] of [
       ["open test.st. then run it", "Open test.st. Then run it."],
       ["open https://example.com/st. then continue", "Open https://example.com/st. Then continue."],
+      ["open https://example.com/(st. then continue", "Open https://example.com/(st. Then continue."],
       ["vi behöver 3 st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
       ["vi behöver 3  st. M6-skruvar", "Vi behöver 3 st. M6-skruvar."],
       ["we visited (st. louis) yesterday", "We visited (St. Louis) yesterday."],
