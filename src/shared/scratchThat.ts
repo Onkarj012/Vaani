@@ -7,12 +7,14 @@ const DOTTED_ABBREVIATION_RE = /(?:^|\s)(?:\p{L}\.)+\p{L}$/u;
 const TITLE_RE = /(?:^|\s)(?:Mr|Mrs|Ms|Dr|Prof)$/u;
 // A list number at the start of a line, such as "2" in "2. Buy eggs.".
 const LIST_MARKER_RE = /(?:^|\n)[ \t]*\p{N}+$/u;
+// A "Scratch that" cue right after a number, such as "500. Scratch that.", starts a sentence of its own.
+const CUE_AFTER_RE = /^[ \t]+(?:scratch|delete)\s+that\b/i;
 
 // True when the marks at text[start..markEnd), with any closers up to end, close a sentence. When unsure it says yes:
 // a wrong split only keeps text, while a wrong merge lets "Scratch that." withdraw two sentences. Only a single dot
 // between a letter or digit and a lowercase letter or digit sits inside a word ("3.5", "priya@example.com", "p.m");
 // "500.Pay" and "4!2" end a sentence, and so does a Devanagari danda "।". A title ("Dr. Smith"), a dotted
-// abbreviation before a lowercase word ("5 p.m. tomorrow") and a list number ("2. Buy") do not.
+// abbreviation before a lowercase word ("5 p.m. tomorrow") and a list number ("2. Buy") do not, unless a cue follows it.
 function endsSentence(text: string, start: number, markEnd: number, end: number): boolean {
   const next = text[end];
   const before = text.slice(0, start);
@@ -20,7 +22,7 @@ function endsSentence(text: string, start: number, markEnd: number, end: number)
   if (marks.includes("।")) return true;
   if (next !== undefined && !/\s/u.test(next)) return !(marks === "." && end === markEnd && /[\p{L}\p{N}]$/u.test(before) && /[\p{Ll}\p{N}]/u.test(next));
   if (marks !== ".") return true;
-  if (LIST_MARKER_RE.test(before)) return false;
+  if (LIST_MARKER_RE.test(before) && !CUE_AFTER_RE.test(text.slice(end))) return false;
   // A title counts only as written, right before a name: "500 ms. Pay" and 'Dr." Next' still split.
   if (TITLE_RE.test(before) && end === markEnd && /^[ \t]+\p{Lu}/u.test(text.slice(end))) return false;
   return !(end === markEnd && DOTTED_ABBREVIATION_RE.test(before) && /^[ \t]+\p{Ll}/u.test(text.slice(end)));

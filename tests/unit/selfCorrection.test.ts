@@ -61,6 +61,11 @@ describe("applySelfCorrections", () => {
     expect(judgeFormatterReply("1. Buy milk.\n2. Buy eggs.\nScratch that.\n3. Buy bread.", "1. Buy milk.\n3. Buy bread.").rejection).toBeNull();
   });
 
+  it("splits a list-looking number from a cue on the same line", () => {
+    expect(applySelfCorrections("500. Scratch that. Pay 200.")).toBe("Pay 200.");
+    expect(removeSpeechNoise("500. Scratch that. Pay 200.")).toBe("Pay 200.");
+  });
+
   it("swaps in a sentence that runs into the next without a space", () => {
     expect(applySelfCorrections("Wait 3.5, no, 4.5 minutes.Next item.")).toBe("Wait 4.5 minutes.Next item.");
     expect(applySelfCorrections("Send 3, no, 4!Next item.")).toBe("Send 4!Next item.");
