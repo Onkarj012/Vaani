@@ -35,10 +35,10 @@ function removeFillers(text: string, fillers: string[]): string {
 }
 
 // Writes a standalone "st." before a word as "St." with the name after it capitalized (Saint or Street:
-// "st. louis" -> "St. Louis"). After a number it is a count ("3 st." in Swedish), and inside a filename or URL it is
-// not a word, so both stay as typed.
+// "st. louis" -> "St. Louis"). After a number it is a count or a weight ("3 st." in Swedish, "one st." for stone),
+// and inside a filename or URL it is not a word, so both stay as typed.
 function capitalizeSaint(text: string): string {
-  return text.replace(/(?<=(?:^|\s)[("'“‘]?)(?<!\p{N}\s+)st\.(\s+)(\p{L})/gu, (_match, space: string, letter: string) => `St.${space}${letter.toUpperCase()}`);
+  return text.replace(/(?<=(?:^|\s)[("'“‘]?)(?<!(?:\p{N}|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))\s+)st\.(\s+)(\p{L})/gu, (_match, space: string, letter: string) => `St.${space}${letter.toUpperCase()}`);
 }
 
 function capitalizeSentences(text: string): string {
