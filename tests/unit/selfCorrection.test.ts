@@ -108,6 +108,13 @@ describe("applySelfCorrections", () => {
     expect(applySelfCorrections("Pay 500. Um, scratch that. Scratch that. Pay 200.")).not.toContain("500");
   });
 
+  it("checks a long run of letters before a cue quickly", () => {
+    const started = performance.now();
+    const text = `${"m".repeat(40)}X. ${"m".repeat(40)}X. Scratch that. Call me.`;
+    expect(applySelfCorrections(text)).toBe(`${"m".repeat(40)}X. Call me.`);
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
   it("swaps inside a quoted sentence", () => {
     expect(applySelfCorrections('He said "Send 3, no, 4."')).toBe('He said "Send 4."');
   });

@@ -57,15 +57,28 @@ export function splitSentences(text: string): string[] {
   return pieces;
 }
 
-// A sentence that only withdraws the sentence before it.
 // Hesitations speech-noise cleanup removes. Lives here so the withdrawal pass, which runs first, uses the same list.
 export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "hm", "mm", "mmm", "mhm"];
-// The last letter may repeat, as in "Uhhh" or "Hmmmm".
-const HESITATION = `(?:${HESITATION_WORDS.map(word => `${word}+`).join("|")})`;
-// A sentence that is only hesitation, such as "Um." or "Mhm, uh...".
-const HESITATION_ONLY_RE = new RegExp(String.raw`^\s*(?:${HESITATION}[,.!?।\s]*)+$`, "iu");
-// A hesitation before the cue ("Um, scratch that.") still counts as the cue.
-const SCRATCH_SENTENCE_RE = new RegExp(String.raw`^\s*(?:${HESITATION}[,\s]+)*(?:scratch|delete)\s+that[.!?।]*\s*$`, "iu");
+// One whole word that is a hesitation; the last letter may repeat, as in "Uhhh" or "Hmmmm". It is tested one word at a
+// time, never repeated inside a pattern, so a long run of letters can't make the match backtrack.
+const HESITATION_TOKEN_RE = new RegExp(`^(?:${HESITATION_WORDS.map(word => `${word}+`).join("|")})$`, "iu");
+
+// True for a sentence that is only hesitation, such as "Um." or "Mhm, uh...".
+function isHesitationOnly(sentence: string): boolean {
+  const words = sentence.split(/[,.!?।\s]+/u).filter(Boolean);
+  return words.length > 0 && words.every(word => HESITATION_TOKEN_RE.test(word));
+}
+
+// True for a sentence that only withdraws the sentence before it: "Scratch that.", "Delete that.", or either after a
+// hesitation ("Um, scratch that.").
+function isScratchSentence(sentence: string): boolean {
+  const words = sentence.trim().replace(/[.!?।]+$/u, "").split(/[,\s]+/u).filter(Boolean);
+  let first = 0;
+  while (first < words.length && HESITATION_TOKEN_RE.test(words[first] ?? "")) first += 1;
+  const rest = words.slice(first);
+  return rest.length === 2 && /^(?:scratch|delete)$/iu.test(rest[0] ?? "") && /^that$/iu.test(rest[1] ?? "");
+}
+
 // A sentence with a letter or number, as opposed to a bare separator such as "\n" or "...".
 const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
 
@@ -73,7 +86,7 @@ const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
 function dropPreviousSentence(kept: string[]): boolean {
   let index = kept.length - 1;
   // Separators and hesitation-only sentences ("Um.") are skipped, so the cue reaches the sentence it withdraws.
-  while (index >= 0 && (!WORD_CHAR_RE.test(kept[index] ?? "") || HESITATION_ONLY_RE.test(kept[index] ?? ""))) index -= 1;
+  while (index >= 0 && (!WORD_CHAR_RE.test(kept[index] ?? "") || isHesitationOnly(kept[index] ?? ""))) index -= 1;
   if (index < 0) return false;
   kept.splice(index);
   return true;
@@ -85,7 +98,7 @@ export function dropScratchedSentences(text: string): string {
   let dropped = false;
   let afterCue = false;
   for (const sentence of splitSentences(text)) {
-    if (SCRATCH_SENTENCE_RE.test(sentence) && dropPreviousSentence(kept)) {
+    if (isScratchSentence(sentence) && dropPreviousSentence(kept)) {
       dropped = true;
       afterCue = true;
       continue;
