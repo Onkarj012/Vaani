@@ -133,9 +133,8 @@ function redactKeys(text: string): string {
   return redactSecrets(text, Object.values(CLEANUP_ADAPTERS).map(({ envVar }) => process.env[envVar]?.trim() ?? ""));
 }
 
-// Builds one clip result. Latency and cost count only when the model answered.
+// Builds one clip result with the wait for text to insert and any reported cost.
 function buildResult(run: RunModel, clip: ClipInput, reply: { outcome: Outcome; reason: string; output: string; latencyMs: number; costUsd?: number }): ClipResult {
-  const answered = reply.outcome === "formatted" || reply.outcome === "guard-rejected";
   return {
     clip: clip.name,
     model: run.entry.modelId,
@@ -144,8 +143,8 @@ function buildResult(run: RunModel, clip: ClipInput, reply: { outcome: Outcome; 
     input: clip.raw,
     output: reply.output,
     expected: clip.expected,
-    latencyMs: answered ? reply.latencyMs : null,
-    costUsd: answered ? (reply.costUsd ?? null) : null,
+    latencyMs: reply.outcome === "skipped" ? null : reply.latencyMs,
+    costUsd: reply.costUsd ?? null,
     exact: isExactMatch(clip.expected, reply.output),
     wer: wordErrorRate(clip.expected, reply.output),
   };
@@ -159,7 +158,7 @@ async function runClip(run: RunModel, clip: ClipInput, fillerWords: string[]): P
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), timeoutMs);
   const startedAt = performance.now();
-  const timedOut = () => buildResult(run, clip, { outcome: "timeout", reason: `No reply within ${timeoutMs} ms. Vaani would insert the speech-noise fallback.`, output: fallback, latencyMs: performance.now() - startedAt });
+  const timedOut = (costUsd?: number) => buildResult(run, clip, { outcome: "timeout", reason: `No reply within ${timeoutMs} ms. Vaani would insert the speech-noise fallback.`, output: fallback, latencyMs: Math.min(performance.now() - startedAt, timeoutMs), costUsd });
   let reply: FormattingResult;
   try {
     reply = await run.adapter.format(clip.raw, {
@@ -175,10 +174,10 @@ async function runClip(run: RunModel, clip: ClipInput, fillerWords: string[]): P
   } finally {
     clearTimeout(timer);
   }
-  if (deadline.signal.aborted) return timedOut();
+  if (deadline.signal.aborted) return timedOut(reply.costUsd);
   const latencyMs = performance.now() - startedAt;
   const costUsd = reply.costUsd;
-  if (reply.status === "skipped") return buildResult(run, clip, { outcome: "skipped", reason: reply.reason, output: fallback, latencyMs });
+  if (reply.status === "skipped") return buildResult(run, clip, { outcome: "skipped", reason: reply.reason, output: fallback, latencyMs, costUsd });
   if (reply.status === "rejected") return buildResult(run, clip, { outcome: "guard-rejected", reason: reply.reason, output: fallback, latencyMs, costUsd });
   if (reply.status === "failed") return buildResult(run, clip, { outcome: "failed", reason: reply.reason, output: fallback, latencyMs, costUsd });
 
@@ -235,12 +234,14 @@ function renderMarkdown(summaries: ModelSummary[], runs: RunModel[], results: Cl
     "",
     `Clips: ${clipNames.length}. Input: ${inputLabel}.`,
     "",
-    "| Model | Clips | Formatted | Guard rejected | Skipped | Failed | Timeouts | Exact matches | Mean WER | Mean latency (ms) | p90 latency (ms) | Total cost |",
+    "| Model | Clips | Formatted | Guard rejected | Skipped | Failed | Timeouts | Exact matches | Mean WER | Mean wait for text to insert (ms) | p90 wait for text to insert (ms) | Total cost |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ...summaries.map((s) => {
       const cost = s.totalCostUsd === null ? "not reported" : `$${s.totalCostUsd.toFixed(4)} (${s.costReportedClips}/${s.clips} clips)`;
       return `| ${s.displayName} (\`${s.model}\`) | ${s.clips} | ${s.formatted} | ${s.guardRejected} | ${s.skipped} | ${s.failed} | ${s.timeouts} | ${s.exactMatches} | ${percent(s.meanWer)} | ${ms(s.meanLatencyMs)} | ${ms(s.p90LatencyMs)} | ${cost} |`;
     }),
+    "",
+    "Wait for text to insert includes answered calls and waits before using the fallback, including failures and timeouts. Skipped clips made no call and are excluded.",
     "",
     "## Per clip",
     "",

@@ -57,8 +57,9 @@ export const OpenRouterLlmProvider: FormattingProvider = {
         signal: options.signal,
       });
       const formatted = reply.choices[0]?.message?.content?.trim();
-      if (!formatted) return formatterResult("failed", text, EMPTY_REPLY_REASON);
-      const result = formatterResult("ran", formatted, FORMATTED_REASON);
+      const result = formatted
+        ? formatterResult("ran", formatted, FORMATTED_REASON)
+        : formatterResult("failed", text, EMPTY_REPLY_REASON);
       return typeof reply.usage?.cost === "number" ? { ...result, costUsd: reply.usage.cost } : result;
     } catch (error) {
       if (options.signal?.aborted || isAbortError(error)) throw error;

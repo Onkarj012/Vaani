@@ -113,4 +113,5 @@ A model whose key is not set is skipped, and the report says so. The script writ
 | Skipped | Vaani does not send lines under four words to the model. The fallback is used. |
 | Exact matches | Clips where the text matches the expected cleanup line by line. Case and punctuation count. |
 | Mean WER | Word error rate against the expected cleanup. Lower is better. |
-| Total cost | OpenRouter's reported cost. Groq and OpenAI do not report cost here. |
+| Mean and p90 wait for text to insert | Time until an answer or the fallback is ready, including failed calls and timeouts. Timeouts count the wait up to the deadline. Skipped clips made no call and are excluded. |
+| Total cost | All reported OpenRouter cost, including replies with no usable text. Groq and OpenAI do not report cost here. |

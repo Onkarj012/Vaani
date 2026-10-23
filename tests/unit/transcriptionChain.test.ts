@@ -1194,6 +1194,17 @@ describe("formatter outcome at the transcription seam", () => {
     });
   });
 
+  it("keeps OpenRouter's reported cost when the reply has no usable text", async () => {
+    for (const costUsd of [0.002, 0, undefined]) {
+      stubFetch(jsonResponse({ choices: [{ message: { content: "  " } }], usage: { cost: costUsd } }));
+
+      const result = await OpenRouterLlmProvider.format(rawText, { apiKey: "test-key", fillerWords: [] });
+
+      expect(result).toMatchObject({ status: "failed", text: rawText });
+      expect(result.costUsd).toBe(costUsd);
+    }
+  });
+
   function sentBody(fetchMock: ReturnType<typeof vi.fn>): { model: string; reasoning?: unknown; messages: { role: string; content: string }[] } {
     return JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
   }
