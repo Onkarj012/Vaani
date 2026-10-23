@@ -104,7 +104,7 @@ Options:
 - `--fillers "like,you know"` adds filler words the model may drop, as if you added them in Settings. Lines 19 and 20 need it.
 - `--stt-results ab-test/results/<time>.json --stt-model <id>` cleans the transcripts from `ab-transcription.ts` instead of the typed text.
 
-A model whose key is not set is skipped, and the report says so. The script writes `ab-test/results/cleanup-<time>.md` and `.json`.
+A model whose key is not set is skipped, and the report says so. The script writes `ab-test/results/cleanup-<time>.md` and `.json`. Stored output and scores use the text Vaani would insert after its final cleanup, for both formatted replies and fallbacks.
 
 | Column | Meaning |
 | --- | --- |
