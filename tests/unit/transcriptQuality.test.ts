@@ -107,10 +107,17 @@ describe("decideTranscriptInsertion", () => {
 describe("vocabulary hint echo", () => {
   const hints = ["Vaani", "Onkar", "CLAUDE.md", "Unslop", "Sol"];
   const speech = { rmsFrames: new Array(50).fill(0.1) };
+  const clear = { provider: "groq", attemptCount: 1, supportsConfidence: true, transcriptLength: 30, avgLogprob: -0.1 };
+  const unclear = { ...clear, avgLogprob: -0.7 };
 
-  it("holds back a transcript that is only the hint list", () => {
-    expect(decideTranscriptInsertion("Onkar, CLAUDE.md, Unslop, Sol.", speech, undefined, hints)).toEqual({ action: "retry", reason: "vocabulary-hint-echo" });
+  it("holds back a transcript that is only the hint list when the audio was unclear", () => {
+    expect(decideTranscriptInsertion("Onkar, CLAUDE.md, Unslop, Sol.", speech, unclear, hints)).toEqual({ action: "retry", reason: "vocabulary-hint-echo" });
     expect(finalizeTranscriptDecision({ action: "retry", reason: "vocabulary-hint-echo" }).action).toBe("save");
+  });
+
+  it("inserts a clear dictation of three or more dictionary words", () => {
+    expect(decideTranscriptInsertion("Onkar, CLAUDE.md, Unslop, Sol.", speech, clear, hints).action).toBe("insert");
+    expect(decideTranscriptInsertion("Vaani, Onkar, Sol", speech, clear, hints).action).toBe("insert");
   });
 
   it("needs unclear audio before holding back a two-term echo", () => {
@@ -120,7 +127,7 @@ describe("vocabulary hint echo", () => {
   });
 
   it("finds an echo when a shorter hint is a prefix of a longer one", () => {
-    expect(decideTranscriptInsertion("New York, Vaani, Onkar", speech, undefined, ["New", "New York", "Vaani", "Onkar"]).action).toBe("retry");
+    expect(decideTranscriptInsertion("New York, Vaani, Onkar", speech, unclear, ["New", "New York", "Vaani", "Onkar"]).action).toBe("retry");
   });
 
   it("inserts a single spoken hint word or real speech with hint words", () => {

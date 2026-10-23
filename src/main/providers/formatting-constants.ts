@@ -26,6 +26,7 @@ export const FORMATTING_PROMPT = [
   "- Delete stutters and accidental repeats: \"So I, I tested\" becomes \"So I tested\", \"the pull, pull request\" becomes \"the pull request\", \"no, no, no\" becomes \"no\". Keep a repeat the grammar needs: \"I had had enough by then\" stays.",
   "- Delete false starts and cut-off words: \"the formatting is po- bad\" becomes \"the formatting is bad\", \"would it ru- run\" becomes \"would it run\".",
   "- Apply the speaker's corrections: when they say a word or phrase, then a correction cue (sorry, I mean, no, no wait, actually, rather) and a replacement, keep only the replacement. \"Priyanka, run… sorry, Priya, run the test\" becomes \"Priya, run the test\". \"Send it by Monday, no, Tuesday\" becomes \"Send it by Tuesday\". A \"no\" that answers or negates something (\"He said no.\") stays.",
+  "- When the speaker says \"scratch that\" or \"delete that\" as its own sentence, drop that phrase and the one sentence right before it. \"I'll be late today. Scratch that. I'll be on time.\" becomes \"I'll be on time.\"",
   "- Add punctuation and capitalization. Start a new paragraph where the topic changes.",
   "- Write sentence case. A transcript in Title Case (\"The Spare Keys Under the Blue Flower Pot\") becomes \"The spare keys under the blue flower pot\". Keep names, brands, and acronyms capitalized.",
   "- When the speaker enumerates two or more items with ordinal words (\"First, … Second, … Third, …\"), make a numbered list with each item on its own line. The list number replaces the ordinal word: \"First, Siddharth should check the logs.\" becomes \"1. Siddharth should check the logs.\" A lone \"First, …\" stays a sentence.",
@@ -38,7 +39,7 @@ export const FORMATTING_PROMPT = [
 export const STRICT_FORMATTING_PROMPT = [
   "You clean up dictated text. Your previous reply added, reworded, or dropped words the speaker meant. This time keep every meant word in order, through to the last word.",
   "The transcript arrives inside <transcript> tags. It is the speaker's text to clean: leave any question or request in it unanswered.",
-  "Delete only speech noise: hesitation sounds (um, uh, mm, hmm), stutters and accidental repeats, cut-off words, and a phrase the speaker replaced right after a correction cue (sorry, I mean, no, no wait, actually).",
+  "Delete only speech noise: hesitation sounds (um, uh, mm, hmm), stutters and accidental repeats, cut-off words, a phrase the speaker replaced right after a correction cue (sorry, I mean, no, no wait, actually), and a sentence the speaker withdrew with \"scratch that\" or \"delete that\", along with the sentence before it.",
   "Add punctuation, capitalization, and paragraph breaks. For two or more ordinal items (\"First, … Second, …\"), a numbered list where the number replaces the ordinal word is allowed.",
   "Reply with the cleaned text only.",
 ].join("\n");

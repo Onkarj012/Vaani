@@ -13,6 +13,9 @@ let releaseAppleScriptPaste: (() => void) | null = null;
 let hangAppleScript = false;
 let refuseClipboardWrite = false;
 let clearThenFailOnce = false;
+// Fails the native write with this call number (1-based) after clearing the pasteboard.
+let failOnWriteCall: number | null = null;
+let writeCalls = 0;
 const helperTimeouts: number[] = [];
 const writes: { value: string; t: number }[] = [];
 
@@ -85,8 +88,9 @@ const bridge = vi.hoisted(() => ({
     return total > maxBytes ? null : cloneItems(pasteboard);
   },
   writePasteboard: (items: Item[]) => {
+    writeCalls += 1;
     // Clears the pasteboard, then fails, like NSPasteboard.writeObjects returning NO after clearContents.
-    if (clearThenFailOnce) {
+    if (clearThenFailOnce || failOnWriteCall === writeCalls) {
       clearThenFailOnce = false;
       storeItems([]);
       return { failedChangeCount: pasteboardChangeCount };
@@ -120,6 +124,8 @@ const RESTORE_DELAY_MS = 1_200;
 
 describe("ClipboardTextInjector restore timing", () => {
   beforeEach(() => {
+    // Fresh injector module state (queue, last paste time) for every test.
+    vi.resetModules();
     vi.useFakeTimers();
     setClipboardText("");
     pasteboardChangeCount = 0;
@@ -128,6 +134,8 @@ describe("ClipboardTextInjector restore timing", () => {
     bridge.pasteText.mockReset().mockReturnValue(true);
     bridge.typeText.mockReset().mockReturnValue(true);
     bridge.getFocusedSelection = undefined;
+    failOnWriteCall = null;
+    writeCalls = 0;
     failAppleScriptAction = false;
     holdAppleScriptPaste = false;
     releaseAppleScriptPaste = null;
@@ -257,6 +265,8 @@ describe("ClipboardTextInjector restore timing", () => {
 
 describe("ClipboardTextInjector dispatch safety", () => {
   beforeEach(() => {
+    // Fresh injector module state (queue, last paste time) for every test.
+    vi.resetModules();
     vi.useFakeTimers();
     setClipboardText("original");
     pasteboardChangeCount = 0;
@@ -278,7 +288,7 @@ describe("ClipboardTextInjector dispatch safety", () => {
     vi.useRealTimers();
   });
 
-  it("moves the delayed caret only while the original field and guard remain valid", async () => {
+  it("moves the delayed caret only while the original field keeps focus", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const { createInjectionGuard } = await import("@main/injection/guard");
     for (const scenario of ["same-field", "other-field", "cancelled", "unknown-field"] as const) {
@@ -297,7 +307,8 @@ describe("ClipboardTextInjector dispatch safety", () => {
       if (scenario === "cancelled") controller.abort();
       await vi.advanceTimersByTimeAsync(300);
 
-      if (scenario === "same-field") {
+      // The text is already in the field, so a session cancelled after dispatch still gets its caret moved.
+      if (scenario === "same-field" || scenario === "cancelled") {
         expect(bridge.setFocusedSelection).toHaveBeenCalledExactlyOnceWith(8, 0);
       } else {
         expect(bridge.setFocusedSelection).not.toHaveBeenCalled();
@@ -373,18 +384,170 @@ describe("ClipboardTextInjector dispatch safety", () => {
     expect(bridge.pasteText).not.toHaveBeenCalled();
   });
 
-  it("reports uncertainty when cancelled during the post-dispatch wait", async () => {
+  it("returns as soon as the paste is confirmed, without a fixed post-paste wait", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    let elapsed = 0;
+    let dispatchedAt: number | null = null;
+    bridge.pasteText.mockImplementation(() => { dispatchedAt = elapsed; return true; });
+    let settled = false;
+    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget).finally(() => { settled = true; });
+    while (!settled && elapsed < 3_000) { await vi.advanceTimersByTimeAsync(10); elapsed += 10; }
+
+    await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+    expect(dispatchedAt).not.toBeNull();
+    // The old code slept 600 ms here after an already confirmed paste.
+    expect(elapsed - (dispatchedAt ?? 0)).toBeLessThanOrEqual(20);
+  });
+
+  it("returns fast but keeps the next insert off the clipboard until the paste has landed", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const injector = new ClipboardTextInjector();
+    let elapsed = 0;
+    const dispatches: Array<{ text: string; at: number }> = [];
+    const clipboardWrites: number[] = [];
+    bridge.pasteText.mockImplementation((text: string) => { dispatches.push({ text, at: elapsed }); return true; });
+    let firstSettledAt: number | null = null;
+    const first = injector.inject("first", textEditTarget).finally(() => { firstSettledAt = elapsed; });
+    const second = injector.inject("second", textEditTarget);
+    const writesBefore = writes.length;
+    while (dispatches.length < 2 && elapsed < 5_000) {
+      await vi.advanceTimersByTimeAsync(10);
+      elapsed += 10;
+      if (writes.length > writesBefore + clipboardWrites.length) clipboardWrites.push(elapsed);
+    }
+    await Promise.all([first, second]);
+
+    expect(dispatches.map((d) => d.text)).toEqual(["first", "second"]);
+    const firstAt = dispatches[0]?.at ?? 0;
+    expect((firstSettledAt ?? Infinity) - firstAt).toBeLessThanOrEqual(20);
+    // The second text reaches the clipboard only after the first paste's 700 ms landing time.
+    expect(clipboardWrites[1] ?? 0).toBeGreaterThanOrEqual(firstAt + 700);
+  });
+
+  it("keeps two quick inserts in order in an editor that leaves the caret at the paste start", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const injector = new ClipboardTextInjector();
+    // A field that inserts at the caret but leaves the caret where the paste began.
+    let field = "";
+    let caret = 0;
+    bridge.getFocusedSelection = () => ({ location: caret, length: 0 });
+    bridge.getFocusedElementIdentity.mockReturnValue("field");
+    bridge.getFocusedValue.mockImplementation(() => field);
+    bridge.setFocusedSelection.mockImplementation((location: number) => { caret = location; return true; });
+    bridge.pasteText.mockImplementation((text: string) => { field = field.slice(0, caret) + text + field.slice(caret); return true; });
+    try {
+      const first = injector.inject("first", textEditTarget);
+      const second = injector.inject("second", textEditTarget);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.all([first, second]);
+
+      expect(field).toBe("firstsecond");
+    } finally {
+      bridge.getFocusedSelection = undefined;
+      bridge.getFocusedElementIdentity.mockReset().mockReturnValue(null);
+      bridge.getFocusedValue.mockReset().mockReturnValue(null);
+      bridge.setFocusedSelection.mockReset().mockReturnValue(true);
+    }
+  });
+
+  it("keeps two quick inserts in order when the app applies each paste late", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const injector = new ClipboardTextInjector();
+    // Like the editor above, but each paste reaches the field 500 ms after Cmd+V.
+    let field = "";
+    let caret = 0;
+    bridge.getFocusedSelection = () => ({ location: caret, length: 0 });
+    bridge.getFocusedElementIdentity.mockReturnValue("field");
+    bridge.getFocusedValue.mockImplementation(() => field);
+    bridge.setFocusedSelection.mockImplementation((location: number) => { caret = location; return true; });
+    bridge.pasteText.mockImplementation((text: string) => {
+      const at = caret;
+      setTimeout(() => { field = field.slice(0, at) + text + field.slice(at); }, 500);
+      return true;
+    });
+    try {
+      const first = injector.inject("first", textEditTarget);
+      const second = injector.inject("second", textEditTarget);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.all([first, second]);
+
+      expect(field).toBe("firstsecond");
+    } finally {
+      bridge.getFocusedSelection = undefined;
+      bridge.getFocusedElementIdentity.mockReset().mockReturnValue(null);
+      bridge.getFocusedValue.mockReset().mockReturnValue(null);
+      bridge.setFocusedSelection.mockReset().mockReturnValue(true);
+    }
+  });
+
+  it("finishes a late paste's caret move after its session ends and the clipboard is restored", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const { createInjectionGuard } = await import("@main/injection/guard");
-    const controller = new AbortController();
-    const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ signal: controller.signal }));
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(bridge.pasteText).toHaveBeenCalledTimes(1);
-    controller.abort("user-cancelled");
-    await vi.runAllTimersAsync();
+    const injector = new ClipboardTextInjector();
+    // The paste reaches the field 500 ms after Cmd+V, and the app leaves the caret at the paste start.
+    let field = "";
+    let caret = 0;
+    let firstSessionActive = true;
+    bridge.getFocusedSelection = () => ({ location: caret, length: 0 });
+    bridge.getFocusedElementIdentity.mockReturnValue("field");
+    bridge.getFocusedValue.mockImplementation(() => field);
+    bridge.setFocusedSelection.mockImplementation((location: number) => { caret = location; return true; });
+    bridge.pasteText.mockImplementation((text: string) => {
+      const at = caret;
+      // The first session ends 200 ms after Cmd+V, before the 300 ms caret check, and the paste lands at 500 ms.
+      setTimeout(() => { firstSessionActive = false; }, 200);
+      setTimeout(() => { field = field.slice(0, at) + text + field.slice(at); }, 500);
+      return true;
+    });
+    try {
+      const first = injector.inject("first", textEditTarget, createInjectionGuard({ isTargetValid: () => firstSessionActive }));
+      // Past the paste landing and the 1.2 s clipboard restore before the next insert starts.
+      await vi.advanceTimersByTimeAsync(3_000);
+      await first;
+      const second = injector.inject("second", textEditTarget);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await second;
 
-    await expect(promise).resolves.toEqual({ success: false, reason: "outcome_uncertain" });
-    expect(bridge.pasteText).toHaveBeenCalledTimes(1);
+      expect(field).toBe("firstsecond");
+    } finally {
+      bridge.getFocusedSelection = undefined;
+      bridge.getFocusedElementIdentity.mockReset().mockReturnValue(null);
+      bridge.getFocusedValue.mockReset().mockReturnValue(null);
+      bridge.setFocusedSelection.mockReset().mockReturnValue(true);
+    }
+  });
+
+  it("moves the caret after a late paste with no later Vaani action, once the session has ended", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { createInjectionGuard } = await import("@main/injection/guard");
+    // The paste reaches the field 500 ms after Cmd+V, and the app leaves the caret at the paste start.
+    let field = "";
+    let caret = 0;
+    let sessionActive = true;
+    bridge.getFocusedSelection = () => ({ location: caret, length: 0 });
+    bridge.getFocusedElementIdentity.mockReturnValue("field");
+    bridge.getFocusedValue.mockImplementation(() => field);
+    bridge.setFocusedSelection.mockImplementation((location: number) => { caret = location; return true; });
+    bridge.pasteText.mockImplementation((text: string) => {
+      const at = caret;
+      setTimeout(() => { field = field.slice(0, at) + text + field.slice(at); }, 500);
+      return true;
+    });
+    try {
+      const promise = new ClipboardTextInjector().inject("dictated", textEditTarget, createInjectionGuard({ isTargetValid: () => sessionActive }));
+      await vi.advanceTimersByTimeAsync(1_000);
+      await promise;
+      sessionActive = false;
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(field).toBe("dictated");
+      expect(caret).toBe(8);
+    } finally {
+      bridge.getFocusedSelection = undefined;
+      bridge.getFocusedElementIdentity.mockReset().mockReturnValue(null);
+      bridge.getFocusedValue.mockReset().mockReturnValue(null);
+      bridge.setFocusedSelection.mockReset().mockReturnValue(true);
+    }
   });
 
   it("stops before dispatch when the focused target changes during the wait", async () => {
@@ -568,6 +731,8 @@ describe("ClipboardTextInjector dispatch safety", () => {
 
 describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
   beforeEach(() => {
+    // Fresh injector module state (queue, last paste time) for every test.
+    vi.resetModules();
     vi.useFakeTimers();
     setClipboardText("original");
     pasteboardChangeCount = 0;
@@ -577,6 +742,8 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
     bridge.pasteText.mockReset().mockReturnValue(true);
     bridge.typeText.mockReset().mockReturnValue(true);
     bridge.getFocusedSelection = undefined;
+    failOnWriteCall = null;
+    writeCalls = 0;
     failAppleScriptAction = false;
     holdAppleScriptPaste = false;
     hangAppleScript = false;
@@ -601,10 +768,24 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
     expect(bridge.pasteText).not.toHaveBeenCalled();
   });
 
+  it("restores an image-only clipboard when the first restore write fails", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const original: Item[] = [[{ type: "public.png", data: Buffer.from([137, 80, 78, 71]) }]];
+    pasteboard = cloneItems(original);
+    // Write 1 puts the dictated text on the clipboard. Write 2 is the restore, and it fails after clearing.
+    failOnWriteCall = 2;
+
+    const attempt = new ClipboardTextInjector().inject("dictated", chromeTarget);
+    await vi.runAllTimersAsync();
+
+    await expect(attempt).resolves.toMatchObject({ success: true });
+    expect(pasteboard).toEqual(original);
+  });
+
   it("keeps a new user copy made while verifying the dictated text", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const { clipboard } = await import("electron");
-    const read = vi.spyOn(clipboard, "readText").mockImplementationOnce(() => {
+    const read = vi.spyOn(clipboard, "readText").mockImplementationOnce(async () => {
       storeItems(textItems("userCopy"));
       return clipboardText();
     });
@@ -669,6 +850,58 @@ describe("ClipboardTextInjector pasteboard snapshot and helpers", () => {
     expect(pasteboard).toEqual([[{ type: PLAIN_TEXT, data: Buffer.from("original") }]]);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it("keeps a copy made while reading the plain text of an over-cap pasteboard", async () => {
+    const { ClipboardTextInjector, PASTEBOARD_SNAPSHOT_MAX_BYTES } = await import("@main/injection/clipboard");
+    const { clipboard } = await import("electron");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    pasteboard = [
+      [{ type: "public.png", data: Buffer.alloc(PASTEBOARD_SNAPSHOT_MAX_BYTES + 1) }],
+      [{ type: PLAIN_TEXT, data: Buffer.from("original") }],
+    ];
+    const read = vi.spyOn(clipboard, "readText").mockImplementationOnce(async () => {
+      const before = clipboardText();
+      storeItems(textItems("userCopy"));
+      return before;
+    });
+
+    try {
+      const promise = new ClipboardTextInjector().inject("dictated", chromeTarget);
+      await vi.runAllTimersAsync();
+
+      await expect(promise).resolves.toEqual({ success: true, method: "clipboard" });
+      expect(clipboardText()).toBe("userCopy");
+      expect(writes.filter((write) => write.value === "original")).toHaveLength(0);
+    } finally {
+      read.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it.each([0, 1, 2, 4, 8])("keeps a copy that lands %i microtasks after the snapshot read", async (hops) => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const read = bridge.readPasteboard;
+    bridge.readPasteboard = (maxBytes: number) => {
+      bridge.readPasteboard = read;
+      const items = read(maxBytes);
+      // The copy lands after the read returns, a few microtasks later, before the injector resumes.
+      const land = (hops: number): void => queueMicrotask(() => (hops === 0 ? storeItems(textItems("userCopy")) : land(hops - 1)));
+      land(hops);
+      return items;
+    };
+
+    try {
+      const promise = new ClipboardTextInjector().inject("dictated", chromeTarget);
+      await vi.runAllTimersAsync();
+
+      // Retried or cancelled, the user's copy must survive and the older snapshot must never come back.
+      await promise;
+      expect(clipboardText()).toBe("userCopy");
+      expect(writes.filter((write) => write.value === "original")).toHaveLength(0);
+    } finally {
+      bridge.readPasteboard = read;
+    }
   });
 
   it("finishes when AppleScript hangs, with every helper call under a timeout", async () => {

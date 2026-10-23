@@ -34,7 +34,7 @@ const HALLUCINATION_SUBSTRINGS = [
 
 // Retry reasons that indicate the audio likely contained no real speech.
 // When retries are exhausted these must never be inserted at the cursor.
-// Whisper's average log-probability below which a two-term hint echo counts as unclear audio.
+// Whisper's average log-probability below which a hint echo counts as unclear audio.
 const HINT_ECHO_LOGPROB = -0.5;
 
 const NO_SPEECH_REASONS = new Set([
@@ -63,10 +63,10 @@ export function decideTranscriptInsertion(
   const lowSpeechAudio = looksLikeLowSpeechAudio(clip);
   const lowConfidence = hasLowProviderConfidence(quality);
   // On unclear audio Whisper can return the hint list it was given ("Onkar, CLAUDE.md, Unslop") instead of the speech.
-  // Three or more terms is an echo. Two need a sign the audio was unclear, so a clear "Onkar Jadhav" still inserts.
+  // It counts only with a sign the audio was unclear, so a clear "Onkar Jadhav" or "Onkar, Groq, CLAUDE.md" still inserts.
   const hintTermCount = hintEchoTermCount(tokens, hints);
   const unclear = lowSpeechAudio || lowConfidence || (quality?.avgLogprob != null && quality.avgLogprob < HINT_ECHO_LOGPROB);
-  if (hintTermCount >= 3 || (hintTermCount === 2 && unclear)) return { action: "retry", reason: "vocabulary-hint-echo" };
+  if (hintTermCount >= 2 && unclear) return { action: "retry", reason: "vocabulary-hint-echo" };
 
   if (HALLUCINATION_SUBSTRINGS.some((phrase) => normalized.includes(phrase.toLowerCase())) && (lowSpeechAudio || lowConfidence)) {
     return { action: "retry", reason: "known-hallucination-phrase" };

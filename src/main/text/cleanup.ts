@@ -84,7 +84,8 @@ function removeCutOffWords(line: string): string {
 // Removes speech noise with fixed rules: cut-off words, hesitation sounds, stutters, and safe self-corrections.
 // Used when the cleanup model did not run or its result was rejected, so the pasted text is still clean.
 export function removeSpeechNoise(text: string): string {
-  return text
+  // Self-corrections run on the whole text, so "scratch that" on its own line still withdraws the line before it.
+  return applySelfCorrections(text
     .split("\n")
     .map(line => removeCutOffWords(line)
       .replace(HESITATION_RE, (match: string, offset: number, whole: string) => (/^mm\b/i.test(match) && NUMBER_BEFORE_RE.test(whole.slice(0, offset)) ? match : " "))
@@ -95,8 +96,7 @@ export function removeSpeechNoise(text: string): string {
       .replace(/([,;:])(?:\s*[,;:])+/g, "$1")
       .replace(/(^|[.!?]\s+),\s*/g, "$1")
       .trim())
-    .map(applySelfCorrections)
-    .join("\n");
+    .join("\n"));
 }
 
 // Filler words the cleanup stage removes. Empty when cleanup is off.
@@ -119,8 +119,15 @@ function removeFillers(text: string, fillers: string[]): string {
   }, text);
 }
 
+// Writes a standalone "st." before a word as "St." with the name after it capitalized (Saint or Street:
+// "st. louis" -> "St. Louis"). After a number it is a count or a weight ("3 st." in Swedish, "one st." for stone),
+// and inside a filename or URL it is not a word, so both stay as typed.
+function capitalizeSaint(text: string): string {
+  return text.replace(/(?<=(?:^|\s)[(\["'“‘]?)(?<!(?:\p{N}|\b(?:[Oo]ne|[Tt]wo|[Tt]hree|[Ff]our|[Ff]ive|[Ss]ix|[Ss]even|[Ee]ight|[Nn]ine|[Tt]en|[Ee]leven|[Tt]welve))\s+)st\.(\s+)(\p{L})/gu, (_match, space: string, letter: string) => `St.${space}${letter.toUpperCase()}`);
+}
+
 function capitalizeSentences(text: string): string {
-  return text.replace(/(^\s*[a-z])|([.!?]\s+[a-z])/g, m => m.toUpperCase());
+  return capitalizeSaint(text).replace(/(^\s*[a-z])|([.!?]\s+[a-z])/g, m => m.toUpperCase());
 }
 
 function applySmartPunctuation(text: string): string {
@@ -397,7 +404,7 @@ function formatLineBlock(text: string, settings: Settings): string {
     .split(/\r?\n/)
     .map(line => normalizeWhitespace(line))
     .filter((line, index, lines) => line.length > 0 || (index > 0 && index < lines.length - 1))
-    .map(line => (line ? capitalizeLine(line) : line))
+    .map(line => (line ? capitalizeLine(capitalizeSaint(line)) : line))
     .map(line => (settings.smartPunctuation ? applySmartPunctuation(line) : line))
     .map(line => (line ? ensureLinePunctuation(line) : line));
 
@@ -530,19 +537,20 @@ export function applyDictionary(text: string, settings: Settings, trace?: TextCl
   );
 }
 
-function applySnippets(
-  text: string,
-  snippets: Snippet[],
-  appProfileId: string | null | undefined,
-  placeholderResolver?: (name: "date" | "time" | "clipboard") => string,
-): string {
+interface SnippetMatcher {
+  pattern: RegExp;
+  contentByTrigger: Map<string, string>;
+}
+
+// Builds the trigger pattern for the snippets that apply to this app profile, or null if none do.
+function buildSnippetMatcher(snippets: Snippet[], appProfileId: string | null | undefined): SnippetMatcher | null {
   // Longest-trigger-first so overlapping triggers resolve to the longest match.
   const ordered = [...snippets]
     .map(snippet => ({ ...snippet, trigger: snippet.trigger.trim() }))
     .filter(({ trigger, appProfileIds }) => trigger.length > 0 && (!appProfileIds || (appProfileId !== null && appProfileId !== undefined && appProfileIds.includes(appProfileId))))
     .sort((left, right) => right.trigger.length - left.trigger.length);
 
-  if (ordered.length === 0) return text;
+  if (ordered.length === 0) return null;
 
   // Match BOTH the typed (`/name`) and spoken (`snippet name`) forms in a single
   // combined regex and replace in ONE pass over the original text. A single pass
@@ -562,11 +570,35 @@ function applySnippets(
     "gi",
   );
 
-  const byTrigger = new Map(ordered.map(snippet => [snippet.trigger.toLowerCase(), snippet.content]));
-  const lookup = (raw: string): string => (byTrigger.get(raw.toLowerCase()) ?? raw).replace(/\{\{(date|time|clipboard)\}\}/g, (_match, name: "date" | "time" | "clipboard") => placeholderResolver?.(name) ?? `{{${name}}}`);
+  return {
+    pattern: combined,
+    contentByTrigger: new Map(ordered.map(snippet => [snippet.trigger.toLowerCase(), snippet.content])),
+  };
+}
+
+// True when a snippet that uses {{clipboard}} would expand in this text for this app profile.
+export function clipboardSnippetExpands(text: string, snippets: Snippet[], appProfileId: string | null | undefined): boolean {
+  const matcher = buildSnippetMatcher(snippets, appProfileId);
+  if (!matcher) return false;
+  return [...text.matchAll(matcher.pattern)].some(match => {
+    // Groups 2, 4, 6, and 8 hold the trigger name for the typed, spoken, slash, and bare forms.
+    const trigger = match[2] ?? match[4] ?? match[6] ?? match[8] ?? "";
+    return matcher.contentByTrigger.get(trigger.toLowerCase())?.includes("{{clipboard}}") === true;
+  });
+}
+
+function applySnippets(
+  text: string,
+  snippets: Snippet[],
+  appProfileId: string | null | undefined,
+  placeholderResolver?: (name: "date" | "time" | "clipboard") => string,
+): string {
+  const matcher = buildSnippetMatcher(snippets, appProfileId);
+  if (!matcher) return text;
+  const lookup = (raw: string): string => (matcher.contentByTrigger.get(raw.toLowerCase()) ?? raw).replace(/\{\{(date|time|clipboard)\}\}/g, (_match, name: "date" | "time" | "clipboard") => placeholderResolver?.(name) ?? `{{${name}}}`);
 
   return text.replace(
-    combined,
+    matcher.pattern,
     (_match, typedPrefix: string, typedName: string, snippetPrefix: string, snippetName: string, slashPrefix: string, slashName: string, barePrefix: string, bareName: string) =>
       typedName !== undefined
         ? `${typedPrefix}${lookup(typedName)}`

@@ -4,7 +4,7 @@ import { APP_DATA_DIR, DEFAULT_SETTINGS, STT_DEFAULT_VERSION, isHiddenProvider }
 import { modelEntries, modelForProvider } from "@shared/modelList";
 import type { Settings } from "@shared/types";
 import { error } from "@main/log";
-import { readJsonFile, writeJsonFile } from "./base";
+import { JsonFileReadError, readJsonFile, writeJsonFile } from "./base";
 
 type StoredSettings = Partial<Settings> & {
   nativeCaptureOptIn?: boolean;
@@ -38,6 +38,7 @@ export class SettingsStore {
   private nativeCaptureOptedIn = false;
   private preWarmMicOptedIn = false;
   private failedAudioRetentionOptedIn = false;
+  private readError: JsonFileReadError | null = null;
 
   constructor(filePath = join(app.getPath("home"), APP_DATA_DIR, "settings.json")) {
     this.filePath = filePath;
@@ -49,7 +50,7 @@ export class SettingsStore {
   }
 
   private async load(): Promise<Settings> {
-    const stored = await readJsonFile<StoredSettings>(this.filePath, {});
+    const stored = await readJsonFile<StoredSettings>(this.filePath, {}, isPlainObject);
     const migrated = await this.migrateSettings(stored);
     this.nativeCaptureOptedIn = migrated.nativeCaptureOptIn === true;
     this.preWarmMicOptedIn = migrated.preWarmMicOptIn === true;
@@ -153,7 +154,9 @@ export class SettingsStore {
     return next;
   }
 
+  // Throws, changing nothing, while an unreadable settings file blocks saving.
   update(patch: Partial<Settings>): Settings {
+    if (this.readError) throw this.readError;
     const next: Settings = { ...this.get(), ...patch, theme: "aurora" };
     if (patch.fillerWords !== undefined || patch.extraFillerWords !== undefined) {
       next.fillerWordsCustomized = true;
@@ -191,18 +194,33 @@ export class SettingsStore {
     return next;
   }
 
+  // Why saving is blocked, or null when settings can be saved.
+  saveBlockedReason(): string | null {
+    return this.readError?.message ?? null;
+  }
+
   async flush(): Promise<void> {
     await this.pendingWrite;
   }
 
+  // An unreadable file keeps defaults in memory and blocks writes until restart.
   async init(): Promise<void> {
-    await this.load();
+    try {
+      await this.load();
+    } catch (err) {
+      if (!(err instanceof JsonFileReadError)) throw err;
+      this.readError = err;
+    }
   }
 }
 
 // True when the provider lists this cleanup model. A missing provider never matches.
 function isListedCleanupChoice(provider: string | undefined, model: string | undefined): boolean {
   return provider !== undefined && modelEntries("cleanup", provider).some((entry) => entry.modelId === model);
+}
+
+function isPlainObject(value: unknown): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function arraysEqual(left: unknown, right: string[]): left is string[] {

@@ -6,12 +6,14 @@
 // A Devanagari word may come back in Roman letters when it sounds alike ("कैंसल" → "cancel").
 // With speech noise allowed, these may also be dropped: a stutter next to a kept copy ("the, the", "on the, on the"),
 // a cut-off word ("ru-", or a short fragment the next word starts with), and up to four words replaced right after a
-// correction cue ("Arjun, sorry, Aditya"). Negations and numbers are never cut-off words or bare cues. Any other dropped
+// correction cue ("Arjun, sorry, Aditya"), and a sentence withdrawn by "scratch that" or "delete that" along with that cue.
+// Negations and numbers are never cut-off words or bare cues. Any other dropped
 // word, and any added word, is a change.
 // Listed filler words may disappear, but only when the output drops them. Spoken layout cues ("new paragraph", "point one",
 // a sentence-opening "First,") may disappear only when the output has a line break or a list item with the same number there,
 // or keeps the cue words.
 
+import { dropScratchedSentences } from "./scratchThat";
 import { isDevanagariNumberWord, isDevanagariWord, soundsAlike } from "./scriptMatch";
 
 const LINE_CUE_SOURCE = String.raw`new\s+paragraph|new\s+line|next\s+line`;
@@ -40,7 +42,7 @@ const CAMEL_CASE_RE = /\p{L}*\p{Ll}\p{Lu}\p{L}*/gu;
 
 // Hesitation sounds. Cleanup adds them to the filler words it removes.
 // "er" and "ah" are left out: they are words in other languages ("Er ist da").
-export const HESITATION_WORDS: readonly string[] = ["um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "hm", "mm", "mmm", "mhm"];
+export { HESITATION_WORDS } from "./scratchThat";
 // Phrases that mark the speaker correcting what came just before, longest first.
 const CORRECTION_CUES: readonly (readonly string[])[] = [["scratch", "that"], ["or", "rather"], ["no", "wait"], ["i", "mean"], ["sorry"], ["wait"], ["actually"], ["rather"], ["no"]];
 const MAX_REPLACED_WORDS = 4;
@@ -171,7 +173,7 @@ function finishWords(units: Unit[]): Unit[] {
     if (unit.kind !== "word") return unit;
     const digits = NUMBER_WORDS.get(unit.text);
     if (!digits || isNumberWord(neighbor(index, -1)) || isNumberWord(neighbor(index, 1))) return unit;
-    return { kind: "word", text: digits };
+    return { ...unit, text: digits };
   });
 }
 
@@ -424,24 +426,38 @@ function speechNoise(source: Unit[], dropped: ReadonlySet<number>, phrases: read
   // The core sequence skips filler phrases and cut-off words, so "the uh the" and "there sh- there" read as stutters.
   const inPhrase = (index: number): boolean => phrases.some(([start, end]) => start <= index && index < end);
   const core = source.map((_, index) => index).filter(index => !noise.has(index) && !inPhrase(index));
-  const info: Core = {
+  const info = coreOf(source, core, dropped);
+  for (const [start, end] of droppedRuns(info.gone)) {
+    const run = info.words.slice(start, end + 1);
+    if (isStutter(run, info, start, end) || isCorrection(run, info, start, end)) {
+      for (let position = start; position <= end; position += 1) noise.add(core[position] ?? -1);
+    }
+  }
+  return noise;
+}
+
+// The core sequence for the source units at the given indices, with the dropped ones marked.
+function coreOf(source: Unit[], core: readonly number[], dropped: ReadonlySet<number>): Core {
+  return {
     words: core.map(index => unitText(source[index])),
     gone: core.map(index => dropped.has(index)),
     pause: core.map(index => { const unit = source[index]; return unit?.kind === "word" && unit.pause === true; }),
     boundary: core.map(index => { const unit = source[index]; return unit?.kind !== "word" || unit.boundary === true; }),
   };
-  const { gone } = info;
-  for (let start = 0; start < core.length;) {
+}
+
+// Each run of consecutive dropped positions, as [start, end] inclusive.
+function droppedRuns(gone: readonly boolean[]): [number, number][] {
+  const runs: [number, number][] = [];
+  let start = 0;
+  while (start < gone.length) {
     if (!gone[start]) { start += 1; continue; }
     let end = start;
-    while (end + 1 < core.length && gone[end + 1]) end += 1;
-    const run = info.words.slice(start, end + 1);
-    if (isStutter(run, info, start, end) || isCorrection(run, info, start, end)) {
-      for (let position = start; position <= end; position += 1) noise.add(core[position] ?? -1);
-    }
+    while (end + 1 < gone.length && gone[end + 1]) end += 1;
+    runs.push([start, end]);
     start = end + 1;
   }
-  return noise;
+  return runs;
 }
 
 // True when no sentence starts at any core position in (from, to].
@@ -500,6 +516,8 @@ function isCorrection(run: readonly (string | null)[], { words, gone, pause, bou
   if (rest > MAX_REPLACED_WORDS || replaced.some((word, index) => word !== null && isProtected(word) && !correctable(word, index))) return false;
   if (!sameSentence(boundary, start, start + rest - 1)) return false;
   const firstCue = start + rest;
+  // A cue that opens a new sentence does not correct a number in the sentence before it ("3. Sorry, 4").
+  if (boundary[firstCue] && !boundary[end + 1] && replaced.some(word => word !== null && isNumber(word))) return false;
   // A replacement in the next sentence needs the cue to stand as its own sentence ("Priyanka, run... Sorry. Priya").
   // Otherwise "He said no. No one agreed." would read as a correction.
   if (boundary[end + 1] && !boundary[firstCue]) return false;
@@ -564,16 +582,31 @@ export interface GuardVerdict {
 // Decides whether a formatter reply may replace the transcript. Cleanup off: every word must stay.
 // Cleanup on: rejects only a large drop, added words, or a changed number or negation.
 export function judgeFormatterReply(rawText: string, candidate: string, fillers: readonly string[] = [], options: DiffOptions = {}): GuardVerdict {
+  const verdict = judgeAgainst(rawText, candidate, fillers, options);
+  if (verdict.rejection === null || options.speechNoise === false) return verdict;
+  // A reply may also drop a sentence the speaker withdrew with "scratch that". It is judged against the input
+  // without that sentence, since the word alignment can match a repeated opening ("I'll be … I'll be") to it.
+  const scratched = dropScratchedSentences(rawText);
+  if (scratched === rawText) return verdict;
+  const scratchedVerdict = judgeAgainst(scratched, candidate, fillers, options);
+  return scratchedVerdict.rejection === null ? scratchedVerdict : verdict;
+}
+
+// Judges a reply against one version of the input.
+function judgeAgainst(rawText: string, candidate: string, fillers: readonly string[], options: DiffOptions): GuardVerdict {
   const strict = options.speechNoise === false;
   const diff = diffContentWords(rawText, candidate, fillers, options);
   if (strict) {
     const rejection = diff.rejection ?? (diff.missing.length > 0 || diff.added.length > 0 ? CHANGED_WORDS_REASON : null);
     return { rejection, dropped: diff.missing, added: diff.added };
   }
-  const sourceWords = inputUnits(rawText, fillers).units.flatMap(unit => (unit.kind === "filler" ? [] : unitWords(unit)));
-  // Too long to align: compare the words as counts instead. A number with a correction cue right after it may go.
-  const countedWords = diff.rejection ? withoutCorrectedNumbers(sourceWords) : sourceWords;
-  const { missing, added } = diff.rejection ? { missing: bagDifference(countedWords, outputWordsOf(candidate)), added: bagDifference(outputWordsOf(candidate), countedWords) } : diff;
+  const input = inputUnits(rawText, fillers);
+  const sourceWords = input.units.flatMap(unit => (unit.kind === "filler" ? [] : unitWords(unit)));
+  // Too long to align: compare the words as counts instead, excusing only corrections the reply dropped.
+  const output = outputWordsOf(candidate);
+  const wordUnits = input.units.flatMap((unit, index) => (unit.kind === "filler" ? [] : unitWords(unit).map(() => index)));
+  const countedWords = diff.rejection ? countedSourceWords(input.units, sourceWords, wordUnits, output) : sourceWords;
+  const { missing, added } = diff.rejection ? { missing: bagDifference(countedWords, output), added: bagDifference(output, countedWords) } : diff;
   // A word that only moved is in both lists. Ordinals count as their numbers, so "second" may come back as "2".
   const dropped = bagDifference(missing, added);
   const newWords = bagDifference(added, missing);
@@ -589,13 +622,80 @@ function outputWordsOf(candidate: string): string[] {
   return outputUnits(candidate).flatMap(unitWords);
 }
 
-// Drops each number that a correction cue follows, and the cue, from a word list ("3.5 no 4.5" keeps "4.5").
-function withoutCorrectedNumbers(words: readonly string[]): string[] {
-  return words.filter((word, index) => {
-    const next = words[index + 1] ?? "";
-    if (isNumber(word) && CORRECTION_CUE_WORDS.has(next) && isNumber(words[index + 2] ?? "")) return false;
-    return !(CORRECTION_CUE_WORDS.has(word) && isNumber(words[index - 1] ?? "") && isNumber(next));
+// Positions of the source words the output drops. Words that occur once on each side pin the order, so a repeated
+// word ("3" kept later in the sentence) pairs with its own place. Only the gaps between pins use bag matching.
+function droppedPositions(words: readonly string[], output: readonly string[]): number[] {
+  const sourceCounts = countWords(words);
+  const outputCounts = countWords(output);
+  const outputIndex = new Map(output.map((word, position) => [word, position]));
+  const pins: [number, number][] = [];
+  let outputFrom = 0;
+  words.forEach((word, position) => {
+    const outputPosition = outputIndex.get(word) ?? -1;
+    if (sourceCounts.get(word) !== 1 || outputCounts.get(word) !== 1 || outputPosition < outputFrom) return;
+    pins.push([position, outputPosition]);
+    outputFrom = outputPosition + 1;
   });
+  pins.push([words.length, output.length]);
+  const dropped: number[] = [];
+  let sourceFrom = 0;
+  let outputStart = 0;
+  for (const [sourceEnd, outputEnd] of pins) {
+    dropped.push(...gapDropped(words.slice(sourceFrom, sourceEnd), output.slice(outputStart, outputEnd)).map(position => position + sourceFrom));
+    sourceFrom = sourceEnd + 1;
+    outputStart = outputEnd + 1;
+  }
+  return dropped;
+}
+
+// Positions of a gap's source words that the gap's output drops. Aligns in order, or walks in order when the gap is too big.
+function gapDropped(words: readonly string[], output: readonly string[]): number[] {
+  const asUnits = (list: readonly string[]): Unit[] => list.map((text): Unit => ({ kind: "word", text }));
+  return alignSections(asUnits(words), asUnits(output))?.dropped ?? inOrderDropped(words, output);
+}
+
+// Positions of source words left unmatched by one in-order walk, in linear time. A reply word the source lacks is skipped
+// when the next reply word matches, so one inserted word does not drop the rest of the gap.
+function inOrderDropped(words: readonly string[], output: readonly string[]): number[] {
+  const dropped: number[] = [];
+  let reply = 0;
+  words.forEach((word, position) => {
+    if (matchesAt(word, output, reply)) reply += 1;
+    else if (matchesAt(word, output, reply + 1)) reply += 2;
+    else dropped.push(position);
+  });
+  return dropped;
+}
+
+// True when the reply has a word at index that matches the source word.
+function matchesAt(word: string, output: readonly string[], index: number): boolean {
+  const next = output[index];
+  return next !== undefined && sameBagWord(word, next);
+}
+
+// How many times each word occurs in a list.
+function countWords(words: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const word of words) counts.set(word, (counts.get(word) ?? 0) + 1);
+  return counts;
+}
+
+// Long transcripts: the source words left after excusing the numbers and cues of each dropped run that isCorrection accepts.
+// wordUnits maps each word to its source unit index. Only a whole word unit can be excused, never a list or line cue.
+function countedSourceWords(units: Unit[], words: readonly string[], wordUnits: readonly number[], output: readonly string[]): string[] {
+  const droppedUnits = new Set(droppedPositions(words, output).map(position => wordUnits[position] ?? -1));
+  const core = units.flatMap((unit, index) => (unit.kind === "filler" ? [] : [index]));
+  const info = coreOf(units, core, droppedUnits);
+  const excused = new Set<number>();
+  for (const [start, end] of droppedRuns(info.gone)) {
+    if (!isCorrection(info.words.slice(start, end + 1), info, start, end)) continue;
+    for (let position = start; position <= end; position += 1) {
+      const index = core[position] ?? -1;
+      const unit = units[index];
+      if (unit?.kind === "word" && (isNumber(unit.text) || CORRECTION_CUE_WORDS.has(unit.text))) excused.add(index);
+    }
+  }
+  return words.filter((_, position) => !excused.has(wordUnits[position] ?? -1));
 }
 
 // The number an ordinal names ("second", "2nd" → "2"), or the word itself.
@@ -609,13 +709,19 @@ function sameBagWord(left: string, right: string): boolean {
   return (isDevanagariWord(left) && soundsAlike(left, right)) || (isDevanagariWord(right) && soundsAlike(right, left));
 }
 
+// Positions of a that are left after removing one matching copy of each word of b.
+function unmatchedPositions(a: readonly string[], b: readonly string[]): number[] {
+  const remaining = [...b];
+  return a.flatMap((word, position) => {
+    const index = remaining.findIndex(other => sameBagWord(word, other));
+    if (index < 0) return [position];
+    remaining.splice(index, 1);
+    return [];
+  });
+}
+
 // Words of a that are left after removing one matching copy of each word of b.
 function bagDifference(a: readonly string[], b: readonly string[]): string[] {
-  const remaining = [...b];
-  return a.filter(word => {
-    const index = remaining.findIndex(other => sameBagWord(word, other));
-    if (index < 0) return true;
-    remaining.splice(index, 1);
-    return false;
-  });
+  const left = new Set(unmatchedPositions(a, b));
+  return a.filter((_, position) => left.has(position));
 }

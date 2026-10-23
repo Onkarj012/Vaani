@@ -392,6 +392,10 @@ async function bootstrap(): Promise<void> {
   settingsStore = settings;
   const history = new HistoryStore();
   const traces = new DictationTraceStore();
+  // Queued before any dictation, so only traces from an earlier run are closed.
+  void traces.closeUnfinished()
+    .then((closed) => { if (closed > 0) log("traces:closed-unfinished", { closed }); })
+    .catch((err: unknown) => log("traces:close-unfinished-failed", { message: err instanceof Error ? err.message : String(err) }));
   const recovery = new RecoveryJournalStore();
   const recoveryAudio = new EncryptedRecoveryAudioStore(recovery, undefined, join(home, APP_DATA_DIR, "recovery-audio"));
   recoveryJournal = recovery;
@@ -557,7 +561,13 @@ async function bootstrap(): Promise<void> {
       },
       reinjectEntry: (id) => dictation.reinjectEntry(id),
       getLanguage: () => settings.get().language,
-      setLanguage: (language) => { settings.update({ language }); },
+      setLanguage: (language) => {
+        try {
+          settings.update({ language });
+        } catch (err) {
+          log("tray:language-not-saved", { message: err instanceof Error ? err.message : String(err) });
+        }
+      },
     });
     trayReady = true;
   } catch (error) {
@@ -572,6 +582,7 @@ async function bootstrap(): Promise<void> {
     () => { dictation.pasteLatestEntry().catch((err) => { error("main", `paste latest failed: ${err instanceof Error ? err.message : String(err)}`); }); },
     (message) => dictation.reportHotkeyUnavailable(message)
   );
+  hotkeyManager.setHandsFreeListener((handsFree) => overlayController?.setHandsFree(handsFree));
 
   registerIpcHandlers({
     mainWindow,
@@ -695,6 +706,7 @@ app.on("second-instance", () => { log("second-instance:focus"); showMainWindow()
 
 app.on("before-quit", createQuitHandler({
   flush: async () => {
+    await dictationService?.closeForQuit();
     await dictationService?.flushRecovery();
     await lifecycleCoordinator?.flush();
     await recoveryJournal?.flush();

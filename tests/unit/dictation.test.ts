@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -14,8 +14,10 @@ import type { RecoveryJournalStore } from "@main/store/recoveryJournal";
 import type { EncryptedRecoveryAudioStore } from "@main/audio/recoveryAudio";
 import { createRecoveryEntry, type RecoveryEntry, type RecoveryEntrySeed, type RecoveryErrorClass, type RecoveryInsertionPreparation, type RecoveryTransitionInput } from "@shared/recovery";
 import { DictationService } from "./dictation.fixture";
-import { selectRecoveryText } from "@main/dictation";
+import { extractCorrectedInsertedText, selectRecoveryText } from "@main/dictation";
+import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { nativeBridge } from "@main/nativeBridge";
+import { settlePendingCaretMove } from "@main/injection/clipboard";
 import type { InjectionOptions, InjectionTarget } from "@main/injection";
 import { TranscriptionChainError, TranscriptionDeadlineExceededError, TranscriptionService, type TranscribeOptions } from "@main/transcription";
 
@@ -82,6 +84,7 @@ function createDictationService(deps: {
     setSuccess: vi.fn(),
     setError: vi.fn(),
     setStatusMessage: vi.fn(),
+    setPaused: vi.fn(),
     hide: vi.fn(),
     updateBars: vi.fn(),
     showDictionaryPrompt: vi.fn((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => resolve(true)),
@@ -111,7 +114,9 @@ function createDictationService(deps: {
     isReady: vi.fn(() => true),
     startRecording: vi.fn(() => true),
     stopRecording: vi.fn(() => true),
-    abortRecording: vi.fn((_sessionId: string) => undefined)
+    abortRecording: vi.fn((_sessionId: string) => undefined),
+    pauseRecording: vi.fn((_sessionId: string) => undefined),
+    resumeRecording: vi.fn((_sessionId: string) => undefined)
   };
 
   const transcription = {
@@ -246,6 +251,29 @@ describe("DictationService", () => {
     expect(transcription.transcribe.mock.calls[0]?.[1]?.recovery).toBeUndefined();
   });
 
+  it("pauses and resumes only the active recording and tells the overlay", async () => {
+    const { service, overlay, recorder } = createDictationService({});
+    service.pauseRecording();
+    expect(recorder.pauseRecording).not.toHaveBeenCalled();
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.pauseRecording();
+    service.pauseRecording();
+    expect(recorder.pauseRecording).toHaveBeenCalledOnce();
+    expect(recorder.pauseRecording).toHaveBeenCalledWith(sessionId);
+    expect(overlay.setPaused).toHaveBeenLastCalledWith(true);
+
+    service.resumeRecording();
+    expect(recorder.resumeRecording).toHaveBeenCalledWith(sessionId);
+    expect(overlay.setPaused).toHaveBeenLastCalledWith(false);
+
+    service.pauseRecording();
+    service.endHotkeySession();
+    expect(overlay.setPaused).toHaveBeenLastCalledWith(false);
+  });
+
   it("does not replace a verified trace when cancellation follows completion", async () => {
     const traceDeps = createTraceDeps();
     const { service } = createDictationService({ traces: traceDeps.traces });
@@ -352,6 +380,7 @@ describe("DictationService", () => {
       const files = await readdir(directory);
       expect(files).toHaveLength(count);
       expect(files.every((name) => name.endsWith(".wav"))).toBe(true);
+      for (const name of files) expect((await stat(join(directory, name))).mode & 0o777).toBe(0o600);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -428,6 +457,18 @@ describe("DictationService", () => {
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: "formatted" })).toBe("formatted");
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: "cleaned", formattedText: null })).toBe("cleaned");
     expect(selectRecoveryText({ rawTranscript: "raw", cleanedText: null, formattedText: null })).toBe("raw");
+  });
+
+  it("keeps a correction that extends the last inserted word so the dictionary can suggest it", () => {
+    const corrected = extractCorrectedInsertedText("open Code", "open CodePen", "open Code");
+    expect(corrected).toBe("open CodePen");
+    expect(detectDictionarySuggestions("open Code", corrected ?? "")).toEqual([{ spoken: "Code", written: "CodePen" }]);
+  });
+
+  it("drops typed continuation after the inserted text", () => {
+    expect(extractCorrectedInsertedText("open Code", "open Code and more", "open Code")).toBeNull();
+    expect(extractCorrectedInsertedText("open Code", "open Code.", "open Code")).toBeNull();
+    expect(extractCorrectedInsertedText("open Code.", "open Code.a", "open Code.")).toBeNull();
   });
 
   it("aborts recovery formatting when a new dictation starts and does not store the late result", async () => {
@@ -582,6 +623,15 @@ describe("DictationService", () => {
     expect(overlay.setPressed).toHaveBeenCalledTimes(1);
     expect(overlay.setRecording).not.toHaveBeenCalled();
     expect(recorder.startRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("finishes the last paste's caret move before recording the new session's caret", () => {
+    const { service } = createDictationService();
+    vi.mocked(settlePendingCaretMove).mockClear();
+
+    service.beginHotkeySession();
+
+    expect(settlePendingCaretMove).toHaveBeenCalledTimes(1);
   });
 
   it("queues recording while the recorder warms up and errors only after timeout", () => {
@@ -897,6 +947,154 @@ describe("DictationService", () => {
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", stages: { formatterUsed: "none", formatterReason: "timeout" } });
   });
 
+  it("releases the mic when the recorder start times out", () => {
+    const { service, recorder } = createDictationService();
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+
+    vi.advanceTimersByTime(5_000);
+
+    expect(service.getState().status).toBe("error");
+    expect(recorder.abortRecording).toHaveBeenCalledWith(sessionId);
+  });
+
+  it("shuts a mic that opens after its session ended", () => {
+    const { service, recorder } = createDictationService();
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.cancelSession();
+    recorder.abortRecording.mockClear();
+
+    service.reportRecorderStarted(sessionId);
+
+    expect(service.getState().status).toBe("idle");
+    expect(recorder.abortRecording).toHaveBeenCalledWith(sessionId);
+  });
+
+  it("leaves a newer session's capture alone when an old start lands late", () => {
+    const { service, recorder } = createDictationService();
+    service.beginHotkeySession();
+    const oldSessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.cancelSession();
+    service.beginHotkeySession();
+    const newSessionId = (service.getState() as { sessionId: string }).sessionId;
+    recorder.abortRecording.mockClear();
+
+    service.reportRecorderStarted(oldSessionId);
+
+    expect(recorder.abortRecording).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({ status: "starting", sessionId: newSessionId });
+  });
+
+  it("closes a recording at quit and finishes its trace", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, recorder } = createDictationService({ traces: traceDeps.traces });
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+
+    await service.closeForQuit();
+
+    expect(recorder.abortRecording).toHaveBeenCalledWith(sessionId);
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
+  });
+
+  it("starts no new dictation once quit has begun", async () => {
+    const { service, recorder } = createDictationService();
+    await service.closeForQuit();
+    service.beginHotkeySession();
+    expect(service.getState().status).toBe("idle");
+    expect(recorder.startRecording).not.toHaveBeenCalled();
+  });
+
+  it("finishes the trace at quit even while the History write hangs", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, injector, history } = createDictationService({ traces: traceDeps.traces });
+    history.append.mockImplementation(() => new Promise<void>(() => undefined));
+    injector.inject.mockImplementationOnce(() => new Promise<InjectionResult>(() => undefined));
+    void submitHelloWorld(service);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injector.inject).toHaveBeenCalledOnce();
+
+    void service.closeForQuit();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(history.append).toHaveBeenCalled();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "refused", rejectionReason: "cancelled", completedAt: expect.any(String) });
+  });
+
+  it("keeps a verified insertion verified when quit lands during the History write", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, injector, history } = createDictationService({ traces: traceDeps.traces });
+    history.append.mockImplementation(() => new Promise<void>(() => undefined));
+    void submitHelloWorld(service);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(injector.inject).toHaveBeenCalledOnce();
+    expect(history.append).toHaveBeenCalled();
+
+    void service.closeForQuit();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "verified", completedAt: expect.any(String) });
+  });
+
+  it("does not let an older insertion finishing late claim a newer session's quit", async () => {
+    const traceDeps = createTraceDeps();
+    const fixture = createInsertionRecovery("unused");
+    let releaseRecoveryWrite: () => void = () => undefined;
+    fixture.recovery.recordInsertionOutcome.mockImplementationOnce(() => new Promise<RecoveryEntry>((resolve) => {
+      releaseRecoveryWrite = () => resolve(fixture.getEntry());
+    }));
+    const { service, history } = createDictationService({ traces: traceDeps.traces, recovery: fixture.recovery, recoveryReady: () => true });
+
+    service.beginHotkeySession();
+    const sessionA = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionA);
+    service.endHotkeySession();
+    void service.submitAudioClip({
+      sessionId: sessionA,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] },
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fixture.recovery.recordInsertionOutcome).toHaveBeenCalledOnce();
+
+    service.beginHotkeySession();
+    const sessionB = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionB);
+    releaseRecoveryWrite();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await service.closeForQuit();
+
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
+    // Session A's transcript is saved once, even though it finished after B started. B never had a transcript.
+    expect(history.append).toHaveBeenCalledOnce();
+  });
+
+  it("closes a transcription at quit without inserting late text", async () => {
+    const traceDeps = createTraceDeps();
+    const { service, transcription, injector } = createDictationService({ traces: traceDeps.traces });
+    let resolveTranscription: ((result: TranscriptionResult) => void) | undefined;
+    transcription.transcribe.mockImplementation(() => new Promise((resolve) => { resolveTranscription = resolve; }));
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    const submission = service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(service.getState().status).toBe("transcribing");
+
+    await service.closeForQuit();
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "cancelled", completedAt: expect.any(String) });
+
+    resolveTranscription?.({ rawText: "late text", formattedText: "late text", language: "en" });
+    await submission;
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
   it("stale guard finishes trace with the stuck stage and a visible message", async () => {
     const traceDeps = createTraceDeps();
     const { service, transcription, injector, overlay } = createDictationService({ traces: traceDeps.traces });
@@ -914,7 +1112,10 @@ describe("DictationService", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(service.getState().status).toBe("transcribing");
 
-    await vi.advanceTimersByTimeAsync(60_000);
+    // A 1 s clip gets 30 s STT + 1.5 s cleanup + 15 s grace, under the 60 s floor, so the guard fires at 60 s.
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(service.getState().status).toBe("transcribing");
+    await vi.advanceTimersByTimeAsync(1);
     expect(service.getState()).toMatchObject({ status: "error", message: "Dictation stopped while transcribing. Please try again." });
     expect(overlay.setError).toHaveBeenCalled();
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "failed", rejectionReason: "stale-session", stages: { staleStage: "transcribing", outcome: "failed" }, completedAt: expect.any(String) });
@@ -922,6 +1123,36 @@ describe("DictationService", () => {
     resolveTranscription?.({ rawText: "late text", formattedText: "late text", language: "en" });
     await submission;
     expect(injector.inject).not.toHaveBeenCalled();
+  });
+
+  it("stretches the stale guard past 60 s for a long recording", async () => {
+    const { getTranscriptionTimeoutMs } = await import("@main/transcription");
+    const { liveFormattingTimeoutMs } = await import("@main/dictation");
+    const { service, transcription, settings } = createDictationService();
+    const provider = settings.get().formattingProvider;
+    let resolveTranscription: ((result: TranscriptionResult) => void) | undefined;
+    transcription.transcribe.mockImplementation(() => new Promise((resolve) => { resolveTranscription = resolve; }));
+    const clip = { pcmData: new Array(16_000 * 120).fill(0.1), sampleRate: 16_000, durationSeconds: 120, rmsFrames: [0.1] };
+    const deadline = getTranscriptionTimeoutMs(clip) + liveFormattingTimeoutMs(provider) + 15_000;
+    expect(deadline).toBeGreaterThan(60_000);
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    const submission = service.submitAudioClip({ sessionId, clip });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Alive past the old 60 s cap, then stopped at the extended deadline.
+    await vi.advanceTimersByTimeAsync(60_001);
+    expect(service.getState().status).toBe("transcribing");
+    await vi.advanceTimersByTimeAsync(deadline - 60_001 - 1);
+    expect(service.getState().status).toBe("transcribing");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(service.getState()).toMatchObject({ status: "error", message: "Dictation stopped while transcribing. Please try again." });
+
+    resolveTranscription?.({ rawText: "late text", formattedText: "late text", language: "en" });
+    await submission;
   });
 
   it("settles a stale session as unconfirmed after paste dispatch and preserves History", async () => {
@@ -935,10 +1166,13 @@ describe("DictationService", () => {
     const submission = submitHelloWorld(service);
     await vi.advanceTimersByTimeAsync(0);
     expect(injector.inject).toHaveBeenCalledOnce();
+    // A 1 s clip's guard fires at 60 s. Keep the paste hanging past it.
     await vi.advanceTimersByTimeAsync(60_000);
+    expect(service.getState().status).toBe("idle");
+    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open get hub.", injectionStatus: "saved" }));
+    expect(traceDeps.getTrace()).toMatchObject({ outcome: "unconfirmed", rejectionReason: "cancelled", completedAt: expect.any(String) });
     finishInjection({ success: true, method: "clipboard" });
     await submission;
-    expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ cleanedText: "Open get hub.", injectionStatus: "saved" }));
     expect(traceDeps.getTrace()?.outcome).toBe("unconfirmed");
   });
 
@@ -1060,6 +1294,17 @@ describe("DictationService", () => {
 
     expect(injector.inject).not.toHaveBeenCalled();
     expect(service.getState()).toMatchObject({ status: "error", message: "Nothing to insert. The transcript was empty after cleanup." });
+  });
+
+  it("finishes the last paste's caret move before paste latest records the caret", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getLatest.mockResolvedValue({ id: "entry-1", cleanedText: "Hello there.", rawText: "hello there" });
+    vi.mocked(settlePendingCaretMove).mockClear();
+
+    await service.pasteLatestEntry();
+
+    expect(settlePendingCaretMove).toHaveBeenCalled();
+    expect(vi.mocked(settlePendingCaretMove).mock.invocationCallOrder[0]).toBeLessThan(injector.inject.mock.invocationCallOrder[0] ?? 0);
   });
 
   it("refuses to paste latest when the latest entry is punctuation only", async () => {
@@ -2375,6 +2620,44 @@ describe("DictationService", () => {
     });
   });
 
+  it("shows an error when Paste Latest can't read History", async () => {
+    const { service, history, injector } = createDictationService();
+    history.getLatest.mockRejectedValueOnce(new Error("Could not read history.json (invalid JSON). The file was left unchanged."));
+
+    await expect(service.pasteLatestEntry()).resolves.toBeUndefined();
+
+    expect(service.getState()).toMatchObject({ status: "error", message: "History could not be read, so there is nothing to paste." });
+    expect(injector.inject).not.toHaveBeenCalled();
+  });
+
+  it("treats typing after the inserted text as new writing, not a correction", async () => {
+    const { service, overlay, settings } = createDictationService();
+    const nativeBridge = await import("@main/nativeBridge");
+    const getFocusedValue = vi.fn()
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("Open get hub.")
+      .mockReturnValueOnce("Open get hub.")
+      .mockReturnValue("Open get hub.a");
+    (nativeBridge.nativeBridge as { getFocusedValue?: () => string | null }).getFocusedValue = getFocusedValue;
+
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    service.endHotkeySession();
+    await service.submitAudioClip({
+      sessionId,
+      clip: { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] }
+    });
+
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+
+    expect(overlay.showDictionaryPrompt).not.toHaveBeenCalled();
+    expect(settings.update).not.toHaveBeenCalledWith(expect.objectContaining({ customCorrections: expect.anything() }));
+  });
+
   it("keeps watching long enough for a delayed manual correction", async () => {
     const { service, overlay, settings, transcription } = createDictationService();
     transcription.transcribe.mockResolvedValue({
@@ -2773,5 +3056,82 @@ describe("DictationService", () => {
     await Promise.resolve();
 
     expect(overlay.showSnippetPrompt).not.toHaveBeenCalled();
+  });
+});
+
+describe("recording length cap", () => {
+  // 600 s IPC limit minus room for 2 s of pre-roll and the stop tail.
+  const CAP_MS = 590_000;
+  const SPEECH_CLIP: AudioClip = { pcmData: new Array(16_000).fill(0.1), sampleRate: 16_000, durationSeconds: 1, rmsFrames: [0.1] };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Starts a hotkey session and reports the recorder live. Returns its session id.
+  function startRecording(service: ReturnType<typeof createDictationService>["service"]): string {
+    service.beginHotkeySession();
+    const sessionId = (service.getState() as { sessionId: string }).sessionId;
+    service.reportRecorderStarted(sessionId);
+    return sessionId;
+  }
+
+  // Advances time while sending audio frames, as the real recorder does, so the stale-session guard stays quiet.
+  function advanceWithFrames(service: ReturnType<typeof createDictationService>["service"], ms: number): void {
+    for (let elapsed = 0; elapsed < ms; elapsed += 1_000) {
+      vi.advanceTimersByTime(Math.min(1_000, ms - elapsed));
+      service.updateAudioLevel({ level: 0, bars: [] });
+    }
+  }
+
+  it("ends and processes a paused hands-free session at the cap", async () => {
+    const { service, recorder, transcription } = createDictationService({});
+    const sessionId = startRecording(service);
+    service.pauseRecording();
+
+    advanceWithFrames(service, CAP_MS - 1);
+    expect(recorder.stopRecording).not.toHaveBeenCalled();
+
+    advanceWithFrames(service, 1);
+    expect(recorder.stopRecording).toHaveBeenCalledWith(sessionId);
+    expect(service.getState()).toMatchObject({ status: "finalizing", sessionId });
+
+    await service.submitAudioClip({ sessionId, clip: SPEECH_CLIP });
+    expect(transcription.transcribe).toHaveBeenCalledOnce();
+  });
+
+  it("counts paused time toward the cap, so pause and resume do not extend it", () => {
+    const { service, recorder } = createDictationService({});
+    const sessionId = startRecording(service);
+
+    advanceWithFrames(service, 300_000);
+    service.pauseRecording();
+    advanceWithFrames(service, 100_000);
+    service.resumeRecording();
+    advanceWithFrames(service, CAP_MS - 400_000 - 1);
+    expect(recorder.stopRecording).not.toHaveBeenCalled();
+
+    advanceWithFrames(service, 1);
+    expect(recorder.stopRecording).toHaveBeenCalledWith(sessionId);
+  });
+
+  it("does not stop a later session with a timer from an earlier one", () => {
+    const { service, recorder } = createDictationService({});
+    startRecording(service);
+    advanceWithFrames(service, 10_000);
+    service.cancelSession();
+
+    advanceWithFrames(service, 10_000);
+    const laterSessionId = startRecording(service);
+    advanceWithFrames(service, 600_000 - 20_000);
+    expect(recorder.stopRecording).not.toHaveBeenCalled();
+
+    advanceWithFrames(service, 20_000);
+    expect(recorder.stopRecording).toHaveBeenCalledWith(laterSessionId);
+    expect(recorder.stopRecording).toHaveBeenCalledOnce();
   });
 });

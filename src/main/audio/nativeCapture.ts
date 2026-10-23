@@ -13,6 +13,8 @@ const BAR_BASELINE = 0.04;
 // noise floor, so a silent room does not animate the capsule.
 const BAR_NOISE_FLOOR_MIN = 0.003;
 const BAR_NOISE_FLOOR_MARGIN = 1.8;
+// Bar height shown while a session is paused.
+const PAUSED_BAR_LEVEL = 0.12;
 // VoiceProcessingIO runs echo cancellation. voice_capture.mm turns AGC off and never sets noise suppression, so only these two are reported.
 const NATIVE_CAPTURE_SETTINGS: CaptureTrackSettings = { echoCancellation: true, autoGainControl: false };
 
@@ -28,6 +30,8 @@ export interface RecorderCommands {
   startRecording: (sessionId: string) => boolean;
   stopRecording: (sessionId: string) => boolean;
   abortRecording?: (sessionId: string) => void;
+  pauseRecording?: (sessionId: string) => void;
+  resumeRecording?: (sessionId: string) => void;
   suspendForLifecycle?: () => CaptureSuspendResult | Promise<CaptureSuspendResult>;
   resumeAfterLifecycle?: () => CaptureResumeResult;
 }
@@ -97,6 +101,7 @@ export class NativeCaptureService implements RecorderCommands {
   private startPromise: Promise<boolean> | null = null;
   private transportGeneration = 0;
   private suspended = false;
+  private paused = false;
   private awaitingFirstFrame = false;
 
   constructor(
@@ -135,6 +140,7 @@ export class NativeCaptureService implements RecorderCommands {
     this.currentConfig = this.normalizeConfig(this.getConfig());
     this.chunks = [];
     this.lastFrameAt = 0;
+    this.paused = false;
     this.resetBars();
 
     if (!this.ensureCapture(this.currentConfig)) {
@@ -157,6 +163,7 @@ export class NativeCaptureService implements RecorderCommands {
       const chunksAtStop = this.chunks.slice();
       this.activeSessionId = null;
       this.chunks = [];
+      this.paused = false;
       const merged = mergePcmChunks(chunksAtStop);
       if (merged.length === 0) {
         this.restartCaptureIfPrewarmed();
@@ -205,11 +212,23 @@ export class NativeCaptureService implements RecorderCommands {
     };
   }
 
+  // Keeps the mic open; frames still arrive but are dropped from the clip.
+  pauseRecording(sessionId: string): void {
+    if (this.activeSessionId !== sessionId) return;
+    this.paused = true;
+  }
+
+  resumeRecording(sessionId: string): void {
+    if (this.activeSessionId !== sessionId) return;
+    this.paused = false;
+  }
+
   abortRecording(sessionId: string): void {
     if (this.activeSessionId !== sessionId) return;
     this.stopCaptureTransport();
     this.activeSessionId = null;
     this.chunks = [];
+    this.paused = false;
   }
 
   resumeAfterLifecycle(): CaptureResumeResult {
@@ -277,6 +296,10 @@ export class NativeCaptureService implements RecorderCommands {
     this.lastFrameAt = this.lastChunkAt;
     this.updateNoiseFloor(samples);
     if (!this.activeSessionId) return;
+    if (this.paused) {
+      this.publishPausedBars();
+      return;
+    }
     this.chunks.push(samples.slice());
     // Started means audio is arriving, not that the device opened.
     if (this.awaitingFirstFrame && samples.length > 0) {
@@ -284,6 +307,14 @@ export class NativeCaptureService implements RecorderCommands {
       this.sink.reportRecorderStarted(this.activeSessionId);
     }
     this.publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT, this.noiseFloor));
+  }
+
+  // Keeps frames flowing to the watchdog while showing flat bars.
+  private publishPausedBars(): void {
+    const now = Date.now();
+    if (now - this.lastReportedAt < FRAME_REPORT_INTERVAL_MS) return;
+    this.lastReportedAt = now;
+    this.sink.updateAudioLevel({ level: PAUSED_BAR_LEVEL, bars: new Array(VISUAL_BAR_COUNT).fill(PAUSED_BAR_LEVEL) });
   }
 
   private updateNoiseFloor(samples: Float32Array): void {
@@ -402,6 +433,16 @@ export class CaptureBackendController implements RecorderCommands {
       return this.nativeCapture.stopRecording(sessionId);
     }
     return this.rendererRecorder.stopRecording(sessionId);
+  }
+
+  pauseRecording(sessionId: string): void {
+    if (this.activeBackend === "native") this.nativeCapture.pauseRecording(sessionId);
+    else this.rendererRecorder.pauseRecording?.(sessionId);
+  }
+
+  resumeRecording(sessionId: string): void {
+    if (this.activeBackend === "native") this.nativeCapture.resumeRecording(sessionId);
+    else this.rendererRecorder.resumeRecording?.(sessionId);
   }
 
   suspendForLifecycle(): CaptureSuspendResult | Promise<CaptureSuspendResult> {

@@ -6,6 +6,7 @@ import { IpcChannel } from "@shared/ipc";
 import { assertValidWhisperModelName } from "@shared/whisperModels";
 import { defaultModelFor } from "@shared/modelList";
 import { isCanonicalHotkey } from "@shared/hotkeys";
+import { MAX_AUDIO_DURATION_SECONDS } from "@shared/defaults";
 import type { DictionarySuggestion } from "@shared/dictionarySuggestions";
 import type {
   AudioVisualFrame,
@@ -88,7 +89,6 @@ const MAX_TEXT_LENGTH = 100_000;
 const MAX_SECRET_LENGTH = 8_192;
 const MAX_LIST_LENGTH = 500;
 const MAX_CUSTOM_CORRECTION_HIT_COUNT = 1_000_000;
-const MAX_AUDIO_DURATION_SECONDS = 600;
 const MAX_AUDIO_SAMPLES = 10_000_000;
 const MAX_RMS_FRAMES = 100_000;
 const MAX_AUDIO_GAIN = 100;
@@ -394,10 +394,10 @@ async function openPermissionSettings(permission: keyof PermissionStatus): Promi
 
 export interface RegisterIpcHandlersOptions {
   mainWindow: IpcWindow | null;
-  dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry">;
+  dictation: Pick<DictationService, "getState" | "getTrace" | "getActiveSessionForLifecycle" | "reinjectEntry" | "retryEntry" | "copyRecoveryEntry" | "retryRecoveryTranscription" | "retryRecoveryFormatting" | "useRawRecoveryTranscript" | "retryRecoveryInsertion" | "exportBugReport" | "showDictionarySuggestions" | "purgeAutoSuggestedCorrections" | "submitAudioClip" | "reportRecorderReady" | "reportRecorderStarted" | "updateAudioLevel" | "handleRecorderFailure" | "demoTranscribe" | "navigateToHistoryEntry" | "pauseRecording" | "resumeRecording">;
   history: Pick<HistoryStore, "getAll" | "getById" | "updateById" | "getLatest" | "delete" | "clear">;
-  settings: Pick<SettingsStore, "get" | "update" | "flush">;
-  hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "reregister" | "setCaptureActive">;
+  settings: Pick<SettingsStore, "get" | "update" | "flush" | "saveBlockedReason">;
+  hotkeys: Pick<HotkeyManager, "isPrimaryHotkeyActive" | "isHandsFree" | "reregister" | "setCaptureActive" | "stopFromMenu">;
   recorder?: { getWindow: () => IpcWindow | null; markReady: () => void; acknowledgeLifecycleSuspension?: (ack: RecorderSuspensionAck) => boolean };
   overlay?: { getWindow: () => IpcWindow | null };
   credentials?: Pick<CredentialsStore, "has" | "set" | "delete">;
@@ -445,6 +445,12 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
       sanitized.providerApiKeys = await buildRendererApiKeys(current.providerApiKeys ?? [], credentials);
     }
     return sanitized;
+  }
+
+  // Refuses key changes while settings can't be saved, so Keychain and settings never disagree.
+  // Callers refresh settings next, which shows the blocked-save banner.
+  function keyChangeBlocked(): boolean {
+    return settings.saveBlockedReason() !== null;
   }
 
   function syncProviderApiKeyMetadata(
@@ -613,10 +619,10 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     requireAllowedSender(event, [mainWindow]);
     return history.clear();
   });
-  ipcMain.handle(IpcChannel.CopyText, (event, text: unknown) => {
+  ipcMain.handle(IpcChannel.CopyText, async (event, text: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(text, MAX_TEXT_LENGTH) || !hasSpokenContent(text)) return false;
-    clipboard.writeText(text);
+    await clipboard.writeText(text);
     return true;
   });
   ipcMain.handle(IpcChannel.GetSettings, (event) => {
@@ -627,6 +633,8 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.UpdateSettings, async (event, patch: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isSettingsPatch(patch)) return getSanitizedSettings();
+    const blocked = settings.saveBlockedReason();
+    if (blocked) throw new Error(blocked);
     let settingsPatch: Partial<Settings> = { ...patch };
 
     if ("groqApiKey" in settingsPatch) {
@@ -795,7 +803,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.SetProviderApiKey, async (event, providerId: unknown, apiKey: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(providerId, MAX_ID_LENGTH, false) || !isBoundedString(apiKey, MAX_SECRET_LENGTH, false)) return getSanitizedSettings();
-    if (!credentials) return getSanitizedSettings();
+    if (!credentials || keyChangeBlocked()) return getSanitizedSettings();
     await credentials.set(providerId, apiKey);
     syncProviderApiKeyMetadata(providerId, true, null);
     return getSanitizedSettings();
@@ -804,7 +812,7 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
   ipcMain.handle(IpcChannel.ClearProviderApiKey, async (event, providerId: unknown) => {
     requireAllowedSender(event, [mainWindow]);
     if (!isBoundedString(providerId, MAX_ID_LENGTH, false)) return getSanitizedSettings();
-    if (!credentials) return getSanitizedSettings();
+    if (!credentials || keyChangeBlocked()) return getSanitizedSettings();
     await credentials.delete(providerId);
     syncProviderApiKeyMetadata(providerId, false, null);
     return getSanitizedSettings();
@@ -820,7 +828,8 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     const hasKey = credentials
       ? await credentials.has(providerId)
       : settings.get().providerApiKeys?.some((pk) => pk.providerId === providerId && pk.hasKey === true) ?? false;
-    syncProviderApiKeyMetadata(providerId, hasKey, { ...result, testedAt: new Date().toISOString() });
+    // A blocked settings file only loses the "last tested" note; the result still reaches the user.
+    if (!settings.saveBlockedReason()) syncProviderApiKeyMetadata(providerId, hasKey, { ...result, testedAt: new Date().toISOString() });
     return result;
   });
 
@@ -845,6 +854,33 @@ export function registerIpcHandlers(opts: RegisterIpcHandlersOptions): void {
     if (latest) {
       dictation.navigateToHistoryEntry(latest.id);
     }
+  });
+
+  // Overlay clicks act only on the hands-free recording the overlay was showing.
+  const isOverlayControlTarget = (sessionId: unknown): sessionId is string => {
+    if (!isBoundedString(sessionId, MAX_ID_LENGTH, false)) return false;
+    const state = dictation.getState();
+    return state.status === "recording" && state.sessionId === sessionId && hotkeys.isHandsFree();
+  };
+
+  // Capsule overlay hands-free controls
+  ipcMain.on("capsule:pause", (event, sessionId: unknown) => {
+    if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    if (!isOverlayControlTarget(sessionId)) return;
+    dictation.pauseRecording();
+  });
+
+  ipcMain.on("capsule:resume", (event, sessionId: unknown) => {
+    if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    if (!isOverlayControlTarget(sessionId)) return;
+    dictation.resumeRecording();
+  });
+
+  // Send ends the session the same way a hotkey release or toggle press does.
+  ipcMain.on("capsule:send", (event, sessionId: unknown) => {
+    if (!isSenderAllowed(event, [overlay?.getWindow()])) return;
+    if (!isOverlayControlTarget(sessionId)) return;
+    hotkeys.stopFromMenu();
   });
 
   // Demo transcription (bypasses history and injection)

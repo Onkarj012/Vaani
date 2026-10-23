@@ -33,6 +33,30 @@ export class DictationTraceStore {
     return found ? copyTrace(found) : undefined;
   }
 
+  // Marks traces left "started" by a quit or crash as failed. Run at startup, before any new dictation.
+  // The completion time stays unknown: startup can be hours after the stop, and timing reports skip traces without it.
+  async closeUnfinished(): Promise<number> {
+    let closed = 0;
+    await this.enqueueMutation(async () => {
+      const traces = await this.ensureLoaded();
+      const next = traces.map((trace) => {
+        if (trace.outcome !== "started") return trace;
+        closed += 1;
+        return {
+          ...trace,
+          outcome: "failed" as const,
+          rejectionReason: "cancelled" as const,
+          userMessage: "Vaani closed before this dictation finished.",
+          stages: { ...trace.stages, outcome: "failed" as const },
+        };
+      });
+      if (closed === 0) return;
+      await writeJsonFile(this.filePath, next);
+      this.cache = next;
+    });
+    return closed;
+  }
+
   async upsert(trace: DictationTrace): Promise<void> {
     await this.enqueueMutation(async () => {
       const traces = await this.ensureLoaded();
@@ -64,7 +88,7 @@ export class DictationTraceStore {
 
   private async ensureLoaded(): Promise<DictationTrace[]> {
     if (this.cache) return this.cache;
-    const raw = await readJsonFile<unknown>(this.filePath, []);
+    const raw = await readJsonFile<unknown>(this.filePath, [], Array.isArray);
     this.cache = normalizeTraces(raw);
     return this.cache;
   }

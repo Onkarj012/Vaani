@@ -983,6 +983,25 @@ describe("TranscriptionService failover chain", () => {
     });
   });
 
+  it("drops a withdrawn sentence across paragraphs before formatting", async () => {
+    const format = vi.fn(async (text: string) => text);
+    registryState.formattingProviders.set("groq-llm", formattingProvider("groq-llm", format));
+    const { TranscriptionService } = await import("@main/transcription");
+
+    const service = new TranscriptionService(() => ({
+      ...DEFAULT_SETTINGS,
+      transcriptionProvider: "groq",
+      formattingProvider: "groq-llm",
+      groqApiKey: "groq-key",
+    }));
+
+    const result = await service.formatTranscriptDetailed("I will be late.\n\nScratch that.\n\nI will be on time.");
+
+    expect(format).toHaveBeenCalledTimes(1);
+    expect(format).toHaveBeenCalledWith("I will be on time.", expect.anything());
+    expect(result.text).toBe("I will be on time.");
+  });
+
   it("retries one transient recovery failure before accepting the provider result", async () => {
     const transcribe = vi.fn()
       .mockRejectedValueOnce(new Error("network timeout"))

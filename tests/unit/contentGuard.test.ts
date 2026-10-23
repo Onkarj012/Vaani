@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addedContentWords, diffContentWords, missingContentWords, preservesContentWords, stripReasoningBlocks } from "../../src/shared/contentGuard";
+import { addedContentWords, diffContentWords, judgeFormatterReply, missingContentWords, preservesContentWords, stripReasoningBlocks } from "../../src/shared/contentGuard";
 
 describe("preservesContentWords", () => {
   it("accepts punctuation and capitalization changes", () => {
@@ -83,6 +83,14 @@ describe("preservesContentWords", () => {
     expect(preservesContentWords("send me the logs by by Friday no no no Thursday thanks", "Send me the logs by Thursday. Thanks.", [])).toBe(true);
     expect(preservesContentWords("quick update on the, on the release and, and it looks good", "Quick update on the release and it looks good.", [])).toBe(true);
     expect(preservesContentWords("there sh- there are certain times", "There are certain times.", [])).toBe(true);
+  });
+
+  it("keeps a number from a separate sentence when its cue is dropped too", () => {
+    expect(preservesContentWords("The answer is 3. Sorry, 4 people are waiting.", "The answer is 4 people are waiting.", [])).toBe(false);
+    expect(preservesContentWords("Meet at 3, sorry, 4.", "Meet at 4.", [])).toBe(true);
+    expect(preservesContentWords("Meet at 3, no wait, 4.", "Meet at 4.", [])).toBe(true);
+    expect(preservesContentWords("Meet at 3. Sorry. 4.", "Meet at 4.", [])).toBe(true);
+    expect(preservesContentWords("Meet at 3. Sorry. Four.", "Meet at 4.", [])).toBe(true);
   });
 
   it("keeps every word when speech noise is not allowed (cleanup off)", () => {
@@ -260,6 +268,54 @@ describe("preservesContentWords", () => {
     const candidate = Array.from({ length: 1_001 }, (_, index) => `beta${index}`).join(" ");
     expect(diffContentWords(raw, candidate, []).rejection).toBe("Transcript too long to verify formatting.");
     expect(preservesContentWords(raw, candidate, [])).toBe(false);
+  });
+});
+
+describe("long transcripts over the alignment limit", () => {
+  // A long body that pushes the transcript past the alignment limit.
+  const tail = Array.from({ length: 1_100 }, (_, index) => `word${index}`).join(" ");
+
+  it("rejects a reply that drops a number from a separate statement", () => {
+    const raw = `The answer is 3. Sorry, 4 people are waiting. ${tail} done`;
+    const candidate = `The answer is sorry, 4 people are waiting. ${tail} finished.`;
+    const verdict = judgeFormatterReply(raw, candidate);
+    expect(verdict.rejection).not.toBeNull();
+    expect(verdict.dropped).toContain("3");
+  });
+
+  it("rejects a reply that drops a number and its cue from the previous sentence", () => {
+    const raw = `The answer is 3. Sorry, 4 people are waiting. ${tail} done`;
+    const verdict = judgeFormatterReply(raw, `The answer is 4 people are waiting. ${tail} finished.`);
+    expect(verdict.rejection).not.toBeNull();
+    expect(verdict.dropped).toEqual(expect.arrayContaining(["3", "sorry"]));
+  });
+
+  it("accepts a correction when the kept reply repeats the corrected number", () => {
+    const raw = `Start at 3, no, 4. Keep 3 seats. ${tail} done`;
+    expect(judgeFormatterReply(raw, `Start at 4. Keep 3 seats. ${tail} finished`).rejection).toBeNull();
+  });
+
+  it("accepts a correction in an oversized gap whose repeated words match in order", () => {
+    const repeated = "Start at 4. Keep 3 seats. ".repeat(200);
+    const raw = `Done. Start at 3, no, 4. Keep 3 seats. ${repeated} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Start at 4. Keep 3 seats. ${repeated} finish.`).rejection).toBeNull();
+  });
+
+  it("accepts a spoken number word that becomes a digit next to a sentence cue", () => {
+    const raw = `Done. Meet at 3. Sorry. Four. ${tail} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Meet at 4. ${tail} finish.`).rejection).toBeNull();
+  });
+
+  it("accepts a correction whose cue opens a sentence and its replacement does too", () => {
+    const raw = `Done. Meet at 3. Sorry. 4. ${tail} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Meet at 4. ${tail} finish.`).rejection).toBeNull();
+  });
+
+  it("accepts a genuine correction inside one sentence, dropped or kept", () => {
+    // The edits sit at both ends so the long body stays in the unaligned middle.
+    const raw = `Done. Start at 3, no, 4 for the team. ${tail} end.`;
+    expect(judgeFormatterReply(raw, `Finished. Start at 4 for the team. ${tail} finish.`).rejection).toBeNull();
+    expect(judgeFormatterReply(raw, `Finished. Start at 3, no, 4 for the team. ${tail} finish.`).rejection).toBeNull();
   });
 });
 

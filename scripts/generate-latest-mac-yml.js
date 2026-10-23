@@ -42,6 +42,8 @@ const yml = [
   `path: ${fileName}`,
   `sha512: ${sha512}`,
   `releaseDate: '${new Date().toISOString()}'`,
+  // electron-updater skips this update on older macOS. 22.0.0 is the Darwin version of macOS 13, which Electron 44 needs.
+  "minimumSystemVersion: 22.0.0",
   ""
 ].join("\n");
 

@@ -19,7 +19,7 @@ Vaani is a macOS voice dictation app with multi-provider transcription and LLM f
 
 ## System Requirements
 
-- **macOS**: 12.0 (Monterey) or later
+- **macOS**: 13.0 (Ventura) or later
 - **Architecture**: Apple Silicon or Intel
 - **Internet**: Required for cloud transcription and formatting.
 - **Permissions**: Accessibility (global hotkeys + text injection), Microphone
@@ -186,7 +186,7 @@ bun run typecheck    # TypeScript check
 
 ## Known Limitations
 
-- macOS only (12+)
+- macOS only (13+)
 - Very short phrases (< 3 words) may not inject reliably in some apps
 - **Stale state after extended uptime** — App may become unresponsive after ~16 hours of continuous use. Restarting Vaani resolves this. Auto-recovery watchdog added in v1.0.4; root cause investigation ongoing.
 - **Capsule overlay** — The recording overlay (bottom-center pill) may occasionally not appear when dictation starts. It typically reappears on the next attempt. Visibility retry logic added in v1.0.4.
