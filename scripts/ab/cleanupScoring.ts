@@ -1,5 +1,34 @@
 // Pure helpers for the cleanup A/B script. No network, no file access.
 
+import type { Settings } from "@shared/types";
+
+/** Settings every model is graded with, on top of Vaani's defaults. recording-script.md lists the same values. */
+export const AB_TEST_PROFILE: Pick<Settings, "extraFillerWords" | "customCorrections" | "snippets"> = {
+  extraFillerWords: ["like", "you know"],
+  customCorrections: [
+    { spoken: "vs code", written: "VS Code" },
+    { spoken: "type script", written: "TypeScript" },
+    { spoken: "next js", written: "Next.js" },
+    { spoken: "open router", written: "OpenRouter" },
+    { spoken: "kube cuttle", written: "kubectl" },
+    { spoken: "api", written: "API" },
+    { spoken: "Siddharth", written: "Siddharth", fuzzy: true },
+    { spoken: "Vaani", written: "Vaani", fuzzy: true },
+  ],
+  snippets: [
+    { trigger: "sign off", content: "Best regards, Onkar Jadhav" },
+    { trigger: "my address", content: "Flat 12, Baner Road, Pune 411045", matchBareTrigger: true },
+    { trigger: "today", content: "{{date}}" },
+  ],
+};
+
+// Fixed snippet placeholder values, so expected text does not depend on the day or the clipboard.
+export function abPlaceholder(name: "date" | "time" | "clipboard"): string {
+  if (name === "date") return "24/10/2026";
+  if (name === "time") return "10:30:00 am";
+  return "";
+}
+
 // Reads the expected cleanup for each clip file from the table in recording-script.md.
 // Columns: # | File | Say | Expected cleanup | Note. A "<br>" in the expected cell means a new line.
 export function parseExpectedCleanup(markdown: string): Map<string, string> {

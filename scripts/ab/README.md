@@ -101,7 +101,7 @@ bun scripts/ab-cleanup.ts
 Options:
 
 - `--models <id,id>` picks models. The default is `anthropic/claude-haiku-5.5` (OpenRouter), `openai/gpt-oss-20b` (Groq), and `gpt-6-luna` (OpenAI). OpenRouter also lists `openai/gpt-6-luna`.
-- `--fillers "like,you know"` adds filler words the model may drop, as if you added them in Settings. Lines 19 and 20 need it.
+- Every model runs with the test profile from `recording-script.md`, including dictionary, snippets, and extra fillers; `--fillers "like,you know"` adds more.
 - `--stt-results ab-test/results/<time>.json --stt-model <id>` cleans the transcripts from `ab-transcription.ts` instead of the typed text.
 
 A model whose key is not set is skipped, and the report says so. The script writes `ab-test/results/cleanup-<time>.md` and `.json`. Stored output and scores use the text Vaani would insert after its final cleanup, for both formatted replies and fallbacks.

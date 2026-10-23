@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { isExactMatch, mean, parseExpectedCleanup, percentile, redactSecrets, transcriptsFromResults } from "@scripts/ab/cleanupScoring";
+import { DEFAULT_SETTINGS } from "@shared/defaults";
+import { cleanupText } from "@main/text/cleanup";
+import { AB_TEST_PROFILE, abPlaceholder, isExactMatch, mean, parseExpectedCleanup, percentile, redactSecrets, transcriptsFromResults } from "@scripts/ab/cleanupScoring";
 
 describe("parseExpectedCleanup", () => {
   it("reads file name and expected text from table rows", () => {
@@ -12,6 +15,22 @@ describe("parseExpectedCleanup", () => {
     const expected = parseExpectedCleanup(markdown);
     expect([...expected.keys()]).toEqual(["01-short-undo-that.wav", "23-list.wav"]);
     expect(expected.get("23-list.wav")).toBe("1. A.\n2. B.");
+  });
+
+  it("keeps the recording script's expected cleanup unchanged in the app's final pass", () => {
+    const rows = parseExpectedCleanup(readFileSync(new URL("../../scripts/ab/recording-script.md", import.meta.url), "utf8"));
+    expect(rows.size).toBe(75);
+    // Known app bugs: meeting time becomes "p.m. At" and Devanagari gets "." after "।".
+    const knownBugs = new Set(["30-number-meeting-time.wav", "69-hindi-devanagari.wav"]);
+    for (const [file, expected] of rows) {
+      if (knownBugs.has(file)) continue;
+      expect(cleanupText({
+        rawText: expected,
+        settings: { ...DEFAULT_SETTINGS, ...AB_TEST_PROFILE },
+        skipCorrections: true,
+        placeholderResolver: abPlaceholder,
+      }), file).toBe(expected);
+    }
   });
 
   it("ignores rows that are not clip rows", () => {

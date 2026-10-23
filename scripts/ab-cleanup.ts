@@ -12,9 +12,9 @@ import type { FormattingProvider, FormattingResult } from "@main/providers/types
 import { OpenRouterLlmProvider } from "@main/providers/openrouter/openRouterLlm";
 import { GroqLlmProvider } from "@main/providers/groq/groqLlm";
 import { OpenAILlmProvider } from "@main/providers/openai/openaiLlm";
-import { cleanupText, formatterDropWords, removeSpeechNoise } from "@main/text/cleanup";
+import { applyDictionary, cleanupText, formatterDropWords, removeSpeechNoise, stripSoundTags } from "@main/text/cleanup";
 import { wordErrorRate } from "./ab/scoring";
-import { isExactMatch, mean, parseExpectedCleanup, percentile, redactSecrets, transcriptsFromResults } from "./ab/cleanupScoring";
+import { AB_TEST_PROFILE, abPlaceholder, isExactMatch, mean, parseExpectedCleanup, percentile, redactSecrets, transcriptsFromResults } from "./ab/cleanupScoring";
 
 // Models compared when --models is not given. Ids come from src/shared/modelList.ts.
 const DEFAULT_MODEL_IDS = ["anthropic/claude-haiku-5.5", "openai/gpt-oss-20b", "gpt-6-luna"];
@@ -136,7 +136,7 @@ function redactKeys(text: string): string {
 
 // Applies Vaani's final cleanup before storing and scoring one clip result.
 function buildResult(run: RunModel, clip: ClipInput, settings: Settings, reply: { outcome: Outcome; reason: string; output: string; latencyMs: number; costUsd?: number }): ClipResult {
-  const output = cleanupText({ rawText: reply.output, settings, skipCorrections: true });
+  const output = cleanupText({ rawText: reply.output, settings, skipCorrections: true, placeholderResolver: abPlaceholder });
   return {
     clip: clip.name,
     model: run.entry.modelId,
@@ -152,9 +152,10 @@ function buildResult(run: RunModel, clip: ClipInput, settings: Settings, reply: 
   };
 }
 
-// Sends one clip to one formatter with the app's prompts and live deadline, then applies the content guard and the speech-noise fallback.
+// Applies dictionary corrections before formatting, then the app's content guard and speech-noise fallback.
 async function runClip(run: RunModel, clip: ClipInput, settings: Settings, fillerWords: string[]): Promise<ClipResult> {
-  const fallback = removeSpeechNoise(clip.raw);
+  const corrected = applyDictionary(stripSoundTags(clip.raw), settings);
+  const fallback = removeSpeechNoise(corrected);
   const language = DEFAULT_SETTINGS.language;
   const timeoutMs = liveFormattingTimeoutMs(run.entry.provider);
   const deadline = new AbortController();
@@ -163,11 +164,11 @@ async function runClip(run: RunModel, clip: ClipInput, settings: Settings, fille
   const timedOut = (costUsd?: number) => buildResult(run, clip, settings, { outcome: "timeout", reason: `No reply within ${timeoutMs} ms. Vaani would insert the speech-noise fallback.`, output: fallback, latencyMs: Math.min(performance.now() - startedAt, timeoutMs), costUsd });
   let reply: FormattingResult;
   try {
-    reply = await run.adapter.format(clip.raw, {
+    reply = await run.adapter.format(corrected, {
       apiKey: run.apiKey,
       model: run.entry.modelId,
-      systemPrompt: buildFormattingPrompt({ language, text: clip.raw, fillerWords }),
-      strictSystemPrompt: buildFormattingPrompt({ strict: true, language, text: clip.raw, fillerWords }),
+      systemPrompt: buildFormattingPrompt({ language, text: corrected, fillerWords }),
+      strictSystemPrompt: buildFormattingPrompt({ strict: true, language, text: corrected, fillerWords }),
       fillerWords,
       signal: deadline.signal,
     });
@@ -185,7 +186,7 @@ async function runClip(run: RunModel, clip: ClipInput, settings: Settings, fille
 
   const formatted = stripReasoningBlocks(reply.text);
   if (!formatted) return buildResult(run, clip, settings, { outcome: "failed", reason: EMPTY_REPLY_REASON, output: fallback, latencyMs, costUsd });
-  const verdict = judgeFormatterReply(clip.raw, formatted, fillerWords, { speechNoise: true });
+  const verdict = judgeFormatterReply(corrected, formatted, fillerWords, { speechNoise: true });
   if (verdict.rejection) return buildResult(run, clip, settings, { outcome: "guard-rejected", reason: verdict.rejection, output: fallback, latencyMs, costUsd });
   return buildResult(run, clip, settings, { outcome: "formatted", reason: FORMATTED_REASON, output: formatted, latencyMs, costUsd });
 }
@@ -301,7 +302,7 @@ async function main(): Promise<void> {
   if (clips.length === 0) throw new Error(`No usable clips in ${join(dir, "clips")}. ${warnings.join(" ")}`);
   const inputLabel = args.sttModel ? `STT transcripts from ${args.sttResults} (\`${args.sttModel}\`)` : "reference .txt files in clips/";
 
-  const settings: Settings = { ...DEFAULT_SETTINGS, extraFillerWords: args.fillers };
+  const settings: Settings = { ...DEFAULT_SETTINGS, ...AB_TEST_PROFILE, extraFillerWords: [...AB_TEST_PROFILE.extraFillerWords, ...args.fillers] };
   const fillerWords = formatterDropWords(settings);
   const results: ClipResult[] = [];
   const total = runs.length * clips.length;
