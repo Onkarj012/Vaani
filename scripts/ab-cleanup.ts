@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
+import type { Settings } from "@shared/types";
 import { judgeFormatterReply, stripReasoningBlocks } from "@shared/contentGuard";
 import { modelEntries, type ModelEntry } from "@shared/modelList";
 import { buildFormattingPrompt, EMPTY_REPLY_REASON, FORMATTED_REASON, liveFormattingTimeoutMs } from "@main/providers/formatting-constants";
@@ -134,8 +135,8 @@ function redactKeys(text: string): string {
 }
 
 // Applies Vaani's final cleanup before storing and scoring one clip result.
-function buildResult(run: RunModel, clip: ClipInput, fillerWords: string[], reply: { outcome: Outcome; reason: string; output: string; latencyMs: number; costUsd?: number }): ClipResult {
-  const output = cleanupText({ rawText: reply.output, settings: { ...DEFAULT_SETTINGS, fillerWords }, skipCorrections: true });
+function buildResult(run: RunModel, clip: ClipInput, settings: Settings, reply: { outcome: Outcome; reason: string; output: string; latencyMs: number; costUsd?: number }): ClipResult {
+  const output = cleanupText({ rawText: reply.output, settings, skipCorrections: true });
   return {
     clip: clip.name,
     model: run.entry.modelId,
@@ -152,14 +153,14 @@ function buildResult(run: RunModel, clip: ClipInput, fillerWords: string[], repl
 }
 
 // Sends one clip to one formatter with the app's prompts and live deadline, then applies the content guard and the speech-noise fallback.
-async function runClip(run: RunModel, clip: ClipInput, fillerWords: string[]): Promise<ClipResult> {
+async function runClip(run: RunModel, clip: ClipInput, settings: Settings, fillerWords: string[]): Promise<ClipResult> {
   const fallback = removeSpeechNoise(clip.raw);
   const language = DEFAULT_SETTINGS.language;
   const timeoutMs = liveFormattingTimeoutMs(run.entry.provider);
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), timeoutMs);
   const startedAt = performance.now();
-  const timedOut = (costUsd?: number) => buildResult(run, clip, fillerWords, { outcome: "timeout", reason: `No reply within ${timeoutMs} ms. Vaani would insert the speech-noise fallback.`, output: fallback, latencyMs: Math.min(performance.now() - startedAt, timeoutMs), costUsd });
+  const timedOut = (costUsd?: number) => buildResult(run, clip, settings, { outcome: "timeout", reason: `No reply within ${timeoutMs} ms. Vaani would insert the speech-noise fallback.`, output: fallback, latencyMs: Math.min(performance.now() - startedAt, timeoutMs), costUsd });
   let reply: FormattingResult;
   try {
     reply = await run.adapter.format(clip.raw, {
@@ -171,22 +172,22 @@ async function runClip(run: RunModel, clip: ClipInput, fillerWords: string[]): P
       signal: deadline.signal,
     });
   } catch (error) {
-    return deadline.signal.aborted ? timedOut() : buildResult(run, clip, fillerWords, { outcome: "failed", reason: errorMessage(error), output: fallback, latencyMs: performance.now() - startedAt });
+    return deadline.signal.aborted ? timedOut() : buildResult(run, clip, settings, { outcome: "failed", reason: errorMessage(error), output: fallback, latencyMs: performance.now() - startedAt });
   } finally {
     clearTimeout(timer);
   }
   if (deadline.signal.aborted) return timedOut(reply.costUsd);
   const latencyMs = performance.now() - startedAt;
   const costUsd = reply.costUsd;
-  if (reply.status === "skipped") return buildResult(run, clip, fillerWords, { outcome: "skipped", reason: reply.reason, output: fallback, latencyMs, costUsd });
-  if (reply.status === "rejected") return buildResult(run, clip, fillerWords, { outcome: "guard-rejected", reason: reply.reason, output: fallback, latencyMs, costUsd });
-  if (reply.status === "failed") return buildResult(run, clip, fillerWords, { outcome: "failed", reason: reply.reason, output: fallback, latencyMs, costUsd });
+  if (reply.status === "skipped") return buildResult(run, clip, settings, { outcome: "skipped", reason: reply.reason, output: fallback, latencyMs, costUsd });
+  if (reply.status === "rejected") return buildResult(run, clip, settings, { outcome: "guard-rejected", reason: reply.reason, output: fallback, latencyMs, costUsd });
+  if (reply.status === "failed") return buildResult(run, clip, settings, { outcome: "failed", reason: reply.reason, output: fallback, latencyMs, costUsd });
 
   const formatted = stripReasoningBlocks(reply.text);
-  if (!formatted) return buildResult(run, clip, fillerWords, { outcome: "failed", reason: EMPTY_REPLY_REASON, output: fallback, latencyMs, costUsd });
+  if (!formatted) return buildResult(run, clip, settings, { outcome: "failed", reason: EMPTY_REPLY_REASON, output: fallback, latencyMs, costUsd });
   const verdict = judgeFormatterReply(clip.raw, formatted, fillerWords, { speechNoise: true });
-  if (verdict.rejection) return buildResult(run, clip, fillerWords, { outcome: "guard-rejected", reason: verdict.rejection, output: fallback, latencyMs, costUsd });
-  return buildResult(run, clip, fillerWords, { outcome: "formatted", reason: FORMATTED_REASON, output: formatted, latencyMs, costUsd });
+  if (verdict.rejection) return buildResult(run, clip, settings, { outcome: "guard-rejected", reason: verdict.rejection, output: fallback, latencyMs, costUsd });
+  return buildResult(run, clip, settings, { outcome: "formatted", reason: FORMATTED_REASON, output: formatted, latencyMs, costUsd });
 }
 
 // Builds the per-model numbers from that model's clip results.
@@ -300,12 +301,13 @@ async function main(): Promise<void> {
   if (clips.length === 0) throw new Error(`No usable clips in ${join(dir, "clips")}. ${warnings.join(" ")}`);
   const inputLabel = args.sttModel ? `STT transcripts from ${args.sttResults} (\`${args.sttModel}\`)` : "reference .txt files in clips/";
 
-  const fillerWords = formatterDropWords({ ...DEFAULT_SETTINGS, extraFillerWords: args.fillers });
+  const settings: Settings = { ...DEFAULT_SETTINGS, extraFillerWords: args.fillers };
+  const fillerWords = formatterDropWords(settings);
   const results: ClipResult[] = [];
   const total = runs.length * clips.length;
   for (const run of runs) {
     for (const clip of clips) {
-      const result = await runClip(run, clip, fillerWords);
+      const result = await runClip(run, clip, settings, fillerWords);
       results.push(result);
       const status = result.latencyMs === null ? result.outcome : `${result.outcome} ${Math.round(result.latencyMs)} ms`;
       console.error(`[${results.length}/${total}] ${run.entry.modelId} ${clip.name} ${status}`);
