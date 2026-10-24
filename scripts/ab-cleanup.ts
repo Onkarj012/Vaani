@@ -115,11 +115,13 @@ function readSttTranscripts(path: string, modelId: string): Map<string, string> 
   return transcriptsFromResults(parsed, modelId);
 }
 
-// Pairs each expected row with its input: the .txt reference, or the STT transcript when one is given.
+// Pairs each expected row with its cleanup override or .txt reference, or the STT transcript when given.
 function loadClips(expected: Map<string, string>, clipsDir: string, transcripts: Map<string, string> | null, warnings: string[]): ClipInput[] {
   const clips: ClipInput[] = [];
   for (const [name, expectedText] of expected) {
-    const raw = transcripts ? transcripts.get(name) : readReference(join(clipsDir, `${name.slice(0, -".wav".length)}.txt`));
+    const base = join(clipsDir, name.slice(0, -".wav".length));
+    const cleanupPath = `${base}.cleanup.txt`;
+    const raw = transcripts ? transcripts.get(name) : readReference(existsSync(cleanupPath) ? cleanupPath : `${base}.txt`);
     if (!raw) {
       warnings.push(`${name}: no input text, skipped.`);
       continue;

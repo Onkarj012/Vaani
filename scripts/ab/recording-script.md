@@ -7,7 +7,7 @@
 1. In Vaani Dev, turn on **Save Recordings**. Each dictation saves one WAV in `~/Documents/Vaani Recordings/`.
 2. Read each **Say** line once, at your normal pace. Words like "twenty five", "dot ts" and "vs code" are written the way you say them. Follow the **Note** when it asks for a whisper, a cough, or distance from the mic.
 3. Rename each WAV to its file name and put it in `ab-test/clips/`. The file names in Vaani Recordings use UTC time, so rename each one right after you record it.
-4. Next to each WAV, put a `.txt` file with the same base name holding the **Say** text exactly. When the note gives a `.txt:` override, use that text instead. It stands for a typical transcription mistake that the line tests.
+4. Next to each WAV, put a `.txt` file with the same base name always holding the **Say** text exactly. When the note gives a `cleanup input:` override, also write that text to `<base>.cleanup.txt`. It simulates a transcription mistake. `ab-cleanup.ts` uses it as the cleanup input, while `ab-transcription.ts` keeps scoring against the spoken `.txt`.
 
 Example: `ab-test/clips/18-correction-meet-time.wav` and `ab-test/clips/18-correction-meet-time.txt`.
 
@@ -142,7 +142,7 @@ The **Expected cleanup** column is what Vaani should insert after the model and 
 | 56 | `56-dict-open-router.wav` | Switch the cleanup model to open router for now. | Switch the cleanup model to OpenRouter for now. | |
 | 57 | `57-dict-kubectl.wav` | Check the pods with kube cuttle get pods. | Check the pods with kubectl get pods. | |
 | 58 | `58-dict-api-whole-word.wav` | The api is rapid now that caching works. | The API is rapid now that caching works. | whole word: "rapid" stays |
-| 59 | `59-dict-fuzzy-names.wav` | Siddharth reviewed the Vaani release notes. | Siddharth reviewed the Vaani release notes. | `.txt:` Sidharth reviewed the Vani release notes. Known app gap: the fuzzy rule fixes "Vani" but not "Sidharth" |
+| 59 | `59-dict-fuzzy-names.wav` | Siddharth reviewed the Vaani release notes. | Siddharth reviewed the Vaani release notes. | `cleanup input:` Sidharth reviewed the Vani release notes. Known app gap: the fuzzy rule fixes "Vani" but not "Sidharth" |
 
 ### Snippets
 
@@ -178,4 +178,4 @@ The **Expected cleanup** column is what Vaani should insert after the model and 
 | 72 | `72-whisper-pricing.wav` | Do not tell anyone yet, but the pricing page goes live on Friday. | Do not tell anyone yet, but the pricing page goes live on Friday. | whisper |
 | 73 | `73-whisper-draft.wav` | Keep your voice low, the baby is sleeping, and send me the draft after lunch. | Keep your voice low, the baby is sleeping, and send me the draft after lunch. | whisper |
 | 74 | `74-quiet-far-mic.wav` | The meeting notes are in the shared drive under October. | The meeting notes are in the shared drive under October. | sit about 1 m from the mic |
-| 75 | `75-noise-cough.wav` | I checked the logs and nothing failed. | I checked the logs and nothing failed. | cough after "logs". `.txt:` I checked the logs [coughs] and nothing failed. |
+| 75 | `75-noise-cough.wav` | I checked the logs and nothing failed. | I checked the logs and nothing failed. | cough after "logs". `cleanup input:` I checked the logs [coughs] and nothing failed. |

@@ -89,6 +89,7 @@ Pick the model with the lowest WER and the fewest term misses. Break ties on lat
 
 1. Record the 30 lines in [`recording-script.md`](recording-script.md). The file names match the table there.
 2. Type each line's **Say** text into `ab-test/clips/<name>.txt`.
+   When a note gives a `cleanup input:` override, write it to `<clip>.cleanup.txt`; `ab-cleanup.ts` uses it instead of `<clip>.txt` in reference mode, while transcription scoring keeps the spoken text.
 3. Run it:
 
 ```bash
