@@ -53,7 +53,7 @@ The **Expected cleanup** column is what Vaani should insert after the model and 
 | 07 | `07-long-overlay-bug.wav` | I opened the app this morning and the overlay did not show up when I pressed the hotkey, so I restarted it, and then the hotkey worked for two dictations but after that it stopped again, which seems to be the same stuck state we saw last week. | I opened the app this morning and the overlay did not show up when I pressed the hotkey. So I restarted it, and then the hotkey worked for 2 dictations, but after that it stopped again, which seems to be the same stuck state we saw last week. | |
 | 08 | `08-long-model-plan.wav` | We finish the transcription test and then pick the default model, after which we update the onboarding copy and ship the build to the three people who asked for it last month. | We finish the transcription test and then pick the default model, after which we update the onboarding copy and ship the build to the 3 people who asked for it last month. | |
 | 09 | `09-long-topic-change.wav` | The build passed on CI this morning and the installer works on my machine. On a different note, the team lunch moved to Friday, so please book a table near the office. | The build passed on CI this morning, and the installer works on my machine.<br>On a different note, the team lunch moved to Friday, so please book a table near the office. | new paragraph at the topic change |
-| 10 | `10-long-email.wav` | Hi Priya, I went through the contract and the payment terms look fine. The only change I need is the delivery date, which should move to the fifteenth of November. Let me know if that works. | Hi Priya, I went through the contract, and the payment terms look fine. The only change I need is the delivery date, which should move to the fifteenth of November. Let me know if that works. | |
+| 10 | `10-long-email.wav` | Hi Priya, I went through the contract and the payment terms look fine. The only change I need is the delivery date. It should be moved to the fifteenth of November. Let me know if that works. | Hi Priya, I went through the contract, and the payment terms look fine. The only change I need is the delivery date. It should be moved to the fifteenth of November. Let me know if that works. | |
 
 ### Speech noise and fillers
 
@@ -95,12 +95,12 @@ The **Expected cleanup** column is what Vaani should insert after the model and 
 | --- | --- | --- | --- | --- |
 | 30 | `30-number-meeting-time.wav` | Meet me at 5 p.m. at the cafe on MG Road. | Meet me at 5 p.m. at the cafe on MG Road. | known app bug: the final pass writes "p.m. At", so every model misses this line |
 | 31 | `31-number-money.wav` | The invoice is $3.50 for the extra copy. | The invoice is $3.50 for the extra copy. | |
-| 32 | `32-number-file-size.wav` | The backup file is 2.5 GB, so copy it to the external drive first. | The backup file is 2.5 GB, so copy it to the external drive first. | |
+| 32 | `32-number-file-size.wav` | The backup is 2.5 GB, so copy it to the external drive first. | The backup is 2.5 GB, so copy it to the external drive first. | |
 | 33 | `33-number-plan-price.wav` | Renew the plan before 31 March, it costs 1,499 rupees. | Renew the plan before 31 March. It costs 1,499 rupees. | |
 | 34 | `34-number-spoken-count.wav` | We have twenty five open tickets and three are urgent. | We have 25 open tickets and 3 are urgent. | |
 | 35 | `35-number-percent.wav` | Conversion went up by twelve percent last week. | Conversion went up by 12% last week. | |
 | 36 | `36-number-dollars.wav` | The server costs forty dollars a month. | The server costs $40 a month. | |
-| 37 | `37-number-idiom-one.wav` | That is one way to fix it. | That is one way to fix it. | a lone "one" stays a word |
+| 37 | `37-number-idiom-one.wav` | This is one way to fix it. | This is one way to fix it. | a lone "one" stays a word |
 | 38 | `38-number-unit-mm.wav` | Use a ten mm margin on the card. | Use a 10 mm margin on the card. | "mm" after a number is a unit, not a hesitation |
 
 ### Questions and punctuation
