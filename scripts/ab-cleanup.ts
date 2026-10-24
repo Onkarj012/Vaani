@@ -14,7 +14,7 @@ import { GroqLlmProvider } from "@main/providers/groq/groqLlm";
 import { OpenAILlmProvider } from "@main/providers/openai/openaiLlm";
 import { applyDictionary, cleanupText, formatterDropWords, removeSpeechNoise, stripSoundTags } from "@main/text/cleanup";
 import { wordErrorRate } from "./ab/scoring";
-import { AB_TEST_PROFILE, abPlaceholder, isExactMatch, mean, parseExpectedCleanup, percentile, redactSecrets, transcriptsFromResults } from "./ab/cleanupScoring";
+import { AB_TEST_PROFILE, abPlaceholder, cleanupConfigFingerprint, isExactMatch, mean, parseExpectedCleanup, percentile, redactSecrets, transcriptsFromResults } from "./ab/cleanupScoring";
 
 // Models compared when --models is not given. Ids come from src/shared/modelList.ts.
 const DEFAULT_MODEL_IDS = ["anthropic/claude-haiku-5.5", "openai/gpt-oss-20b", "gpt-6-luna"];
@@ -306,6 +306,7 @@ async function main(): Promise<void> {
 
   const settings: Settings = { ...DEFAULT_SETTINGS, ...AB_TEST_PROFILE, extraFillerWords: [...AB_TEST_PROFILE.extraFillerWords, ...args.fillers] };
   const fillerWords = formatterDropWords(settings);
+  const configFingerprint = cleanupConfigFingerprint(settings, readFileSync(new URL("../src/main/providers/formatting-constants.ts", import.meta.url), "utf8"));
   const results: ClipResult[] = [];
   const total = runs.length * clips.length;
   for (const run of runs) {
@@ -323,7 +324,7 @@ async function main(): Promise<void> {
   mkdirSync(resultsDir, { recursive: true });
   const stamp = timestamp(new Date());
   writeFileSync(join(resultsDir, `cleanup-${stamp}.md`), markdown);
-  writeFileSync(join(resultsDir, `cleanup-${stamp}.json`), JSON.stringify({ input: inputLabel, fillers: fillerWords, clipCount: clips.length, summaries, results, skippedModels, warnings }, null, 2) + "\n");
+  writeFileSync(join(resultsDir, `cleanup-${stamp}.json`), JSON.stringify({ input: inputLabel, fillers: fillerWords, configFingerprint, clipCount: clips.length, summaries, results, skippedModels, warnings }, null, 2) + "\n");
 
   process.stdout.write(markdown);
   console.error(`Wrote ${join(resultsDir, `cleanup-${stamp}`)}.md and .json`);
