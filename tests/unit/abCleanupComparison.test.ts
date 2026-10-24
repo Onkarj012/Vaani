@@ -61,6 +61,15 @@ describe("cleanup regression comparison", () => {
     expect(renderCleanupComparison(comparison)).toContain("Clips needing review: 1");
   });
 
+  it("counts reason-only guard changes for review without flagging a score regression", () => {
+    const baseline = run([{ ...row(), outcome: "guard-rejected", reason: "Original rejection" }]);
+    const candidate = run([{ ...row(), outcome: "guard-rejected", reason: "Different rejection" }]);
+    const comparison = compareCleanupRuns(baseline, candidate);
+    expect(comparison.regressions).toBe(0);
+    expect(comparison.clips[0]?.change).toBe("unchanged");
+    expect(renderCleanupComparison(comparison)).toContain("Clips needing review: 1");
+  });
+
   it("compares latency and cost only on pairs reporting both, with coverage", () => {
     const baseline = { ...run(), results: [row("01.wav"), { ...row("02.wav"), latencyMs: null, costUsd: null }] };
     const candidate = run([{ ...row("01.wav"), latencyMs: 150, costUsd: 0.002 }, row("02.wav")]);
@@ -149,6 +158,10 @@ describe("cleanup comparison CLI", () => {
       expect(existing.status).toBe(2);
       const unchanged = spawnSync("bun", [script, "--baseline", baseline, "--candidate", baseline], { encoding: "utf8" });
       expect(unchanged.status, unchanged.stderr).toBe(0);
+      const note = spawnSync("bun", [script, "--baseline", baseline, "--candidate", baseline, "--change-note", "--fillers retest"], { encoding: "utf8" });
+      expect(note.status, note.stderr).toBe(0);
+      const flagValue = spawnSync("bun", [script, "--baseline", baseline, "--candidate", "--unknown"], { encoding: "utf8" });
+      expect(flagValue.status).toBe(2);
       const invalid = spawnSync("bun", [script, "--baseline", baseline], { encoding: "utf8" });
       expect(invalid.status).toBe(2);
     } finally {

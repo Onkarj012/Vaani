@@ -215,7 +215,7 @@ export function renderCleanupComparison(report: CleanupComparison): string {
     "# Cleanup regression comparison", "",
     `Baseline: ${escapeMarkdown(before.model)}. Candidate: ${escapeMarkdown(after.model)}. Clips: ${count}.`,
     `Regressions flagged: ${report.regressions}. These are score/failure signals, not semantic verdicts.`,
-    `Clips needing review: ${report.clips.filter((clip) => clip.baseline.output !== clip.candidate.output || clip.baseline.outcome !== clip.candidate.outcome).length}. Includes output or formatter-outcome changes, even without a score regression.`, "",
+    `Clips needing review: ${report.clips.filter((clip) => clip.baseline.output !== clip.candidate.output || clip.baseline.outcome !== clip.candidate.outcome || clip.baseline.reason !== clip.candidate.reason).length}. Includes output, formatter-outcome, or reason changes, even without a score regression.`, "",
     ...changes.map((change) => `- ${change}: ${report.clips.filter((clip) => clip.change === change).length}`), "",
     "| Metric | Baseline | Candidate |", "| --- | ---: | ---: |",
     `| Exact matches | ${before.exactMatches}/${count} | ${after.exactMatches}/${count} |`,

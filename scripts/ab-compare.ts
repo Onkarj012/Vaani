@@ -14,7 +14,7 @@ function parseArgs(argv: string[]): Map<string, string> {
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i] ?? "";
     const value = argv[i + 1];
-    if (!allowed.has(flag) || args.has(flag) || !value?.trim() || value.startsWith("--")) throw new Error(`Invalid argument: ${flag}.\nUsage: ${USAGE}`);
+    if (!allowed.has(flag) || args.has(flag) || !value?.trim() || (flag !== "--change-note" && value.startsWith("--"))) throw new Error(`Invalid argument: ${flag}.\nUsage: ${USAGE}`);
     args.set(flag, value);
   }
   if (!args.has("--baseline") || !args.has("--candidate")) throw new Error(`Pass --baseline and --candidate.\nUsage: ${USAGE}`);
