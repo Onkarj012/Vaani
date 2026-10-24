@@ -32,6 +32,7 @@
     "vite.renderer.config.ts",
     "src",
     "tests",
-    "scripts/ab-transcription.ts"
+    "scripts/ab-transcription.ts",
+    "scripts/ab-cleanup.ts"
   ]
 }

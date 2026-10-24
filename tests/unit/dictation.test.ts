@@ -1127,7 +1127,7 @@ describe("DictationService", () => {
 
   it("stretches the stale guard past 60 s for a long recording", async () => {
     const { getTranscriptionTimeoutMs } = await import("@main/transcription");
-    const { liveFormattingTimeoutMs } = await import("@main/dictation");
+    const { liveFormattingTimeoutMs } = await import("@main/providers/formatting-constants");
     const { service, transcription, settings } = createDictationService();
     const provider = settings.get().formattingProvider;
     let resolveTranscription: ((result: TranscriptionResult) => void) | undefined;
