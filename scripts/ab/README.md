@@ -82,3 +82,37 @@ When a new model appears in `src/shared/modelList.ts`, run the script again.
 | Hints sent | `yes`, `partial`, or `no`. `no` on a model that takes hints means the hints did not go out. Check that `hints.txt` has terms. |
 
 Pick the model with the lowest WER and the fewest term misses. Break ties on latency and cost. Do not pick a model with many failed calls, even if its other numbers look good.
+
+## 6. Cleanup model bake-off
+
+`scripts/ab-cleanup.ts` runs the same clips through the cleanup (formatting) models. It is dev-only, like the transcription script.
+
+1. Record the 30 lines in [`recording-script.md`](recording-script.md). The file names match the table there.
+2. Type each line's **Say** text into `ab-test/clips/<name>.txt`.
+   When a note gives a `cleanup input:` override, write it to `<clip>.cleanup.txt`; `ab-cleanup.ts` uses it instead of `<clip>.txt` in reference mode, while transcription scoring keeps the spoken text.
+3. Run it:
+
+```bash
+export OPENROUTER_API_KEY=your-key-here
+export GROQ_API_KEY=your-key-here
+export OPENAI_API_KEY=your-key-here
+bun scripts/ab-cleanup.ts
+```
+
+Options:
+
+- `--models <id,id>` picks models. The default is `anthropic/claude-haiku-5.5` (OpenRouter), `openai/gpt-oss-20b` (Groq), and `gpt-6-luna` (OpenAI). OpenRouter also lists `openai/gpt-6-luna`.
+- Every model runs with the test profile from `recording-script.md`, including dictionary, snippets, and extra fillers; `--fillers "like,you know"` adds more.
+- `--stt-results ab-test/results/<time>.json --stt-model <id>` cleans the transcripts from `ab-transcription.ts` instead of the typed text.
+
+A model whose key is not set is skipped, and the report says so. The script writes `ab-test/results/cleanup-<time>.md` and `.json`. Stored output and scores use the text Vaani would insert after its final cleanup, for both formatted replies and fallbacks.
+
+| Column | Meaning |
+| --- | --- |
+| Formatted | The model's reply passed the content guard and was used. |
+| Guard rejected | The reply failed the content guard. The app would use the speech-noise fallback instead. |
+| Skipped | Vaani does not send lines under four words to the model. The fallback is used. |
+| Exact matches | Clips where the text matches the expected cleanup line by line. Case and punctuation count. |
+| Mean WER | Word error rate against the expected cleanup. Lower is better. |
+| Mean and p90 wait for text to insert | Time until an answer or the fallback is ready, including failed calls and timeouts. Timeouts count the wait up to the deadline. Skipped clips made no call and are excluded. |
+| Total cost | All reported OpenRouter cost, including replies with no usable text. Groq and OpenAI do not report cost here. |

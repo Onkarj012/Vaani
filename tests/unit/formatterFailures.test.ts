@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
-import { liveFormattingTimeoutMs } from "@main/dictation";
-import { FORMATTER_KEY_REJECTED_REASON } from "@main/providers/formatting-constants";
+import { FORMATTER_KEY_REJECTED_REASON, liveFormattingTimeoutMs } from "@main/providers/formatting-constants";
 import { OpenAILlmProvider } from "@main/providers/openai/openaiLlm";
 
 vi.mock("electron", () => ({ app: { isPackaged: false } }));
