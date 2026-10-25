@@ -1,6 +1,23 @@
 // Pure helpers for the cleanup A/B script. No network, no file access.
 
+import { createHash } from "node:crypto";
 import type { Settings } from "@shared/types";
+
+// Fingerprints effective cleanup settings, fixed placeholders, and prompt source without storing their contents.
+export function cleanupConfigFingerprint(settings: Settings, promptSource: string): string {
+  const config = {
+    language: settings.language,
+    cleanupEnabled: settings.cleanupEnabled,
+    smartPunctuation: settings.smartPunctuation,
+    fillerWords: settings.fillerWords,
+    extraFillerWords: settings.extraFillerWords,
+    customCorrections: settings.customCorrections,
+    snippets: settings.snippets,
+    placeholders: [abPlaceholder("date"), abPlaceholder("time"), abPlaceholder("clipboard")],
+    promptSource,
+  };
+  return createHash("sha256").update(JSON.stringify(config)).digest("hex");
+}
 
 /** Settings every model is graded with, on top of Vaani's defaults. recording-script.md lists the same values. */
 export const AB_TEST_PROFILE: Pick<Settings, "extraFillerWords" | "customCorrections" | "snippets"> = {

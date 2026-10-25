@@ -33,6 +33,7 @@
     "src",
     "tests",
     "scripts/ab-transcription.ts",
-    "scripts/ab-cleanup.ts"
+    "scripts/ab-cleanup.ts",
+    "scripts/ab-compare.ts"
   ]
 }

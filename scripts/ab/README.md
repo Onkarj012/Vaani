@@ -116,3 +116,40 @@ A model whose key is not set is skipped, and the report says so. The script writ
 | Mean WER | Word error rate against the expected cleanup. Lower is better. |
 | Mean and p90 wait for text to insert | Time until an answer or the fallback is ready, including failed calls and timeouts. Timeouts count the wait up to the deadline. Skipped clips made no call and are excluded. |
 | Total cost | All reported OpenRouter cost, including replies with no usable text. Groq and OpenAI do not report cost here. |
+
+## 7. Check cleanup regressions
+
+Keep one reviewed cleanup JSON report as the baseline. After a change, compare another report with the same clip inputs and expected text. The comparison is offline; it never calls a provider or replaces the baseline.
+
+```bash
+bun scripts/ab-compare.ts \
+  --baseline ab-test/results/cleanup-baseline.json \
+  --candidate ab-test/results/cleanup-candidate.json \
+  --baseline-model anthropic/claude-haiku-5.5 \
+  --candidate-model anthropic/claude-haiku-5.5 \
+  --out ab-test/results/comparison.md
+```
+
+Model flags can be omitted when each report contains only one model. Reports containing multiple models require explicit selection. `--out` is optional; without it the report goes only to stdout. Output files are created with `0600` permissions. Existing files, including either input, are never overwritten. Keep reports local because they contain transcripts.
+
+The report recomputes scores from final output instead of trusting saved summary numbers. Each clip shows input, expected text, before/after output, exact match, normalized WER, formatter outcome/reason, latency, and cost. It separates score improvements, score regressions, unchanged output, presentation-only changes, and equal-WER word changes needing review. Aggregate gains never hide individual regressions.
+
+Exit codes:
+
+- `0`: no new exact-match loss, WER increase, or failure/timeout. This does **not** approve the output's meaning.
+- `1`: at least one clip lost an exact match, increased WER, or newly failed/timed out. The report is still written.
+- `2`: invalid arguments, malformed reports, duplicate results, incompatible clip sets/inputs/references, or file errors. No comparison is accepted.
+
+Guard changes are shown for review, not counted as meaning loss by themselves. Latency and cost deltas use only clips with measurements in both runs, with coverage counts. No arbitrary latency/cost threshold is applied.
+
+New cleanup runs record a `configFingerprint` for effective cleanup settings, fixed snippet placeholders, and formatting-prompt source. The comparison requires `--change-note "describe the experiment"` when models, recorded fillers, or fingerprints differ. A note declares an experiment; it does not waive mismatched clips, inputs, or references. Change one factor at a time. Old reports remain readable but show an explicit warning that settings/prompt comparability is unverified. Fingerprints do not establish full production parity or freeze a provider's model implementation.
+
+WER counts normalized word edits, not semantic errors. Punctuation, case, and layout changes can matter for code and meaning even when classified presentation-only. Review changed names, numbers, negations, commands, and omissions before accepting a new baseline. Baseline replacement is a separate manual decision. Freeze references before comparing; if references change, rerun or rescore both sides first.
+
+Run the offline regression checks after script changes:
+
+```bash
+bun run test -- tests/unit/abCleanupComparison.test.ts tests/unit/abCleanupScoring.test.ts tests/unit/abScoring.test.ts
+```
+
+Paid model reruns are separate from these tests. No scheduler, automatic baseline promotion, or paid CI job is installed.
