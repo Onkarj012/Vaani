@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 concurrency:
   group: pr-dev-build-${{ github.event.pull_request.number || github.ref }}
@@ -31,6 +30,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # This job never pushes or fetches after checkout. Do not leave the
+          # job token in git config, where `bun run make` could read it.
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
