@@ -70,7 +70,8 @@ const recovery = [
 
 let settings: Settings = {
   ...DEFAULT_SETTINGS,
-  onboardingCompleted: true,
+  // ?onboarding shows the first-run flow.
+  onboardingCompleted: !themeParam.has("onboarding"),
   openRouterKeyPromptShown: true,
   customCorrections: [
     { spoken: "razor pay", written: "Razorpay", source: "auto-suggested", enabled: true, hitCount: 41 },
