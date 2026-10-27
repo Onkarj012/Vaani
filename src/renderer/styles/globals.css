@@ -240,7 +240,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 .pm-d { background: var(--color-chip-sky); font-weight: 600; white-space: nowrap; }
 .pm-a { background: var(--color-chip-butter); }
-.pm-d s {
+.pm-d s, .pm-a s {
   font: 400 11px var(--font-mono);
   color: rgba(29, 29, 29, 0.45);
   margin-right: 5px;
