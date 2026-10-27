@@ -12,6 +12,12 @@ Entry format:
 
 ---
 
+## 2026-10-27 — Both recorder waveforms use a fixed -54 to -6 dB amplitude range
+- rejected: per-chunk peak normalization and unrelated capsule layout changes
+- why: quiet audio must remain visibly quieter than loud audio; preserve the approved loudness direction without expanding the overnight fix
+- source: T3 thread "Overnight Backlog and Feature Builds", approved overlay decision in root decisions.md
+- status: active
+
 ## 2026-10-24 — Track cleanup regressions with an offline comparison of saved baseline and candidate reports
 - rejected: a new evaluation framework, scheduled paid runs, automatic baseline replacement, and folding production cleanup fixes into this PR
 - why: the user wants regressions measured during ongoing quality work without turning every change into a long testing campaign. Reuse #43's JSON, compare each clip, and keep model calls separate. Require a declared experiment for recorded configuration/model differences; label legacy configuration gaps instead of claiming verified comparability. Metric changes do not establish meaning preservation.
