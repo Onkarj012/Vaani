@@ -4,12 +4,12 @@ import { cn } from "@renderer/lib/utils"
 const tones = {
   white:  "bg-card",
   surface:"bg-surface",
-  lav:    "bg-chip-lav text-on-pastel",
-  sky:    "bg-chip-sky text-on-pastel",
-  mint:   "bg-chip-mint text-on-pastel",
-  blush:  "bg-chip-blush text-on-pastel",
-  peach:  "bg-chip-peach text-on-pastel",
-  butter: "bg-chip-butter text-on-pastel",
+  lav:    "pastel-scope bg-chip-lav",
+  sky:    "pastel-scope bg-chip-sky",
+  mint:   "pastel-scope bg-chip-mint",
+  blush:  "pastel-scope bg-chip-blush",
+  peach:  "pastel-scope bg-chip-peach",
+  butter: "pastel-scope bg-chip-butter",
 } as const
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {

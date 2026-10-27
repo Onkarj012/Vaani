@@ -25,9 +25,8 @@
   --color-on-pastel: #1d1d1d;
 
   /* Interactive */
-  /* --accent comes from Settings › Appearance (vaani-ui.tsx sets it on <html>) */
-  --color-accent:        var(--accent, #7575c8);
-  --color-accent-strong: color-mix(in srgb, var(--accent, #7575c8) 82%, #000);
+  --color-accent:        #7575c8;
+  --color-accent-strong: #5b5bb5;
   --color-link:          #0099ff;
 
   /* Pastel tiles and chips */
@@ -205,6 +204,19 @@ html.dark ::-webkit-scrollbar-thumb {
 }
 html.dark ::-webkit-scrollbar-thumb:hover {
   background: #4a4a54;
+}
+
+/* ─── Pastel scope ───────────────────────────────────────────────────────────
+   Pastel tiles stay light in dark mode, so everything inside them uses light-theme ink. */
+.pastel-scope {
+  --color-ink: #1d1d1d;
+  --color-muted: rgba(29, 29, 29, 0.66);
+  --color-faint: rgba(29, 29, 29, 0.48);
+  --color-line: rgba(29, 29, 29, 0.1);
+  --color-bg: #ffffff;
+  --color-card: #ffffff;
+  --color-surface: rgba(255, 255, 255, 0.6);
+  color: var(--color-ink);
 }
 
 /* ─── Proof marks ────────────────────────────────────────────────────────────

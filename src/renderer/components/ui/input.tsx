@@ -12,7 +12,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       className={cn(
         "w-full text-sm text-ink placeholder:text-faint outline-none transition-all duration-200 ease-[cubic-bezier(0.44,0,0.56,1)]",
         variant === "soft" &&
-          "rounded-2xl border border-line bg-surface px-4 py-3 focus:border-accent focus:bg-bg",
+          "h-9 rounded-full border border-line bg-card px-4 text-[13px] focus:border-accent",
         variant === "underline" && "input-underline px-0 py-3",
         className
       )}
