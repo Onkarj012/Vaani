@@ -190,16 +190,20 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
   const nextDisabled = (slide === 2 && !canContinueFromPermissions) || (slide === 3 && !hasRequiredApiKey) || busy;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center overscroll-none bg-black/50 p-4 backdrop-blur-md" onWheel={(e) => e.preventDefault()}>
+    <div className="app-no-drag fixed inset-0 z-[60] flex items-center justify-center overscroll-none bg-black/45 p-4 backdrop-blur-md" onWheel={(e) => e.preventDefault()}>
       <motion.div
-        initial={{ opacity: 0, scale: 0.93, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 300, damping: 28 }}
-        className="relative flex h-[min(90vh,780px)] w-full max-w-[760px] flex-col overflow-hidden rounded-[20px] bg-bg shadow-card"
+        initial={{ opacity: 0, scale: 0.96, y: 14 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 340, damping: 30 }}
+        className="ambient-glow relative flex h-[min(90vh,780px)] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl border border-line bg-bg shadow-pop"
       >
-        <button onClick={() => { void onComplete(); }} className="absolute right-5 top-5 z-10 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface hover:text-ink">
-          Skip <X size={14} />
+        {/* Thin progress rail across the top */}
+        <div className="absolute inset-x-0 top-0 z-10 h-[3px] bg-line/60">
+          <motion.div className="h-full bg-accent" animate={{ width: `${((slide + 1) / TOTAL_SLIDES) * 100}%` }} transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }} />
+        </div>
+        <button onClick={() => { void onComplete(); }} className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface hover:text-ink">
+          Skip <X size={13} />
         </button>
-        <div className="label-meta absolute left-5 top-5 z-10 text-[10px] text-faint">{slide + 1} / {TOTAL_SLIDES}</div>
+        <div className="label-meta absolute left-6 top-6 z-10 text-[10px] text-faint">Step {slide + 1} of {TOTAL_SLIDES}</div>
 
         <div className="relative flex min-h-0 flex-1 flex-col items-center overflow-hidden px-8 pb-6 pt-14">
           <AnimatePresence mode="wait" custom={direction}>
@@ -211,20 +215,20 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
           </AnimatePresence>
         </div>
 
-        <div className="shrink-0 border-t border-line px-8 py-5">
+        <div className="shrink-0 border-t border-line bg-card/60 px-6 py-4 backdrop-blur">
           <div className="flex items-center justify-between">
-            <button onClick={goBack} disabled={isFirstSlide} className="flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-medium text-muted transition-all hover:bg-surface disabled:cursor-not-allowed disabled:opacity-30">
+            <button onClick={goBack} disabled={isFirstSlide} className="flex items-center gap-1 rounded-lg px-3 py-2 text-[13px] font-medium text-muted transition-all hover:bg-surface hover:text-ink disabled:cursor-not-allowed disabled:opacity-30">
               <ChevronLeft size={16} /> Back
             </button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {Array.from({ length: TOTAL_SLIDES }).map((_, i) => (
                 <button
                   key={i}
                   type="button"
                   aria-label={`Go to step ${i + 1}`}
                   onClick={() => { if (i <= slide + 1) { setDirection(i > slide ? 1 : -1); setSlide(i); } }}
-                  className={`h-2 rounded-full transition-all duration-300 ${i === slide ? "w-6 bg-accent" : i < slide ? "w-2 bg-accent/40" : "w-2 bg-line"}`}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${i === slide ? "w-5 bg-accent" : i < slide ? "w-1.5 bg-accent/40" : "w-1.5 bg-line-strong"}`}
                 />
               ))}
             </div>
@@ -244,7 +248,7 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
 /* ─── Slides ─────────────────────────────────────────────────────────────── */
 
 function SlideIcon({ tone, children }: { tone: string; children: React.ReactNode }) {
-  return <div className={`mb-6 flex h-14 w-14 items-center justify-center rounded-2xl ${tone}`}>{children}</div>;
+  return <div className={`mb-5 flex h-14 w-14 items-center justify-center rounded-2xl shadow-soft ring-1 ring-inset ring-accent/15 ${tone}`}>{children}</div>;
 }
 
 function WelcomeSlide() {
@@ -253,7 +257,7 @@ function WelcomeSlide() {
     <div className="flex flex-col items-center text-center">
       <motion.img initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
         src={mode === "dark" ? devanagariDarkUrl : devanagariLightUrl} alt="Vaani" className="mb-6 h-24 w-24" />
-      <h1 className="text-display mb-3 text-4xl text-ink">Welcome to Vaani</h1>
+      <h1 className="type-display mb-3 text-[48px] text-ink">Welcome to Vaani</h1>
       <p className="max-w-sm leading-relaxed text-muted">Your voice, perfectly transcribed. Premium macOS dictation powered by AI.</p>
       <div className="mt-6 flex items-center gap-2 rounded-full bg-accent/10 px-4 py-2 text-sm font-medium text-accent">
         <Zap size={14} /> Setup takes under a minute
@@ -271,18 +275,18 @@ function HowItWorksSlide() {
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Wand2 size={26} /></SlideIcon>
-      <h2 className="text-display mb-2 text-3xl text-ink">How it works</h2>
+      <h2 className="type-display mb-2 text-[38px] text-ink">How it works</h2>
       <p className="mb-8 text-sm text-muted">Three simple steps. No clicking, no typing, just talk.</p>
       <div className="w-full space-y-3">
         {steps.map((s, i) => (
           <motion.div key={i} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.12 * i }}
-            className="flex items-center gap-4 rounded-2xl border border-line bg-surface p-4 text-left">
+            className="flex items-center gap-4 rounded-xl border border-line bg-card p-4 text-left shadow-soft">
             <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${s.tone}`}>{s.icon}</div>
             <div>
               <div className="text-sm font-semibold text-ink">{s.title}</div>
               <div className="text-xs text-muted">{s.desc}</div>
             </div>
-            <div className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-bg font-mono text-xs font-bold text-muted">{i + 1}</div>
+            <div className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line font-mono text-[11px] text-faint">{i + 1}</div>
           </motion.div>
         ))}
       </div>
@@ -303,7 +307,7 @@ function PermissionsSlide({
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><ShieldCheck size={26} /></SlideIcon>
-      <h2 className="text-display mb-2 text-3xl text-ink">Grant Permissions</h2>
+      <h2 className="type-display mb-2 text-[38px] text-ink">Grant Permissions</h2>
       <p className="mb-6 text-sm text-muted">Vaani needs two macOS permissions to transcribe and insert text.</p>
       <div className="w-full space-y-3">
         <PermissionRow icon={<Mic size={18} />} title="Microphone" description="Allows Vaani to record your voice when you press the hotkey." granted={micGranted} disabled={busy} actionLabel={micState === "denied" ? "Open Settings" : "Enable"} onAction={onRequestMicrophone} />
@@ -359,7 +363,7 @@ function ProviderApiSlide({
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Plug size={24} /></SlideIcon>
-      <h2 className="text-display mb-1 text-3xl text-ink">Choose Providers &amp; Add Keys</h2>
+      <h2 className="type-display mb-1.5 text-[38px] text-ink">Choose Providers &amp; Add Keys</h2>
       <p className="mb-5 text-sm text-muted">Choose your transcription and cleanup providers. Your keys stay on your device.</p>
 
       <div className="w-full space-y-3 text-left">
@@ -413,7 +417,7 @@ function ProviderApiSlide({
           </motion.div>
         )}
 
-        <div className="rounded-xl border border-line bg-surface p-4">
+        <div className="rounded-xl bg-surface/70 p-4">
           <p className="mb-2 text-xs font-semibold text-ink">Get your {activeProvider?.name ?? "provider"} key</p>
           <ol className="list-inside list-decimal space-y-1 text-xs text-muted">
             <li>Go to <span className="font-medium text-ink">{activeProvider?.id === "groq" ? "console.groq.com/keys" : "openrouter.ai/keys"}</span></li>
@@ -465,16 +469,16 @@ function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onCha
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Keyboard size={26} /></SlideIcon>
-      <h2 className="text-display mb-2 text-3xl text-ink">Your Shortcut</h2>
+      <h2 className="type-display mb-2 text-[38px] text-ink">Your Shortcut</h2>
       <p className="mb-8 text-sm text-muted">Choose the key combination you will press to start dictating.</p>
 
-      <div className="w-full rounded-2xl border border-line bg-surface p-5">
+      <div className="w-full rounded-xl border border-line bg-card p-5 shadow-soft">
         {!isEditing ? (
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               {displayKeys.map((k, i) => (
                 <span key={i} className="inline-flex items-center gap-1">
-                  <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg border border-line bg-bg px-2.5 py-1.5 font-mono text-sm font-bold text-ink">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
+                  <span className="inline-flex h-9 min-w-[36px] items-center justify-center rounded-[8px] border border-line-strong bg-card px-2.5 text-sm font-semibold text-ink shadow-[inset_0_-1.5px_0_var(--color-line-strong)]">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
                   {i < displayKeys.length - 1 && <span className="text-xs text-faint">+</span>}
                 </span>
               ))}
@@ -489,7 +493,7 @@ function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onCha
             </div>
             <div className="flex min-h-[40px] items-center gap-1.5">
               {preview.length > 0 ? preview.map((k, i) => (
-                <span key={i} className="inline-flex min-w-[36px] items-center justify-center rounded-lg border border-accent bg-accent/10 px-2.5 py-1.5 font-mono text-sm font-bold text-accent">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
+                <span key={i} className="inline-flex h-9 min-w-[36px] items-center justify-center rounded-[8px] border border-accent bg-accent/10 px-2.5 text-sm font-semibold text-accent">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
               )) : <span className="text-xs text-faint">Hold modifiers (⌃⌥⇧⌘) then press a key</span>}
             </div>
             {error && <p className="text-xs leading-relaxed text-red-600">{error}</p>}
@@ -511,12 +515,12 @@ function FeaturesSlide() {
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Sparkles size={26} /></SlideIcon>
-      <h2 className="text-display mb-2 text-3xl text-ink">Power Features</h2>
+      <h2 className="type-display mb-2 text-[38px] text-ink">Power Features</h2>
       <p className="mb-8 text-sm text-muted">Explore these anytime from the sidebar.</p>
       <div className="grid w-full grid-cols-2 gap-3">
         {features.map((f, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 * i }}
-            className="flex flex-col items-start rounded-2xl border border-line bg-surface p-4 text-left">
+            className="flex flex-col items-start rounded-xl border border-line bg-card p-4 text-left shadow-soft">
             <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${f.tone}`}>{f.icon}</div>
             <div className="text-sm font-semibold text-ink">{f.title}</div>
             <div className="mt-1 text-xs leading-relaxed text-muted">{f.desc}</div>
@@ -541,7 +545,7 @@ function HotkeyBadges({ keys }: { keys: string[] }) {
       {keys.map((k, i) => (
         <span key={i} className="inline-flex items-center gap-1">
           {i > 0 && <span className="text-xs font-medium text-faint">+</span>}
-          <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg border border-line bg-bg px-2.5 py-1.5 font-mono text-sm font-bold text-ink">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
+          <span className="inline-flex h-9 min-w-[36px] items-center justify-center rounded-[8px] border border-line-strong bg-card px-2.5 text-sm font-semibold text-ink shadow-[inset_0_-1.5px_0_var(--color-line-strong)]">{HOTKEY_MOD_SYMBOL[k] ?? k}</span>
         </span>
       ))}
     </div>
@@ -599,15 +603,15 @@ function DemoSlide({ primaryHotkey, dictationMode }: { primaryHotkey: string; di
   return (
     <div className="flex w-full flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Keyboard size={24} /></SlideIcon>
-      <h2 className="text-display mb-1 text-3xl text-ink">Try Your Shortcut</h2>
+      <h2 className="type-display mb-1.5 text-[38px] text-ink">Try Your Shortcut</h2>
       <p className="mb-4 text-sm text-muted">Press Record and speak your phrase — just like real dictation.</p>
 
-      <div className="mb-4 w-full rounded-2xl border border-line bg-surface p-4">
+      <div className="mb-4 w-full rounded-xl border border-line bg-card p-5 shadow-soft">
         <HotkeyBadges keys={displayKeys} />
         <p className="mt-3 text-xs leading-relaxed text-muted">{demoHotkeyHint(dictationMode)}</p>
         <button type="button" onClick={isRecording ? stopRecording : startRecording} disabled={phase === "transcribing"}
-          className={`mt-3 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all ${
-            isRecording ? "bg-red-500 text-white hover:bg-red-600" : phase === "transcribing" ? "cursor-wait bg-line text-faint" : "bg-accent text-white hover:bg-accent-strong"
+          className={`mt-4 inline-flex h-9 items-center gap-2 rounded-full px-5 text-[13px] font-semibold transition-all ${
+            isRecording ? "bg-red-500 text-white shadow-[0_6px_16px_-6px_rgba(239,68,68,0.7)] hover:bg-red-600" : phase === "transcribing" ? "cursor-wait bg-line text-faint" : "accent-sheen text-white hover:brightness-105"
           }`}>
           {isRecording ? (
             <><span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" /></span> Stop</>
@@ -626,20 +630,20 @@ function DemoSlide({ primaryHotkey, dictationMode }: { primaryHotkey: string; di
           <button type="button" onClick={() => { setPracticePhrase(DEMO_EXAMPLE_PHRASE); setTranscription(""); setError(""); }} className="text-xs font-medium text-accent transition-colors hover:text-accent-strong">Use example</button>
         </div>
         <textarea value={practicePhrase} onChange={(e) => setPracticePhrase(e.target.value)} placeholder={DEMO_EXAMPLE_PHRASE} rows={2}
-          className="w-full resize-none rounded-2xl border border-line bg-bg px-4 py-2.5 text-sm text-ink outline-none transition-all placeholder:text-faint focus:border-accent" />
+          className="w-full resize-none rounded-[10px] border border-line bg-card px-3.5 py-2.5 text-[13.5px] text-ink outline-none transition-all placeholder:text-faint focus:border-accent/60 focus:ring-4 focus:ring-accent/10" />
       </div>
 
       {(transcription || phase === "transcribing") && (
         <div className="w-full text-left">
           <label className="mb-1 block text-xs font-medium text-muted">Transcription</label>
-          <div className="min-h-[52px] rounded-2xl border border-line bg-surface px-4 py-2.5 text-sm leading-relaxed text-ink">
+          <div className="min-h-[52px] rounded-[10px] border border-accent/20 bg-accent/[0.05] px-3.5 py-2.5 text-[13.5px] leading-relaxed text-ink">
             {phase === "transcribing" ? <span className="inline-flex items-center gap-2 text-muted"><Loader2 size={14} className="animate-spin-ui" /> Transcribing…</span> : transcription}
           </div>
         </div>
       )}
 
       {error && (
-        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="mt-3 w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-left">
+        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="mt-3 w-full rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-left">
           <p className="text-xs leading-relaxed text-red-600">{error}</p>
         </motion.div>
       )}
@@ -654,9 +658,9 @@ function ReadySlide() {
         className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-accent/10 text-accent">
         <CheckCircle2 size={36} />
       </motion.div>
-      <h2 className="text-display mb-2 text-3xl text-ink">You are all set!</h2>
+      <h2 className="type-display mb-2 text-[38px] text-ink">You are all set!</h2>
       <p className="max-w-xs text-sm leading-relaxed text-muted">Press your hotkey anytime to start dictating. Vaani is ready when you are.</p>
-      <div className="mt-8 flex items-center gap-3 rounded-2xl border border-line bg-surface px-5 py-4">
+      <div className="mt-8 flex items-center gap-3 rounded-xl border border-line bg-card px-5 py-4 shadow-soft">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10 text-accent"><History size={18} /></div>
         <div className="text-left">
           <div className="text-sm font-medium text-ink">Reopen this guide</div>
@@ -673,16 +677,16 @@ function PermissionRow({
   icon: React.ReactNode; title: string; description: string; granted: boolean; disabled: boolean; actionLabel: string; onAction: () => void;
 }) {
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-line bg-bg p-4">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface text-muted">{icon}</div>
+    <div className={`flex items-center gap-4 rounded-xl border p-4 shadow-soft transition-colors ${granted ? "border-emerald-500/25 bg-emerald-500/[0.05]" : "border-line bg-card"}`}>
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${granted ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-400" : "bg-surface text-muted ring-line"}`}>{icon}</div>
       <div className="min-w-0 flex-1 text-left">
         <div className="text-sm font-semibold text-ink">{title}</div>
         <p className="text-xs leading-snug text-muted">{description}</p>
       </div>
       {granted ? (
-        <div className="flex items-center gap-1.5 rounded-full bg-accent/10 px-3 py-2 text-sm font-semibold text-accent"><CheckCircle2 size={15} /> Enabled</div>
+        <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1.5 text-[13px] font-semibold text-emerald-600 dark:text-emerald-400"><CheckCircle2 size={14} /> Enabled</div>
       ) : (
-        <button onClick={onAction} disabled={disabled} className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50">
+        <button onClick={onAction} disabled={disabled} className="accent-sheen inline-flex h-8 items-center gap-1.5 rounded-[9px] px-3.5 text-[13px] font-semibold text-white transition-all hover:brightness-105 disabled:opacity-50">
           {disabled && <Loader2 size={14} className="animate-spin-ui" />} {actionLabel}
         </button>
       )}

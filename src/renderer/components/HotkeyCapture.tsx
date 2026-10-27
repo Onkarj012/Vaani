@@ -114,8 +114,8 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); beginCapture(); }
         }}
         className={cn(
-          "inline-flex w-fit items-center gap-1.5 rounded-2xl border bg-surface px-4 py-3 outline-none transition-all",
-          capturing ? "border-accent" : "border-line hover:border-ink/20",
+          "inline-flex min-h-[48px] w-fit items-center gap-1.5 rounded-xl border bg-card px-3.5 py-2.5 shadow-soft outline-none transition-all",
+          capturing ? "border-accent/60 ring-4 ring-accent/10" : "border-line hover:border-line-strong",
           disabled && "cursor-not-allowed opacity-40"
         )}
         title={capturing ? "Press any key combination…" : "Click to change hotkey"}
@@ -138,7 +138,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
         <button
           type="button"
           onClick={() => { onChange("Fn"); stopCapture(); }}
-          className="label-meta w-fit cursor-pointer rounded-lg border border-line bg-bg px-2 py-1 text-[9px] text-muted transition-colors hover:bg-surface"
+          className="label-meta w-fit cursor-pointer rounded-md border border-line bg-card px-2 py-1 text-[9px] text-muted transition-colors hover:border-line-strong hover:text-ink"
         >
           Use Fn key
         </button>

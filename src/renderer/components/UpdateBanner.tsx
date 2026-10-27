@@ -19,31 +19,31 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
   switch (status) {
     case "checking":
       icon = <RefreshCw size={15} className="animate-spin-ui" />;
-      toneClass = "bg-surface text-muted";
+      toneClass = "border-line bg-surface text-muted";
       break;
     case "available":
       icon = <ArrowUpCircle size={15} />;
-      toneClass = "bg-accent/10 text-accent";
+      toneClass = "border-accent/20 bg-accent/[0.07] text-ink [&>div>svg]:text-accent";
       break;
     case "downloading":
       icon = <Download size={15} />;
-      toneClass = "bg-accent/10 text-accent";
+      toneClass = "border-accent/20 bg-accent/[0.07] text-ink [&>div>svg]:text-accent";
       break;
     case "ready":
       icon = <ArrowUpCircle size={15} />;
-      toneClass = "bg-accent/10 text-accent";
+      toneClass = "border-accent/20 bg-accent/[0.07] text-ink [&>div>svg]:text-accent";
       break;
     case "no-update":
       icon = <ArrowUpCircle size={15} />;
-      toneClass = "bg-accent/10 text-accent";
+      toneClass = "border-accent/20 bg-accent/[0.07] text-ink [&>div>svg]:text-accent";
       break;
     case "error":
       icon = <X size={15} />;
-      toneClass = "bg-red-50 text-red-600";
+      toneClass = "border-red-500/20 bg-red-500/[0.06] text-red-600 dark:text-red-400";
       break;
     default:
       icon = null;
-      toneClass = "bg-surface text-muted";
+      toneClass = "border-line bg-surface text-muted";
   }
 
   return (
@@ -52,9 +52,9 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
         initial={{ opacity: 0, y: -12, height: 0 }}
         animate={{ opacity: 1, y: 0, height: "auto" }}
         exit={{ opacity: 0, y: -12, height: 0 }}
-        className="mx-6 mt-4 lg:mx-12"
+        className="mx-6 mt-3 md:mx-10"
       >
-        <div className={`flex items-center justify-between gap-3 rounded-2xl px-4 py-2.5 text-sm ${toneClass}`}>
+        <div className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 text-[13px] ${toneClass}`}>
           <div className="flex min-w-0 items-center gap-2.5">
             {icon}
             <span className="truncate font-medium">{message}</span>
@@ -63,7 +63,7 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
             {canInstall && (
               <button
                 onClick={() => window.vaani.quitAndInstall()}
-                className="rounded-full bg-ink px-3 py-1 text-xs font-semibold text-bg transition-opacity hover:opacity-90"
+                className="accent-sheen rounded-md px-2.5 py-1 text-xs font-semibold text-white transition-all hover:brightness-105"
               >
                 Restart
               </button>
@@ -71,14 +71,14 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
             {canDownload && (
               <button
                 onClick={() => window.vaani.openReleasesPage()}
-                className="flex items-center gap-1 rounded-full bg-ink px-3 py-1 text-xs font-semibold text-bg transition-opacity hover:opacity-90"
+                className="accent-sheen flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold text-white transition-all hover:brightness-105"
               >
                 <Download size={13} />
                 Download
               </button>
             )}
             {isDismissable && (
-              <button onClick={onDismiss} aria-label="Dismiss" className="rounded-full p-1 transition-colors hover:bg-ink/10">
+              <button onClick={onDismiss} aria-label="Dismiss" className="rounded-md p-1 text-muted transition-colors hover:bg-ink/5 hover:text-ink">
                 <X size={14} />
               </button>
             )}

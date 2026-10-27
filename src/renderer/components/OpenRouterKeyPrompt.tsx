@@ -23,9 +23,13 @@ export default function OpenRouterKeyPrompt({ updateSettings }: OpenRouterKeyPro
   }
 
   return (
-    <div role="dialog" aria-label="Add an OpenRouter key" className="fixed bottom-5 right-5 z-50 w-[360px] rounded-2xl border border-line bg-bg p-5 shadow-card">
-      <h2 className="text-base font-semibold text-ink">Add an OpenRouter key</h2>
-      <p className="mt-1 text-sm text-muted">
+    <div role="dialog" aria-label="Add an OpenRouter key" className="app-no-drag fixed bottom-5 right-5 z-50 w-[360px] rounded-2xl border border-line bg-card/95 p-5 shadow-pop backdrop-blur-xl">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+        <span className="label-meta text-[9.5px] text-faint">Action needed</span>
+      </div>
+      <h2 className="type-title text-ink">Add an OpenRouter key</h2>
+      <p className="mt-1 text-[13px] leading-relaxed text-muted">
         Transcription and cleanup now run through OpenRouter. Without a key, transcription falls back to Groq if a Groq key is saved, and cleanup is skipped.
       </p>
       <Input
@@ -34,7 +38,8 @@ export default function OpenRouterKeyPrompt({ updateSettings }: OpenRouterKeyPro
         onChange={(e) => setKey(e.target.value)}
         autoComplete="off"
         spellCheck={false}
-        className="mt-4"
+        placeholder="sk-or-..."
+        className="mt-4 font-mono"
       />
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={() => void dismiss()}>Later</Button>

@@ -173,7 +173,7 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
   if (!blocked) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center overscroll-none bg-black/55 p-4 backdrop-blur-md">
+    <div className="app-no-drag fixed inset-0 z-[70] flex items-center justify-center overscroll-none bg-black/45 p-4 backdrop-blur-md">
       <div
         ref={modalRef}
         role="dialog"
@@ -182,13 +182,13 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
         aria-describedby="permission-guard-description"
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="flex max-h-[min(92vh,760px)] w-full max-w-[620px] flex-col overflow-hidden rounded-[20px] bg-bg shadow-card outline-none"
+        className="flex max-h-[min(92vh,760px)] w-full max-w-[600px] flex-col overflow-hidden rounded-2xl border border-line bg-bg shadow-pop outline-none"
       >
         <div className="shrink-0 border-b border-line px-6 pb-5 pt-7 sm:px-8">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/10 text-accent">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/10 text-accent shadow-soft ring-1 ring-inset ring-accent/15">
             {checking ? <Loader2 size={24} className="animate-spin-ui" /> : <ShieldCheck size={24} />}
           </div>
-          <h1 id="permission-guard-title" className="text-display text-3xl text-ink">Permissions required</h1>
+          <h1 id="permission-guard-title" className="type-display text-[36px] text-ink">Permissions required</h1>
           <p id="permission-guard-description" className="mt-2 text-sm leading-relaxed text-muted">
             Vaani checks Microphone and Accessibility each time it starts.
           </p>
@@ -235,7 +235,7 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
           )}
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-5 sm:px-8">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-line bg-card/60 px-6 py-4 sm:px-8">
           <p className="text-xs text-faint">System Settings may need to remain open while you enable access.</p>
           <Button ref={!hasRequiredAction ? firstActionRef : undefined} variant="soft" size="sm" onClick={() => { void refresh(); }} disabled={busy}>
             <RefreshCw size={15} /> Check Again
@@ -263,15 +263,15 @@ function PermissionRow({
 }) {
   const granted = state === "granted";
   return (
-    <Card tone={granted ? "mint" : "surface"} className="p-4" bordered>
+    <Card tone={granted ? "success" : "white"} className="p-4">
       <div className="flex items-start gap-3">
-        <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${granted ? "bg-accent/10 text-accent" : "bg-bg text-muted"}`}>
+        <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${granted ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-400" : "bg-surface text-muted ring-line"}`}>
           {icon}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold text-ink">{title}</div>
-            <div className={`flex items-center gap-1.5 text-xs font-medium ${granted ? "text-accent" : "text-muted"}`}>
+            <div className={`flex items-center gap-1.5 text-xs font-medium ${granted ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}>
               {granted ? <CheckCircle2 size={14} /> : null}{getPermissionStatusLabel(state)}
             </div>
           </div>

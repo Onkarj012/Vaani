@@ -12,6 +12,12 @@ Entry format:
 
 ---
 
+## 2026-10-27 — Premium UI pass: warm neutral canvas, Instrument Serif titles, inset content panel, accent setting wired to the Tailwind token
+- rejected: keeping the pastel editorial look (Cabinet Grotesk 800 headings, pill buttons everywhere); a full component-library swap; adding new settings or features to the UI; animating the App usage donut (audio-level re-renders restart it mid-draw)
+- why: the user asked for a UI that feels premium while keeping every feature and option. Same screens and controls, restyled through shared tokens and primitives (PageHeader, Checkbox, IconTile, grouped settings rows). Fontshare is dropped; fonts now come only from Google Fonts. The accent picker previously wrote `--accent`, which nothing read, so the app ignored it. Added macOS drag regions because the hiddenInset titlebar had none.
+- source: Claude Code session "premium-ui-redesign"
+- status: active
+
 ## 2026-10-24 — Track cleanup regressions with an offline comparison of saved baseline and candidate reports
 - rejected: a new evaluation framework, scheduled paid runs, automatic baseline replacement, and folding production cleanup fixes into this PR
 - why: the user wants regressions measured during ongoing quality work without turning every change into a long testing campaign. Reuse #43's JSON, compare each clip, and keep model calls separate. Require a declared experiment for recorded configuration/model differences; label legacy configuration gaps instead of claiming verified comparability. Metric changes do not establish meaning preservation.

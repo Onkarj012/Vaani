@@ -2,28 +2,35 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ─── Vaani design system ────────────────────────────────────────────────────
-   Sleek, editorial, minimal. Bold display type, soft pastels, gentle shadows. */
+   Quiet and native-feeling. Warm neutral canvas, hairline borders, layered
+   soft shadows, an editorial serif for titles, and one accent the user picks.
+   Every semantic token is redefined under html.dark, so utilities such as
+   bg-card, text-ink and border-line re-theme without dark: variants. */
 
-@theme {
+@theme static {
   /* Fonts */
-  --font-display: "Cabinet Grotesk", "DM Sans", sans-serif;
-  --font-body: "DM Sans", "General Sans", system-ui, sans-serif;
-  --font-mono: "Fragment Mono", ui-monospace, monospace;
+  --font-display: "Instrument Serif", "New York", ui-serif, Georgia, serif;
+  --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "Fragment Mono", ui-monospace, "SF Mono", monospace;
 
-  /* Core palette */
-  --color-bg:      #ffffff;
-  --color-surface: #f7f7f7;
-  --color-ink:     #1d1d1d;
-  --color-muted:   #888888;
-  --color-faint:   #999999;
-  --color-line:    #ececec;
+  /* Neutrals (light) */
+  --color-bg:          #fbfaf8;
+  --color-card:        #ffffff;
+  --color-surface:     #f3f2ee;
+  --color-sidebar:     #f0efea;
+  --color-ink:         #18171b;
+  --color-muted:       #6c6b72;
+  --color-faint:       #9b9aa1;
+  --color-line:        #e8e6e1;
+  --color-line-strong: #d8d6d0;
 
-  /* Interactive */
-  --color-accent:        #7575c8;
-  --color-accent-strong: #5b5bb5;
-  --color-link:          #0099ff;
+  /* Accent. --color-accent is overwritten at runtime from settings.accentColor;
+     the strong variant derives from it so hover states follow the user's pick. */
+  --color-accent:        #7c3aed;
+  --color-accent-strong: color-mix(in oklab, var(--color-accent) 82%, black);
+  --color-link:          #0a84ff;
 
-  /* Pastel accent chips */
+  /* Legacy pastel chips, kept for compatibility */
   --color-chip-lav:    #e3e3ff;
   --color-chip-sky:    #e3f2ff;
   --color-chip-mint:   #f3ffe3;
@@ -32,10 +39,54 @@
   --color-chip-butter: #fff5c9;
 
   /* Radius */
-  --radius-card: 20px;
+  --radius-card: 16px;
 
   /* Motion */
-  --ease-ui: cubic-bezier(0.44, 0, 0.56, 1);
+  --ease-ui: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+:root {
+  --shadow-soft:
+    0 1px 1px rgba(24, 22, 30, 0.03),
+    0 2px 6px -2px rgba(24, 22, 30, 0.05);
+  --shadow-card:
+    0 1px 1px rgba(24, 22, 30, 0.04),
+    0 6px 16px -6px rgba(24, 22, 30, 0.10),
+    0 18px 40px -16px rgba(24, 22, 30, 0.10);
+  --shadow-pop:
+    0 0 0 1px rgba(24, 22, 30, 0.06),
+    0 10px 24px -8px rgba(24, 22, 30, 0.16),
+    0 32px 72px -24px rgba(24, 22, 30, 0.24);
+  --highlight: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --scrollbar: #dcdad4;
+  --scrollbar-hover: #c9c7c0;
+}
+
+html.dark {
+  --color-bg:          #0e0e11;
+  --color-card:        #16161a;
+  --color-surface:     #1d1d22;
+  --color-sidebar:     #0a0a0c;
+  --color-ink:         #f3f2f5;
+  --color-muted:       #a3a2ab;
+  --color-faint:       #6d6c75;
+  --color-line:        #26262c;
+  --color-line-strong: #34343b;
+
+  --shadow-soft:
+    0 1px 1px rgba(0, 0, 0, 0.30),
+    0 2px 6px -2px rgba(0, 0, 0, 0.35);
+  --shadow-card:
+    0 1px 1px rgba(0, 0, 0, 0.35),
+    0 8px 20px -8px rgba(0, 0, 0, 0.50),
+    0 24px 48px -20px rgba(0, 0, 0, 0.55);
+  --shadow-pop:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 12px 28px -8px rgba(0, 0, 0, 0.55),
+    0 36px 80px -24px rgba(0, 0, 0, 0.70);
+  --highlight: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --scrollbar: #303036;
+  --scrollbar-hover: #3e3e45;
 }
 
 @layer base {
@@ -51,19 +102,27 @@
 
   body {
     font-family: var(--font-body);
-    background-color: var(--color-bg);
+    font-size: 14px;
+    background-color: var(--color-sidebar);
     color: var(--color-ink);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "cv11";
     overflow-x: hidden;
   }
 
   ::selection {
-    background: var(--color-chip-lav);
-    color: #1d1d1d;
+    background: color-mix(in oklab, var(--color-accent) 22%, transparent);
+    color: var(--color-ink);
   }
 
-  /* Minimal light scrollbar */
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
+    outline-offset: 2px;
+  }
+
+  /* Minimal overlay-style scrollbar */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -72,14 +131,21 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #e2e2e2;
+    background: var(--scrollbar);
     background-clip: content-box;
     border: 3px solid transparent;
     border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #cfcfcf;
+    background: var(--scrollbar-hover);
     background-clip: content-box;
+  }
+
+  /* Accent-tinted native controls (sliders, checkboxes) */
+  input[type="range"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--color-accent);
   }
 }
 
@@ -98,12 +164,32 @@
       transform, opacity, box-shadow, color, background-color, border-color;
   }
 
-  /* Editorial display heading */
+  /* Editorial serif for page titles and hero lines.
+     Named type-* so tailwind-merge does not read them as text colors. */
+  .type-display,
   .text-display {
     font-family: var(--font-display);
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    line-height: 0.95;
+    font-weight: 400;
+    letter-spacing: -0.012em;
+    line-height: 1.04;
+  }
+
+  /* Card and section titles */
+  .type-title {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: -0.012em;
+    line-height: 1.3;
+  }
+
+  /* Large numbers: tabular, tight */
+  .type-figure {
+    font-family: var(--font-body);
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
   }
 
   /* Uppercase tracked label */
@@ -113,21 +199,45 @@
     letter-spacing: 0.12em;
   }
 
-  /* Soft + layered card shadows from the design spec */
   .shadow-soft {
-    box-shadow: rgba(29, 29, 29, 0.1) 0px 2px 4px 0px;
+    box-shadow: var(--highlight), var(--shadow-soft);
   }
   .shadow-card {
+    box-shadow: var(--highlight), var(--shadow-card);
+  }
+  .shadow-pop {
+    box-shadow: var(--shadow-pop);
+  }
+
+  /* Soft accent glow behind hero content */
+  .ambient-glow {
+    background-image:
+      radial-gradient(120% 90% at 100% 0%, color-mix(in oklab, var(--color-accent) 16%, transparent) 0%, transparent 55%),
+      radial-gradient(90% 80% at 0% 100%, color-mix(in oklab, var(--color-accent) 7%, transparent) 0%, transparent 60%);
+  }
+
+  /* Accent fill with a top sheen, for primary accent controls */
+  .accent-sheen {
+    background-color: var(--color-accent);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 60%);
     box-shadow:
-      rgba(0, 0, 0, 0.17) 0px 0.6px 1.6px -1.5px,
-      rgba(0, 0, 0, 0.14) 0px 2.3px 6px -3px,
-      rgba(0, 0, 0, 0.02) 0px 10px 26px -4.5px;
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 1px 2px rgba(0, 0, 0, 0.12),
+      0 6px 14px -6px color-mix(in oklab, var(--color-accent) 70%, transparent);
+  }
+
+  /* macOS window drag regions (titleBarStyle: hiddenInset) */
+  .app-drag {
+    -webkit-app-region: drag;
+  }
+  .app-no-drag {
+    -webkit-app-region: no-drag;
   }
 
   /* Borderless underline input */
   .input-underline {
     border: 0;
-    border-bottom: 2px solid var(--color-ink);
+    border-bottom: 1.5px solid var(--color-line-strong);
     border-radius: 0;
     background: transparent;
     transition: border-color 0.2s var(--ease-ui);
@@ -138,6 +248,37 @@
   .input-underline:focus {
     outline: none;
     border-bottom-color: var(--color-accent);
+  }
+
+  /* Slim range slider */
+  .range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    width: 100%;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--color-accent) 0%,
+      var(--color-accent) var(--range-fill, 0%),
+      var(--color-line-strong) var(--range-fill, 0%),
+      var(--color-line-strong) 100%
+    );
+    cursor: pointer;
+  }
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    width: 18px;
+    border-radius: 999px;
+    background: #ffffff;
+    border: 0.5px solid rgba(0, 0, 0, 0.12);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 3px 8px -2px rgba(0, 0, 0, 0.2);
+    transition: transform 150ms var(--ease-ui);
+  }
+  .range:active::-webkit-slider-thumb {
+    transform: scale(1.08);
   }
 }
 
@@ -166,22 +307,18 @@
   animation: spin-ui 1s linear infinite;
 }
 
-/* ─── Dark mode ──────────────────────────────────────────────────────────────
-   Semantic tokens are overridden under .dark so every utility (bg-bg, text-ink,
-   border-line, …) re-themes automatically. Pastel chips + accent stay constant
-   — they read as vibrant tags on the dark surface. */
-html.dark {
-  --color-bg:      #131316;
-  --color-surface: #1b1b1f;
-  --color-ink:     #f3f3f5;
-  --color-muted:   #a1a1aa;
-  --color-faint:   #6c6c75;
-  --color-line:    #2a2a31;
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+.animate-breathe {
+  animation: breathe 1.6s ease-in-out infinite;
 }
 
-html.dark ::-webkit-scrollbar-thumb {
-  background: #3a3a42;
-}
-html.dark ::-webkit-scrollbar-thumb:hover {
-  background: #4a4a54;
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-float,
+  .animate-breathe {
+    animation: none;
+  }
 }

@@ -168,11 +168,11 @@ export function VaaniUiProvider({
     void updateSettings({ theme: nextTheme });
   }, [updateSettings]);
 
-  // Apply accent color CSS variable whenever settings.accentColor changes
+  // Apply the accent to the Tailwind token so every accent utility follows the setting.
   useEffect(() => {
     const color = settings.accentColor;
     if (color && /^#[0-9a-fA-F]{6}$/.test(color)) {
-      document.documentElement.style.setProperty("--accent", color);
+      document.documentElement.style.setProperty("--color-accent", color);
     }
   }, [settings.accentColor]);
 

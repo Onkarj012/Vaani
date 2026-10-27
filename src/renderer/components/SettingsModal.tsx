@@ -20,18 +20,20 @@ import type { RecoveryStorageUsage } from '@shared/recovery'
 import { decideProviderKeyDraft } from '@renderer/lib/providerKeyDraft'
 
 const sidebarItems = [
-  { id: 'api', label: 'API & Providers', icon: Plug },
-  { id: 'language', label: 'Language', icon: Globe },
-  { id: 'dictation', label: 'Dictation', icon: Mic },
-  { id: 'hotkey', label: 'Hotkey', icon: Keyboard },
-  { id: 'injection', label: 'Injection', icon: Type },
-  { id: 'appearance', label: 'Appearance', icon: Palette },
-  { id: 'system', label: 'System', icon: Monitor },
-  { id: 'audio', label: 'Audio', icon: Volume2 },
-  { id: 'updates', label: 'Updates', icon: Download },
-  { id: 'data', label: 'Data', icon: Database },
-  { id: 'recovery', label: 'Recovery', icon: ShieldCheck },
+  { id: 'api', label: 'API & Providers', icon: Plug, group: 'Dictation' },
+  { id: 'language', label: 'Language', icon: Globe, group: 'Dictation' },
+  { id: 'dictation', label: 'Dictation', icon: Mic, group: 'Dictation' },
+  { id: 'hotkey', label: 'Hotkey', icon: Keyboard, group: 'Dictation' },
+  { id: 'injection', label: 'Injection', icon: Type, group: 'Dictation' },
+  { id: 'audio', label: 'Audio', icon: Volume2, group: 'Dictation' },
+  { id: 'appearance', label: 'Appearance', icon: Palette, group: 'App' },
+  { id: 'system', label: 'System', icon: Monitor, group: 'App' },
+  { id: 'updates', label: 'Updates', icon: Download, group: 'App' },
+  { id: 'data', label: 'Data', icon: Database, group: 'Privacy & Data' },
+  { id: 'recovery', label: 'Recovery', icon: ShieldCheck, group: 'Privacy & Data' },
 ]
+
+const sidebarGroups = ['Dictation', 'App', 'Privacy & Data']
 
 const sectionDescriptions: Record<string, string> = {
   api: 'Transcription and formatting providers',
@@ -70,26 +72,32 @@ const stylePresets = [
 ]
 
 const accentColors = [
-  { id: '#7575c8', label: 'Purple' },
-  { id: '#5bb5d8', label: 'Blue' },
-  { id: '#8cc152', label: 'Green' },
-  { id: '#d97fc1', label: 'Pink' },
-  { id: '#f0a07a', label: 'Peach' },
-  { id: '#e6c34d', label: 'Yellow' },
-  { id: '#0099ff', label: 'Link' },
-  { id: '#1d1d1d', label: 'Ink' },
+  { id: '#7C3AED', label: 'Violet' },
+  { id: '#7575c8', label: 'Lavender' },
+  { id: '#2563eb', label: 'Blue' },
+  { id: '#0891b2', label: 'Teal' },
+  { id: '#059669', label: 'Green' },
+  { id: '#d97706', label: 'Amber' },
+  { id: '#e11d48', label: 'Rose' },
+  { id: '#db2777', label: 'Pink' },
+  { id: '#52525b', label: 'Graphite' },
 ]
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="mb-2 block text-sm font-medium text-muted">{children}</label>
+  return <label className="mb-2 block text-[12.5px] font-medium text-muted">{children}</label>
+}
+
+// Inset grouped list, like macOS System Settings. Rows inside are separated by hairlines.
+function Group({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={`divide-y divide-line rounded-xl border border-line bg-card px-4 shadow-soft ${className ?? ''}`}>{children}</div>
 }
 
 function Row({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-6 py-2">
+    <div className="flex items-center justify-between gap-6 py-3.5">
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-ink">{title}</div>
-        <div className="text-xs text-faint">{desc}</div>
+        <div className="text-[13.5px] font-medium text-ink">{title}</div>
+        <div className="mt-0.5 text-xs leading-relaxed text-faint">{desc}</div>
       </div>
       <div className="shrink-0">{children}</div>
     </div>
@@ -99,17 +107,36 @@ function Row({ title, desc, children }: { title: string; desc: string; children:
 function OptionButton({ active, onClick, label, description }: { active: boolean; onClick: () => void; label: string; description: string }) {
   return (
     <button
+      role="radio"
+      aria-checked={active}
       onClick={onClick}
-      className={`flex w-full items-center justify-between rounded-2xl border p-4 text-left transition-all ${
-        active ? 'border-accent bg-accent/10' : 'border-line hover:border-ink/20'
+      className={`flex w-full items-center gap-3.5 rounded-xl border p-3.5 text-left transition-all ${
+        active ? 'border-accent/50 bg-accent/[0.06] ring-4 ring-accent/[0.07]' : 'border-line bg-card hover:border-line-strong'
       }`}
     >
-      <div>
-        <div className="text-sm font-medium text-ink">{label}</div>
-        <div className="text-xs text-faint">{description}</div>
+      <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border transition-colors ${active ? 'border-accent bg-accent' : 'border-line-strong bg-card'}`}>
+        {active && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+      </span>
+      <div className="min-w-0">
+        <div className="text-[13.5px] font-medium text-ink">{label}</div>
+        <div className="mt-0.5 text-xs text-faint">{description}</div>
       </div>
-      {active && <span className="ml-3 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent"><Check size={12} className="text-white" /></span>}
     </button>
+  )
+}
+
+function RangeField({ label, display, min, max, step, value, onChange }: { label: string; display: string; min: number; max: number; step: number; value: number; onChange: (value: number) => void }) {
+  const fill = ((value - min) / (max - min)) * 100
+  return (
+    <div className="py-4">
+      <div className="mb-3 flex items-center justify-between">
+        <label className="text-[13.5px] font-medium text-ink">{label}</label>
+        <span className="rounded-md bg-surface px-2 py-0.5 font-mono text-[11px] text-muted">{display}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value} aria-label={label}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="range" style={{ '--range-fill': `${fill}%` } as React.CSSProperties} />
+    </div>
   )
 }
 
@@ -153,31 +180,31 @@ function ApiKeyInput({
   if (hasKey && !replacing && !value) {
     return (
       <div className="flex items-center gap-2">
-        <div className="flex flex-1 items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2.5">
+        <div className="flex h-10 flex-1 items-center gap-2 rounded-[10px] border border-line bg-surface/70 px-3.5">
           <span className="flex-1 font-mono text-sm tracking-[0.25em] text-muted">••••••••••••</span>
-          <span className="flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent">
+          <span className="flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent ring-1 ring-inset ring-accent/15">
             <Check size={10} /> Saved
           </span>
           {lastValidation?.valid && (
-            <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">
+            <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 ring-1 ring-inset ring-emerald-500/20 dark:text-emerald-400">
               <Check size={10} /> Validated
             </span>
           )}
           {lastValidation && !lastValidation.valid && (
-            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-500">Test failed</span>
+            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-500 ring-1 ring-inset ring-red-500/20">Test failed</span>
           )}
         </div>
         <button
           type="button"
           onClick={() => setReplace(true)}
-          className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-ink/30 hover:text-ink"
+          className="h-10 shrink-0 rounded-[10px] border border-line bg-card px-3 text-xs font-medium text-muted shadow-soft transition-colors hover:border-line-strong hover:text-ink"
         >
           Replace
         </button>
         <button
           type="button"
           onClick={() => { onClear?.(); setReplace(false); }}
-          className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-red-300 hover:text-red-500"
+          className="h-10 shrink-0 rounded-[10px] border border-line bg-card px-3 text-xs font-medium text-muted shadow-soft transition-colors hover:border-red-300 hover:text-red-500"
         >
           Clear
         </button>
@@ -219,7 +246,7 @@ function ApiKeyInput({
             setReplace(false);
             window.setTimeout(() => { cancelRequested.current = false; }, 0);
           }}
-          className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-ink/30 hover:text-ink"
+          className="h-10 shrink-0 rounded-[10px] border border-line bg-card px-3 text-xs font-medium text-muted shadow-soft transition-colors hover:border-line-strong hover:text-ink"
         >
           Cancel
         </button>
@@ -230,7 +257,7 @@ function ApiKeyInput({
           disabled={testing || !value.trim()}
           onMouseDown={(event) => event.preventDefault()}
           onClick={onTest}
-          className="shrink-0 rounded-xl border border-line px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-ink/30 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-10 shrink-0 rounded-[10px] border border-line bg-card px-3 text-xs font-medium text-muted shadow-soft transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
         >
           {testing ? 'Testing…' : 'Test'}
         </button>
@@ -275,6 +302,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }, [activeSection, isOpen])
 
   useEffect(() => { setCustomHex(settings.accentColor) }, [settings.accentColor])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isOpen, onClose])
 
   useEffect(() => {
     const pk = settings.providerApiKeys ?? []
@@ -426,10 +460,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
           )}
 
-          <div className="h-px bg-line" />
-          <Row title="Provider Failover" desc="Try next provider on failure">
-            <Toggle checked={settings.failoverEnabled} onChange={(v) => updateSettings({ failoverEnabled: v })} />
-          </Row>
+          <Group>
+            <Row title="Provider Failover" desc="Try next provider on failure">
+              <Toggle checked={settings.failoverEnabled} onChange={(v) => updateSettings({ failoverEnabled: v })} />
+            </Row>
+          </Group>
         </div>
       )}
 
@@ -452,7 +487,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 const effectiveLanguage = resolveProfileLanguage(profile.language, settings.language);
                 const profileLanguage = profile.language && profile.language !== 'auto' ? profile.language : '';
                 return (
-                <div key={profile.id} className="flex items-center gap-2 rounded-xl border border-line p-3">
+                <div key={profile.id} className="flex items-center gap-2 rounded-xl border border-line bg-card p-3 shadow-soft">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm text-ink">{profile.name}</div>
                     <div className="truncate text-xs text-faint">{profile.appBundleIds.join(', ')}</div>
@@ -495,7 +530,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       const next = (settings.appProfiles ?? []).filter((p) => p.id !== profile.id);
                       void updateSettings({ appProfiles: next });
                     }}
-                    className="shrink-0 rounded-lg p-1 text-faint transition-colors hover:text-ink"
+                    className="shrink-0 rounded-md p-1.5 text-faint transition-colors hover:bg-red-500/10 hover:text-red-500"
                   >
                     <X size={13} />
                   </button>
@@ -503,7 +538,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 );
               })}
             </div>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex gap-2 rounded-xl border border-dashed border-line-strong p-2">
               <Input placeholder="App name" value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)} />
               <Input placeholder="Bundle ID (e.g. com.tinyspeck.slackmacgap)" value={newProfileBundleId} onChange={(e) => setNewProfileBundleId(e.target.value)} />
               <Select value={newProfileLanguage} onChange={setNewProfileLanguage} options={appLanguageOptions} />
@@ -511,15 +546,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
           </div>
 
-          <Row title="Smart Punctuation" desc="Auto-add periods, commas, and capitalization">
-            <Toggle checked={settings.smartPunctuation} onChange={(v) => updateSettings({ smartPunctuation: v })} />
-          </Row>
-          <Row title="Cleanup" desc="Remove filler words and apply corrections">
-            <Toggle checked={settings.cleanupEnabled} onChange={(v) => updateSettings({ cleanupEnabled: v })} />
-          </Row>
-          <Row title="Context Awareness" desc="When enabled, bounded app/style context may be used for formatting">
-            <Toggle checked={settings.contextAwarenessEnabled} onChange={(v) => updateSettings({ contextAwarenessEnabled: v })} />
-          </Row>
+          <Group className="mt-2">
+            <Row title="Smart Punctuation" desc="Auto-add periods, commas, and capitalization">
+              <Toggle checked={settings.smartPunctuation} onChange={(v) => updateSettings({ smartPunctuation: v })} />
+            </Row>
+            <Row title="Cleanup" desc="Remove filler words and apply corrections">
+              <Toggle checked={settings.cleanupEnabled} onChange={(v) => updateSettings({ cleanupEnabled: v })} />
+            </Row>
+            <Row title="Context Awareness" desc="When enabled, bounded app/style context may be used for formatting">
+              <Toggle checked={settings.contextAwarenessEnabled} onChange={(v) => updateSettings({ contextAwarenessEnabled: v })} />
+            </Row>
+          </Group>
           <div>
             <FieldLabel>Style Preset</FieldLabel>
             <Select value={settings.stylePreset} onChange={(v) => updateSettings({ stylePreset: v as typeof settings.stylePreset })} options={stylePresets} />
@@ -543,21 +580,23 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
           <div>
             <FieldLabel>Dictation Mode</FieldLabel>
-            <div className="space-y-2">
+            <div role="radiogroup" aria-label="Dictation mode" className="space-y-2">
               {dictationModes.map((mode) => (
                 <OptionButton key={mode.id} active={settings.dictationMode === mode.id} onClick={() => updateSettings({ dictationMode: mode.id as typeof settings.dictationMode })} label={mode.label} description={mode.description} />
               ))}
             </div>
           </div>
-          <Row title="Save Recordings" desc="Save WAV files to disk for replay">
-            <Toggle checked={settings.saveRecordings} onChange={(v) => updateSettings({ saveRecordings: v })} />
-          </Row>
-          <Row title="Suggest Dictionary Words" desc="After you fix a pasted word, offer to add it to the dictionary">
-            <Toggle checked={settings.suggestDictionaryWords} onChange={(v) => updateSettings({ suggestDictionaryWords: v })} />
-          </Row>
-          <Row title="Low Latency Mode" desc="Keeps the microphone open between dictations">
-            <Toggle checked={settings.preWarmMic} onChange={(v) => updateSettings({ preWarmMic: v })} />
-          </Row>
+          <Group>
+            <Row title="Save Recordings" desc="Save WAV files to disk for replay">
+              <Toggle checked={settings.saveRecordings} onChange={(v) => updateSettings({ saveRecordings: v })} />
+            </Row>
+            <Row title="Suggest Dictionary Words" desc="After you fix a pasted word, offer to add it to the dictionary">
+              <Toggle checked={settings.suggestDictionaryWords} onChange={(v) => updateSettings({ suggestDictionaryWords: v })} />
+            </Row>
+            <Row title="Low Latency Mode" desc="Keeps the microphone open between dictations">
+              <Toggle checked={settings.preWarmMic} onChange={(v) => updateSettings({ preWarmMic: v })} />
+            </Row>
+          </Group>
           <div>
             <FieldLabel>Microphone</FieldLabel>
             <Select
@@ -568,10 +607,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             />
             <p className="mt-1.5 text-xs text-faint">Virtual and aggregate devices are skipped for native capture.</p>
           </div>
-          <div className="flex items-center justify-between rounded-2xl bg-surface p-4">
+          <div className="flex items-center justify-between rounded-xl bg-surface/70 p-4">
             <div className="flex items-center gap-3">
               <Mic size={16} className="text-muted" />
-              <div><div className="text-sm text-ink">{settings.captureBackend === 'native' ? 'Native Voice Processing' : 'Browser Capture'}</div><div className="text-xs text-faint">{settings.captureBackend === 'native' ? 'Falls back to browser capture automatically if native fails' : 'Renderer capture is the default reliability path'}</div></div>
+              <div><div className="text-[13px] font-medium text-ink">{settings.captureBackend === 'native' ? 'Native Voice Processing' : 'Browser Capture'}</div><div className="text-xs text-faint">{settings.captureBackend === 'native' ? 'Falls back to browser capture automatically if native fails' : 'Renderer capture is the default reliability path'}</div></div>
             </div>
             <HardDrive size={14} className="text-faint" />
           </div>
@@ -594,7 +633,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       {activeSection === 'injection' && (
         <div className="space-y-4">
-          <div className="space-y-2">
+          <div role="radiogroup" aria-label="Injection mode" className="space-y-2">
             {injectionModes.map((mode) => (
               <OptionButton key={mode.id} active={settings.injectionMode === mode.id} onClick={() => updateSettings({ injectionMode: mode.id as typeof settings.injectionMode })} label={mode.label} description={mode.description} />
             ))}
@@ -610,31 +649,52 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <div className="space-y-5">
           <div>
             <FieldLabel>Theme</FieldLabel>
-            <div className="flex gap-2">
-              <button onClick={() => setMode('light')}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-all ${mode === 'light' ? 'border-accent bg-accent/10 text-ink' : 'border-line text-muted hover:border-ink/20'}`}>
-                <Sun size={16} /> Light
-              </button>
-              <button onClick={() => setMode('dark')}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-all ${mode === 'dark' ? 'border-accent bg-accent/10 text-ink' : 'border-line text-muted hover:border-ink/20'}`}>
-                <Moon size={16} /> Dark
-              </button>
+            <div role="radiogroup" aria-label="Theme" className="grid grid-cols-2 gap-3">
+              {([['light', Sun, 'Light'], ['dark', Moon, 'Dark']] as const).map(([value, Icon, label]) => (
+                <button key={value} role="radio" aria-checked={mode === value} onClick={() => setMode(value)}
+                  className={`overflow-hidden rounded-xl border text-left transition-all ${mode === value ? 'border-accent/50 ring-4 ring-accent/[0.08]' : 'border-line hover:border-line-strong'}`}>
+                  {/* Miniature window preview */}
+                  <div className={`flex h-20 gap-1.5 p-2 ${value === 'dark' ? 'bg-[#0a0a0c]' : 'bg-[#f0efea]'}`}>
+                    <div className="w-1/4 space-y-1 pt-1">
+                      <div className={`h-1.5 w-3/4 rounded-full ${value === 'dark' ? 'bg-white/15' : 'bg-black/10'}`} />
+                      <div className="h-1.5 w-full rounded-full bg-accent/60" />
+                      <div className={`h-1.5 w-2/3 rounded-full ${value === 'dark' ? 'bg-white/10' : 'bg-black/[0.07]'}`} />
+                    </div>
+                    <div className={`flex-1 rounded-md border p-2 ${value === 'dark' ? 'border-white/10 bg-[#0e0e11]' : 'border-black/5 bg-[#fbfaf8]'}`}>
+                      <div className={`h-2 w-1/2 rounded-full ${value === 'dark' ? 'bg-white/25' : 'bg-black/20'}`} />
+                      <div className={`mt-2 h-5 rounded ${value === 'dark' ? 'bg-[#16161a]' : 'bg-white shadow-sm'}`} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 border-t border-line bg-card px-3 py-2 text-[13px] font-medium text-ink">
+                    <Icon size={14} className={mode === value ? 'text-accent' : 'text-muted'} /> {label}
+                    {mode === value && <Check size={14} className="ml-auto text-accent" />}
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
           <div>
             <FieldLabel>Accent Color</FieldLabel>
-            <div className="flex flex-wrap items-center gap-3">
-              {accentColors.map((color) => (
-                <button key={color.id} onClick={() => updateSettings({ accentColor: color.id })}
-                  className={`h-10 w-10 rounded-full transition-all ${settings.accentColor === color.id ? 'ring-2 ring-ink ring-offset-2' : 'hover:scale-105'}`}
-                  style={{ backgroundColor: color.id }} title={color.label} />
-              ))}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {accentColors.map((color) => {
+                const selected = settings.accentColor.toLowerCase() === color.id.toLowerCase()
+                return (
+                  <button key={color.id} onClick={() => updateSettings({ accentColor: color.id })}
+                    aria-label={color.label} aria-pressed={selected}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)] transition-all ${selected ? 'ring-2 ring-ink/80 ring-offset-2 ring-offset-bg' : 'hover:scale-110'}`}
+                    style={{ backgroundColor: color.id }} title={color.label}>
+                    {selected && <Check size={14} strokeWidth={3} className="text-white" />}
+                  </button>
+                )
+              })}
             </div>
-            <div className="mt-4 flex items-center gap-3">
-              <Input value={customHex} onChange={(e) => setCustomHex(e.target.value)}
-                onBlur={(e) => { const val = e.target.value; if (/^#[0-9A-Fa-f]{6}$/.test(val)) updateSettings({ accentColor: val }); else setCustomHex(settings.accentColor) }}
-                placeholder="#7575C8" className="w-36 font-mono uppercase" />
-              <div className="h-9 w-9 rounded-lg border border-line" style={{ backgroundColor: settings.accentColor }} />
+            <div className="mt-4 flex items-center gap-2">
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-md shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]" style={{ backgroundColor: settings.accentColor }} />
+                <Input value={customHex} onChange={(e) => setCustomHex(e.target.value)}
+                  onBlur={(e) => { const val = e.target.value; if (/^#[0-9A-Fa-f]{6}$/.test(val)) updateSettings({ accentColor: val }); else setCustomHex(settings.accentColor) }}
+                  placeholder="#7C3AED" aria-label="Custom accent hex" className="w-36 pl-10 font-mono uppercase" />
+              </div>
             </div>
             <p className="mt-3 text-xs text-faint">Accent color tints highlights and the recording capsule.</p>
           </div>
@@ -642,45 +702,32 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       )}
 
       {activeSection === 'system' && (
-        <div className="space-y-2">
+        <Group>
           <Row title="Show in Dock" desc="Display app icon in macOS dock">
             <Toggle checked={settings.showInDock} onChange={(v) => updateSettings({ showInDock: v })} />
           </Row>
-          <div className="h-px bg-line" />
           <Row title="Launch at Login" desc="Start Vaani when you log in">
             <Toggle checked={settings.launchAtLogin} onChange={(v) => updateSettings({ launchAtLogin: v })} />
           </Row>
-        </div>
+        </Group>
       )}
 
       {activeSection === 'audio' && (
-        <div className="space-y-6">
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <label className="text-sm font-medium text-ink">Minimum Clip Duration</label>
-              <span className="text-xs text-faint">{settings.minClipDuration}s</span>
-            </div>
-            <input type="range" min="0.1" max="3" step="0.1" value={settings.minClipDuration}
-              onChange={(e) => updateSettings({ minClipDuration: Number(e.target.value) })}
-              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-line accent-[#7575c8]" />
-          </div>
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <label className="text-sm font-medium text-ink">Silence Threshold</label>
-              <span className="text-xs text-faint">{Math.round(settings.silenceThreshold * 100)}%</span>
-            </div>
-            <input type="range" min="0" max="1" step="0.01" value={settings.silenceThreshold}
-              onChange={(e) => updateSettings({ silenceThreshold: Number(e.target.value) })}
-              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-line accent-[#7575c8]" />
-          </div>
-        </div>
+        <Group>
+          <RangeField label="Minimum Clip Duration" display={`${settings.minClipDuration}s`} min={0.1} max={3} step={0.1}
+            value={settings.minClipDuration} onChange={(v) => updateSettings({ minClipDuration: v })} />
+          <RangeField label="Silence Threshold" display={`${Math.round(settings.silenceThreshold * 100)}%`} min={0} max={1} step={0.01}
+            value={settings.silenceThreshold} onChange={(v) => updateSettings({ silenceThreshold: v })} />
+        </Group>
       )}
 
       {activeSection === 'updates' && (
-        <div className="space-y-3">
-          <div>
-            <div className="text-sm font-medium text-ink">App Updates</div>
-            <div className="text-xs text-faint">Current version: {appVersion ?? '—'}</div>
+        <div className="space-y-3 rounded-xl border border-line bg-card p-5 shadow-soft">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-[13.5px] font-medium text-ink">App Updates</div>
+              <div className="mt-0.5 text-xs text-faint">Current version: <span className="font-mono">{appVersion ?? '—'}</span></div>
+            </div>
           </div>
           <Button variant="soft" size="sm" onClick={checkForUpdates} disabled={updateStatus.status === 'checking' || updateStatus.status === 'downloading'}>
             <RefreshCw size={14} className={updateStatus.status === 'checking' || updateStatus.status === 'downloading' ? 'animate-spin-ui' : ''} />
@@ -699,7 +746,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <Button variant="soft" size="sm" onClick={handleExportData}><Download size={14} /> Export Data</Button>
             <Button variant="destructive" size="sm" onClick={() => { void clearHistory() }}><Trash2 size={14} /> Clear All History</Button>
           </div>
-          <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-5">
+          <div className="rounded-xl border border-red-500/20 bg-red-500/[0.05] p-5">
             <div className="flex items-start gap-3">
               <AlertTriangle size={18} className="mt-0.5 text-red-500" />
               <div>
@@ -723,16 +770,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             />
             <p className="mt-1.5 text-xs text-faint">This period applies to new failures. Previously retained audio keeps its original expiry. Bounded text stays until you discard its recovery item.</p>
           </div>
-          <Row title="Retain failed audio" desc="Opt in to encrypted audio for retries when recovery is available">
-            <Toggle checked={settings.retainFailedAudio} onChange={(value) => updateSettings({ retainFailedAudio: value })} />
-          </Row>
+          <Group>
+            <Row title="Retain failed audio" desc="Opt in to encrypted audio for retries when recovery is available">
+              <Toggle checked={settings.retainFailedAudio} onChange={(value) => updateSettings({ retainFailedAudio: value })} />
+            </Row>
+          </Group>
           {!settings.retainFailedAudio && (
-            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-700">
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-4 text-[13px] text-amber-700 dark:text-amber-400">
               Failed audio retention is off. When recovery is available, new failures will keep text only.
             </div>
           )}
           <p className="text-xs leading-relaxed text-faint">Turning this off stops new retention. Previously retained audio remains until it expires or you clear it below. Save Recordings is a separate preference for WAV files.</p>
-          <div className="rounded-2xl border border-line bg-surface p-4">
+          <div className="rounded-xl border border-line bg-card p-4 shadow-soft">
             <div className="flex items-center gap-3">
               <HardDrive size={16} className="text-muted" />
               <div>
@@ -756,44 +805,53 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       {isOpen && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          className="app-no-drag fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4 backdrop-blur-[6px]"
           onClick={onClose}
         >
           <motion.div
-            initial={{ opacity: 0, scale: 0.97, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97, y: 16 }}
-            transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-            className="flex h-[80vh] w-full max-w-4xl overflow-hidden rounded-[20px] bg-bg shadow-card"
+            role="dialog" aria-modal="true" aria-label="Settings"
+            initial={{ opacity: 0, scale: 0.98, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98, y: 10 }}
+            transition={{ type: 'spring', damping: 30, stiffness: 380 }}
+            className="flex h-[min(82vh,720px)] w-full max-w-[920px] overflow-hidden rounded-2xl border border-line bg-bg shadow-pop"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex w-60 shrink-0 flex-col border-r border-line bg-surface">
-              <div className="px-6 pb-4 pt-6">
-                <h2 className="text-display text-2xl text-ink">Settings</h2>
+            <div className="flex w-56 shrink-0 flex-col border-r border-line bg-sidebar">
+              <div className="px-5 pb-4 pt-6">
+                <h2 className="type-display text-[28px] text-ink">Settings</h2>
                 <p className="label-meta mt-1 text-[9px] text-faint">Configure Vaani</p>
               </div>
-              <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-3">
-                {sidebarItems.map((it) => {
-                  const Icon = it.icon
-                  return (
-                    <button key={it.id} onClick={() => setActiveSection(it.id)}
-                      className={`flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-left text-sm transition-all ${
-                        activeSection === it.id ? 'bg-accent/10 font-semibold text-accent' : 'font-medium text-muted hover:bg-bg hover:text-ink'
-                      }`}>
-                      <Icon size={16} /> {it.label}
-                    </button>
-                  )
-                })}
+              <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-4">
+                {sidebarGroups.map((group) => (
+                  <div key={group}>
+                    <p className="label-meta px-3 pb-1.5 text-[9px] text-faint">{group}</p>
+                    <div className="space-y-0.5">
+                      {sidebarItems.filter((it) => it.group === group).map((it) => {
+                        const Icon = it.icon
+                        const active = activeSection === it.id
+                        return (
+                          <button key={it.id} onClick={() => setActiveSection(it.id)} aria-current={active ? 'page' : undefined}
+                            className={`flex w-full items-center gap-2.5 rounded-[9px] px-3 py-[7px] text-left text-[13px] font-medium transition-all ${
+                              active ? 'bg-card text-ink shadow-soft ring-1 ring-line' : 'text-muted hover:bg-ink/[0.04] hover:text-ink'
+                            }`}>
+                            <Icon size={15} className={active ? 'text-accent' : 'text-faint'} /> {it.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </nav>
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex items-center justify-between border-b border-line px-7 py-5">
+              <div className="flex items-center justify-between border-b border-line px-7 py-4">
                 <div>
-                  <h3 className="text-display text-xl text-ink">{sidebarItems.find((s) => s.id === activeSection)?.label}</h3>
+                  <h3 className="type-title text-[17px] text-ink">{sidebarItems.find((s) => s.id === activeSection)?.label}</h3>
                   <p className="mt-0.5 text-xs text-faint">{sectionDescriptions[activeSection]}</p>
                 </div>
-                <button onClick={onClose} className="rounded-full p-2 text-muted transition-colors hover:bg-surface"><X size={18} /></button>
+                <button onClick={onClose} aria-label="Close settings" className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink"><X size={17} /></button>
               </div>
               <div className="flex-1 overflow-y-auto px-7 py-6">
-                <motion.div key={activeSection} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.2 }}>
+                <motion.div key={activeSection} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}>
                   {sectionContent}
                 </motion.div>
               </div>

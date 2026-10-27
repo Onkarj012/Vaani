@@ -5,14 +5,19 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   variant?: "soft" | "underline"
 }
 
+const fieldBase =
+  "w-full text-[13.5px] text-ink placeholder:text-faint outline-none transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
+
+const fieldSoft =
+  "rounded-[10px] border border-line bg-card shadow-[inset_0_1px_1px_rgba(0,0,0,0.03)] hover:border-line-strong focus:border-accent/60 focus:ring-4 focus:ring-accent/10"
+
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, variant = "soft", ...props }, ref) => (
     <input
       ref={ref}
       className={cn(
-        "w-full text-sm text-ink placeholder:text-faint outline-none transition-all duration-200 ease-[cubic-bezier(0.44,0,0.56,1)]",
-        variant === "soft" &&
-          "rounded-2xl border border-line bg-surface px-4 py-3 focus:border-accent focus:bg-bg",
+        fieldBase,
+        variant === "soft" && cn(fieldSoft, "h-10 px-3.5"),
         variant === "underline" && "input-underline px-0 py-3",
         className
       )}
@@ -28,10 +33,7 @@ export const Textarea = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <textarea
     ref={ref}
-    className={cn(
-      "w-full resize-none rounded-2xl border border-line bg-surface px-4 py-3 text-sm text-ink placeholder:text-faint outline-none transition-all duration-200 focus:border-accent focus:bg-bg",
-      className
-    )}
+    className={cn(fieldBase, fieldSoft, "resize-none px-3.5 py-2.5 leading-relaxed", className)}
     {...props}
   />
 ))

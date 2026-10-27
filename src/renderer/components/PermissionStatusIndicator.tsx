@@ -4,6 +4,7 @@ import { getPermissionStatusIndicator, getPermissionStatusLabel } from '@shared/
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
 import { Tag } from '@renderer/components/ui/tag'
+import { IconTile } from '@renderer/components/ui/icon-tile'
 
 type PermissionKey = keyof PermissionStatus
 
@@ -34,34 +35,34 @@ export default function PermissionStatusIndicator({
   const summary = getPermissionStatusIndicator(status)
 
   return (
-    <Card tone={summary.allGranted ? 'mint' : 'peach'} bordered>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
-            <ShieldCheck size={19} />
-          </div>
+    <Card tone={summary.allGranted ? 'white' : 'warning'} className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <IconTile tone={summary.allGranted ? 'success' : 'warning'}>
+            <ShieldCheck size={18} />
+          </IconTile>
           <div>
-            <h2 className="text-display text-xl text-ink">Permissions</h2>
-            <p className="mt-1 text-sm text-muted">{summary.description}</p>
+            <h2 className="type-title text-ink">Permissions</h2>
+            <p className="mt-0.5 text-[13px] text-muted">{summary.description}</p>
           </div>
         </div>
-        <Tag tone={summary.allGranted ? 'mint' : 'peach'}>
-          {summary.allGranted ? <CheckCircle2 size={13} /> : null}
+        <Tag tone={summary.allGranted ? 'success' : 'warning'}>
+          {summary.allGranted ? <CheckCircle2 size={12} /> : null}
           {summary.label}
         </Tag>
       </div>
 
-      <div className="mt-5 grid gap-2 sm:grid-cols-2">
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
         {permissionDetails.map(({ key, title, icon: Icon }) => {
           const state = status[key]
           const granted = state === 'granted'
           const busy = busyPermission === key
           return (
-            <div key={key} className="flex items-center gap-3 rounded-2xl bg-bg/60 px-4 py-3">
-              <Icon size={16} className={granted ? 'text-accent' : 'text-muted'} />
+            <div key={key} className="flex items-center gap-3 rounded-xl border border-line bg-bg/60 px-3.5 py-2.5">
+              <Icon size={15} className={granted ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted'} />
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium text-ink">{title}</div>
-                <div className={`text-xs ${granted ? 'text-accent' : 'text-muted'}`}>
+                <div className="text-[13px] font-medium text-ink">{title}</div>
+                <div className={`text-xs ${granted ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted'}`}>
                   {getPermissionStatusLabel(state)}
                 </div>
               </div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, Loader2, BookOpen, Layers, X, ChevronRight, Pause, Play, ArrowUp } from 'lucide-react'
+import { Check, BookOpen, Layers, X, ChevronRight, Pause, Play, ArrowUp } from 'lucide-react'
 
 const BAR_COUNT = 9
 const BAR_WIDTH = 2.5
@@ -113,17 +113,31 @@ function HandsFreeControls({ paused, accentColor, sessionId }: { paused: boolean
 }
 
 
-// ── Dark pill shell — near-black, soft border, layered shadow ────────────────
+// ── Dark glass shell — graphite gradient, hairline border, top sheen, layered shadow ──
 const PILL_STYLE: React.CSSProperties = {
-  background: 'rgba(18,18,20,0.97)',
-  border: '1px solid rgba(255,255,255,0.09)',
-  boxShadow: 'rgba(0,0,0,0.40) 0px 1px 2px -0.5px, rgba(0,0,0,0.30) 0px 4px 10px -3px, rgba(0,0,0,0.20) 0px 12px 28px -6px',
+  background: 'linear-gradient(180deg, rgba(36,36,41,0.97) 0%, rgba(17,17,20,0.97) 100%)',
+  border: '0.5px solid rgba(255,255,255,0.14)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), rgba(0,0,0,0.40) 0px 1px 2px -0.5px, rgba(0,0,0,0.30) 0px 4px 10px -3px, rgba(0,0,0,0.22) 0px 12px 28px -6px',
 }
 
 const PROMPT_STYLE: React.CSSProperties = {
-  background: 'rgba(18,18,20,0.97)',
-  border: '1px solid rgba(255,255,255,0.09)',
-  boxShadow: 'rgba(0,0,0,0.50) 0px 2px 4px -1px, rgba(0,0,0,0.35) 0px 8px 18px -5px, rgba(0,0,0,0.20) 0px 18px 40px -8px',
+  background: 'linear-gradient(180deg, rgba(34,34,39,0.98) 0%, rgba(17,17,20,0.98) 100%)',
+  border: '0.5px solid rgba(255,255,255,0.14)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), rgba(0,0,0,0.50) 0px 2px 4px -1px, rgba(0,0,0,0.35) 0px 8px 18px -5px, rgba(0,0,0,0.22) 0px 18px 40px -8px',
+}
+
+// Small filled status disc used for done / error.
+function StatusDisc({ color, children }: { color: string; children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ scale: 0 }} animate={{ scale: 1 }}
+      transition={{ type: 'spring', stiffness: 520, damping: 18, delay: 0.04 }}
+      className="flex shrink-0 items-center justify-center rounded-full"
+      style={{ width: 18, height: 18, background: color, boxShadow: `0 0 12px -2px ${color}` }}
+    >
+      {children}
+    </motion.div>
+  )
 }
 
 // ── Main overlay ──────────────────────────────────────────────────────────────
@@ -131,7 +145,7 @@ const PROMPT_STYLE: React.CSSProperties = {
 export default function CapsuleOverlay() {
   const [mode, setMode] = useState<VisualMode>('hidden')
   const [bars, setBars] = useState<number[]>(Array(BAR_COUNT).fill(0.08))
-  const [accentColor, setAccentColor] = useState('#7575c8')
+  const [accentColor, setAccentColor] = useState('#7C3AED')
   const [promptData, setPromptData] = useState<PromptData>({})
   const [autoTimer, setAutoTimer] = useState(8)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
@@ -266,7 +280,7 @@ export default function CapsuleOverlay() {
                 <motion.div
                   animate={{ scale: [1, 1.4, 1] }}
                   transition={{ duration: 0.6, repeat: Infinity }}
-                  style={{ width: 7, height: 7, borderRadius: '50%', background: accentColor }}
+                  style={{ width: 7, height: 7, borderRadius: '50%', background: accentColor, boxShadow: `0 0 10px ${accentColor}` }}
                 />
               </motion.div>
             )}
@@ -294,14 +308,17 @@ export default function CapsuleOverlay() {
                 key="proc"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
-                className="flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2"
+                className="flex items-center justify-center gap-[5px] whitespace-nowrap px-4 py-[11px]"
+                aria-label="Transcribing"
               >
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                >
-                  <Loader2 size={12} style={{ color: 'rgba(255,255,255,0.45)' }} />
-                </motion.div>
+                {[0, 1, 2].map((i) => (
+                  <motion.span
+                    key={i}
+                    animate={{ opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
+                    transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
+                    style={{ width: 5, height: 5, borderRadius: '50%', background: accentColor }}
+                  />
+                ))}
               </motion.div>
             )}
 
@@ -311,15 +328,11 @@ export default function CapsuleOverlay() {
                 key="done"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
-                className="flex items-center gap-1.5 px-3 py-2"
-                style={{ background: 'rgba(90,138,42,0.85)', borderRadius: 11 }}
+                className="flex items-center gap-1.5 px-2.5 py-[7px]"
               >
-                <motion.div
-                  initial={{ scale: 0 }} animate={{ scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 520, damping: 18, delay: 0.05 }}
-                >
-                  <Check size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
-                </motion.div>
+                <StatusDisc color="#22a55a">
+                  <Check size={11} style={{ color: '#ffffff' }} strokeWidth={3.5} />
+                </StatusDisc>
               </motion.div>
             )}
 
@@ -329,16 +342,12 @@ export default function CapsuleOverlay() {
                 key="error"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
-                className="flex items-center justify-center px-3 py-2"
-                style={{ background: 'rgba(209,67,67,0.85)', borderRadius: 11 }}
+                className="flex items-center justify-center px-2.5 py-[7px]"
               >
-                <motion.div
-                  initial={{ scale: 0 }} animate={{ scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 520, damping: 18, delay: 0.05 }}
-                >
-                  <X size={13} style={{ color: '#ffffff' }} strokeWidth={3} />
-                </motion.div>
-                {statusMessage && <span className="ml-2 max-w-[390px] truncate text-[11px] font-medium leading-tight text-white">{statusMessage}</span>}
+                <StatusDisc color="#e5484d">
+                  <X size={11} style={{ color: '#ffffff' }} strokeWidth={3.5} />
+                </StatusDisc>
+                {statusMessage && <span className="ml-2 mr-1 max-w-[380px] truncate text-[11.5px] font-medium leading-tight" style={{ color: 'rgba(255,255,255,0.88)' }}>{statusMessage}</span>}
               </motion.div>
             )}
 
@@ -368,13 +377,14 @@ export default function CapsuleOverlay() {
                 <div
                   style={{
                     borderRadius: 9,
-                    background: mode === 'prompt-dictionary' ? 'rgba(44,127,184,0.25)' : 'rgba(154,123,26,0.25)',
+                    background: `${accentColor}33`,
+                    boxShadow: `inset 0 0 0 0.5px ${accentColor}66`,
                   }}
                   className="w-7 h-7 flex items-center justify-center shrink-0"
                 >
                   {mode === 'prompt-dictionary'
-                    ? <BookOpen size={13} style={{ color: '#7ec8f0' }} />
-                    : <Layers size={13} style={{ color: '#e6c34d' }} />
+                    ? <BookOpen size={13} style={{ color: '#ffffff' }} />
+                    : <Layers size={13} style={{ color: '#ffffff' }} />
                   }
                 </div>
                 <div>
@@ -398,7 +408,7 @@ export default function CapsuleOverlay() {
                     transition={{ duration: 1, ease: 'linear' }}
                   />
                 </svg>
-                <button onClick={handleSkip} className="transition-colors" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                <button onClick={handleSkip} aria-label="Dismiss" className="transition-colors hover:opacity-80" style={{ color: 'rgba(255,255,255,0.40)' }}>
                   <X size={13} />
                 </button>
               </div>
@@ -435,15 +445,15 @@ export default function CapsuleOverlay() {
               <motion.button
                 whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.94 }}
                 onClick={handleAccept}
-                style={{ borderRadius: 999, background: accentColor }}
-                className="flex-1 py-2 text-[12px] font-bold text-white"
+                style={{ borderRadius: 10, background: accentColor, backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0) 60%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22)' }}
+                className="flex-1 py-2 text-[12px] font-semibold text-white"
               >
                 {mode === 'prompt-dictionary' ? 'Add rule' : 'Save snippet'}
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.94 }}
                 onClick={handleSkip}
-                style={{ borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.45)' }}
+                style={{ borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}
                 className="flex-1 py-2 text-[12px] font-semibold"
               >
                 Skip
