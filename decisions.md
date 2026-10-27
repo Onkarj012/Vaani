@@ -12,6 +12,12 @@ Entry format:
 
 ---
 
+## 2026-10-27 — Pull requests upload an ad-hoc macOS dev build as a GitHub Actions artifact
+- rejected: folding the upload into the existing CI or Release workflows; Developer ID signing or notarization on the PR build; stripping the ad-hoc signature; adding an Intel slice
+- why: CI and Release stay as they are, including signing and publishing. Apple Silicon will not launch a completely unsigned arm64 binary, and `forge.config.ts` already ad-hoc signs when Apple credentials are absent, which needs no secrets and still runs on fork PRs. `macos-latest` is the arm64 runner the release workflow already uses. A separate workflow keeps that path untouched.
+- source: T3 thread "nightshift: unsigned macOS dev build artifact"
+- status: active
+
 ## 2026-10-24 — Track cleanup regressions with an offline comparison of saved baseline and candidate reports
 - rejected: a new evaluation framework, scheduled paid runs, automatic baseline replacement, and folding production cleanup fixes into this PR
 - why: the user wants regressions measured during ongoing quality work without turning every change into a long testing campaign. Reuse #43's JSON, compare each clip, and keep model calls separate. Require a declared experiment for recorded configuration/model differences; label legacy configuration gaps instead of claiming verified comparability. Metric changes do not establish meaning preservation.
