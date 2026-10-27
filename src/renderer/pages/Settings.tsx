@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   Globe, Mic, Keyboard, Type, Palette, Monitor, Volume2, Download, Trash2,
   Eye, EyeOff, Check, AlertTriangle, X, Database, HardDrive, Plug, RefreshCw, Sun, Moon,
@@ -7,10 +7,10 @@ import {
 } from 'lucide-react'
 import { useVaaniUi } from '../context/vaani-ui'
 import { useColorMode } from '../context/color-mode'
-import { HotkeyCapture } from './HotkeyCapture'
+import { HotkeyCapture } from '@renderer/components/HotkeyCapture'
 import { KNOWN_PROVIDERS, SUPPORTED_LANGUAGES, getLanguageLabel, isLanguageSupportedByProvider, resolveProfileLanguage } from '@shared/defaults'
 import { Select } from '@renderer/components/ui/Select'
-import { ModelPicker } from './ModelPicker'
+import { ModelPicker } from '@renderer/components/ModelPicker'
 import { Toggle } from '@renderer/components/ui/toggle'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
@@ -19,7 +19,7 @@ import type { AudioInputDevice, ProviderKeyValidation, Settings } from '@shared/
 import type { RecoveryStorageUsage } from '@shared/recovery'
 import { decideProviderKeyDraft } from '@renderer/lib/providerKeyDraft'
 
-const sidebarItems = [
+export const SETTINGS_SECTIONS = [
   { id: 'api', label: 'API & Providers', icon: Plug },
   { id: 'language', label: 'Language', icon: Globe },
   { id: 'dictation', label: 'Dictation', icon: Mic },
@@ -34,17 +34,17 @@ const sidebarItems = [
 ]
 
 const sectionDescriptions: Record<string, string> = {
-  api: 'Transcription and formatting providers',
-  language: 'Spoken language for transcription',
-  dictation: 'Recording behavior and voice settings',
-  hotkey: 'Global shortcuts for dictation',
-  injection: 'How text is entered into apps',
-  appearance: 'Theme and accent color',
-  system: 'Dock, startup, and behavior',
-  audio: 'Silence detection and noise gate',
-  updates: 'Check for app updates',
-  data: 'Export, clear history, and reset settings',
-  recovery: 'Keep failed dictation work available and private',
+  api: 'Who hears you, who cleans up, and what happens when one of them is down.',
+  language: 'What you speak, per app, and how it gets cleaned up.',
+  dictation: 'How recording starts, stops and captures audio.',
+  hotkey: 'Global shortcuts that work in every app.',
+  injection: 'How text lands where your cursor is.',
+  appearance: 'Theme and accent colour.',
+  system: 'Dock and login behaviour.',
+  audio: 'Silence detection and short-clip filtering.',
+  updates: 'Version and update checks.',
+  data: 'Export, clear or reset what Vaani stores.',
+  recovery: 'Keep failed dictations so you can retry them.',
 }
 
 const languages = SUPPORTED_LANGUAGES.map((l) => ({ value: l.value, label: l.label }))
@@ -242,15 +242,14 @@ function ApiKeyInput({
   )
 }
 
-interface SettingsModalProps {
-  isOpen: boolean
-  onClose: () => void
-}
-
-export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+// Settings page. The section comes from the route (/app/settings/:section) so every section is linkable.
+export default function SettingsPage() {
+  const { section } = useParams()
+  const navigate = useNavigate()
   const { settings, updateSettings, resetSettings, clearHistory, historyEntries, updateStatus, checkForUpdates, restartAndInstall, cleanupRecoveryAudio, clearRecoveryAudio: clearAllRecoveryAudio } = useVaaniUi()
   const { mode, setMode } = useColorMode()
-  const [activeSection, setActiveSection] = useState('api')
+  const activeSection = SETTINGS_SECTIONS.some((s) => s.id === section) ? section as string : 'api'
+  const sectionIndex = SETTINGS_SECTIONS.findIndex((s) => s.id === activeSection)
   const [customHex, setCustomHex] = useState(settings.accentColor)
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [sttKey, setSttKey] = useState('')
@@ -264,15 +263,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [recoveryBusy, setRecoveryBusy] = useState(false)
 
   useEffect(() => {
-    if (!isOpen) return
     void window.vaani.getAppVersion().then(setAppVersion).catch(() => setAppVersion(null))
     void window.vaani.listAudioInputDevices().then(setAudioDevices).catch(() => setAudioDevices([]))
-  }, [isOpen])
+  }, [])
 
   useEffect(() => {
-    if (!isOpen || activeSection !== 'recovery') return
+    if (activeSection !== 'recovery') return
     void window.vaani.getRecoveryStorageUsage().then(setRecoveryUsage).catch(() => setRecoveryUsage({ bytes: 0, sessions: 0 }))
-  }, [activeSection, isOpen])
+  }, [activeSection])
 
   useEffect(() => { setCustomHex(settings.accentColor) }, [settings.accentColor])
 
@@ -282,7 +280,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setLlmKey(pk.find((p) => p.providerId === settings.formattingProvider)?.key ?? '')
   }, [settings.transcriptionProvider, settings.formattingProvider, settings.providerApiKeys])
 
-  if (!isOpen) return null
 
   const addAppProfile = () => {
     const bundleId = newProfileBundleId.trim();
@@ -752,56 +749,34 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   )
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-          onClick={onClose}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.97, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97, y: 16 }}
-            transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-            className="flex h-[80vh] w-full max-w-4xl overflow-hidden rounded-[20px] bg-bg shadow-card"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex w-60 shrink-0 flex-col border-r border-line bg-surface">
-              <div className="px-6 pb-4 pt-6">
-                <h2 className="text-display text-2xl text-ink">Settings</h2>
-                <p className="label-meta mt-1 text-[9px] text-faint">Configure Vaani</p>
-              </div>
-              <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-3">
-                {sidebarItems.map((it) => {
-                  const Icon = it.icon
-                  return (
-                    <button key={it.id} onClick={() => setActiveSection(it.id)}
-                      className={`flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-left text-sm transition-all ${
-                        activeSection === it.id ? 'bg-accent/10 font-semibold text-accent' : 'font-medium text-muted hover:bg-bg hover:text-ink'
-                      }`}>
-                      <Icon size={16} /> {it.label}
-                    </button>
-                  )
-                })}
-              </nav>
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex items-center justify-between border-b border-line px-7 py-5">
-                <div>
-                  <h3 className="text-display text-xl text-ink">{sidebarItems.find((s) => s.id === activeSection)?.label}</h3>
-                  <p className="mt-0.5 text-xs text-faint">{sectionDescriptions[activeSection]}</p>
-                </div>
-                <button onClick={onClose} className="rounded-full p-2 text-muted transition-colors hover:bg-surface"><X size={18} /></button>
-              </div>
-              <div className="flex-1 overflow-y-auto px-7 py-6">
-                <motion.div key={activeSection} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.2 }}>
-                  {sectionContent}
-                </motion.div>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <div className="grid min-h-0 flex-1 grid-cols-[214px_1fr] gap-[30px]">
+      <nav className="min-h-0 overflow-y-auto pr-0.5" aria-label="Settings sections">
+        <h1 className="text-display mb-3.5 mt-1 text-[30px] text-ink">Settings</h1>
+        {SETTINGS_SECTIONS.map((it, i) => {
+          const Icon = it.icon
+          const active = activeSection === it.id
+          return (
+            <button key={it.id} onClick={() => navigate(`/app/settings/${it.id}`, { replace: true })} aria-current={active ? 'page' : undefined}
+              className={`flex h-[34px] w-full items-center gap-2.5 rounded-full px-3 text-left text-[13px] font-medium transition-colors ${
+                active ? 'bg-ink text-bg' : 'text-muted hover:bg-surface hover:text-ink'
+              }`}>
+              <span className={`w-4 font-mono text-[10px] ${active ? 'text-bg/55' : 'text-faint'}`}>{String(i + 1).padStart(2, '0')}</span>
+              <Icon size={15} /> {it.label}
+            </button>
+          )
+        })}
+      </nav>
+      <div className="min-h-0 overflow-y-auto pr-2.5">
+        <div className="border-b border-line pb-4 pt-1.5">
+          <div className="label-meta text-[10px] text-accent">Settings · {String(sectionIndex + 1).padStart(2, '0')} of {SETTINGS_SECTIONS.length}</div>
+          <h2 className="text-display mt-2 text-[38px] text-ink">{SETTINGS_SECTIONS[sectionIndex]?.label}</h2>
+          <p className="mt-2 text-sm text-muted">{sectionDescriptions[activeSection]}</p>
+        </div>
+        <div key={activeSection} className="py-2">
+          {sectionContent}
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -7,6 +7,7 @@ import History from './pages/History'
 import Snippets from './pages/Snippets'
 import Dictionary from './pages/Dictionary'
 import Insights from './pages/Insights'
+import SettingsPage from './pages/Settings'
 
 function App() {
   const navigate = useNavigate()
@@ -27,6 +28,8 @@ function App() {
           <Route path="snippets" element={<Snippets />} />
           <Route path="dictionary" element={<Dictionary />} />
           <Route path="insights" element={<Insights />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings/:section" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
