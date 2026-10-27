@@ -1,3 +1,4 @@
+import { waveformHeight } from "@renderer/recorder/waveform";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AudioClip, AudioVisualFrame } from "@shared/types";
 import { STOP_TAIL_CAPTURE_MS, STOP_FINALIZE_WAIT_MS } from "@renderer/recorder/recorderConstants";
@@ -330,16 +331,6 @@ function buildBarsFromSamples(samples: Float32Array, barCount: number): number[]
   const bucketSize = Math.max(1, Math.floor(samples.length / barCount));
   const rawBars = new Array(barCount).fill(MIN_BAR_HEIGHT);
 
-  // Calculate global peak for normalization reference
-  let globalPeak = 0;
-  for (let i = 0; i < samples.length; i += 1) {
-    const absSample = Math.abs(samples[i] ?? 0);
-    if (absSample > globalPeak) globalPeak = absSample;
-  }
-
-  // Avoid division by zero and set minimum sensitivity
-  const normalizer = Math.max(0.01, globalPeak);
-
   for (let barIndex = 0; barIndex < barCount; barIndex += 1) {
     const start = barIndex * bucketSize;
     const end = Math.min(samples.length, start + bucketSize);
@@ -355,20 +346,7 @@ function buildBarsFromSamples(samples: Float32Array, barCount: number): number[]
 
     const rms = Math.sqrt(sumSquares / (end - start));
 
-    // Combine RMS and peak, normalize against global peak for relative scaling
-    // This makes the waveform responsive regardless of absolute volume
-    const normalizedRms = rms / normalizer;
-    const normalizedPeak = localPeak / normalizer;
-
-    // Weight peak more heavily for snappier visual response
-    const combined = normalizedRms * 0.4 + normalizedPeak * 0.6;
-
-    // Apply exponential scaling for more dramatic visual range
-    // sqrt makes quiet sounds more visible, pow(1.5) makes loud sounds pop
-    const scaled = Math.pow(combined, 0.7);
-
-    // Scale to full visual range with generous multiplier
-    rawBars[barIndex] = MIN_BAR_HEIGHT + scaled * (MAX_BAR_HEIGHT - MIN_BAR_HEIGHT) * 1.2;
+    rawBars[barIndex] = waveformHeight(rms * 0.4 + localPeak * 0.6);
   }
 
   // Apply smoothing for natural animation (interpolate between current and target)

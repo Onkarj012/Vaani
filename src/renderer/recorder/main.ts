@@ -1,3 +1,4 @@
+import { waveformHeight } from "@renderer/recorder/waveform";
 import type { AudioInputDevice, MacOSPermissionState, AudioClip, AudioVisualFrame, CaptureTrackSettings, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
 import { captureProcessingConstraints, chooseRecorderDeviceId } from "./deviceSelection";
 import {
@@ -549,12 +550,6 @@ function buildBarsFromSamples(samples: Float32Array, barCount: number): number[]
 
   const bucketSize = Math.max(1, Math.floor(samples.length / barCount));
   const rawBars = new Array(barCount).fill(0.12);
-  let globalPeak = 0;
-  for (let index = 0; index < samples.length; index += 1) {
-    globalPeak = Math.max(globalPeak, Math.abs(samples[index] ?? 0));
-  }
-
-  const normalizer = Math.max(0.01, globalPeak);
   for (let barIndex = 0; barIndex < barCount; barIndex += 1) {
     const start = barIndex * bucketSize;
     const end = Math.min(samples.length, start + bucketSize);
@@ -569,8 +564,7 @@ function buildBarsFromSamples(samples: Float32Array, barCount: number): number[]
     }
 
     const rms = Math.sqrt(sumSquares / (end - start));
-    const combined = (rms / normalizer) * 0.4 + (localPeak / normalizer) * 0.6;
-    rawBars[barIndex] = 0.12 + Math.pow(combined, 0.7) * 1.056;
+    rawBars[barIndex] = waveformHeight(rms * 0.4 + localPeak * 0.6);
   }
 
   for (let index = 0; index < barCount; index += 1) {
