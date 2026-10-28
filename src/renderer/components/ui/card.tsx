@@ -2,14 +2,14 @@ import * as React from "react"
 import { cn } from "@renderer/lib/utils"
 
 const tones = {
-  white:  "bg-bg",
+  white:  "bg-card",
   surface:"bg-surface",
-  lav:    "bg-accent/5",
-  sky:    "bg-accent/5",
-  mint:   "bg-accent/5",
-  blush:  "bg-accent/5",
-  peach:  "bg-accent/5",
-  butter: "bg-accent/5",
+  lav:    "pastel-scope bg-chip-lav",
+  sky:    "pastel-scope bg-chip-sky",
+  mint:   "pastel-scope bg-chip-mint",
+  blush:  "pastel-scope bg-chip-blush",
+  peach:  "pastel-scope bg-chip-peach",
+  butter: "pastel-scope bg-chip-butter",
 } as const
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -23,7 +23,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
     <div
       ref={ref}
       className={cn(
-        "rounded-[20px] p-6 shadow-soft transition-all duration-200",
+        "rounded-card p-6 transition-all duration-200",
         tones[tone],
         bordered && "border border-line",
         hover && "hover:-translate-y-0.5 hover:shadow-card",

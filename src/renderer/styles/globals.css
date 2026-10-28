@@ -11,28 +11,38 @@
   --font-mono: "Fragment Mono", ui-monospace, monospace;
 
   /* Core palette */
-  --color-bg:      #ffffff;
-  --color-surface: #f7f7f7;
-  --color-ink:     #1d1d1d;
-  --color-muted:   #888888;
-  --color-faint:   #999999;
-  --color-line:    #ececec;
+  --color-bg:       #ffffff;
+  --color-side:     #f6f6f8;
+  --color-card:     #ffffff;
+  --color-surface:  #f4f4f6;
+  --color-ink:      #1d1d1d;
+  --color-muted:    #80808a;
+  --color-faint:    #a5a5ad;
+  --color-line:     #ececef;
+  /* Dark panels that mirror the overlay capsule (status card, how-to, pipeline) */
+  --color-graphite: #18181b;
+  /* Text on pastel tiles stays dark in both themes */
+  --color-on-pastel: #1d1d1d;
 
   /* Interactive */
   --color-accent:        #7575c8;
   --color-accent-strong: #5b5bb5;
   --color-link:          #0099ff;
 
-  /* Pastel accent chips */
+  /* Pastel tiles and chips */
   --color-chip-lav:    #e3e3ff;
-  --color-chip-sky:    #e3f2ff;
-  --color-chip-mint:   #f3ffe3;
-  --color-chip-blush:  #fde4f9;
-  --color-chip-peach:  #ffeeeb;
-  --color-chip-butter: #fff5c9;
+  --color-chip-sky:    #ddeeff;
+  --color-chip-mint:   #e4f7cf;
+  --color-chip-blush:  #fbe1f6;
+  --color-chip-peach:  #ffe9e3;
+  --color-chip-butter: #fff2bd;
+  /* Strong ink for marks drawn on pastels */
+  --color-mark-filler:  #e0603c;
+  --color-mark-scratch: #c75fae;
+  --color-ok:           #5ed39b;
 
   /* Radius */
-  --radius-card: 20px;
+  --radius-card: 24px;
 
   /* Motion */
   --ease-ui: cubic-bezier(0.44, 0, 0.56, 1);
@@ -171,12 +181,22 @@
    border-line, …) re-themes automatically. Pastel chips + accent stay constant
    — they read as vibrant tags on the dark surface. */
 html.dark {
-  --color-bg:      #131316;
-  --color-surface: #1b1b1f;
-  --color-ink:     #f3f3f5;
-  --color-muted:   #a1a1aa;
-  --color-faint:   #6c6c75;
-  --color-line:    #2a2a31;
+  --color-bg:       #121214;
+  --color-side:     #17171a;
+  --color-card:     #1b1b1f;
+  --color-surface:  #222227;
+  --color-ink:      #f3f3f5;
+  --color-muted:    #9c9ca6;
+  --color-faint:    #64646d;
+  --color-line:     #2a2a30;
+  --color-graphite: #0d0d0f;
+  /* Pastels deepen a step so they don't glare on the dark window */
+  --color-chip-lav:    #c9c9f6;
+  --color-chip-sky:    #c4def6;
+  --color-chip-mint:   #cfe8b4;
+  --color-chip-blush:  #ecc8e4;
+  --color-chip-peach:  #f3cfc4;
+  --color-chip-butter: #f0de98;
 }
 
 html.dark ::-webkit-scrollbar-thumb {
@@ -184,4 +204,105 @@ html.dark ::-webkit-scrollbar-thumb {
 }
 html.dark ::-webkit-scrollbar-thumb:hover {
   background: #4a4a54;
+}
+
+/* ─── Pastel scope ───────────────────────────────────────────────────────────
+   Pastel tiles stay light in dark mode, so everything inside them uses light-theme ink. */
+.pastel-scope {
+  --color-ink: #1d1d1d;
+  --color-muted: rgba(29, 29, 29, 0.66);
+  --color-faint: rgba(29, 29, 29, 0.48);
+  --color-line: rgba(29, 29, 29, 0.1);
+  --color-bg: #ffffff;
+  --color-card: #ffffff;
+  --color-surface: rgba(255, 255, 255, 0.6);
+  color: var(--color-ink);
+}
+
+/* ─── Proof marks ────────────────────────────────────────────────────────────
+   How History shows what Vaani changed between what you said and what it typed. */
+.pm-f, .pm-x {
+  text-decoration: none;
+  color: var(--color-faint);
+  padding: 0 1px;
+  background: linear-gradient(var(--color-mark-filler), var(--color-mark-filler)) no-repeat 0 55% / 100% 1.5px;
+}
+.pm-x {
+  background-image: linear-gradient(var(--color-mark-scratch), var(--color-mark-scratch));
+}
+.pm-c {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: 2px;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: 7px;
+  background: var(--color-chip-blush);
+  color: #7a2d66;
+  font: 11px/1 var(--font-mono);
+}
+.pm-c::before { content: "⌫"; }
+.pm-d, .pm-a {
+  border-radius: 6px;
+  padding: 1px 4px;
+  color: var(--color-on-pastel);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.pm-d { background: var(--color-chip-sky); font-weight: 600; white-space: nowrap; }
+.pm-a { background: var(--color-chip-butter); }
+.pm-d s, .pm-a s {
+  font: 400 11px var(--font-mono);
+  color: rgba(29, 29, 29, 0.45);
+  margin-right: 5px;
+}
+
+/* ─── Capsule ────────────────────────────────────────────────────────────────
+   Static copy of the locked overlay pill (vaani-overlay-approved.html), used as an illustration. */
+.capsule {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  gap: 12px;
+  padding: 0 5px;
+  background: rgba(18, 18, 20, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  color: #f3f3f5;
+  box-shadow: 0 1px 2px -0.5px rgba(0, 0, 0, 0.4), 0 4px 10px -3px rgba(0, 0, 0, 0.3), 0 12px 28px -6px rgba(0, 0, 0, 0.2);
+  font-family: -apple-system, system-ui, sans-serif;
+}
+.capsule-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+.capsule-btn.send { background: var(--accent, var(--color-accent)); color: #fff; }
+.capsule-wave { display: flex; align-items: center; gap: 2.5px; height: 22px; }
+.capsule-wave i {
+  width: 2.5px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.88);
+  animation: capsule-wave 0.9s ease-in-out infinite alternate;
+}
+@keyframes capsule-wave { from { transform: scaleY(0.3); } to { transform: scaleY(1); } }
+.capsule.proc { padding: 0 16px; gap: 5px; }
+.capsule.proc > i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent, var(--color-accent));
+  opacity: 0.28;
+  animation: capsule-sweep 1.2s ease-in-out infinite;
+}
+@keyframes capsule-sweep { 0%, 55%, 100% { opacity: 0.28; transform: scale(1); } 28% { opacity: 1; transform: scale(1.4); } }
+.capsule.done { padding: 0 14px 0 6px; gap: 8px; font-size: 11.5px; font-weight: 600; color: rgba(255, 255, 255, 0.86); }
+.capsule-disc { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--color-ok); color: #06261a; }
+@media (prefers-reduced-motion: reduce) {
+  .capsule-wave i, .capsule.proc > i { animation: none; }
 }

@@ -32,10 +32,10 @@ export function Select({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        className="flex w-full items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 text-sm text-ink transition-colors hover:border-ink/20 focus:border-accent focus:outline-none"
+        className="flex h-9 w-full items-center justify-between gap-2 rounded-full border border-line bg-card px-4 text-[13px] font-medium text-ink transition-colors hover:border-ink/20 focus:border-accent focus:outline-none"
       >
-        {current?.label ?? value}
-        <ChevronDown size={15} className={cn("text-muted transition-transform", open && "rotate-180")} />
+        <span className="min-w-0 truncate">{current?.label ?? value}</span>
+        <ChevronDown size={15} className={cn("shrink-0 text-muted transition-transform", open && "rotate-180")} />
       </button>
       {open && (
         <>
@@ -44,7 +44,7 @@ export function Select({
             id={listboxId}
             role="listbox"
             className={cn(
-              "absolute left-0 right-0 z-30 max-h-56 overflow-y-auto rounded-2xl border border-line bg-bg p-1.5 shadow-card",
+              "absolute left-0 right-0 z-30 max-h-56 overflow-y-auto rounded-[18px] border border-line bg-card p-1.5 shadow-card",
               dropUp ? "bottom-full mb-2" : "top-full mt-2"
             )}
           >
