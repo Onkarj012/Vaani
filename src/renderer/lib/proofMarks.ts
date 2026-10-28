@@ -8,7 +8,8 @@ export type ProofToken =
   | { kind: "command"; text: string }
   | { kind: "removed"; text: string }
   | { kind: "fix"; from: string; to: string; dictionary: boolean }
-  | { kind: "added"; text: string };
+  | { kind: "added"; text: string }
+  | { kind: "break"; text: string };
 
 export interface ProofSummary {
   fillers: number;
@@ -34,7 +35,10 @@ const phraseKey = (text: string) => words(text).map(norm).filter(Boolean).join("
 // Diffs the raw transcript against the typed text word by word and labels each change.
 export function buildProof(raw: string, cleaned: string, options: ProofOptions): ProofToken[] {
   const a = words(raw);
-  const b = words(cleaned);
+  // Each typed word with the line break (and indent) before it, so paragraphs and lists keep their shape.
+  const typed = [...cleaned.matchAll(/(\s*)(\S+)/g)];
+  const b = typed.map((match) => match[2]!);
+  const breaks = typed.map((match, j) => (j > 0 && match[1]!.includes("\n") ? match[1]! : ""));
   if (a.length * b.length > MAX_DIFF_CELLS) return [{ kind: "same", text: cleaned }];
 
   const fillerPhrases = options.fillers.map((f) => words(f).map(norm).filter(Boolean)).filter((p) => p.length > 0)
@@ -112,13 +116,21 @@ export function buildProof(raw: string, cleaned: string, options: ProofOptions):
   // Drops raw words whenever that costs no match, so a repeated phrase lines up with its last take (what "scratch that" keeps).
   let dels: string[] = [], ins: string[] = [];
   let i = 0, j = 0;
+  // Ends the current run at a line break in the typed text and emits the break.
+  const lineBreak = () => {
+    if (!breaks[j]) return;
+    flush(dels, ins); dels = []; ins = [];
+    push({ kind: "break", text: breaks[j]! });
+  };
   while (i < n || j < m) {
     if (i < n && lcs[i + 1]![j] === lcs[i]![j]) {
       dels.push(a[i]!); i++;
     } else if (i < n && j < m && ka[i] && ka[i] === kb[j]) {
       flush(dels, ins); dels = []; ins = [];
+      lineBreak();
       same.push(b[j]!); i++; j++;
     } else {
+      lineBreak();
       ins.push(b[j]!); j++;
     }
   }
@@ -135,7 +147,7 @@ export function summarizeProof(tokens: ProofToken[]): ProofSummary {
     dictionaryFixes: count((t) => t.kind === "fix" && t.dictionary),
     rewrites: count((t) => (t.kind === "fix" && !t.dictionary) || t.kind === "added" || t.kind === "removed"),
     scratched: count((t) => t.kind === "scratched" || t.kind === "command"),
-    changed: tokens.some((t) => t.kind !== "same"),
+    changed: tokens.some((t) => t.kind !== "same" && t.kind !== "break"),
   };
 }
 

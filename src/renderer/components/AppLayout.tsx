@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Home, History, BookOpen, SquareSlash, BarChart3, SlidersHorizontal, Search, Sun, Moon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useVaaniUi } from '../context/vaani-ui'
@@ -163,11 +163,22 @@ function Sidebar({ recoveryCount, onNavigate }: { recoveryCount: number; onNavig
 function Toolbar({ searchRef }: { searchRef: React.RefObject<HTMLInputElement | null> }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const [query, setQuery] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const onHistory = location.pathname === '/app/history'
+  // The query lives in History's ?q, so it clears when you leave History or clear the search there.
+  const query = onHistory ? searchParams.get('q') ?? '' : ''
 
   const search = (value: string) => {
-    setQuery(value)
-    navigate(`/app/history${value ? `?q=${encodeURIComponent(value)}` : ''}`, { replace: location.pathname === '/app/history' })
+    if (!onHistory) {
+      if (value) navigate(`/app/history?q=${encodeURIComponent(value)}`)
+      return
+    }
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      if (value) next.set('q', value)
+      else next.delete('q')
+      return next
+    }, { replace: true })
   }
 
   return (

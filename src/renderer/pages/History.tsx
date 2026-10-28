@@ -48,10 +48,9 @@ const APP_TONES = ['bg-chip-lav', 'bg-chip-sky', 'bg-chip-mint', 'bg-chip-blush'
 
 export default function History() {
   const { historyItems, historyEntries, settings, updateHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry, retryHistoryEntry, copyHistoryEntry, recoveryReadiness, recoveryEntries, reloadHistory, retryRecoveryTranscription, retryRecoveryFormatting, useRawRecoveryTranscript, retryRecoveryInsertion, copyRecoveryEntry, playRecoveryAudio, deleteRecoveryAudio, discardRecoveryEntry } = useVaaniUi()
-  const [searchParams] = useSearchParams()
-  const urlQuery = searchParams.get('q') ?? ''
+  const [searchParams, setSearchParams] = useSearchParams()
+  const searchQuery = searchParams.get('q') ?? ''
   const urlFilter = searchParams.get('filter')
-  const [searchQuery, setSearchQuery] = useState(urlQuery)
   const [filter, setFilter] = useState<HistoryFilter>(urlFilter === 'recovery' ? 'recovery' : 'all')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -71,8 +70,15 @@ export default function History() {
     }),
   ))
 
-  // Follow the shell search box and ?filter=recovery links when the URL changes.
-  useEffect(() => { setSearchQuery(urlQuery) }, [urlQuery])
+  // Keeps the search in ?q so this field and the toolbar search always show the same query.
+  const setSearchQuery = (value: string) => setSearchParams((current) => {
+    const next = new URLSearchParams(current)
+    if (value) next.set('q', value)
+    else next.delete('q')
+    return next
+  }, { replace: true })
+
+  // Follow ?filter=recovery links when the URL changes.
   useEffect(() => { setFilter(urlFilter === 'recovery' ? 'recovery' : 'all') }, [urlFilter])
 
   const entryById = useMemo(() => new Map(historyEntries.map((entry) => [entry.id, entry] as const)), [historyEntries])
@@ -432,10 +438,10 @@ function appTone(app: string): string {
 // Renders the proof tokens as marked-up words, spaced like the typed text.
 function ProofText({ tokens }: { tokens: ProofToken[] }) {
   return (
-    <p className="text-[19px] leading-[1.7]">
+    <p className="whitespace-pre-wrap text-[19px] leading-[1.7]">
       {tokens.map((token, index) => (
         <Fragment key={index}>
-          {index > 0 && ' '}
+          {index > 0 && token.kind !== 'break' && tokens[index - 1]?.kind !== 'break' && ' '}
           <ProofTokenView token={token} />
         </Fragment>
       ))}
@@ -447,6 +453,7 @@ function ProofText({ tokens }: { tokens: ProofToken[] }) {
 function ProofTokenView({ token }: { token: ProofToken }) {
   switch (token.kind) {
     case 'same': return token.text
+    case 'break': return token.text
     case 'filler': return <del className="pm-f" title="Filler removed">{token.text}</del>
     case 'scratched': return <del className="pm-x" title="Removed by “scratch that”">{token.text}</del>
     case 'command': return <span className="pm-c">{token.text}</span>

@@ -31,6 +31,13 @@ describe("buildProof", () => {
     expect(tokens.map((t) => (t.kind === "same" ? t.text : "")).join(" ")).toBe("The fix is ready.");
   });
 
+  it("keeps line breaks and indentation from the typed text", () => {
+    const tokens = buildProof("um first point second point", "First point.\n  - second point", { fillers, corrections: [] });
+    expect(tokens).toContainEqual({ kind: "break", text: "\n  " });
+    expect(tokens.filter((t) => t.kind === "same").map((t) => t.text)).toEqual(["First point.", "second point"]);
+    expect(summarizeProof(tokens).changed).toBe(true);
+  });
+
   it("skips the diff for very long dictations and shows the cleaned text as is", () => {
     const raw = Array.from({ length: 1200 }, (_, i) => `w${i}`).join(" ");
     const cleaned = Array.from({ length: 1200 }, (_, i) => `x${i}`).join(" ");
