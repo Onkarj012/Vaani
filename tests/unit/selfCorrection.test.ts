@@ -119,6 +119,19 @@ describe("applySelfCorrections", () => {
     expect(applySelfCorrections('He said "Send 3, no, 4."')).toBe('He said "Send 4."');
   });
 
+  it("treats a one-character ellipsis like three dots, so a cue neither sticks nor withdraws too far", () => {
+    expect(applySelfCorrections("Hello… Scratch that. Next.")).toBe("Next.");
+    expect(applySelfCorrections("Hello. Scratch that… Next.")).toBe("Next.");
+    expect(applySelfCorrections("500. Scratch that… Pay 200.")).toBe("Pay 200.");
+    expect(applySelfCorrections("Pay 500. Um… Scratch that. Pay 200.")).toBe("Pay 200.");
+    expect(applySelfCorrections("One… Two. Scratch that. Three.")).toBe("One… Three.");
+    expect(applySelfCorrections("Wait… tomorrow. Scratch that. Go.")).toBe("Wait… Go.");
+    expect(removeSpeechNoise("Hello… Scratch that. Call me.")).toBe("Call me.");
+    expect(judgeFormatterReply("Hello… Scratch that. Next.", "Next.").rejection).toBeNull();
+    expect(judgeFormatterReply("One… Two. Scratch that. Three.", "One… Three.").rejection).toBeNull();
+    expect(judgeFormatterReply("One… Two. Scratch that. Three.", "Three.").rejection).not.toBeNull();
+  });
+
   it("keeps an abbreviation before a capital as a sentence end, so unclear cuts keep text", () => {
     expect(applySelfCorrections("Meet at 5 p.m. Monday. Scratch that. Call me.")).toBe("Meet at 5 p.m. Call me.");
   });

@@ -1,4 +1,5 @@
-const MARK_RE = /[.!?।]/u;
+// "…" is the one-character ellipsis. It ends a sentence the same way "..." does.
+const MARK_RE = /[.!?।…]/u;
 // Quotes and brackets that close a sentence right after its mark: 'He said "Stop."'.
 const CLOSER_RE = /["'”’»)\]]/u;
 // A dotted abbreviation that ends at the mark, such as "p.m" in "p.m.".
@@ -8,12 +9,12 @@ const TITLE_RE = /(?:^|\s)(?:Mr|Mrs|Ms|Dr|Prof)$/u;
 // A list number at the start of a line, such as "2" in "2. Buy eggs.".
 const LIST_MARKER_RE = /(?:^|\n)[ \t]*\p{N}+$/u;
 // A "Scratch that" cue right after a number, such as "500. Scratch that.", starts a sentence of its own.
-const CUE_AFTER_RE = /^[\p{Zs}\t]+(?:scratch|delete)\s+that(?:[.!?।]+(?=\s|$)|\s*$)/iu;
+const CUE_AFTER_RE = /^[\p{Zs}\t]+(?:scratch|delete)\s+that(?:[.!?।…]+(?=\s|$)|\s*$)/iu;
 
 // True when the marks at text[start..markEnd), with any closers up to end, close a sentence. When unsure it says yes:
 // a wrong split only keeps text, while a wrong merge lets "Scratch that." withdraw two sentences. Only a single dot
 // between a letter or digit and a lowercase letter or digit sits inside a word ("3.5", "priya@example.com", "p.m");
-// "500.Pay" and "4!2" end a sentence, and so does a Devanagari danda "।". A title ("Dr. Smith"), a dotted
+// "500.Pay" and "4!2" end a sentence, and so does a Devanagari danda "।" or an ellipsis "…". A title ("Dr. Smith"), a dotted
 // abbreviation before a lowercase word ("5 p.m. tomorrow") and a list number ("2. Buy") do not, unless a cue follows it.
 function endsSentence(text: string, start: number, markEnd: number, end: number): boolean {
   const next = text[end];
@@ -65,14 +66,14 @@ const HESITATION_TOKEN_RE = new RegExp(`^(?:${HESITATION_WORDS.map(word => `${wo
 
 // True for a sentence that is only hesitation, such as "Um." or "Mhm, uh...".
 function isHesitationOnly(sentence: string): boolean {
-  const words = sentence.split(/[,.!?।\s]+/u).filter(Boolean);
+  const words = sentence.split(/[,.!?।…\s]+/u).filter(Boolean);
   return words.length > 0 && words.every(word => HESITATION_TOKEN_RE.test(word));
 }
 
 // True for a sentence that only withdraws the sentence before it: "Scratch that.", "Delete that.", or either after a
 // hesitation ("Um, scratch that.").
 function isScratchSentence(sentence: string): boolean {
-  const words = sentence.trim().replace(/[.!?।]+$/u, "").split(/[,\s]+/u).filter(Boolean);
+  const words = sentence.trim().replace(/[.!?।…]+$/u, "").split(/[,\s]+/u).filter(Boolean);
   let first = 0;
   while (first < words.length && HESITATION_TOKEN_RE.test(words[first] ?? "")) first += 1;
   const rest = words.slice(first);
