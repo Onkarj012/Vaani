@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { nextPromptFocusIndex, overlayPromptKeyAction } from "@renderer/overlay/overlayPrompt";
+import { describe, expect, it, vi } from "vitest";
+import { focusMountedPrompt, nextPromptFocusIndex, overlayPromptKeyAction } from "@renderer/overlay/overlayPrompt";
 
 describe("overlayPromptKeyAction", () => {
   it("skips the prompt on Escape", () => {
@@ -11,6 +11,17 @@ describe("overlayPromptKeyAction", () => {
     expect(overlayPromptKeyAction(" ")).toBeNull();
     expect(overlayPromptKeyAction("Tab")).toBeNull();
     expect(overlayPromptKeyAction("a")).toBeNull();
+  });
+});
+
+describe("focusMountedPrompt", () => {
+  it("waits until the card mounts after the pill exit", () => {
+    const prompt = { focus: vi.fn() };
+    // AnimatePresence mode="wait" keeps the prompt node absent while the pill exits.
+    expect(focusMountedPrompt(null)).toBe(false);
+    expect(prompt.focus).not.toHaveBeenCalled();
+    expect(focusMountedPrompt(prompt)).toBe(true);
+    expect(prompt.focus).toHaveBeenCalledOnce();
   });
 });
 

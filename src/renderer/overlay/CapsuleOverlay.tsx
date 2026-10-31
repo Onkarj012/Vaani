@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Loader2, BookOpen, Layers, X, ChevronRight, Pause, Play, ArrowUp } from 'lucide-react'
-import { nextPromptFocusIndex, overlayPromptKeyAction } from './overlayPrompt'
+import { focusMountedPrompt, nextPromptFocusIndex, overlayPromptKeyAction } from './overlayPrompt'
 
 const BAR_COUNT = 9
 const BAR_WIDTH = 2.5
@@ -223,6 +223,12 @@ export default function CapsuleOverlay() {
     setMode('hidden')
   }, [])
 
+  // The card mounts only after the pill's exit animation, so focus belongs on
+  // that commit. A timer started when `mode` changes can run before the node exists.
+  const focusPromptOnMount = useCallback((node: HTMLDivElement | null) => {
+    focusMountedPrompt(node)
+  }, [])
+
   // 8-second auto-dismiss for prompts
   useEffect(() => {
     const isPrompt = mode === 'prompt-snippet' || mode === 'prompt-dictionary'
@@ -260,10 +266,8 @@ export default function CapsuleOverlay() {
       focusable[nextPromptFocusIndex(index, focusable.length, event.shiftKey)]?.focus()
     }
     window.addEventListener('keydown', onKeyDown)
-    const focusId = window.setTimeout(() => document.getElementById('overlay-prompt')?.focus(), 0)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
-      window.clearTimeout(focusId)
     }
   }, [mode, handleSkip])
 
@@ -381,6 +385,7 @@ export default function CapsuleOverlay() {
       {isPrompt && (
         <motion.div
           key="prompt"
+          ref={focusPromptOnMount}
           id="overlay-prompt"
           role="dialog"
           aria-modal="true"

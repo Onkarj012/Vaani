@@ -6,6 +6,14 @@ export function overlayPromptKeyAction(key: string): "skip" | null {
   return null;
 }
 
+// Focus the card when React commits it. Null means AnimatePresence is still
+// exiting the pill, so the dialog is not in the document yet.
+export function focusMountedPrompt(node: { focus(): void } | null): boolean {
+  if (!node) return false;
+  node.focus();
+  return true;
+}
+
 // Next button while Tab stays inside the prompt. -1 means focus is on the dialog itself.
 export function nextPromptFocusIndex(current: number, count: number, shiftKey: boolean): number {
   if (count <= 0) return 0;
