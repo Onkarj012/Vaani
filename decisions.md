@@ -12,6 +12,12 @@ Entry format:
 
 ---
 
+## 2026-11-01 — Overlay save prompts dismiss with Escape and do not treat Enter as save
+- rejected: mapping Enter to save while the prompt is focused; a global Escape shortcut that works outside the overlay window
+- why: the prompt already takes keyboard focus, so Escape should return the user to what they were doing without saving. Enter stays on the focused button so a key meant for the previous app cannot create a snippet or dictionary rule.
+- source: nightshift surprise "overlay prompt keyboard"
+- status: active
+
 ## 2026-10-24 — Track cleanup regressions with an offline comparison of saved baseline and candidate reports
 - rejected: a new evaluation framework, scheduled paid runs, automatic baseline replacement, and folding production cleanup fixes into this PR
 - why: the user wants regressions measured during ongoing quality work without turning every change into a long testing campaign. Reuse #43's JSON, compare each clip, and keep model calls separate. Require a declared experiment for recorded configuration/model differences; label legacy configuration gaps instead of claiming verified comparability. Metric changes do not establish meaning preservation.
