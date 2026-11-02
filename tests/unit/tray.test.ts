@@ -52,6 +52,21 @@ function findItem(label: string) {
   return hoisted.getLastTemplate().find((i) => i.label === label);
 }
 
+describe("menuShortcutHint", () => {
+  it("returns the canonical hotkey for keys the menu can draw", async () => {
+    const { menuShortcutHint } = await import("@main/tray");
+    expect(menuShortcutHint("ctrl+cmd+v")).toBe("Ctrl+Cmd+V");
+    expect(menuShortcutHint("Option+Space")).toBe("Option+Space");
+  });
+
+  it("returns undefined for Fn, empty, or invalid hotkeys", async () => {
+    const { menuShortcutHint } = await import("@main/tray");
+    expect(menuShortcutHint("Fn")).toBeUndefined();
+    expect(menuShortcutHint("")).toBeUndefined();
+    expect(menuShortcutHint("Cmd+Shift")).toBeUndefined();
+  });
+});
+
 describe("createTray", () => {
   beforeEach(async () => {
     hoisted.popUpContextMenu.mockClear();
@@ -122,6 +137,44 @@ describe("createTray", () => {
     const history = findItem("Recent History");
     history.submenu[0].click();
     expect(reinjectEntry).toHaveBeenCalledWith("abc");
+  });
+
+  it("shows no shortcut hint on Open Vaani, since none is registered", async () => {
+    const { createTray } = await import("@main/tray");
+    createTray(makeOptions());
+
+    hoisted.trayHandlers["click"]!();
+    await flush();
+
+    expect(findItem("Open Vaani").accelerator).toBeUndefined();
+  });
+
+  it("shows the saved Paste Latest hotkey as a display-only hint", async () => {
+    const { createTray } = await import("@main/tray");
+    createTray(makeOptions({ getPasteLatestHotkey: () => "ctrl+cmd+v" }));
+
+    hoisted.trayHandlers["click"]!();
+    await flush();
+
+    const paste = findItem("Paste Latest");
+    expect(paste.accelerator).toBe("Ctrl+Cmd+V");
+    expect(paste.registerAccelerator).toBe(false);
+  });
+
+  it("reads the Paste Latest hotkey each time the menu opens", async () => {
+    const { createTray } = await import("@main/tray");
+    let hotkey = "Ctrl+Cmd+V";
+    createTray(makeOptions({ getPasteLatestHotkey: () => hotkey }));
+
+    hoisted.trayHandlers["click"]!();
+    await flush();
+    expect(findItem("Paste Latest").accelerator).toBe("Ctrl+Cmd+V");
+
+    hotkey = "Cmd+Shift+L";
+    await new Promise((r) => setTimeout(r, 350)); // past the menu debounce
+    hoisted.trayHandlers["click"]!();
+    await flush();
+    expect(findItem("Paste Latest").accelerator).toBe("Cmd+Shift+L");
   });
 
   it("shows a disabled placeholder when history is empty", async () => {
