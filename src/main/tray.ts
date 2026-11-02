@@ -2,6 +2,7 @@ import { Menu, Tray, app, nativeImage } from "electron";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseHotkey } from "@shared/hotkeys";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +47,7 @@ export interface TrayOptions {
   stopDictation?: () => void;
   isDictationCapturing?: () => boolean;
   pasteLatest?: () => void;
+  getPasteLatestHotkey?: () => string;
   getRecentHistory: () => Promise<Array<{ id: string; cleanedText: string }>>;
   reinjectEntry: (id: string) => Promise<void>;
   getLanguage: () => string;
@@ -56,6 +58,12 @@ function trimRecentLabel(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
   if (flat.length <= RECENT_LABEL_MAX) return flat || "(empty)";
   return `${flat.slice(0, RECENT_LABEL_MAX - 1)}…`;
+}
+
+// Turns a saved hotkey into a menu shortcut hint, or undefined when the menu can't draw it.
+export function menuShortcutHint(hotkey: string): string | undefined {
+  const parsed = parseHotkey(hotkey);
+  return parsed.ok && parsed.hotkey !== "Fn" ? parsed.hotkey : undefined;
 }
 
 export function createTray(options: TrayOptions): TrayController {
@@ -132,7 +140,7 @@ export function createTray(options: TrayOptions): TrayController {
     return Menu.buildFromTemplate([
       { label: `${statusIcon}  ${status}${offlineIndicator}`, enabled: false },
       { type: "separator" },
-      { label: "Open Vaani", accelerator: "Cmd+Shift+V", click: options.openMainWindow },
+      { label: "Open Vaani", click: options.openMainWindow },
       ...(options.startDictation && !capturing
         ? [{ label: "Start Dictation", click: options.startDictation }]
         : []),
@@ -140,7 +148,13 @@ export function createTray(options: TrayOptions): TrayController {
         ? [{ label: "Stop Dictation", click: options.stopDictation }]
         : []),
       ...(options.pasteLatest
-        ? [{ label: "Paste Latest", click: options.pasteLatest }]
+        ? [{
+            label: "Paste Latest",
+            accelerator: menuShortcutHint(options.getPasteLatestHotkey?.() ?? ""),
+            // The global hotkey already handles the key press; the menu only shows it.
+            registerAccelerator: false,
+            click: options.pasteLatest,
+          }]
         : []),
       { type: "separator" },
       { label: "Language", submenu: languageSubmenu },

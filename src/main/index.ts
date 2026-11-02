@@ -555,6 +555,7 @@ async function bootstrap(): Promise<void> {
       stopDictation: () => { hotkeyManager?.stopFromMenu(); },
       isDictationCapturing: () => dictation.isCapturing(),
       pasteLatest: () => { void dictation.pasteLatestEntry(); },
+      getPasteLatestHotkey: () => settings.get().pasteLatestHotkey,
       getRecentHistory: async () => {
         const entries = await history.getAll();
         return entries.slice(0, 10).map((e) => ({ id: e.id, cleanedText: e.cleanedText }));
