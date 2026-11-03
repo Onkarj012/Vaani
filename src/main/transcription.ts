@@ -3,6 +3,7 @@ import type { DictationContentGuardVerdict, DictationFormatterStatus, DictationF
 import type { RecoveryErrorClass } from "@shared/recovery";
 import { getProviderRegistry } from "./providers";
 import { defaultModelFor } from "@shared/modelList";
+import { KNOWN_PROVIDERS } from "@shared/defaults";
 import type { FormattingProvider, TranscriptionProvider } from "./providers/types";
 import { formatterErrorReason } from "./providers/types";
 import { buildFormattingPrompt, EMPTY_REPLY_REASON, NO_API_KEY_REASON, NO_PROVIDER_REASON, OFFLINE_REASON, FORMATTER_KEY_REJECTED_REASON } from "./providers/formatting-constants";
@@ -179,7 +180,7 @@ export class TranscriptionService {
       // Hints go on every clip, short ones included. The Groq prompt still needs a passed speech gate.
       const vocabularyHints = buildVocabularyTerms(settings);
       const { chain, skipReasons } = await this.buildSttChain(settings, primaryId, registry);
-      if (chain.length === 0) throw new Error(messageForEmptyChain(settings, primaryId));
+      if (chain.length === 0) throw new Error(messageForEmptyChain(settings, primaryId, skipReasons.has(primaryId)));
 
       debug("transcription", `Chain: ${chain.map(c => c.id).join(" → ")}`);
       const language = options?.languageOverride ?? settings.language;
@@ -730,11 +731,14 @@ function maxNullable(values: Array<number | null | undefined>): number | null {
   return Math.max(...finite);
 }
 
-function messageForEmptyChain(settings: Settings, primaryId: string): string {
+// User-facing reason no transcription provider could run, naming the provider as Settings shows it.
+export function messageForEmptyChain(settings: Settings, primaryId: string, missingKey: boolean): string {
   if (settings.offlineMode === "always-offline") {
     return "Offline mode is enabled, but Local Whisper is not available. Go to Settings → Offline Mode to download or load a model.";
   }
-  return `Transcription provider "${primaryId}" is not available or has no API key configured. Check Settings → API & Providers.`;
+  const name = KNOWN_PROVIDERS.find((provider) => provider.id === primaryId)?.name ?? primaryId;
+  if (missingKey) return `${name} needs an API key. Add it in Settings → API & Providers.`;
+  return `${name} is not available right now. Pick another provider in Settings → API & Providers.`;
 }
 
 function isAuthError(error: unknown): boolean {
