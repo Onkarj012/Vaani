@@ -736,8 +736,18 @@ describe("TranscriptionService failover chain", () => {
       providerApiKeys: [],
     }));
 
-    await expect(service.transcribe(clip)).rejects.toThrow("no API key configured");
+    await expect(service.transcribe(clip)).rejects.toThrow("OpenAI Whisper needs an API key. Add it in Settings → API & Providers.");
     expect(openaiTranscribe).not.toHaveBeenCalled();
+  });
+
+  it("names an unavailable provider as Settings shows it and falls back to the id for unknown providers", async () => {
+    const { TranscriptionService } = await import("@main/transcription");
+    const settings = { ...DEFAULT_SETTINGS, failoverEnabled: false };
+
+    await expect(new TranscriptionService(() => ({ ...settings, transcriptionProvider: "deepgram" })).transcribe(clip))
+      .rejects.toThrow("Deepgram is not available right now. Pick another provider in Settings → API & Providers.");
+    await expect(new TranscriptionService(() => ({ ...settings, transcriptionProvider: "mystery-stt" })).transcribe(clip))
+      .rejects.toThrow("mystery-stt is not available right now.");
   });
 
   it("treats a request deadline as a retryable network failure, not a permanent one", async () => {
