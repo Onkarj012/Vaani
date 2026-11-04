@@ -64,6 +64,20 @@ export function isCanonicalHotkey(value: string): boolean {
   return result.ok && result.hotkey === value;
 }
 
+const SPOKEN_KEYS = new Map<string, string>([
+  ["Cmd", "Command"], ["Ctrl", "Control"],
+  ["Up", "Up Arrow"], ["Down", "Down Arrow"], ["Left", "Left Arrow"], ["Right", "Right Arrow"],
+]);
+
+// Says a hotkey in words for screen readers, such as "Control Command V" for Ctrl+Cmd+V.
+export function spokenHotkey(value: string): string {
+  const parsed = parseHotkey(value);
+  // Stored values that no longer parse are still read out as typed, so the user hears what is saved.
+  const parts = parsed.ok ? parsed.hotkey.split("+") : value.split("+").map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) return "not set";
+  return parts.map((part) => SPOKEN_KEYS.get(MODIFIER_ALIASES.get(part.toLowerCase()) ?? part) ?? part).join(" ");
+}
+
 // Builds a hotkey from a key press, using the physical key so Option+D still reads as D.
 export function hotkeyFromKeyEvent(event: HotkeyKeyEvent): HotkeyParseResult {
   const parts: string[] = [];

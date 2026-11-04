@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Kbd, KbdGroup } from "@/components/ui/Kbd";
-import { hotkeyFromKeyEvent, parseHotkey } from "@shared/hotkeys";
+import { hotkeyFromKeyEvent, parseHotkey, spokenHotkey } from "@shared/hotkeys";
 
 interface HotkeyCaptureProps {
   value: string;
@@ -119,11 +119,13 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
           disabled && "cursor-not-allowed opacity-40"
         )}
         title={capturing ? "Press any key combination…" : "Click to change hotkey"}
+        aria-label={capturing ? "Listening for a shortcut. Press keys, or Escape to cancel." : `Shortcut: ${spokenHotkey(value)}. Press to change.`}
       >
         {capturing && preview.length === 0 ? (
           <span className="label-meta text-[11px] text-accent">Press any key…</span>
         ) : (
-          <KbdGroup>
+          // The button's label already says the keys in words, so VoiceOver skips the symbols.
+          <KbdGroup aria-hidden="true">
             {displayParts.map((k, i) => (
               <span key={i} className="inline-flex items-center gap-1">
                 <Kbd className={cn(capturing && "border-accent bg-accent/10 text-accent")}>{MOD_SYMBOL[k] ?? k}</Kbd>
@@ -144,7 +146,7 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
         </button>
       )}
 
-      {error && <p className="text-xs text-red-500/80">{error}</p>}
+      {error && <p role="alert" className="text-xs text-red-500/80">{error}</p>}
     </div>
   );
 }

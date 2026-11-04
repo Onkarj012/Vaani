@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
-import { hotkeyFromKeyEvent, isCanonicalHotkey, parseHotkey } from "@shared/hotkeys";
+import { hotkeyFromKeyEvent, isCanonicalHotkey, parseHotkey, spokenHotkey } from "@shared/hotkeys";
 import type { Settings } from "@shared/types";
 
 const registerMock = vi.fn(() => true);
@@ -503,5 +503,31 @@ describe("parseHotkey", () => {
       .toEqual({ ok: true, hotkey: "Option+D" });
     expect(hotkeyFromKeyEvent({ key: " ", code: "Space", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }))
       .toEqual({ ok: true, hotkey: "Cmd+Space" });
+  });
+});
+
+describe("spokenHotkey", () => {
+  it("says modifiers and keys in words", () => {
+    expect(spokenHotkey("Ctrl+Cmd+V")).toBe("Control Command V");
+    expect(spokenHotkey("Option+Shift+Space")).toBe("Option Shift Space");
+    expect(spokenHotkey("Cmd+Up")).toBe("Command Up Arrow");
+    expect(spokenHotkey("F5")).toBe("F5");
+  });
+
+  it("says Fn alone", () => {
+    expect(spokenHotkey("Fn")).toBe("Fn");
+  });
+
+  it("reads old aliases the same way as the canonical form", () => {
+    expect(spokenHotkey("Command+Alt+d")).toBe("Command Option D");
+  });
+
+  it("still reads a stored value that no longer parses", () => {
+    expect(spokenHotkey("Cmd+Shift")).toBe("Command Shift");
+    expect(spokenHotkey("Fn+Ctrl")).toBe("Fn Control");
+  });
+
+  it("says when no hotkey is set", () => {
+    expect(spokenHotkey("")).toBe("not set");
   });
 });
