@@ -7,6 +7,7 @@ interface UpdateBannerProps {
   onDismiss: () => void;
 }
 
+// Shows update progress and actions; announces each status change to VoiceOver.
 export default function UpdateBanner({ notification, onDismiss }: UpdateBannerProps) {
   const { status, version, message } = notification;
   const isDismissable = status === "no-update" || status === "error" || status === "available";
@@ -55,9 +56,12 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
         className="mx-6 mt-4 lg:mx-12"
       >
         <div className={`flex items-center justify-between gap-3 rounded-2xl px-4 py-2.5 text-sm ${toneClass}`}>
-          <div className="flex min-w-0 items-center gap-2.5">
-            {icon}
-            <span className="truncate font-medium">{message}</span>
+          <div
+            role={status === "error" ? "alert" : "status"}
+            className="flex min-w-0 items-center gap-2.5"
+          >
+            <span aria-hidden="true" className="flex shrink-0">{icon}</span>
+            <span title={message} className="truncate font-medium">{message}</span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {canInstall && (
@@ -78,7 +82,7 @@ export default function UpdateBanner({ notification, onDismiss }: UpdateBannerPr
               </button>
             )}
             {isDismissable && (
-              <button onClick={onDismiss} aria-label="Dismiss" className="rounded-full p-1 transition-colors hover:bg-ink/10">
+              <button onClick={onDismiss} aria-label="Dismiss update message" className="rounded-full p-1 transition-colors hover:bg-ink/10">
                 <X size={14} />
               </button>
             )}
