@@ -538,4 +538,3 @@ function buildBarsFromSamples(samples: Float32Array, count: number, noiseFloor: 
   }
   return bars;
 }
-
