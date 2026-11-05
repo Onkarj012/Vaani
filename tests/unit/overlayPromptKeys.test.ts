@@ -27,6 +27,12 @@ describe("overlayPromptKeyAction", () => {
     expect(overlayPromptKeyAction("Enter", { editing: true, inField: true, inTextarea: true, shiftKey: true })).toBeNull();
     expect(overlayPromptKeyAction("Enter", { editing: true, inField: true, inTextarea: true })).toBe("submit");
   });
+
+  it("ignores Enter and Escape while an IME is composing", () => {
+    expect(overlayPromptKeyAction("Enter", { editing: true, inField: true, composing: true })).toBeNull();
+    expect(overlayPromptKeyAction("Escape", { editing: true, composing: true })).toBeNull();
+    expect(overlayPromptKeyAction("Escape", { composing: true })).toBeNull();
+  });
 });
 
 describe("focusMountedPrompt", () => {

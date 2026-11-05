@@ -6,8 +6,10 @@ export type PromptKeyAction = "skip" | "back" | "submit" | null;
 
 export function overlayPromptKeyAction(
   key: string,
-  context: { editing?: boolean; inField?: boolean; inTextarea?: boolean; shiftKey?: boolean } = {},
+  context: { editing?: boolean; inField?: boolean; inTextarea?: boolean; shiftKey?: boolean; composing?: boolean } = {},
 ): PromptKeyAction {
+  // Enter and Escape during IME composition confirm or cancel the candidate, not the prompt.
+  if (context.composing) return null;
   if (key === "Escape") return context.editing ? "back" : "skip";
   if (key === "Enter" && context.editing && context.inField && !(context.inTextarea && context.shiftKey)) return "submit";
   return null;

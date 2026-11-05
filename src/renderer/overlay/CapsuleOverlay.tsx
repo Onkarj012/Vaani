@@ -146,7 +146,7 @@ function PromptCard({ view, remaining, onChange, onAccept, onEdit, onBack, onSki
 
   useEffect(() => {
     if (view.edit) firstFieldRef.current?.focus({ preventScroll: true })
-  }, [view.edit, view.error])
+  }, [view.edit])
 
   // Focus the card when React commits it, so Escape and Tab reach this window.
   const setCardRef = useCallback((node: HTMLDivElement | null) => {
@@ -417,6 +417,7 @@ export default function CapsuleOverlay() {
         inField: !!target?.matches('input, textarea'),
         inTextarea: target?.tagName === 'TEXTAREA',
         shiftKey: event.shiftKey,
+        composing: event.isComposing,
       })
       if (action) {
         event.preventDefault()
