@@ -15,6 +15,8 @@ import type {
   DictationEntry,
   DictationInsertionOutcome,
   DictationRejectionReason,
+  DictionaryPromptValues,
+  SnippetPromptValues,
   DictationState,
   DictationTrace,
   DictationBugReport,
@@ -318,6 +320,8 @@ export class DictationService {
     const inFlight = this.state.status === "starting" || this.state.status === "recording"
       || this.state.status === "finalizing" || this.state.status === "transcribing";
     if (!inFlight) { this.resetToIdle(); return; }
+    // Shown first so the reset's hide waits for "Cancelled" to be seen.
+    this.overlay.setCancelled?.();
     if (this.activeSessionId) this.recorder?.abortRecording?.(this.activeSessionId);
     this.sessionAbortController?.abort("user-cancelled");
     if (this.activeSessionId) {
@@ -813,7 +817,7 @@ export class DictationService {
     this.activeTarget = null;
     this.activeSelection = null;
     this.activeTargetIdentity = null;
-    this.setState({ status: "error", sessionId: null, message: statusMessage });
+    this.setState({ status: "error", sessionId: null, message: statusMessage, title: "Hotkey unavailable" });
     this.scheduleReset(ERROR_RESET_MS);
   }
 
@@ -821,7 +825,7 @@ export class DictationService {
     if (this.state.status !== "recording" && this.state.status !== "finalizing") return;
     this.clearAudioFrameTimer();
     this.rearmStaleSessionGuard();
-    this.overlay.updateBars(frame.bars);
+    this.overlay.updateLevel(frame.level);
     this.mainWindow?.webContents.send(IpcChannel.AudioLevel, frame.level, frame.bars);
   }
 
@@ -1200,15 +1204,16 @@ export class DictationService {
     for (const suggestion of suggestions) {
       if (!this.isPromptableDictionarySuggestion(suggestion)) continue;
 
-      const accepted = await new Promise<boolean>((resolve) => {
-        this.overlay.showDictionaryPrompt(suggestion.spoken, suggestion.written, resolve);
+      const accepted = await new Promise<DictionaryPromptValues | null>((resolve) => {
+        this.overlay.showDictionaryPrompt(suggestion.spoken, suggestion.written, resolve, (values) => this.dictionaryEditConflict(values));
       });
       if (promptGeneration !== this.dictionaryPromptGeneration) {
         debug("dictionary", "stale suggestion response discarded", { spoken: suggestion.spoken, written: suggestion.written });
         return;
       }
-      if (accepted) this.applyDictionarySuggestion(suggestion);
-      else debug("dictionary", "suggestion dismissed", { spoken: suggestion.spoken, written: suggestion.written });
+      if (!accepted) debug("dictionary", "suggestion dismissed", { spoken: suggestion.spoken, written: suggestion.written });
+      else if (accepted.spoken === suggestion.spoken.trim() && accepted.written === suggestion.written.trim()) this.applyDictionarySuggestion(suggestion);
+      else this.applyEditedDictionaryRule(accepted);
     }
   }
 
@@ -1222,14 +1227,15 @@ export class DictationService {
 
   private async showSnippetSuggestion(content: string): Promise<void> {
     const trigger = buildSnippetTrigger(content, this.settings.get().snippets ?? []);
-    const accepted = await new Promise<boolean>((resolve) => {
-      this.overlay.showSnippetPrompt(trigger, resolve);
+    const takenTriggers = (): string[] => (this.settings.get().snippets ?? []).map((snippet) => snippet.trigger);
+    const accepted = await new Promise<SnippetPromptValues | null>((resolve) => {
+      this.overlay.showSnippetPrompt(trigger, content, resolve, takenTriggers);
     });
     if (!accepted) return;
 
     const current = this.settings.get().snippets ?? [];
-    if (current.some((snippet) => snippet.trigger.toLowerCase() === trigger.toLowerCase())) return;
-    this.updateSettingsQuietly({ snippets: [...current, { trigger, content }] }, "snippet");
+    if (current.some((snippet) => snippet.trigger.toLowerCase() === accepted.trigger.toLowerCase())) return;
+    this.updateSettingsQuietly({ snippets: [...current, { trigger: accepted.trigger, content: accepted.text }] }, "snippet");
   }
 
   navigateToHistoryEntry(entryId: string): void {
@@ -1404,6 +1410,25 @@ export class DictationService {
     return true;
   }
 
+  // Error for an edited rule that would overwrite a rule the user added by hand.
+  private dictionaryEditConflict(values: DictionaryPromptValues): string | null {
+    const existing = (this.settings.get().customCorrections ?? []).find((entry) => entry.spoken.toLowerCase() === values.spoken.toLowerCase());
+    if (existing && existing.source !== "auto-suggested" && existing.written !== values.written) return `"${existing.spoken}" already has a rule in Dictionary.`;
+    return null;
+  }
+
+  // Saves a rule the user edited in the prompt. It counts as manual, so purging suggestions keeps it.
+  private applyEditedDictionaryRule(values: DictionaryPromptValues): void {
+    if (this.dictionaryEditConflict(values)) return;
+    const current = this.settings.get().customCorrections ?? [];
+    const existingIndex = current.findIndex((entry) => entry.spoken.toLowerCase() === values.spoken.toLowerCase());
+    const rule = { spoken: values.spoken, written: values.written, source: "manual" as const };
+    const nextCorrections = existingIndex >= 0
+      ? current.map((entry, index) => index === existingIndex ? { ...entry, ...rule } : entry)
+      : [...current, rule];
+    this.updateSettingsQuietly({ customCorrections: nextCorrections }, "dictionary");
+  }
+
   private applyDictionarySuggestion(suggestion: DictionarySuggestion): void {
     const spoken = suggestion.spoken.trim();
     const written = suggestion.written.trim();
@@ -1561,7 +1586,7 @@ export class DictationService {
     void this.finishTrace(sessionId, outcome, reason, message, tracePatch);
     this.completeSession(sessionId, outcome === "verified" ? "injected" : historySaved ? "saved" : "failed", entry.cleanedText, message, detectedLanguage, recoveryOutcome, outcome);
     if (outcome === "unconfirmed") {
-      this.overlay.setStatusMessage?.(`${message} ${historySaved ? "Find this session in History." : "History could not save this session."}`);
+      this.overlay.setStatusMessage?.(`${message} ${historySaved ? "Find this session in History." : "History could not save this session."}`, { insertion: "unconfirmed" });
     }
   }
 
@@ -1602,7 +1627,7 @@ export class DictationService {
     this.clearAudioFrameTimer();
     this.clearFinalizationTimer();
     this.clearRecordingCapTimer();
-    this.setState({ status: "error", sessionId, message });
+    this.setState({ status: "error", sessionId, message, reason });
     // The trace keeps every provider attempt, so a failed dictation shows which provider failed and how.
     const attemptsPatch = providerAttempts.length > 0 ? { providerAttempts } : {};
     void this.finishTrace(sessionId, reason === "no_speech" || reason === "microphone_permission_denied" || reason === "fragment" ? "rejected" : "failed", reason, message, { ...attemptsPatch, ...tracePatch });
@@ -2009,11 +2034,18 @@ export class DictationService {
     } else if (state.status === "transcribing") {
       this.updateTrayStatus("Transcribing…"); this.overlay.setProcessing();
     } else if (state.status === "completed") {
-      this.updateTrayStatus(state.message); this.overlay.setStatusMessage?.(state.message);
-      if (state.insertionOutcome === "unconfirmed" || state.insertionOutcome === "refused" || state.insertionOutcome === "failed") this.overlay.setError();
-      else this.overlay.setSuccess(state.detectedLanguage);
+      this.updateTrayStatus(state.message);
+      const insertion = state.insertionOutcome ?? null;
+      if (insertion === "unconfirmed" || insertion === "refused" || insertion === "failed") {
+        this.overlay.setStatusMessage?.(state.message, { insertion });
+        this.overlay.setError();
+      } else {
+        // Plain "Inserted." needs no note; anything else (copied, formatting skipped) shows under the check.
+        this.overlay.setStatusMessage?.(state.message === INSERTED_MESSAGE ? null : state.message, { insertion });
+        this.overlay.setSuccess(state.detectedLanguage);
+      }
     } else if (state.status === "error") {
-      this.updateTrayStatus(state.message); this.overlay.setStatusMessage?.(state.message); this.overlay.setError();
+      this.updateTrayStatus(state.message); this.overlay.setStatusMessage?.(state.message, { reason: state.reason ?? null, title: state.title }); this.overlay.setError();
     } else {
       this.updateTrayStatus("Error"); this.overlay.hide();
     }
@@ -2260,9 +2292,11 @@ function formatNoticeFor(trace: FormatTranscriptTraceResult): string | null {
   return trace.formatterStatus === "skipped" && formatterUnavailable ? FORMAT_NOTICE : null;
 }
 
+const INSERTED_MESSAGE = "Inserted.";
+
 function insertionStatusText(outcome: DictationInsertionOutcome, historySaved: boolean, stage: string, copied = false): string {
   switch (outcome) {
-    case "verified": return "Inserted.";
+    case "verified": return INSERTED_MESSAGE;
     case "unconfirmed": return "Insertion unconfirmed. Check the field before pasting again.";
     case "refused": return "Not inserted: target changed.";
     case "copy-only": return "Copied. Paste when ready.";

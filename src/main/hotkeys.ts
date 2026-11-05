@@ -43,6 +43,7 @@ export class HotkeyManager {
   private pendingReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private suppressNextRelease = false;
   private rejectedPress = false;
+  private keyHeld = false;
   private handsFreeListener: ((handsFree: boolean) => void) | null = null;
 
   constructor(
@@ -127,9 +128,9 @@ export class HotkeyManager {
     this.exitToggleMode(false);
   }
 
-  // Drops a hands-free lock once its recording ended on its own, so Escape is released and the next press starts fresh.
+  // Once a recording ends on its own (held or hands-free), drops the lock, Escape, and any pending release so the next press starts fresh.
   syncSession(capturing: boolean): void {
-    if (capturing || !this.isToggleRecording) return;
+    if (capturing) return;
     this.setToggleRecording(false);
     this.unregisterEscapeShortcut();
     this.clearPendingRelease();
@@ -194,6 +195,7 @@ export class HotkeyManager {
   }
 
   private handlePress(): void {
+    this.keyHeld = true;
     if (this.rejectedPress) return;
 
     const settings = this.settingsProvider();
@@ -221,9 +223,12 @@ export class HotkeyManager {
     }
     this.lastPressTime = now;
     if (mode === "toggle") this.enterToggleMode();
+    // Held recordings take Escape too, so push-to-talk can cancel without releasing first.
+    else this.registerEscapeShortcut();
   }
 
   private handleRelease(): void {
+    this.keyHeld = false;
     if (this.rejectedPress) {
       this.rejectedPress = false;
       return;
@@ -239,6 +244,7 @@ export class HotkeyManager {
 
     // Push-to-talk: stop immediately on release
     if (mode === "push-to-talk") {
+      this.unregisterEscapeShortcut();
       this.onRelease();
       return;
     }
@@ -249,13 +255,16 @@ export class HotkeyManager {
     const heldFor = Date.now() - this.lastPressTime;
     if (heldFor < HOTKEY_DOUBLE_PRESS_WINDOW_MS) {
       this.clearPendingRelease();
+      // Escape stays live while a second tap could still lock recording on.
       this.pendingReleaseTimer = setTimeout(() => {
         this.pendingReleaseTimer = null;
+        this.unregisterEscapeShortcut();
         this.onRelease();
       }, HOTKEY_DOUBLE_PRESS_WINDOW_MS);
       return;
     }
 
+    this.unregisterEscapeShortcut();
     this.onRelease();
   }
 
@@ -283,8 +292,14 @@ export class HotkeyManager {
   private registerEscapeShortcut(): void {
     if (this.escapeRegistered) return;
     try {
-      this.escapeRegistered = globalShortcut.register("Escape", () => this.exitToggleMode(true));
+      this.escapeRegistered = globalShortcut.register("Escape", () => this.cancelFromEscape());
     } catch (error) { console.warn("[vaani] escape shortcut register error:", error); }
+  }
+
+  // Escape cancels the recording. A key still held must not send on release.
+  private cancelFromEscape(): void {
+    if (this.keyHeld) this.suppressNextRelease = true;
+    this.exitToggleMode(true);
   }
 
   private unregisterEscapeShortcut(): void {

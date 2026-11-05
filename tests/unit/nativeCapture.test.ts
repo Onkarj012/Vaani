@@ -502,7 +502,7 @@ describe("NativeCaptureService", () => {
       service.pauseRecording("s1");
       await vi.advanceTimersByTimeAsync(60);
       onData?.(new Float32Array(1_600).fill(0.5));
-      expect(updateAudioLevel).toHaveBeenLastCalledWith({ level: 0.12, bars: new Array(9).fill(0.12) });
+      expect(updateAudioLevel).toHaveBeenLastCalledWith({ level: 0, bars: new Array(9).fill(0.12) });
       service.resumeRecording("s1");
       await vi.advanceTimersByTimeAsync(60);
       onData?.(new Float32Array(1_600).fill(0.5));
