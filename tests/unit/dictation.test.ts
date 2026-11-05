@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@shared/defaults";
 import { IpcChannel } from "@shared/ipc";
 import { pcmToAudioClip } from "@shared/pcmUtils";
-import type { AudioClip, AudioVisualFrame, DictationEntry, DictationTrace, InjectionResult, Settings, TranscriptionResult } from "@shared/types";
+import type { AudioClip, AudioVisualFrame, DictationEntry, DictationTrace, DictionaryPromptValues, InjectionResult, Settings, SnippetPromptValues, TranscriptionResult } from "@shared/types";
 import type { DictationTraceStore } from "@main/store/dictationTrace";
 import type { RecoveryJournalStore } from "@main/store/recoveryJournal";
 import type { EncryptedRecoveryAudioStore } from "@main/audio/recoveryAudio";
@@ -86,9 +86,10 @@ function createDictationService(deps: {
     setStatusMessage: vi.fn(),
     setPaused: vi.fn(),
     hide: vi.fn(),
-    updateBars: vi.fn(),
-    showDictionaryPrompt: vi.fn((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => resolve(true)),
-    showSnippetPrompt: vi.fn((_trigger: string, resolve: (accepted: boolean) => void) => resolve(true))
+    setCancelled: vi.fn(),
+    updateLevel: vi.fn(),
+    showDictionaryPrompt: vi.fn((spoken: string, written: string, resolve: (values: DictionaryPromptValues | null) => void) => resolve({ spoken, written })),
+    showSnippetPrompt: vi.fn((trigger: string, text: string, resolve: (values: SnippetPromptValues | null) => void) => resolve({ trigger, text }))
   };
 
   const mainWindow = {
@@ -723,7 +724,7 @@ describe("DictationService", () => {
     const frame: AudioVisualFrame = { level: 0.42, bars: [0.1, 0.4, 0.7] };
     service.updateAudioLevel(frame);
 
-    expect(overlay.updateBars).toHaveBeenCalledWith(frame.bars);
+    expect(overlay.updateLevel).toHaveBeenCalledWith(frame.level);
     expect(mainWindow.webContents.send).toHaveBeenCalledWith(IpcChannel.AudioLevel, frame.level, frame.bars);
   });
 
@@ -2202,7 +2203,7 @@ describe("DictationService", () => {
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved", injectionMethod: null }));
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "unconfirmed", userMessage: "Insertion unconfirmed. Check the field before pasting again." });
     expect(service.getState()).toMatchObject({ insertionOutcome: "unconfirmed" });
-    expect(overlay.setStatusMessage).toHaveBeenCalledWith("Insertion unconfirmed. Check the field before pasting again. Find this session in History.");
+    expect(overlay.setStatusMessage).toHaveBeenCalledWith("Insertion unconfirmed. Check the field before pasting again. Find this session in History.", { insertion: "unconfirmed" });
   });
 
   it("refuses a changed target without copying its text", async () => {
@@ -2256,6 +2257,30 @@ describe("DictationService", () => {
     expect(history.append).toHaveBeenCalledWith(expect.objectContaining({ injectionStatus: "saved" }));
     expect(traceDeps.getTrace()).toMatchObject({ outcome: "copy-only", userMessage: "Copied. Paste when ready." });
     expect(service.getState()).toMatchObject({ status: "completed", insertionOutcome: "copy-only", message: "Copied. Paste when ready." });
+  });
+
+  it("shows no note for a plain insert, and passes the rejection reason with error text", async () => {
+    const { service, overlay } = createDictationService();
+    await submitHelloWorld(service);
+    expect(overlay.setStatusMessage).toHaveBeenCalledWith(null, { insertion: "verified" });
+    expect(overlay.setSuccess).toHaveBeenCalled();
+
+    overlay.setStatusMessage.mockClear();
+    await submitClip(service, { pcmData: [], sampleRate: 16_000, durationSeconds: 0, rmsFrames: [] });
+    expect(overlay.setStatusMessage).toHaveBeenCalledWith("No speech detected. Try speaking louder or closer to the microphone.", { reason: "no_speech" });
+  });
+
+  it("shows Cancelled before the reset hides the capsule", () => {
+    const { service, overlay } = createDictationService();
+    service.beginHotkeySession();
+    overlay.hide.mockClear();
+
+    service.cancelSession();
+
+    expect(overlay.setCancelled).toHaveBeenCalledOnce();
+    expect(overlay.setCancelled.mock.invocationCallOrder[0]).toBeLessThan(overlay.hide.mock.invocationCallOrder[0] ?? 0);
+    service.cancelSession();
+    expect(overlay.setCancelled).toHaveBeenCalledOnce();
   });
 
   it("never says Saved when History rejects a verified insertion", async () => {
@@ -2614,7 +2639,7 @@ describe("DictationService", () => {
     await Promise.resolve();
 
     expect(history.append).toHaveBeenCalledTimes(1);
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function), expect.any(Function));
     expect(settings.update).toHaveBeenCalledWith({
       customCorrections: [{ spoken: "get hub", written: "GitHub", source: "auto-suggested" }]
     });
@@ -2693,7 +2718,7 @@ describe("DictationService", () => {
     vi.advanceTimersByTime(1_500);
     await Promise.resolve();
 
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Baani", "Vaani", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Baani", "Vaani", expect.any(Function), expect.any(Function));
     expect(settings.update).toHaveBeenCalledWith({
       customCorrections: [{ spoken: "Baani", written: "Vaani", source: "auto-suggested" }]
     });
@@ -2735,7 +2760,7 @@ describe("DictationService", () => {
     vi.advanceTimersByTime(1_500);
     await Promise.resolve();
 
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("WriteX", "WriteTex", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("WriteX", "WriteTex", expect.any(Function), expect.any(Function));
     expect(settings.update).toHaveBeenCalledWith({
       customCorrections: [{ spoken: "WriteX", written: "WriteTex", source: "auto-suggested" }]
     });
@@ -2775,7 +2800,7 @@ describe("DictationService", () => {
     vi.advanceTimersByTime(1_500);
     await Promise.resolve();
 
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Baani", "Vaani", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Baani", "Vaani", expect.any(Function), expect.any(Function));
     expect(settings.update).toHaveBeenCalledWith({
       customCorrections: [{ spoken: "Baani", written: "Vaani", source: "auto-suggested" }]
     });
@@ -2810,7 +2835,7 @@ describe("DictationService", () => {
     vi.advanceTimersByTime(1_500);
     await Promise.resolve();
 
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Baani", "Vaani", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Baani", "Vaani", expect.any(Function), expect.any(Function));
     expect(settings.update).toHaveBeenCalledWith({
       customCorrections: [{ spoken: "Baani", written: "Vaani", source: "auto-suggested" }]
     });
@@ -2819,23 +2844,50 @@ describe("DictationService", () => {
   it("ignores stale accepted dictionary responses from an older generation", async () => {
     const { service, overlay, settings } = createDictationService();
     const mutable = makeSettingsMutable(settings);
-    let resolvePrompt: (accepted: boolean) => void = () => {
+    let resolvePrompt: (values: DictionaryPromptValues | null) => void = () => {
       throw new Error("Expected dictionary prompt resolver.");
     };
-    overlay.showDictionaryPrompt.mockImplementation((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => {
+    overlay.showDictionaryPrompt.mockImplementation((_spoken: string, _written: string, resolve: (values: DictionaryPromptValues | null) => void) => {
       resolvePrompt = resolve;
     });
 
     const pending = service.showDictionarySuggestions([{ spoken: "get hub", written: "GitHub" }]);
 
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("get hub", "GitHub", expect.any(Function), expect.any(Function));
     expect(mutable.current().customCorrections).toEqual([]);
     const respond = resolvePrompt;
     service.beginHotkeySession();
-    respond(true);
+    respond({ spoken: "get hub", written: "GitHub" });
     await pending;
 
     expect(mutable.current().customCorrections).toEqual([]);
+  });
+
+  it("saves an edited dictionary rule as a manual rule", async () => {
+    const { service, overlay, settings } = createDictationService();
+    const mutable = makeSettingsMutable(settings);
+    overlay.showDictionaryPrompt.mockImplementation((_spoken: string, _written: string, resolve: (values: DictionaryPromptValues | null) => void) => {
+      resolve({ spoken: "git hub", written: "GitHub" });
+    });
+
+    await service.showDictionarySuggestions([{ spoken: "get hub", written: "GitHub" }]);
+
+    expect(mutable.current().customCorrections).toEqual([{ spoken: "git hub", written: "GitHub", source: "manual" }]);
+  });
+
+  it("refuses an edited dictionary rule that would replace a manual rule", async () => {
+    const { service, overlay, settings } = createDictationService();
+    makeSettingsMutable(settings, { ...SUGGESTING_SETTINGS, customCorrections: [{ spoken: "git hub", written: "Git Hub", source: "manual" }] });
+    let check: ((values: DictionaryPromptValues) => string | null) | undefined;
+    overlay.showDictionaryPrompt.mockImplementation((_spoken: string, _written: string, resolve: (values: DictionaryPromptValues | null) => void, refuse?: (values: DictionaryPromptValues) => string | null) => {
+      check = refuse;
+      resolve(null);
+    });
+
+    await service.showDictionarySuggestions([{ spoken: "get hub", written: "GitHub" }]);
+
+    expect(check?.({ spoken: "Git Hub", written: "GitHub" })).toBe('"git hub" already has a rule in Dictionary.');
+    expect(check?.({ spoken: "get hub", written: "GitHub" })).toBeNull();
   });
 
   it("never offers a dictionary entry while suggestions are off", async () => {
@@ -2851,13 +2903,13 @@ describe("DictationService", () => {
   it("does not add a dictionary correction when the prompt is skipped", async () => {
     const { service, overlay, settings } = createDictationService();
     const mutable = makeSettingsMutable(settings);
-    overlay.showDictionaryPrompt.mockImplementation((_spoken: string, _written: string, resolve: (accepted: boolean) => void) => {
-      resolve(false);
+    overlay.showDictionaryPrompt.mockImplementation((_spoken: string, _written: string, resolve: (values: DictionaryPromptValues | null) => void) => {
+      resolve(null);
     });
 
     await service.showDictionarySuggestions([{ spoken: "Bani", written: "Vaani" }]);
 
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Bani", "Vaani", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("Bani", "Vaani", expect.any(Function), expect.any(Function));
     expect(mutable.current().customCorrections).toEqual([]);
   });
 
@@ -2958,7 +3010,7 @@ describe("DictationService", () => {
     vi.advanceTimersByTime(3_000);
     await Promise.resolve();
 
-    expect(overlay.showSnippetPrompt).toHaveBeenCalledWith("onkarj012gmailcom", expect.any(Function));
+    expect(overlay.showSnippetPrompt).toHaveBeenCalledWith("onkarj012gmailcom", "onkarj012@gmail.com", expect.any(Function), expect.any(Function));
     expect(settings.update).toHaveBeenCalledWith({
       snippets: [{ trigger: "onkarj012gmailcom", content: "onkarj012@gmail.com" }]
     });
@@ -3004,7 +3056,7 @@ describe("DictationService", () => {
     expect(settings.update).toHaveBeenCalledWith({
       customCorrections: [{ spoken: "versel", written: "Vercel", source: "auto-suggested" }]
     });
-    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("versel", "Vercel", expect.any(Function));
+    expect(overlay.showDictionaryPrompt).toHaveBeenCalledWith("versel", "Vercel", expect.any(Function), expect.any(Function));
   });
 
   it("does not suggest snippets for ordinary phrase edits", async () => {

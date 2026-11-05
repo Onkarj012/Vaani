@@ -1,4 +1,5 @@
 import { waveformHeight } from "@renderer/recorder/waveform";
+import { levelFromRms } from "@shared/audioLevel";
 import type { AudioInputDevice, MacOSPermissionState, AudioClip, AudioVisualFrame, CaptureTrackSettings, RecorderCommand, RecorderConfig, RecorderFailure, RecorderSubmission } from "@shared/types";
 import { captureProcessingConstraints, chooseRecorderDeviceId } from "./deviceSelection";
 import {
@@ -421,20 +422,21 @@ function handlePcmData(samples: Float32Array): void {
   lastFrameAt = Date.now();
   // Paused frames keep the watchdog fed but never reach the clip.
   if (paused) {
-    publishBars(new Array(VISUAL_BAR_COUNT).fill(PAUSED_BAR_LEVEL));
+    publishBars(new Array(VISUAL_BAR_COUNT).fill(PAUSED_BAR_LEVEL), 0);
     return;
   }
 
   sessionChunks.push(samples.slice());
   let sumSquares = 0;
   for (const sample of samples) sumSquares += sample * sample;
+  const chunkRms = samples.length > 0 ? Math.sqrt(sumSquares / samples.length) : 0;
   if (samples.length > 0) {
-    const rms = Math.sqrt(sumSquares / samples.length);
+    const rms = chunkRms;
     sessionFrames.push({ at: lastFrameAt, rms });
     // The quiet level is set at stop. Frames arriving during the tail wait are judged against it.
     if (quietThreshold !== null && rms >= quietThreshold) lastLoudFrameAt = lastFrameAt;
   }
-  publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT));
+  publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT), levelFromRms(chunkRms));
 }
 
 async function handleCaptureEnded(): Promise<void> {
@@ -456,14 +458,14 @@ function finalizeClip(chunks: Float32Array[], inputRate: number): AudioClip | nu
   return pcmToAudioClip(merged, inputRate);
 }
 
-function publishBars(nextBars: number[]): void {
+// Reports bars plus the chunk's level on the fixed -54 to -6 dB scale, which drives the overlay ribbon.
+function publishBars(nextBars: number[], level: number): void {
   const now = performance.now();
   if (now - lastReportedAt < FRAME_REPORT_INTERVAL_MS) {
     return;
   }
 
   lastReportedAt = now;
-  const level = nextBars.reduce((sum, value) => sum + value, 0) / Math.max(1, nextBars.length);
   void window.__VAANI_RECORDER__.reportAudioFrame({ level, bars: nextBars });
 }
 

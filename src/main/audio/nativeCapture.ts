@@ -2,6 +2,7 @@ import type { AudioClip, AudioInputDevice, AudioVisualFrame, CaptureTrackSetting
 import { PcmRingBuffer, PRE_ROLL_MS, TARGET_SAMPLE_RATE, mergePcmChunks, pcmToAudioClip, trimLeadingSilence } from "@shared/pcmUtils";
 import { debug, error } from "@main/log";
 import { nativeBridge } from "@main/nativeBridge";
+import { chunkRms, levelFromRms } from "@shared/audioLevel";
 import { STOP_MAX_WAIT_MS, STOP_POLL_MS, STOP_QUIET_MS, STOP_TAIL_GRACE_MS, trailingRms } from "@shared/recorderTail";
 
 // After the grace window, wait for the native drain queue to go quiet so audio
@@ -306,7 +307,7 @@ export class NativeCaptureService implements RecorderCommands {
       this.awaitingFirstFrame = false;
       this.sink.reportRecorderStarted(this.activeSessionId);
     }
-    this.publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT, this.noiseFloor));
+    this.publishBars(buildBarsFromSamples(samples, VISUAL_BAR_COUNT, this.noiseFloor), levelFromRms(chunkRms(samples)));
   }
 
   // Keeps frames flowing to the watchdog while showing flat bars.
@@ -314,7 +315,7 @@ export class NativeCaptureService implements RecorderCommands {
     const now = Date.now();
     if (now - this.lastReportedAt < FRAME_REPORT_INTERVAL_MS) return;
     this.lastReportedAt = now;
-    this.sink.updateAudioLevel({ level: PAUSED_BAR_LEVEL, bars: new Array(VISUAL_BAR_COUNT).fill(PAUSED_BAR_LEVEL) });
+    this.sink.updateAudioLevel({ level: 0, bars: new Array(VISUAL_BAR_COUNT).fill(PAUSED_BAR_LEVEL) });
   }
 
   private updateNoiseFloor(samples: Float32Array): void {
@@ -361,7 +362,8 @@ export class NativeCaptureService implements RecorderCommands {
     }
   }
 
-  private publishBars(nextBars: number[]): void {
+  // Reports bars plus the chunk's level on the fixed -54 to -6 dB scale, which drives the overlay ribbon.
+  private publishBars(nextBars: number[], level: number): void {
     const now = Date.now();
     if (now - this.lastReportedAt < FRAME_REPORT_INTERVAL_MS) return;
     this.lastReportedAt = now;
@@ -370,7 +372,6 @@ export class NativeCaptureService implements RecorderCommands {
       return Math.max(0.04, previous * 0.65 + value * 0.35);
     });
     this.smoothedBars = bars;
-    const level = bars.reduce((sum, value) => sum + value, 0) / Math.max(1, bars.length);
     this.sink.updateAudioLevel({ level, bars });
   }
 
@@ -538,12 +539,3 @@ function buildBarsFromSamples(samples: Float32Array, count: number, noiseFloor: 
   return bars;
 }
 
-function chunkRms(samples: Float32Array): number {
-  if (samples.length === 0) return 0;
-  let sum = 0;
-  for (let index = 0; index < samples.length; index += 1) {
-    const sample = samples[index] ?? 0;
-    sum += sample * sample;
-  }
-  return Math.sqrt(sum / samples.length);
-}

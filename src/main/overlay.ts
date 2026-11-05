@@ -1,6 +1,9 @@
 import { app, BrowserWindow, screen } from "electron";
 import type { Rectangle } from "electron";
+import type { DictationInsertionOutcome, DictationRejectionReason, DictionaryPromptValues, OverlayPrompt, OverlayPromptResult, OverlayStatus, SnippetPromptValues } from "@shared/types";
+import { dictionaryEditError, isOverlayPromptReply, normalizeSnippetTrigger, snippetEditError } from "@shared/overlayPrompt";
 import { nativeBridge } from "./nativeBridge";
+import { PausableTimer } from "./pausableTimer";
 import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,35 +17,51 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 const _dir = dirname(fileURLToPath(import.meta.url));
 const logPath = join(tmpdir(), "vaani-startup.log");
 
-const CAPSULE_BOTTOM_MARGIN = 16;
-// Non-prompt: fits the recording waveform pill (9 bars × 5px + padding)
-const PILL_W = 120;
-const PILL_H = 52;
-// Hands-free: the pill plus two 24 px Pause/Send buttons and gaps.
-const HANDS_FREE_PILL_W = 184;
-const STATUS_W = 440;
-const STATUS_H = 72;
-// Prompt card: matches CapsuleOverlay.tsx prompt width (340px) + shadow clearance
-const PROMPT_W = 360;
-const PROMPT_H = 210;
+// The renderer pads 19 px under the capsule for its shadow, so the capsule sits 25 px above the work area.
+const CAPSULE_BOTTOM_MARGIN = 6;
+// One click-through window for every capsule state, so state changes never resize it.
+// Widest capsule is a three-line error (396 x 75 px); the rest is shadow clearance.
+const CAPSULE_W = 440;
+const CAPSULE_H = 104;
+// Prompt window: the snippet edit card with an error line (342 x ~280 px) plus shadow clearance.
+const PROMPT_W = 384;
+const PROMPT_H = 320;
+const PROMPT_DISMISS_MS = 8_000;
+// Saved confirmation stays up this long after the reply.
+const SAVED_HOLD_MS = 1_700;
+// Success with a note and Cancelled stay up this long, even if dictation resets sooner.
+const SUCCESS_NOTE_HOLD_MS = 2_000;
+const CANCELLED_HOLD_MS = 900;
 const OVERLAY_LOAD_TIMEOUT_MS = 2_000;
 const OVERLAY_SHOW_WATCHDOG_MS = 900;
+
+type OverlayMode = "idle" | "pressed" | "recording" | "transcribing" | "done" | "error" | "cancelled";
+
+interface ActivePrompt {
+  id: number;
+  // Validates and saves an accepted reply. Returns an error to show, or null once saved.
+  accept: (first: string, second: string) => string | null;
+  dismiss: () => void;
+  timer: PausableTimer | null;
+}
 export class OverlayController {
   private window: BrowserWindow | null = null;
   private loadReady = false;
   private creatingWindow: Promise<void> | null = null;
   private loadTimeout: ReturnType<typeof setTimeout> | null = null;
   private showWatchdog: ReturnType<typeof setTimeout> | null = null;
-  private pendingMode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error" | null = null;
-  private pendingBars: number[] | null = null;
+  private pendingMode: OverlayMode | null = null;
+  private pendingLevel: number | null = null;
   private pendingDetectedLanguage: string | null = null;
-  private pendingStatusMessage: string | null = null;
+  private pendingStatus: OverlayStatus | null = null;
+  // True from prompt request until its window is released, including the Saved confirmation.
   private promptActive = false;
-  private promptDismissTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingPromptRemover: (() => void) | null = null;
-  private pendingPromptResponder: ((accepted: boolean) => void) | null = null;
+  private activePrompt: ActivePrompt | null = null;
+  private savedHold: { timer: ReturnType<typeof setTimeout>; release: () => void; done: Promise<void> } | null = null;
   private promptGeneration = 0;
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
+  private resultHoldTimer: ReturnType<typeof setTimeout> | null = null;
+  private hideAfterHold = false;
   private handsFree = false;
   private paused = false;
   private sessionId: string | null = null;
@@ -104,8 +123,8 @@ export class OverlayController {
         this.tryUpdateMode(this.pendingMode);
         setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 80);
       }
-      if (this.pendingBars) {
-        this.updateBars(this.pendingBars);
+      if (this.pendingLevel !== null) {
+        this.updateLevel(this.pendingLevel);
       }
       return;
     }
@@ -115,8 +134,8 @@ export class OverlayController {
       if (this.pendingMode) {
         this.tryUpdateMode(this.pendingMode);
       }
-      if (this.pendingBars) {
-        this.updateBars(this.pendingBars);
+      if (this.pendingLevel !== null) {
+        this.updateLevel(this.pendingLevel);
       }
       void this.restoreFocusIfNeeded(frontmostBefore);
     });
@@ -125,6 +144,8 @@ export class OverlayController {
   hide(): void {
     log("overlay:hide-requested", { promptActive: this.promptActive, hasWindow: !!this.window, loadReady: this.loadReady });
     if (this.promptActive) return;
+    // A held result (success note, Cancelled) hides when its hold ends.
+    if (this.resultHoldTimer) { this.hideAfterHold = true; return; }
     this.setStatusMessage(null);
     if (this.window && !this.window.isDestroyed()) {
       this.tryUpdateMode("idle");
@@ -141,16 +162,15 @@ export class OverlayController {
       }, 250);
     }
     this.pendingMode = null;
-    this.pendingBars = null;
+    this.pendingLevel = null;
     this.pendingDetectedLanguage = null;
     this.resetHandsFreeState();
   }
 
-  // Shows or hides the Pause and Send controls. The pill widens while they show.
+  // Shows or hides the Pause and Send controls. The capsule widens while they show.
   setHandsFree(on: boolean): void {
     this.handsFree = on;
     if (!on) this.paused = false;
-    void this.resizeWindow(false);
     this.sendHandsFreeState();
   }
 
@@ -162,22 +182,40 @@ export class OverlayController {
 
   setRecording(sessionId: string): void {
     this.finishActivePrompt();
+    this.clearResultHold();
     this.setStatusMessage(null);
     this.sessionId = sessionId;
     this.pendingMode = "recording";
-    this.pendingBars = null;
+    this.pendingLevel = null;
     this.show();
     this.tryUpdateMode("recording");
   }
 
   setPressed(): void {
     this.finishActivePrompt();
+    this.clearResultHold();
     this.setStatusMessage(null);
     this.pendingMode = "pressed";
     this.pendingDetectedLanguage = null;
-    this.pendingBars = null;
+    this.pendingLevel = null;
     this.show();
     this.tryUpdateMode("pressed");
+  }
+
+  // Shows "Cancelled" briefly. Call before dictation resets; the reset's hide waits for the hold.
+  setCancelled(): void {
+    this.finishActivePrompt();
+    this.clearResultHold();
+    this.setStatusMessage(null);
+    this.handsFree = false;
+    this.paused = false;
+    this.sendHandsFreeState();
+    if (this.window && !this.window.isDestroyed()) this.window.setIgnoreMouseEvents(true, { forward: true });
+    this.pendingMode = "cancelled";
+    this.pendingLevel = null;
+    this.show();
+    this.tryUpdateMode("cancelled");
+    this.holdResult(CANCELLED_HOLD_MS);
   }
 
   // A new dictation is taking over the overlay — neutralize any lingering prompt
@@ -185,14 +223,13 @@ export class OverlayController {
   private finishActivePrompt(): void {
     if (!this.promptActive) return;
     this.promptGeneration += 1;
-    this.clearPromptDismissTimer();
-    this.pendingPromptRemover?.();
-    this.pendingPromptRemover = null;
-    const responder = this.pendingPromptResponder;
-    this.pendingPromptResponder = null;
+    const prompt = this.activePrompt;
+    this.activePrompt = null;
+    prompt?.timer?.cancel();
+    this.clearSavedHold();
     this.promptActive = false;
     this.resetPromptWindowState();
-    responder?.(false);
+    prompt?.dismiss();
   }
 
   setProcessing(): void {
@@ -200,19 +237,23 @@ export class OverlayController {
     this.show();
   }
 
-  setStatusMessage(message: string | null): void {
-    this.pendingStatusMessage = message;
-    void this.resizeWindow(false);
+  // Sets the capsule's status text. The reason or insertion outcome picks the error title.
+  setStatusMessage(message: string | null, cause: { reason?: DictationRejectionReason | null; insertion?: DictationInsertionOutcome | null } = {}): void {
+    // A held result keeps its note until the hold ends; hide() clears it then.
+    if (message === null && this.resultHoldTimer) return;
+    this.pendingStatus = message === null ? null : { message, reason: cause.reason ?? null, insertion: cause.insertion ?? null };
     if (this.loadReady && this.window && !this.window.isDestroyed()) {
-      this.window.webContents.send("capsule:set-status", message);
+      this.window.webContents.send("capsule:set-status", this.pendingStatus);
     }
   }
 
+  // Success disc. A note set just before keeps the capsule up long enough to read.
   setSuccess(detectedLanguage?: string | null): void {
     this.pendingMode = "done";
     this.pendingDetectedLanguage = detectedLanguage ?? null;
     this.show();
     this.flushPendingDetectedLanguage();
+    if (this.pendingStatus) this.holdResult(SUCCESS_NOTE_HOLD_MS);
   }
 
   setError(): void {
@@ -220,115 +261,190 @@ export class OverlayController {
     this.show();
   }
 
-  updateBars(bars: number[]): void {
-    this.pendingBars = bars;
+  // Sends the 0-1 mic level (fixed dB scale) that drives the ribbon waveform.
+  updateLevel(level: number): void {
+    this.pendingLevel = level;
     if (!this.loadReady || !this.window || this.window.isDestroyed()) return;
     if (this.pendingMode === "pressed") {
       this.pendingMode = "recording";
       this.window.webContents.send("capsule:set-mode", "recording");
     }
-    this.window.webContents.send("capsule:update-bars", bars);
+    this.window.webContents.send("capsule:update-level", level);
   }
 
   // ── Prompts ──────────────────────────────────────────────────────────────
 
-  showSnippetPrompt(trigger: string, onResponse: (accepted: boolean) => void): void {
-    void this.showSnippetPromptAsync(trigger, onResponse).catch(() => {
+  // Offers to save a snippet. Resolves with the (possibly edited) values, or null when skipped or dismissed.
+  showSnippetPrompt(
+    trigger: string,
+    text: string,
+    onResponse: (values: SnippetPromptValues | null) => void,
+    takenTriggers: () => readonly string[] = () => [],
+  ): void {
+    const dismiss = once(() => onResponse(null));
+    const accept = (first: string, second: string): string | null => {
+      const values = { trigger: normalizeSnippetTrigger(first), text: second.trim() };
+      const error = snippetEditError(values, takenTriggers());
+      if (error) return error;
+      onResponse(values);
+      return null;
+    };
+    void this.showPromptAsync({ kind: "snippet", trigger, text }, accept, dismiss).catch(() => {
+      this.activePrompt = null;
       this.endPrompt();
-      onResponse(false);
+      dismiss();
     });
   }
 
-  showDictionaryPrompt(word: string, correction: string, onResponse: (accepted: boolean) => void): void {
-    void this.showDictionaryPromptAsync(word, correction, onResponse).catch(() => {
+  // Offers to add a dictionary rule. Resolves with the (possibly edited) values, or null.
+  // `check` adds checks only main can make, such as an existing manual rule.
+  showDictionaryPrompt(
+    spoken: string,
+    written: string,
+    onResponse: (values: DictionaryPromptValues | null) => void,
+    check: (values: DictionaryPromptValues) => string | null = () => null,
+  ): void {
+    const dismiss = once(() => onResponse(null));
+    const accept = (first: string, second: string): string | null => {
+      const values = { spoken: first.trim(), written: second.trim() };
+      const error = dictionaryEditError(values) ?? check(values);
+      if (error) return error;
+      onResponse(values);
+      return null;
+    };
+    void this.showPromptAsync({ kind: "dictionary", spoken, written }, accept, dismiss).catch(() => {
+      this.activePrompt = null;
       this.endPrompt();
-      onResponse(false);
+      dismiss();
     });
   }
 
-  private async showSnippetPromptAsync(trigger: string, onResponse: (accepted: boolean) => void): Promise<void> {
-    log("overlay:prompt-snippet-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
-    const promptGeneration = this.promptGeneration + 1;
-    this.promptGeneration = promptGeneration;
+  private async showPromptAsync(
+    base: Omit<Extract<OverlayPrompt, { kind: "snippet" }>, "id" | "durationMs"> | Omit<Extract<OverlayPrompt, { kind: "dictionary" }>, "id" | "durationMs">,
+    accept: ActivePrompt["accept"],
+    dismiss: () => void,
+  ): Promise<void> {
+    log("overlay:prompt-requested", { kind: base.kind, hasWindow: !!this.window, loadReady: this.loadReady });
+    const id = this.promptGeneration + 1;
+    this.promptGeneration = id;
+    // Only one prompt at a time; an older one counts as dismissed.
+    const previous = this.activePrompt;
+    this.activePrompt = null;
+    previous?.timer?.cancel();
+    previous?.dismiss();
+    this.clearResultHold();
     this.promptActive = true;
-    this.clearPromptDismissTimer();
+    // The next prompt waits for the previous Saved confirmation to finish.
+    if (this.savedHold) await this.savedHold.done;
+    if (id !== this.promptGeneration) { dismiss(); return; }
+    // The Saved hold's endPrompt() cleared this while we waited.
+    this.promptActive = true;
     const frontmostBefore = nativeBridge.getFrontmostApplication?.();
     await this.ensureWindow();
     await this.waitForLoadReady(5_000);
-    if (promptGeneration !== this.promptGeneration) {
-      onResponse(false);
+    if (id !== this.promptGeneration) {
+      dismiss();
       return;
     }
     if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
 
-    const responseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
-      this.clearPromptDismissTimer();
-      this.endPrompt();
-      onResponse(args.accepted);
-    };
+    const prompt: ActivePrompt = { id, accept, dismiss, timer: null };
+    this.activePrompt = prompt;
     const promptWindow = this.window;
-    this.pendingPromptRemover?.();
-    this.pendingPromptResponder = onResponse;
-    promptWindow.webContents.ipc.once("capsule:snippet-response", responseHandler);
-    // Store remover so endPrompt/recover can clean it up
-    this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:snippet-response", responseHandler);
-
     await this.showPromptWindow(frontmostBefore);
-    promptWindow.webContents.send("capsule:show-snippet", { trigger });
-    this.promptDismissTimer = setTimeout(() => {
-      this.pendingPromptResponder = null;
-      this.endPrompt();
-      onResponse(false);
-    }, 8000);
+    if (this.activePrompt !== prompt || promptWindow.isDestroyed()) return;
+    const payload: OverlayPrompt = { ...base, id, durationMs: PROMPT_DISMISS_MS };
+    promptWindow.webContents.send("capsule:show-prompt", payload);
+    prompt.timer = new PausableTimer(() => this.expirePrompt(prompt), PROMPT_DISMISS_MS);
   }
 
-  private async showDictionaryPromptAsync(word: string, correction: string, onResponse: (accepted: boolean) => void): Promise<void> {
-    log("overlay:prompt-dictionary-requested", { hasWindow: !!this.window, loadReady: this.loadReady });
-    const promptGeneration = this.promptGeneration + 1;
-    this.promptGeneration = promptGeneration;
-    this.promptActive = true;
-    this.clearPromptDismissTimer();
-    const frontmostBefore = nativeBridge.getFrontmostApplication?.();
-    await this.ensureWindow();
-    await this.waitForLoadReady(5_000);
-    if (promptGeneration !== this.promptGeneration) {
-      onResponse(false);
-      return;
+  // Handles Save, Skip, and edited values from the prompt card.
+  private handlePromptReply(reply: unknown): OverlayPromptResult {
+    const prompt = this.activePrompt;
+    if (!isOverlayPromptReply(reply) || !prompt || reply.id !== prompt.id) {
+      return { ok: false, error: "This suggestion has closed." };
     }
-    if (!this.window || this.window.isDestroyed()) throw new Error("Overlay window unavailable.");
-
-    const dictResponseHandler = (_e: Electron.IpcMainEvent, args: { accepted: boolean }) => {
-      this.clearPromptDismissTimer();
+    if (!reply.accepted) {
+      this.activePrompt = null;
+      prompt.timer?.cancel();
       this.endPrompt();
-      onResponse(args.accepted);
-    };
-    const promptWindow = this.window;
-    this.pendingPromptRemover?.();
-    this.pendingPromptResponder = onResponse;
-    promptWindow.webContents.ipc.once("capsule:dictionary-response", dictResponseHandler);
-    this.pendingPromptRemover = () => promptWindow.webContents.ipc.removeListener("capsule:dictionary-response", dictResponseHandler);
+      prompt.dismiss();
+      return { ok: true };
+    }
+    const error = prompt.accept(reply.first, reply.second);
+    if (error) return { ok: false, error };
+    this.activePrompt = null;
+    prompt.timer?.cancel();
+    this.holdSavedConfirmation();
+    return { ok: true };
+  }
 
-    await this.showPromptWindow(frontmostBefore);
-    promptWindow.webContents.send("capsule:show-dictionary", { word, correction });
-    this.promptDismissTimer = setTimeout(() => {
-      this.pendingPromptResponder = null;
+  // Pauses the countdown while the pointer or keyboard focus is on the card, or while editing.
+  private setPromptHeld(held: boolean): void {
+    const timer = this.activePrompt?.timer;
+    if (!timer) return;
+    if (held) timer.pause();
+    else timer.resume();
+  }
+
+  private expirePrompt(prompt: ActivePrompt): void {
+    if (this.activePrompt !== prompt) return;
+    this.activePrompt = null;
+    this.endPrompt();
+    prompt.dismiss();
+  }
+
+  // Keeps the window up so the renderer can show "Rule added" or "Snippet saved".
+  private holdSavedConfirmation(): void {
+    this.clearSavedHold();
+    let release = (): void => {};
+    const done = new Promise<void>((resolve) => { release = resolve; });
+    const timer = setTimeout(() => {
+      this.savedHold = null;
       this.endPrompt();
-      onResponse(false);
-    }, 8000);
+      release();
+    }, SAVED_HOLD_MS);
+    this.savedHold = { timer, release, done };
+  }
+
+  private clearSavedHold(): void {
+    if (!this.savedHold) return;
+    clearTimeout(this.savedHold.timer);
+    const { release } = this.savedHold;
+    this.savedHold = null;
+    release();
+  }
+
+  // Keeps a result on screen for at least `ms`; a hide() in the meantime runs when it ends.
+  private holdResult(ms: number): void {
+    this.clearResultHold();
+    this.resultHoldTimer = setTimeout(() => {
+      this.resultHoldTimer = null;
+      if (!this.hideAfterHold) return;
+      this.hideAfterHold = false;
+      this.hide();
+    }, ms);
+  }
+
+  private clearResultHold(): void {
+    if (this.resultHoldTimer) clearTimeout(this.resultHoldTimer);
+    this.resultHoldTimer = null;
+    this.hideAfterHold = false;
   }
 
   hideExpanded(): void {
     if (!this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:hide-expanded");
-    void this.resizeWindow(false);
+    this.applyBounds();
   }
 
   destroy(): void {
     log("overlay:destroy-requested", { hasWindow: !!this.window, loadReady: this.loadReady, pendingMode: this.pendingMode });
     this.clearHideTimer();
-    this.clearPromptDismissTimer();
-    this.pendingPromptRemover?.();
-    this.pendingPromptRemover = null;
+    this.clearResultHold();
+    this.activePrompt?.timer?.cancel();
+    this.activePrompt = null;
+    this.clearSavedHold();
     this.promptActive = false;
     this.clearLoadTimeout();
     this.clearShowWatchdog();
@@ -339,7 +455,7 @@ export class OverlayController {
     this.creatingWindow = null;
     this.loadReady = false;
     this.pendingMode = null;
-    this.pendingBars = null;
+    this.pendingLevel = null;
     this.handsFree = false;
     this.paused = false;
     this.sessionId = null;
@@ -356,14 +472,18 @@ export class OverlayController {
     // The target app retains focus throughout the recording flow.
   }
 
-  private async resizeWindow(expanded: boolean): Promise<void> {
+  // Centers the window at the bottom of the cursor's display: prompt size while a prompt is up, capsule size otherwise.
+  private applyBounds(): void {
     if (!this.window || this.window.isDestroyed()) return;
     const { x, y, width, height } = this.getTargetWorkArea();
-    const targetW = expanded ? PROMPT_W : this.pendingStatusMessage ? STATUS_W : this.pillWidth();
-    const targetH = expanded ? PROMPT_H : this.pendingStatusMessage ? STATUS_H : PILL_H;
-    const targetX = Math.round(x + width  / 2 - targetW / 2);
-    const targetY = Math.round(y + height - targetH - CAPSULE_BOTTOM_MARGIN);
-    this.window.setBounds({ x: targetX, y: targetY, width: targetW, height: targetH });
+    const targetW = this.promptActive ? PROMPT_W : CAPSULE_W;
+    const targetH = this.promptActive ? PROMPT_H : CAPSULE_H;
+    this.window.setBounds({
+      x: Math.round(x + width / 2 - targetW / 2),
+      y: Math.round(y + height - targetH - CAPSULE_BOTTOM_MARGIN),
+      width: targetW,
+      height: targetH,
+    });
   }
 
   private async showPromptWindow(
@@ -404,9 +524,6 @@ export class OverlayController {
   private endPrompt(): void {
     log("overlay:prompt-end", { hasWindow: !!this.window });
     this.promptActive = false;
-    this.pendingPromptRemover?.();
-    this.pendingPromptRemover = null;
-    this.pendingPromptResponder = null;
     this.resetPromptWindowState();
     if (!this.window || this.window.isDestroyed()) return;
     this.clearHideTimer();
@@ -421,7 +538,7 @@ export class OverlayController {
     this.handsFree = false;
     this.paused = false;
     this.sessionId = null;
-    void this.resizeWindow(false);
+    this.applyBounds();
     this.sendHandsFreeState();
     if (this.window && !this.window.isDestroyed() && !this.promptActive) {
       this.window.setIgnoreMouseEvents(true, { forward: true });
@@ -442,30 +559,18 @@ export class OverlayController {
     this.window.webContents.send("capsule:set-session", this.sessionId);
   }
 
-  // Pill width, widened while hands-free so the two buttons fit.
-  private pillWidth(): number {
-    return this.handsFree ? HANDS_FREE_PILL_W : PILL_W;
-  }
-
   private resetPromptWindowState(): void {
     if (!this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:hide-expanded");
     this.window.setIgnoreMouseEvents(true, { forward: true });
     this.window.setFocusable(false);
-    void this.resizeWindow(false);
+    this.applyBounds();
   }
 
   private clearHideTimer(): void {
     if (this.hideTimer) {
       clearTimeout(this.hideTimer);
       this.hideTimer = null;
-    }
-  }
-
-  private clearPromptDismissTimer(): void {
-    if (this.promptDismissTimer) {
-      clearTimeout(this.promptDismissTimer);
-      this.promptDismissTimer = null;
     }
   }
 
@@ -519,13 +624,13 @@ export class OverlayController {
       if (this.pendingMode) {
         this.tryUpdateMode(this.pendingMode);
       }
-      if (this.pendingBars) {
-        this.updateBars(this.pendingBars);
+      if (this.pendingLevel !== null) {
+        this.updateLevel(this.pendingLevel);
       }
     }, OVERLAY_SHOW_WATCHDOG_MS);
   }
 
-  private tryUpdateMode(mode: "idle" | "pressed" | "recording" | "transcribing" | "done" | "error"): void {
+  private tryUpdateMode(mode: OverlayMode): void {
     if (!this.loadReady || !this.window || this.window.isDestroyed()) return;
     this.window.webContents.send("capsule:set-mode", mode);
     // A mode update can reach the renderer after hands-free was sent, so resend it last.
@@ -585,15 +690,7 @@ export class OverlayController {
       return;
     }
 
-    const { x, y, width, height } = this.getTargetWorkArea();
-    const targetW = this.promptActive ? PROMPT_W : this.pendingStatusMessage ? STATUS_W : this.pillWidth();
-    const targetH = this.promptActive ? PROMPT_H : this.pendingStatusMessage ? STATUS_H : PILL_H;
-    this.window.setBounds({
-      x: Math.round(x + width / 2 - targetW / 2),
-      y: Math.round(y + height - targetH - CAPSULE_BOTTOM_MARGIN),
-      width: targetW,
-      height: targetH
-    });
+    this.applyBounds();
     this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     this.window.setAlwaysOnTop(true, "screen-saver");
     this.window.setIgnoreMouseEvents(!this.promptActive, { forward: true });
@@ -607,8 +704,8 @@ export class OverlayController {
       setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 100);
       setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 300);
     }
-    if (this.pendingBars) {
-      this.updateBars(this.pendingBars);
+    if (this.pendingLevel !== null) {
+      this.updateLevel(this.pendingLevel);
     }
     this.flushPendingDetectedLanguage();
 
@@ -621,12 +718,12 @@ export class OverlayController {
     // Use cursor display (same as presentWindow) to avoid position mismatch.
     // createWindow sets initial bounds that match where the capsule will appear.
     const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-    const windowX = Math.round(area.x + area.width / 2 - PILL_W / 2);
-    const windowY = Math.round(area.y + area.height - PILL_H - CAPSULE_BOTTOM_MARGIN);
+    const windowX = Math.round(area.x + area.width / 2 - CAPSULE_W / 2);
+    const windowY = Math.round(area.y + area.height - CAPSULE_H - CAPSULE_BOTTOM_MARGIN);
 
     const win = new BrowserWindow({
-      width:  PILL_W,
-      height: PILL_H,
+      width:  CAPSULE_W,
+      height: CAPSULE_H,
       x: windowX,
       y: windowY,
       show: false,
@@ -706,14 +803,20 @@ export class OverlayController {
         setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 50);
         setTimeout(() => this.pendingMode && this.tryUpdateMode(this.pendingMode), 150);
       }
-      if (this.pendingBars) this.updateBars(this.pendingBars);
+      if (this.pendingLevel !== null) this.updateLevel(this.pendingLevel);
       this.flushPendingDetectedLanguage();
-      if (this.pendingStatusMessage) this.window?.webContents.send("capsule:set-status", this.pendingStatusMessage);
+      if (this.pendingStatus) this.window?.webContents.send("capsule:set-status", this.pendingStatus);
     });
 
     // Only the overlay renderer can report pointer position over its controls.
     win.webContents.ipc.on("capsule:set-interactive", (_event, interactive: unknown) => {
       if (typeof interactive === "boolean") this.setInteractive(interactive);
+    });
+
+    // Prompt replies come back on the window that showed the prompt.
+    win.webContents.ipc.handle("capsule:prompt-reply", (_event, reply: unknown) => this.handlePromptReply(reply));
+    win.webContents.ipc.on("capsule:prompt-hold", (_event, held: unknown) => {
+      if (typeof held === "boolean") this.setPromptHeld(held);
     });
 
     // Fallback: if capsule:ready never fires (e.g. IPC timing issue), activate after page load
@@ -726,7 +829,7 @@ export class OverlayController {
           this.loadReady = true;
           if (this.handsFree || this.paused) this.sendHandsFreeState();
           if (this.pendingMode) this.tryUpdateMode(this.pendingMode);
-          if (this.pendingBars) this.updateBars(this.pendingBars);
+          if (this.pendingLevel !== null) this.updateLevel(this.pendingLevel);
           this.flushPendingDetectedLanguage();
         }
       }, 200);
@@ -754,6 +857,16 @@ export class OverlayController {
       await this.presentWindow(nativeBridge.getFrontmostApplication?.());
     }
   }
+}
+
+// Wraps a callback so it runs at most once.
+function once(fn: () => void): () => void {
+  let called = false;
+  return () => {
+    if (called) return;
+    called = true;
+    fn();
+  };
 }
 
 function log(label: string, data?: unknown): void {

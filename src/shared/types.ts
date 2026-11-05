@@ -66,7 +66,32 @@ export type DictationState =
       status: "error";
       sessionId: string | null;
       message: string;
+      reason?: DictationRejectionReason;
     };
+
+// ─── Overlay ─────────────────────────────────────────────────────────────────
+
+/** Status text for the capsule plus what caused it, so the capsule can title errors. */
+export interface OverlayStatus {
+  message: string;
+  reason: DictationRejectionReason | null;
+  insertion: DictationInsertionOutcome | null;
+}
+
+export interface DictionaryPromptValues { spoken: string; written: string }
+export interface SnippetPromptValues { trigger: string; text: string }
+
+/** A save prompt shown in the overlay. `id` ties replies to this prompt. */
+export type OverlayPrompt =
+  | ({ id: number; kind: "dictionary"; durationMs: number } & DictionaryPromptValues)
+  | ({ id: number; kind: "snippet"; durationMs: number } & SnippetPromptValues);
+
+/** Overlay reply. `first`/`second` are spoken/written or trigger/text, possibly edited. */
+export type OverlayPromptReply =
+  | { id: number; accepted: false }
+  | { id: number; accepted: true; first: string; second: string };
+
+export type OverlayPromptResult = { ok: true } | { ok: false; error: string };
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
 

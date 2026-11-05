@@ -1,4 +1,5 @@
 import { waveformHeight } from "@renderer/recorder/waveform";
+import { chunkRms, levelFromRms } from "@shared/audioLevel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AudioClip, AudioVisualFrame } from "@shared/types";
 import { STOP_TAIL_CAPTURE_MS, STOP_FINALIZE_WAIT_MS } from "@renderer/recorder/recorderConstants";
@@ -26,7 +27,7 @@ export function useAudioRecorder() {
   const lastReportedAtRef = useRef(0);
   const [bars, setBars] = useState<number[]>(new Array(VISUAL_BAR_COUNT).fill(0));
 
-  const publishBars = useCallback((nextBars: number[]) => {
+  const publishBars = useCallback((nextBars: number[], level: number) => {
     setBars(nextBars);
 
     const now = performance.now();
@@ -35,7 +36,6 @@ export function useAudioRecorder() {
     }
 
     lastReportedAtRef.current = now;
-    const level = nextBars.reduce((sum, value) => sum + value, 0) / Math.max(1, nextBars.length);
     const frame: AudioVisualFrame = { level, bars: nextBars };
     void window.__VAANI_RECORDER__.reportAudioFrame(frame);
   }, []);
@@ -109,7 +109,7 @@ export function useAudioRecorder() {
         // Build bars from samples
         const bars = buildBarsFromSamples(dataArray, VISUAL_BAR_COUNT);
         
-        publishBars(bars);
+        publishBars(bars, levelFromRms(chunkRms(dataArray)));
       };
       
       tick();

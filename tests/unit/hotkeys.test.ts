@@ -265,6 +265,62 @@ describe("HotkeyManager", () => {
     expect(unregisterMock).toHaveBeenCalledWith("Escape");
   });
 
+  it("cancels a held push-to-talk recording on Escape and ignores the later release", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onCancel = vi.fn();
+    const onRelease = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, primaryHotkey: "Cmd+D", dictationMode: "push-to-talk" }),
+      vi.fn(),
+      onRelease,
+      onCancel,
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    const callback = startHotkeyMonitorMock.mock.calls[0]?.[1] as ((pressed: boolean) => void);
+    callback(true);
+
+    const registeredShortcuts = registerMock.mock.calls as unknown as Array<[string, () => void]>;
+    const escapeHandler = registeredShortcuts.find(([accelerator]) => accelerator === "Escape")?.[1];
+    if (!escapeHandler) throw new Error("Escape handler was not registered for push-to-talk.");
+    escapeHandler();
+    callback(false);
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onRelease).not.toHaveBeenCalled();
+    expect(unregisterMock).toHaveBeenCalledWith("Escape");
+  });
+
+  it("releases Escape when a push-to-talk key goes up normally", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const onRelease = vi.fn();
+    const { HotkeyManager } = await import("@main/hotkeys");
+
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, primaryHotkey: "Cmd+D", dictationMode: "push-to-talk" }),
+      vi.fn(),
+      onRelease,
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    const callback = startHotkeyMonitorMock.mock.calls[0]?.[1] as ((pressed: boolean) => void);
+    callback(true);
+    expect(registerMock).toHaveBeenCalledWith("Escape", expect.any(Function));
+    callback(false);
+
+    expect(onRelease).toHaveBeenCalledTimes(1);
+    expect(unregisterMock).toHaveBeenCalledWith("Escape");
+  });
+
   it("keeps the toggle lock and Escape across re-registration during a toggle recording", async () => {
     startHotkeyMonitorMock.mockReturnValue(true);
     startPasteLatestMonitorMock.mockReturnValue(true);

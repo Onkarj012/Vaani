@@ -38,7 +38,8 @@ function createService() {
     setSuccess: vi.fn(),
     setError: vi.fn(),
     hide: vi.fn(),
-    updateBars: vi.fn(),
+    updateLevel: vi.fn(),
+    setCancelled: vi.fn(),
     showDictionaryPrompt: vi.fn(),
     showSnippetPrompt: vi.fn(),
   };
