@@ -817,7 +817,7 @@ export class DictationService {
     this.activeTarget = null;
     this.activeSelection = null;
     this.activeTargetIdentity = null;
-    this.setState({ status: "error", sessionId: null, message: statusMessage });
+    this.setState({ status: "error", sessionId: null, message: statusMessage, title: "Hotkey unavailable" });
     this.scheduleReset(ERROR_RESET_MS);
   }
 
@@ -2045,7 +2045,7 @@ export class DictationService {
         this.overlay.setSuccess(state.detectedLanguage);
       }
     } else if (state.status === "error") {
-      this.updateTrayStatus(state.message); this.overlay.setStatusMessage?.(state.message, { reason: state.reason ?? null }); this.overlay.setError();
+      this.updateTrayStatus(state.message); this.overlay.setStatusMessage?.(state.message, { reason: state.reason ?? null, title: state.title }); this.overlay.setError();
     } else {
       this.updateTrayStatus("Error"); this.overlay.hide();
     }

@@ -67,6 +67,8 @@ export type DictationState =
       sessionId: string | null;
       message: string;
       reason?: DictationRejectionReason;
+      /** Capsule error title when no reason fits. */
+      title?: string;
     };
 
 // ─── Overlay ─────────────────────────────────────────────────────────────────
@@ -76,6 +78,8 @@ export interface OverlayStatus {
   message: string;
   reason: DictationRejectionReason | null;
   insertion: DictationInsertionOutcome | null;
+  /** Error title for causes with no rejection reason, such as a missing hotkey. */
+  title?: string;
 }
 
 export interface DictionaryPromptValues { spoken: string; written: string }

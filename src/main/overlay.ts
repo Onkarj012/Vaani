@@ -238,10 +238,10 @@ export class OverlayController {
   }
 
   // Sets the capsule's status text. The reason or insertion outcome picks the error title.
-  setStatusMessage(message: string | null, cause: { reason?: DictationRejectionReason | null; insertion?: DictationInsertionOutcome | null } = {}): void {
+  setStatusMessage(message: string | null, cause: { reason?: DictationRejectionReason | null; insertion?: DictationInsertionOutcome | null; title?: string } = {}): void {
     // A held result keeps its note until the hold ends; hide() clears it then.
     if (message === null && this.resultHoldTimer) return;
-    this.pendingStatus = message === null ? null : { message, reason: cause.reason ?? null, insertion: cause.insertion ?? null };
+    this.pendingStatus = message === null ? null : { message, reason: cause.reason ?? null, insertion: cause.insertion ?? null, ...(cause.title ? { title: cause.title } : {}) };
     if (this.loadReady && this.window && !this.window.isDestroyed()) {
       this.window.webContents.send("capsule:set-status", this.pendingStatus);
     }

@@ -480,7 +480,7 @@ export default function CapsuleOverlay() {
   }, [handsFreeControls])
 
   const shellStyle: CSSVars = { '--accent': accentColor, '--accent-ink': accentInk(accentColor) }
-  const errorTitle = status ? overlayErrorTitle(status.reason, status.insertion) : null
+  const errorTitle = status ? status.title ?? overlayErrorTitle(status.reason, status.insertion) : null
 
   return (
     <div ref={shellRef} className="ovx" style={shellStyle} data-hidden={visible ? undefined : ''} inert={!visible}>

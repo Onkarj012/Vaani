@@ -765,7 +765,7 @@ describe("DictationService", () => {
 
   it("keeps the specific hotkey failure message during an active session", async () => {
     const traceDeps = createTraceDeps();
-    const { service, recorder } = createDictationService({ traces: traceDeps.traces });
+    const { service, recorder, overlay } = createDictationService({ traces: traceDeps.traces });
     const message = "Microphone permission denied.";
 
     service.beginHotkeySession();
@@ -774,6 +774,7 @@ describe("DictationService", () => {
       expect(service.getState()).toMatchObject({ status: "starting", sessionId });
     });
     service.reportHotkeyUnavailable(message);
+    expect(overlay.setStatusMessage).toHaveBeenCalledWith(message, { reason: null, title: "Hotkey unavailable" });
 
     expect(recorder.abortRecording).toHaveBeenCalledExactlyOnceWith(sessionId);
     expect(recorder.stopRecording).not.toHaveBeenCalled();
