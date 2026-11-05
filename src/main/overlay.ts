@@ -222,13 +222,19 @@ export class OverlayController {
   // so its pending dismiss timer cannot later hide the live recording pill.
   private finishActivePrompt(): void {
     if (!this.promptActive) return;
+    this.dropPrompts();
+    this.resetPromptWindowState();
+  }
+
+  // Ends the prompt flow without touching the window. Queued prompts give up and the open one counts as dismissed.
+  private dropPrompts(): void {
+    // Bumped before the Saved hold releases its waiters, so they see they are stale.
     this.promptGeneration += 1;
     const prompt = this.activePrompt;
     this.activePrompt = null;
     prompt?.timer?.cancel();
     this.clearSavedHold();
     this.promptActive = false;
-    this.resetPromptWindowState();
     prompt?.dismiss();
   }
 
@@ -442,10 +448,7 @@ export class OverlayController {
     log("overlay:destroy-requested", { hasWindow: !!this.window, loadReady: this.loadReady, pendingMode: this.pendingMode });
     this.clearHideTimer();
     this.clearResultHold();
-    this.activePrompt?.timer?.cancel();
-    this.activePrompt = null;
-    this.clearSavedHold();
-    this.promptActive = false;
+    this.dropPrompts();
     this.clearLoadTimeout();
     this.clearShowWatchdog();
     if (this.window && !this.window.isDestroyed()) {
@@ -660,6 +663,8 @@ export class OverlayController {
 
   private recoverWindow(reason: string): void {
     log("overlay:recover", { reason, hasWindow: !!this.window });
+    // The new renderer has no card, and a held countdown would never fire, so an open prompt counts as dismissed.
+    this.dropPrompts();
     const oldWindow = this.window;
     this.window = null;
     this.loadReady = false;

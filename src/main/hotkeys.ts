@@ -128,9 +128,9 @@ export class HotkeyManager {
     this.exitToggleMode(false);
   }
 
-  // Drops a hands-free lock once its recording ended on its own, so Escape is released and the next press starts fresh.
+  // Once a recording ends on its own (held or hands-free), drops the lock, Escape, and any pending release so the next press starts fresh.
   syncSession(capturing: boolean): void {
-    if (capturing || !this.isToggleRecording) return;
+    if (capturing) return;
     this.setToggleRecording(false);
     this.unregisterEscapeShortcut();
     this.clearPendingRelease();

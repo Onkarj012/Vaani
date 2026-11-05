@@ -321,6 +321,28 @@ describe("HotkeyManager", () => {
     expect(unregisterMock).toHaveBeenCalledWith("Escape");
   });
 
+  it("releases Escape when a held push-to-talk recording ends on its own", async () => {
+    startHotkeyMonitorMock.mockReturnValue(true);
+    startPasteLatestMonitorMock.mockReturnValue(true);
+    const { HotkeyManager } = await import("@main/hotkeys");
+    const manager = new HotkeyManager(
+      () => ({ ...DEFAULT_SETTINGS, primaryHotkey: "Cmd+D", dictationMode: "push-to-talk" }),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn()
+    );
+
+    manager.register();
+    const callback = startHotkeyMonitorMock.mock.calls[0]?.[1] as ((pressed: boolean) => void);
+    callback(true);
+    manager.syncSession(true);
+    expect(unregisterMock).not.toHaveBeenCalledWith("Escape");
+    manager.syncSession(false);
+    expect(unregisterMock).toHaveBeenCalledWith("Escape");
+  });
+
   it("keeps the toggle lock and Escape across re-registration during a toggle recording", async () => {
     startHotkeyMonitorMock.mockReturnValue(true);
     startPasteLatestMonitorMock.mockReturnValue(true);

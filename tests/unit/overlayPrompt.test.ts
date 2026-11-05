@@ -22,7 +22,10 @@ class BrowserWindowMock {
         this.webContents.ipc.invokers.set(channel, handler);
       }),
     },
-    on: vi.fn(),
+    events: new Map<string, Handler>(),
+    on: vi.fn((event: string, handler: Handler) => {
+      this.webContents.events.set(event, handler);
+    }),
     send: vi.fn(),
     isCrashed: vi.fn(() => false),
     isLoading: vi.fn(() => false),
@@ -70,6 +73,8 @@ vi.mock("@main/nativeBridge", () => ({
 describe("OverlayController prompt handling", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    // Earlier controllers' watchdogs keep rebuilding mock windows that never report visible.
+    vi.clearAllTimers();
     vi.stubGlobal("OVERLAY_WINDOW_VITE_NAME", "overlay_window");
     windows.length = 0;
   });
@@ -233,5 +238,36 @@ describe("OverlayController prompt handling", () => {
     expect(win.showInactive).toHaveBeenCalled();
     expect(win.focus).toHaveBeenCalled();
     expect(lastPrompt(win)).toMatchObject({ kind: "dictionary", spoken: "WriteX", written: "WriteTex" });
+  });
+
+  it("dismisses a held prompt when the renderer crashes and the window is rebuilt", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+    const onResponse = vi.fn();
+    const win = await openWindow(() => controller.showDictionaryPrompt("Bani", "Vaani", onResponse));
+    win.webContents.ipc.handlers.get("capsule:prompt-hold")?.({}, true);
+
+    win.webContents.events.get("render-process-gone")?.({}, { reason: "crashed" });
+    expect(onResponse).toHaveBeenCalledWith(null);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(onResponse).toHaveBeenCalledTimes(1);
+    // The rebuilt mock window never reports ready, so stop its recovery loop before the next test.
+    controller.destroy();
+  });
+
+  it("does not bring a window back for a prompt queued behind Saved when the overlay is destroyed", async () => {
+    const { OverlayController } = await import("@main/overlay");
+    const controller = new OverlayController();
+    const win = await openWindow(() => controller.showDictionaryPrompt("Bani", "Vaani", vi.fn()));
+    reply(win, { id: lastPrompt(win).id, accepted: true, first: "Bani", second: "Vaani" });
+    const queued = vi.fn();
+    controller.showDictionaryPrompt("get hub", "GitHub", queued);
+    await Promise.resolve();
+
+    controller.destroy();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(queued).toHaveBeenCalledWith(null);
+    expect(windows).toHaveLength(1);
   });
 });
