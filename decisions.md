@@ -12,6 +12,12 @@ Entry format:
 
 ---
 
+## 2026-11-01 — Overlay save prompts dismiss with Escape and do not treat Enter as save
+- rejected: mapping Enter to save while the prompt is focused; a global Escape shortcut that works outside the overlay window
+- why: the prompt already takes keyboard focus, so Escape should return the user to what they were doing without saving. Enter stays on the focused button so a key meant for the previous app cannot create a snippet or dictionary rule.
+- source: nightshift surprise "overlay prompt keyboard"
+- status: active
+
 ## 2026-10-27 — Both recorder waveforms use a fixed -54 to -6 dB amplitude range
 - rejected: per-chunk peak normalization and unrelated capsule layout changes
 - why: quiet audio must remain visibly quieter than loud audio; preserve the approved loudness direction without expanding the overnight fix

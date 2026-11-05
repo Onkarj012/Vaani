@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Loader2, BookOpen, Layers, X, ChevronRight, Pause, Play, ArrowUp } from 'lucide-react'
+import { focusMountedPrompt, nextPromptFocusIndex, overlayPromptKeyAction } from './overlayPrompt'
 
 const BAR_COUNT = 9
 const BAR_WIDTH = 2.5
@@ -208,6 +209,26 @@ export default function CapsuleOverlay() {
     }
   }, [])
 
+  const handleAccept = useCallback(() => {
+    const m = modeRef.current
+    if (m === 'prompt-snippet') window.capsuleBridge.sendSnippetResp(true)
+    else window.capsuleBridge.sendDictResp(true)
+    setMode('hidden')
+  }, [])
+
+  const handleSkip = useCallback(() => {
+    const m = modeRef.current
+    if (m === 'prompt-snippet') window.capsuleBridge.sendSnippetResp(false)
+    else window.capsuleBridge.sendDictResp(false)
+    setMode('hidden')
+  }, [])
+
+  // The card mounts only after the pill's exit animation, so focus belongs on
+  // that commit. A timer started when `mode` changes can run before the node exists.
+  const focusPromptOnMount = useCallback((node: HTMLDivElement | null) => {
+    focusMountedPrompt(node)
+  }, [])
+
   // 8-second auto-dismiss for prompts
   useEffect(() => {
     const isPrompt = mode === 'prompt-snippet' || mode === 'prompt-dictionary'
@@ -220,21 +241,35 @@ export default function CapsuleOverlay() {
       })
     }, 1000)
     return () => clearInterval(id)
-  }, [mode])
+  }, [mode, handleSkip])
 
-  function handleAccept() {
-    const m = modeRef.current
-    if (m === 'prompt-snippet') window.capsuleBridge.sendSnippetResp(true)
-    else window.capsuleBridge.sendDictResp(true)
-    setMode('hidden')
-  }
-
-  function handleSkip() {
-    const m = modeRef.current
-    if (m === 'prompt-snippet') window.capsuleBridge.sendSnippetResp(false)
-    else window.capsuleBridge.sendDictResp(false)
-    setMode('hidden')
-  }
+  // The prompt window is focused, so Escape has to dismiss it here. Other keys
+  // stay with the buttons: Enter activates whichever one is focused.
+  useEffect(() => {
+    if (mode !== 'prompt-snippet' && mode !== 'prompt-dictionary') return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (overlayPromptKeyAction(event.key) === 'skip') {
+        event.preventDefault()
+        handleSkip()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const root = document.getElementById('overlay-prompt')
+      if (!root) return
+      const focusable = Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled])'))
+      if (focusable.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const index = focusable.indexOf(document.activeElement as HTMLElement)
+      event.preventDefault()
+      focusable[nextPromptFocusIndex(index, focusable.length, event.shiftKey)]?.focus()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [mode, handleSkip])
 
   const isPill = mode === 'pressed' || mode === 'recording' || mode === 'processing' || mode === 'done' || mode === 'error'
   const isPrompt = mode === 'prompt-snippet' || mode === 'prompt-dictionary'
@@ -350,11 +385,19 @@ export default function CapsuleOverlay() {
       {isPrompt && (
         <motion.div
           key="prompt"
+          ref={focusPromptOnMount}
+          id="overlay-prompt"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="overlay-prompt-title"
+          aria-describedby="overlay-prompt-description"
+          tabIndex={-1}
           initial={{ opacity: 0, scale: 0.92, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94 }}
           transition={{ type: 'spring', stiffness: 300, damping: 28 }}
           style={{ ...PROMPT_STYLE, borderRadius: 18, width: 340 }}
+          className="outline-none"
         >
           <motion.div
             initial={{ opacity: 0, y: 4 }}
@@ -373,21 +416,21 @@ export default function CapsuleOverlay() {
                   className="w-7 h-7 flex items-center justify-center shrink-0"
                 >
                   {mode === 'prompt-dictionary'
-                    ? <BookOpen size={13} style={{ color: '#7ec8f0' }} />
-                    : <Layers size={13} style={{ color: '#e6c34d' }} />
+                    ? <BookOpen size={13} aria-hidden="true" style={{ color: '#7ec8f0' }} />
+                    : <Layers size={13} aria-hidden="true" style={{ color: '#e6c34d' }} />
                   }
                 </div>
                 <div>
-                  <p className="text-[12px] font-bold leading-tight" style={{ color: '#f3f3f5' }}>
+                  <p id="overlay-prompt-title" className="text-[12px] font-bold leading-tight" style={{ color: '#f3f3f5' }}>
                     {mode === 'prompt-dictionary' ? 'New word detected' : 'Save as snippet?'}
                   </p>
-                  <p className="text-[10px] leading-tight" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                    {mode === 'prompt-dictionary' ? 'Add replacement rule?' : 'Trigger this phrase anytime'}
+                  <p id="overlay-prompt-description" className="text-[10px] leading-tight" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                    {mode === 'prompt-dictionary' ? 'Add replacement rule? Escape skips.' : 'Trigger this phrase anytime. Escape skips.'}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <svg width="18" height="18" className="shrink-0 -rotate-90">
+                <svg width="18" height="18" className="shrink-0 -rotate-90" aria-hidden="true">
                   <circle cx="9" cy="9" r="7" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" />
                   <motion.circle
                     cx="9" cy="9" r="7" fill="none"
@@ -398,8 +441,8 @@ export default function CapsuleOverlay() {
                     transition={{ duration: 1, ease: 'linear' }}
                   />
                 </svg>
-                <button onClick={handleSkip} className="transition-colors" style={{ color: 'rgba(255,255,255,0.30)' }}>
-                  <X size={13} />
+                <button type="button" onClick={handleSkip} aria-label="Skip" className="transition-colors" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                  <X size={13} aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -411,7 +454,7 @@ export default function CapsuleOverlay() {
                 style={{ background: 'rgba(255,255,255,0.07)' }}
               >
                 <code className="text-[12px] font-bold" style={{ color: 'rgba(255,255,255,0.55)' }}>&ldquo;{promptData.word ?? ''}&rdquo;</code>
-                <ChevronRight size={11} style={{ color: 'rgba(255,255,255,0.25)' }} />
+                <ChevronRight size={11} aria-hidden="true" style={{ color: 'rgba(255,255,255,0.25)' }} />
                 <code className="text-[12px] font-bold" style={{ color: accentColor }}>
                   &ldquo;{promptData.correction ?? ''}&rdquo;
                 </code>
@@ -433,6 +476,7 @@ export default function CapsuleOverlay() {
             {/* Actions */}
             <div className="flex gap-2">
               <motion.button
+                type="button"
                 whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.94 }}
                 onClick={handleAccept}
                 style={{ borderRadius: 999, background: accentColor }}
@@ -441,6 +485,7 @@ export default function CapsuleOverlay() {
                 {mode === 'prompt-dictionary' ? 'Add rule' : 'Save snippet'}
               </motion.button>
               <motion.button
+                type="button"
                 whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.94 }}
                 onClick={handleSkip}
                 style={{ borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.45)' }}
