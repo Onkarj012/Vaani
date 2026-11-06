@@ -100,7 +100,7 @@ export default function Dictionary() {
         {isAdding && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
             <Card className="space-y-4">
-              <div className="flex items-center justify-between"><h3 className="text-display text-lg text-ink">{editing ? 'Edit rule' : 'New rule'}</h3><button onClick={closeForm} className="rounded-full p-2 text-muted hover:bg-surface"><X size={16} /></button></div>
+              <div className="flex items-center justify-between"><h3 className="text-display text-lg text-ink">{editing ? 'Edit rule' : 'New rule'}</h3><button onClick={closeForm} aria-label="Close rule form" className="rounded-full p-2 text-muted hover:bg-surface"><X size={16} /></button></div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div><label className="mb-2 block text-sm font-medium text-muted">Trigger word</label><div className="relative"><Type size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" /><Input value={newTrigger} onChange={(e) => setNewTrigger(e.target.value)} placeholder="e.g. gonna" className="pl-9" /></div></div>
                 <div><label className="mb-2 block text-sm font-medium text-muted">Replacement</label><div className="relative"><Replace size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" /><Input value={newReplacement} onChange={(e) => setNewReplacement(e.target.value)} placeholder="e.g. going to" className="pl-9" /></div></div>

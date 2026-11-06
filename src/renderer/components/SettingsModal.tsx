@@ -790,7 +790,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <h3 className="text-display text-xl text-ink">{sidebarItems.find((s) => s.id === activeSection)?.label}</h3>
                   <p className="mt-0.5 text-xs text-faint">{sectionDescriptions[activeSection]}</p>
                 </div>
-                <button onClick={onClose} className="rounded-full p-2 text-muted transition-colors hover:bg-surface"><X size={18} /></button>
+                <button onClick={onClose} aria-label="Close settings" className="rounded-full p-2 text-muted transition-colors hover:bg-surface"><X size={18} /></button>
               </div>
               <div className="flex-1 overflow-y-auto px-7 py-6">
                 <motion.div key={activeSection} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.2 }}>
