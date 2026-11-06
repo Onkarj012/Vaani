@@ -116,7 +116,7 @@ export default function History() {
           className="pl-11"
         />
         {searchQuery && (
-          <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-faint hover:text-ink">
+          <button onClick={() => setSearchQuery('')} aria-label="Clear search" className="absolute right-4 top-1/2 -translate-y-1/2 text-faint hover:text-ink">
             <X size={15} />
           </button>
         )}
@@ -191,6 +191,7 @@ export default function History() {
                           <Button variant="soft" size="sm" onClick={() => copyBugReport(it.id)}><FileWarning size={13} />Report</Button>
                           <button
                             onClick={() => deleteHistoryEntry(it.id)}
+                            aria-label="Delete dictation"
                             className="ml-auto rounded-full p-2 text-faint transition-colors hover:bg-red-50 hover:text-red-500"
                           >
                             <Trash2 size={15} />

@@ -84,7 +84,7 @@ export default function Snippets() {
         {isAdding && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
             <Card className="space-y-4">
-              <div className="flex items-center justify-between"><h3 className="text-display text-lg text-ink">{editing ? 'Edit snippet' : 'New snippet'}</h3><button onClick={resetForm} className="rounded-full p-2 text-muted hover:bg-surface"><X size={16} /></button></div>
+              <div className="flex items-center justify-between"><h3 className="text-display text-lg text-ink">{editing ? 'Edit snippet' : 'New snippet'}</h3><button onClick={resetForm} aria-label="Close snippet form" className="rounded-full p-2 text-muted hover:bg-surface"><X size={16} /></button></div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div><label className="mb-2 block text-sm font-medium text-muted">Trigger</label><div className="relative"><Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" /><Input value={newTrigger} onChange={(e) => setNewTrigger(e.target.value)} placeholder="trigger" className="pl-9" /></div></div>
                 <div><label className="mb-2 block text-sm font-medium text-muted">Content</label><Textarea value={newContent} onChange={(e) => setNewContent(e.target.value)} placeholder="Text to expand…" rows={2} /></div>

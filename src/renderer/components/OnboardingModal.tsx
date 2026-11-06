@@ -380,7 +380,7 @@ function ProviderApiSlide({
             <div className="relative">
               <Input type={showApiKey ? "text" : "password"} value={apiKey} onChange={(e) => onKeyChange(e.target.value)} onBlur={onKeyBlur} autoComplete="off" spellCheck={false}
                 placeholder={activeProvider?.id === "groq" ? "gsk_..." : "sk-or-..."} className="pr-11 font-mono" />
-              <button type="button" onClick={onToggleShow} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
+              <button type="button" onClick={onToggleShow} aria-label={showApiKey ? "Hide API key" : "Show API key"} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
                 {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
@@ -400,7 +400,7 @@ function ProviderApiSlide({
             <div className="relative">
               <Input type={showLlmApiKey ? "text" : "password"} value={llmApiKey} onChange={(e) => onLlmKeyChange(e.target.value)} onBlur={onLlmKeyBlur} autoComplete="off" spellCheck={false}
                 placeholder={activeLlm?.id === "anthropic" ? "sk-ant-..." : activeLlm?.id === "openrouter" ? "sk-or-..." : "sk-..."} className="pr-11 font-mono" />
-              <button type="button" onClick={onToggleLlmShow} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
+              <button type="button" onClick={onToggleLlmShow} aria-label={showLlmApiKey ? "Hide formatting API key" : "Show formatting API key"} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink">
                 {showLlmApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>

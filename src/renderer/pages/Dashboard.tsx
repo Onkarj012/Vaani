@@ -248,7 +248,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/10">
             <AlertTriangle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />
             <span className="flex-1 text-sm text-amber-800 dark:text-amber-300">{permissionLostWarning}</span>
-            <button onClick={() => setPermissionLostWarning(null)} className="shrink-0 text-amber-600 transition-colors hover:text-amber-800 dark:text-amber-400">
+            <button onClick={() => setPermissionLostWarning(null)} aria-label="Dismiss permission warning" className="shrink-0 text-amber-600 transition-colors hover:text-amber-800 dark:text-amber-400">
               <X size={14} />
             </button>
           </div>
