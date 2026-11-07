@@ -193,6 +193,8 @@ export function useSettingsPanelState(onClose: () => void) {
   // Handles Escape, command-W and focus trapping.
   function handleKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
+      // Settings owns this Escape; page editors underneath must not also close.
+      event.stopPropagation();
       if (hotkeyEditing) {
         setHotkeyEditing(null);
         event.preventDefault();
@@ -376,6 +378,7 @@ export function useSettingsPanelState(onClose: () => void) {
     sttProviders,
     llmProviders,
     profileLanguageOptions,
+    languageOptions: languages,
     micOptions,
   };
 

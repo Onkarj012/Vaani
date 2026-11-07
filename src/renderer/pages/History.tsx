@@ -85,10 +85,16 @@ export default function History() {
   const selected = visibleEntries.find((entry) => entry.id === openId) ?? null;
 
   useEffect(() => {
-    if (!requestedEditId || processedEditId.current === requestedEditId) return;
+    // Forget the last request once its param is gone, so the same entry can be opened again.
+    if (!requestedEditId) {
+      processedEditId.current = null;
+      return;
+    }
+    if (processedEditId.current === requestedEditId) return;
     const entry = historyEntries.find((item) => item.id === requestedEditId);
     if (!entry) return;
     processedEditId.current = requestedEditId;
+    setFilter("all");
     setOpenId(entry.id);
     setDraft(entry.cleanedText);
     setEditing(true);
@@ -96,6 +102,7 @@ export default function History() {
       (current) => {
         const next = new URLSearchParams(current);
         next.delete("editEntryId");
+        next.delete("q");
         return next;
       },
       { replace: true },

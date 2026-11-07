@@ -23,35 +23,12 @@ function relativeTime(testedAt: string): string {
 // Renders model choices, provider keys, failover and local models.
 export default function ApiSection({ context: c }: SectionComponentProps) {
   const keyRows = useMemo(() => {
-    const rows = c.keyProviders.filter(
-      (provider) => provider.id !== "groq-llm",
-    );
-    const groqLlm = c.keyProviders.find(
-      (provider) => provider.id === "groq-llm",
-    );
-    if (groqLlm && !rows.some((provider) => provider.id === "groq"))
-      rows.push(groqLlm);
-    return rows.map((provider) => {
-      const aliases =
-        provider.id === "groq" ? ["groq-llm", "groq"] : [provider.id];
-      const saved = aliases
-        .map((id) =>
-          c.settings.providerApiKeys?.find((key) => key.providerId === id),
-        )
-        .find((key) => key?.hasKey);
-      const providerId = saved?.providerId ?? provider.id;
-      return {
-        provider,
-        saved,
-        providerId,
-        role:
-          provider.id === "groq"
-            ? "Transcription and cleanup"
-            : provider.type === "llm"
-              ? "Cleanup"
-              : "Transcription",
-      };
-    });
+    return c.keyProviders.map((provider) => ({
+      provider,
+      saved: c.settings.providerApiKeys?.find((key) => key.providerId === provider.id && key.hasKey),
+      providerId: provider.id,
+      role: provider.type === "llm" ? "Cleanup" : "Transcription",
+    }));
   }, [c.keyProviders, c.settings.providerApiKeys]);
 
   return (

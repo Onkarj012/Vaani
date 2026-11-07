@@ -27,7 +27,7 @@ export default function LanguageSection({ context: c }: SectionComponentProps) {
         <Select
           value={c.settings.language}
           onChange={(value) => void c.updateSettings({ language: value })}
-          options={c.profileLanguageOptions.filter((item) => item.value !== "")}
+          options={c.languageOptions}
         />
       </Row>
       {!isLanguageSupportedByProvider(

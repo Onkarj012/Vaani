@@ -63,6 +63,7 @@ export interface SettingsPanelContext {
   sttProviders: ProviderInfo[];
   llmProviders: ProviderInfo[];
   profileLanguageOptions: { value: string; label: string }[];
+  languageOptions: { value: string; label: string }[];
   micOptions: { value: string; label: string }[];
 }
 
