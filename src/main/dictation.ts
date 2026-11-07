@@ -1563,6 +1563,9 @@ export class DictationService {
     if (outcome === "unconfirmed") {
       this.overlay.setStatusMessage?.(`${message} ${historySaved ? "Find this session in History." : "History could not save this session."}`);
     }
+    if (outcome === "refused" && historySaved) {
+      this.overlay.setStatusMessage?.(`${message} ${pasteLatestHint(this.settings.get().pasteLatestHotkey)}`);
+    }
   }
 
   private persistHistoryOnce(sessionId: string, entry: DictationEntry): Promise<boolean> {
@@ -2268,6 +2271,12 @@ function insertionStatusText(outcome: DictationInsertionOutcome, historySaved: b
     case "copy-only": return "Copied. Paste when ready.";
     case "failed": return `${stage} failed. ${historySaved ? "Find this session in History." : copied ? "Text is on the clipboard." : "Text was not saved."}`;
   }
+}
+
+// Tells the user how to recover a saved dictation that was not inserted.
+export function pasteLatestHint(hotkey: string): string {
+  const key = hotkey.trim();
+  return key ? `Focus the field and press ${key} to paste it.` : "Find this session in History.";
 }
 
 function activeInsertionFailureDetail(reason: InjectionFailureReason): string {
