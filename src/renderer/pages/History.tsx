@@ -70,6 +70,17 @@ export default function History() {
       settings.customCorrections,
     ],
   );
+  // Proof summaries are costly, so they are worked out once per history or settings change, not on every keystroke.
+  const lineSummaries = useMemo(
+    () =>
+      new Map(
+        entries.map((entry) => [
+          entry.id,
+          proofSummaryText(summarizeProof(buildProof(entry.rawText, entry.cleanedText, options))),
+        ]),
+      ),
+    [entries, options],
+  );
   const visibleEntries = entries.filter((entry) => {
     const filterMatches =
       filter === "all" ||
@@ -205,18 +216,14 @@ export default function History() {
           <p className="px-5 py-12 text-center text-sm text-muted">
             {entries.length
               ? "No dictations match."
-              : `No dictations yet. Hold ${formatHotkeyLabel(settings.primaryHotkey)} anywhere to start.`}
+              : `No dictations yet. ${settings.dictationMode === "toggle" ? "Press" : "Hold"} ${formatHotkeyLabel(settings.primaryHotkey)} anywhere to start.`}
           </p>
         ) : (
           visibleEntries.map((entry) => {
             const isOpen = entry.id === openId;
             const app = entry.appName?.trim() || "Unknown app";
             const time = historyTimeLabel(entry.timestamp);
-            const lineSummary = proofSummaryText(
-              summarizeProof(
-                buildProof(entry.rawText, entry.cleanedText, options),
-              ),
-            );
+            const lineSummary = lineSummaries.get(entry.id) ?? "";
             return (
               <article
                 key={entry.id}

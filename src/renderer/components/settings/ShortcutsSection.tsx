@@ -25,6 +25,7 @@ export default function ShortcutsSection({
           {c.hotkeyEditing === "primary" ? (
             <>
               <HotkeyCapture
+                autoStart
                 value={c.settings.primaryHotkey}
                 onChange={(value) => {
                   void c.updateSettings({ primaryHotkey: value });
@@ -60,6 +61,7 @@ export default function ShortcutsSection({
           {c.hotkeyEditing === "paste" ? (
             <>
               <HotkeyCapture
+                autoStart
                 value={c.settings.pasteLatestHotkey}
                 onChange={(value) => {
                   void c.updateSettings({ pasteLatestHotkey: value });

@@ -136,6 +136,14 @@ html.dark {
   background: transparent;
 }
 
+@keyframes spin-ui {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-ui {
+  animation: spin-ui 1s linear infinite;
+}
+
 @keyframes vaani-cursor-blink {
   50% { opacity: 0; }
 }

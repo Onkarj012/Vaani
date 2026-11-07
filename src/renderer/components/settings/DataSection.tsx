@@ -53,7 +53,7 @@ export default function DataSection({ context: c }: SectionComponentProps) {
           <DataAction
             icon={<RefreshCw size={15} />}
             title="Reset all settings"
-            description="Restores default settings and clears saved API key values. History stays."
+            description="Restores default settings. Saved API keys and history stay."
             actionLabel="Reset"
             onClick={() => void c.resetSettings()}
           />

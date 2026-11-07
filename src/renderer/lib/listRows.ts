@@ -30,8 +30,11 @@ export function matchesDictionaryFilter(
   query: string,
 ): boolean {
   const normalized = query.trim().toLocaleLowerCase();
+  // Manual and Auto list only enabled rules, matching their counts; Disabled lists the rest.
   const sourceMatches = filter === "all"
-    || (filter === "disabled" ? rule.enabled === false : filter === "auto" ? rule.source === "auto-suggested" : rule.source !== "auto-suggested");
+    || (filter === "disabled"
+      ? rule.enabled === false
+      : rule.enabled !== false && (filter === "auto" ? rule.source === "auto-suggested" : rule.source !== "auto-suggested"));
   return sourceMatches && (!normalized || `${rule.spoken} ${rule.written}`.toLocaleLowerCase().includes(normalized));
 }
 

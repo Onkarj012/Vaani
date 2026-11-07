@@ -7,6 +7,8 @@ interface HotkeyCaptureProps {
   value: string;
   onChange: (human: string) => void;
   disabled?: boolean;
+  /** Start listening for keys as soon as the control appears. */
+  autoStart?: boolean;
 }
 
 const MOD_SYMBOL: Record<string, string> = {
@@ -30,7 +32,7 @@ function parseCombo(combo: string): string[] {
 
 const MODIFIER_KEYS = new Set(Object.keys(MODIFIER_LABELS));
 
-export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps) {
+export function HotkeyCapture({ value, onChange, disabled, autoStart }: HotkeyCaptureProps) {
   const [capturing, setCapturing] = useState(false);
   const [preview, setPreview] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +58,9 @@ export function HotkeyCapture({ value, onChange, disabled }: HotkeyCaptureProps)
   }, [disabled]);
 
   useEffect(() => () => { void window.vaani.setHotkeyCapture(false); }, []);
+
+  // Settings mounts this after its own Change button, so capture starts without a second click.
+  useEffect(() => { if (autoStart) beginCapture(); }, [autoStart, beginCapture]);
 
   useEffect(() => {
     if (!capturing) return;

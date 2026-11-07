@@ -85,9 +85,10 @@ export default function Dictionary() {
   const save = () => {
     if (!draft) return;
     const spoken = draft.spoken.trim().replace(/\s+/g, " ");
-    const written = draft.written.trim().replace(/\s+/g, " ");
-    if (!spoken || !written) {
-      setError("Add what you say and what to write.");
+    // An empty replacement removes the word; a new rule left empty keeps the spoken text, as the old page did.
+    const written = draft.written.trim().replace(/\s+/g, " ") || (openKey === NEW_RULE ? spoken : "");
+    if (!spoken) {
+      setError("Add what you say.");
       return;
     }
     if (
@@ -119,6 +120,9 @@ export default function Dictionary() {
     cancel();
   };
   const toggleEnabled = (rule: CustomCorrection, enabled: boolean) => {
+    if (openKey === rule.spoken) {
+      setDraft((current) => (current ? { ...current, enabled } : current));
+    }
     void updateSettings({
       customCorrections: rules.map((item) =>
         item.spoken === rule.spoken ? { ...item, enabled } : item,
@@ -266,7 +270,7 @@ function RuleRow({
           <ArrowRight size={15} className="text-faint" />
           <span className="min-w-0 truncate text-sm text-ink">
             {written || (
-              <span className="text-faint">{rule ? "" : "New rule"}</span>
+              <span className="italic text-faint">{rule ? "(remove word)" : "New rule"}</span>
             )}
             {rule?.enabled === false && (
               <Tag tone="surface" className="ml-2 py-0.5">
@@ -340,7 +344,9 @@ function RuleRow({
             <p className="mt-2.5 text-xs leading-relaxed text-muted">
               {draft.spoken && draft.written
                 ? `Say “${draft.spoken}” and Vaani writes “${draft.written}”, in every app.`
-                : "Type what you say and how Vaani should write it."}
+                : draft.spoken && rule
+                  ? `Say “${draft.spoken}” and Vaani removes it, in every app.`
+                  : "Type what you say and how Vaani should write it."}
             </p>
             {error && (
               <p role="alert" className="mt-2 text-xs text-red-600">

@@ -21,6 +21,7 @@ describe("list row helpers", () => {
     expect(matchesDictionaryFilter(autoRule, "auto", "going")).toBe(true);
     expect(matchesDictionaryFilter(autoRule, "manual", "")).toBe(false);
     expect(matchesDictionaryFilter({ ...autoRule, enabled: false }, "disabled", "gonna")).toBe(true);
+    expect(matchesDictionaryFilter({ ...autoRule, enabled: false }, "auto", "")).toBe(false);
   });
 
   it("searches snippets by trigger and body", () => {

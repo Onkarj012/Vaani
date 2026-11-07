@@ -202,7 +202,7 @@ export default function Dashboard() {
       <PageHeader
         eyebrow={dateLabel}
         title={greeting}
-        subtitle={`Hold ${hotkey} anywhere to dictate. Vaani types where your cursor is.`}
+        subtitle={`${settings.dictationMode === "toggle" ? "Press" : "Hold"} ${hotkey} anywhere to dictate. Vaani types where your cursor is.`}
       />
 
       <div className="mb-[14px] grid grid-cols-2 gap-[14px] @min-[821px]/main:grid-cols-4">
@@ -354,8 +354,8 @@ function HowToCard({
           How to dictate
         </div>
         <h2 className="mt-3 font-display text-[44px] font-extrabold leading-[.98] tracking-[-.035em]">
-          Hold <Kbd className="align-[.12em]">{hotkey}</Kbd>,<br />
-          speak, let go.
+          {mode === "toggle" ? "Press" : "Hold"} <Kbd className="align-[.12em]">{hotkey}</Kbd>,<br />
+          {mode === "toggle" ? "speak, press again." : "speak, let go."}
         </h2>
       </div>
       <div className="relative mt-5 @min-[721px]/main:mt-0">
