@@ -71,7 +71,7 @@ function Navigation({ onSettings }: { onSettings: () => void }) {
             end={path === '/app'}
             title={`${label} (⌘${index + 1})`}
             className={({ isActive }) =>
-              `group flex items-center gap-3 rounded-full px-3.5 py-[9px] text-sm text-muted no-underline transition-colors hover:bg-surface hover:text-ink @max-[860px]/win:size-12 @max-[860px]/win:justify-center @max-[860px]/win:px-0 ${isActive ? 'bg-accent/15 font-semibold text-accent' : ''}`
+              `group flex items-center gap-3 rounded-full px-3.5 py-[9px] text-sm no-underline transition-colors @max-[860px]/win:size-12 @max-[860px]/win:justify-center @max-[860px]/win:px-0 ${isActive ? 'bg-accent/15 font-semibold text-accent dark:text-[#a6a6ef]' : 'font-medium text-muted hover:bg-surface hover:text-ink'}`
             }
             aria-current={location.pathname === path ? 'page' : undefined}
           >

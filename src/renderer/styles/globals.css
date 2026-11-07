@@ -5,6 +5,7 @@
   --font-display: "Funnel Display", "DM Sans", sans-serif;
   --font-body: "DM Sans", system-ui, sans-serif;
   --font-mono: "Fragment Mono", ui-monospace, monospace;
+  --radius-card: 24px;
 
   --color-bg: #ffffff;
   --color-side: #f6f6f8;
