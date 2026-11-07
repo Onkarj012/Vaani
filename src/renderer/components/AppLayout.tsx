@@ -17,7 +17,7 @@ import { useVaaniUi } from '@renderer/context/vaani-ui'
 import { useColorMode } from '@renderer/context/color-mode'
 import { SettingsPanelProvider, useSettingsPanel } from '@renderer/context/settings-panel'
 import { useUpdateNotification } from '@renderer/hooks/useUpdateNotification'
-import SettingsModal from '@renderer/components/SettingsModal'
+import SettingsPanel from '@renderer/components/settings/SettingsPanel'
 import OnboardingModal from '@renderer/components/OnboardingModal'
 import OpenRouterKeyPrompt from '@renderer/components/OpenRouterKeyPrompt'
 import PermissionGuard from '@renderer/components/PermissionGuard'
@@ -395,7 +395,7 @@ function AppLayoutContent() {
           </main>
         </div>
       </div>
-      {isOpen && <SettingsModal isOpen={isOpen} onClose={close} />}
+      {isOpen && <SettingsPanel onClose={close} />}
       {onboardingOpen && <OnboardingModal settings={settings} updateSettings={updateSettings} onComplete={() => updateSettings({ onboardingCompleted: true })} />}
       {showOpenRouterPrompt && <OpenRouterKeyPrompt updateSettings={updateSettings} />}
       <PermissionGuard onBlockingChange={setPermissionsBlocked} />
