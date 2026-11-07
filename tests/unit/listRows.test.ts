@@ -37,6 +37,7 @@ describe("list row helpers", () => {
     expect(hasSnippetScopeConflict(snippets, "SIG", ["work"])).toBe(true);
     expect(hasSnippetScopeConflict(snippets, "sig", ["other"])).toBe(false);
     expect(hasSnippetScopeConflict(snippets, "sig", undefined)).toBe(true);
-    expect(hasSnippetScopeConflict(snippets, "sig", ["work"], "sig")).toBe(false);
+    expect(hasSnippetScopeConflict(snippets, "sig", ["work", "personal"], 0)).toBe(true);
+    expect(hasSnippetScopeConflict(snippets, "sig", ["work"], 0)).toBe(false);
   });
 });

@@ -46,13 +46,12 @@ export function hasSnippetScopeConflict(
   snippets: readonly Snippet[],
   trigger: string,
   appProfileIds: readonly string[] | undefined,
-  editingTrigger?: string | null,
+  editingIndex?: number,
 ): boolean {
   const normalizedTrigger = trigger.trim().replace(/^\//, "").toLocaleLowerCase();
   const scope = appProfileIds && appProfileIds.length > 0 ? new Set(appProfileIds) : null;
-  return snippets.some((snippet) => {
-    if (snippet.trigger.toLocaleLowerCase() !== normalizedTrigger
-      || snippet.trigger.toLocaleLowerCase() === editingTrigger?.toLocaleLowerCase()) return false;
+  return snippets.some((snippet, index) => {
+    if (index === editingIndex || snippet.trigger.toLocaleLowerCase() !== normalizedTrigger) return false;
     const existingScope = snippet.appProfileIds?.length ? new Set(snippet.appProfileIds) : null;
     return !scope || !existingScope || [...scope].some((id) => existingScope.has(id));
   });
