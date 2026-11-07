@@ -158,7 +158,7 @@ export default function Insights() {
         <Kpi
           tone="blush"
           label="Accuracy"
-          value={accuracy === null ? "—" : `${accuracy}%`}
+          value={accuracy === null ? "None" : `${accuracy}%`}
           sub="Dictations you didn't edit"
         />
       </div>
@@ -187,11 +187,15 @@ export default function Insights() {
           </h2>
           {entries.length ? (
             <>
-              <p className="mt-1 text-xs text-muted">
+              <p className="mt-1.5 label-meta text-[10px] text-faint">
                 Busiest {formatHour(peak)}
               </p>
               <HourChart values={hours} peak={peak} />
-              <Axis left="12a" right="12a" />
+              <div className="mt-2 flex justify-between label-meta text-[10px] text-faint">
+                {["12a", "6a", "12p", "6p", "12a"].map((label, index) => (
+                  <span key={index}>{label}</span>
+                ))}
+              </div>
             </>
           ) : (
             <EmptyChart />

@@ -16,6 +16,8 @@ import { useVaaniUi } from "@renderer/context/vaani-ui";
 import { useDictateTip } from "@renderer/hooks/useDictateTip";
 import { deriveHomeStats } from "@renderer/lib/homeStats";
 import { countWords } from "@renderer/lib/historyDerivations";
+import { buildProof, summarizeProof } from "@renderer/lib/proofMarks";
+import { proofSummaryText } from "@renderer/lib/listRows";
 
 const APP_COLORS = [
   "#e3e3ff",
@@ -72,6 +74,17 @@ export default function Dashboard() {
     keyof PermissionStatus | null
   >(null);
   const tip = useDictateTip(historyEntries.length);
+  const recentItems = useMemo(() => {
+    const options = {
+      fillers: [...settings.fillerWords, ...settings.extraFillerWords],
+      corrections: settings.customCorrections,
+    };
+    return historyItems.slice(0, 4).map((item) => {
+      const entry = historyEntries.find((candidate) => candidate.id === item.id);
+      const changes = entry ? proofSummaryText(summarizeProof(buildProof(entry.rawText, entry.cleanedText, options))) : "";
+      return { ...item, changes };
+    });
+  }, [historyItems, historyEntries, settings.fillerWords, settings.extraFillerWords, settings.customCorrections]);
   const now = new Date();
   const stats = useMemo(
     () => deriveHomeStats(historyEntries, now),
@@ -237,7 +250,7 @@ export default function Dashboard() {
           className={`col-span-12 grid min-w-0 gap-[14px] ${hasSideCards ? "@min-[861px]/main:col-span-8" : "@min-[861px]/main:col-span-12"}`}
         >
           <RecentCard
-            entries={historyItems.slice(0, 4)}
+            entries={recentItems}
             copy={copyHistoryEntry}
             remove={deleteHistoryEntry}
           />
@@ -411,6 +424,7 @@ function RecentCard({
     time: string;
     app: string;
     wordCount: number;
+    changes: string;
   }>;
   copy: (text: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
@@ -441,6 +455,7 @@ function RecentCard({
               </p>
               <div className="mt-1 text-xs text-muted">
                 {entry.app} · {entry.time} · {entry.wordCount} words
+                {entry.changes && <span className="text-accent"> · ✎ {entry.changes}</span>}
               </div>
             </div>
             <div className="flex opacity-70 group-hover:opacity-100 group-focus-within:opacity-100">
@@ -456,7 +471,7 @@ function RecentCard({
               <IconButton
                 title="Delete dictation"
                 aria-label="Delete dictation"
-                variant="danger"
+                className="hover:bg-red-500/10 hover:text-red-600"
                 onClick={() => {
                   void remove(entry.id);
                 }}
