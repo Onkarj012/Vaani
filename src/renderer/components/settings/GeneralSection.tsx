@@ -78,7 +78,7 @@ export default function GeneralSection({ context: c }: SectionComponentProps) {
               VAANI FOR MAC
             </span>
             <b className="text-display mt-1 block text-[23px]">
-              {c.version || "—"}
+              {c.version || "Vaani"}
             </b>
             <p className="text-[12px] text-muted">{message}</p>
           </div>

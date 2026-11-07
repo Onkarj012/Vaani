@@ -12,7 +12,7 @@ export default function DataSection({ context: c }: SectionComponentProps) {
   );
   const oldestEntry =
     oldestTimestamp === null
-      ? "—"
+      ? "None yet"
       : new Intl.DateTimeFormat("en-GB", {
           day: "2-digit",
           month: "short",
