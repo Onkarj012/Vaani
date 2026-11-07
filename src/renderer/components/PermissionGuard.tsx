@@ -15,7 +15,7 @@ interface PermissionGuardProps {
 }
 
 const INITIAL_STATUS: PermissionStatus = { microphone: "unknown", accessibility: "unknown" };
-const MICROPHONE_ATTEMPT_GUIDANCE = "macOS did not grant microphone access. Enable Vaani in System Settings, then click Check Again.";
+const MICROPHONE_ATTEMPT_GUIDANCE = "macOS did not grant microphone access. Enable Vaani in System Settings, then click Check again.";
 
 export default function PermissionGuard({ onBlockingChange }: PermissionGuardProps) {
   const [status, setStatus] = useState<PermissionStatus | null>(null);
@@ -238,7 +238,7 @@ export default function PermissionGuard({ onBlockingChange }: PermissionGuardPro
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-5 sm:px-8">
           <p className="text-xs text-faint">System Settings may need to remain open while you enable access.</p>
           <Button ref={!hasRequiredAction ? firstActionRef : undefined} variant="soft" size="sm" onClick={() => { void refresh(); }} disabled={busy}>
-            <RefreshCw size={15} /> Check Again
+            <RefreshCw size={15} /> Check again
           </Button>
         </div>
       </div>
@@ -279,8 +279,8 @@ function PermissionRow({
           {guidance && <p className="mt-2 text-xs leading-relaxed text-accent">{guidance}</p>}
           {!granted && action !== "none" && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {action === "request" && <Button ref={primaryRef} variant="accent" size="sm" onClick={onRequest} disabled={busy}>{busy ? <Loader2 size={14} className="animate-spin-ui" /> : null}{title === "Microphone" ? "Allow Microphone" : "Enable Accessibility"}</Button>}
-              {action === "open-settings" && <Button ref={primaryRef} variant="soft" size="sm" onClick={onSettings} disabled={busy}><ExternalLink size={14} /> Open Settings</Button>}
+              {action === "request" && <Button ref={primaryRef} variant="accent" size="sm" onClick={onRequest} disabled={busy}>{busy ? <Loader2 size={14} className="animate-spin-ui" /> : null}{title === "Microphone" ? "Allow microphone" : "Enable Accessibility"}</Button>}
+              {action === "open-settings" && <Button ref={primaryRef} variant="soft" size="sm" onClick={onSettings} disabled={busy}><ExternalLink size={14} /> Open settings</Button>}
               {action === "retry" && <Button ref={primaryRef} variant="soft" size="sm" onClick={onRetry} disabled={busy}><RefreshCw size={14} /> Retry</Button>}
               {(action === "retry" || (title === "Accessibility" && action === "request")) && <Button variant="ghost" size="sm" onClick={onSettings} disabled={busy}><ExternalLink size={14} /> Settings</Button>}
             </div>

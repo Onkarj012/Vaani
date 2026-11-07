@@ -4,26 +4,29 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@renderer/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-all duration-200 ease-[cubic-bezier(0.44,0,0.56,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 rounded-full border border-line bg-card font-semibold text-ink whitespace-nowrap transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        primary: "bg-ink text-bg hover:opacity-90",
-        accent: "bg-accent text-white hover:bg-accent-strong",
-        outline: "border border-ink/80 bg-transparent text-ink hover:bg-ink hover:text-bg",
-        ghost: "bg-transparent text-muted hover:bg-surface hover:text-ink",
-        soft: "bg-surface text-ink hover:bg-line",
-        destructive: "bg-transparent border border-red-200 text-red-600 hover:bg-red-50",
-        link: "text-accent underline-offset-4 hover:underline bg-transparent rounded-none px-0",
+        default: "",
+        primary: "border-transparent bg-ink text-bg hover:bg-ink/90",
+        accent: "border-transparent bg-accent text-white hover:bg-accent-strong",
+        ghost: "border-transparent bg-transparent text-muted hover:bg-surface hover:text-ink",
+        danger: "border-transparent bg-transparent text-red-600 hover:bg-red-500/10",
+        outline: "",
+        soft: "border-transparent bg-surface",
+        destructive: "border-transparent bg-red-600 text-white hover:bg-red-700",
+        link: "rounded-none border-0 bg-transparent px-0 text-accent underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-11 px-6 text-sm",
-        sm: "h-9 px-4 text-[13px]",
+        md: "h-9 px-[15px] text-[13px]",
+        sm: "h-[30px] px-3 text-xs",
+        default: "h-9 px-[15px] text-[13px]",
         lg: "h-12 px-8 text-base",
-        icon: "h-10 w-10",
+        icon: "size-8 border-0 p-0",
       },
     },
-    defaultVariants: { variant: "primary", size: "default" },
+    defaultVariants: { variant: "primary", size: "md" },
   }
 )
 
@@ -33,11 +36,12 @@ export interface ButtonProps
   asChild?: boolean
 }
 
+// Renders a button with shared variants and sizes.
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, type, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button"
+    const Component = asChild ? Slot : "button"
     return (
-      <Comp
+      <Component
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         type={!asChild ? (type ?? "button") : undefined}
@@ -47,5 +51,20 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   }
 )
 Button.displayName = "Button"
+
+// Renders a round icon button with optional danger styling.
+export function IconButton({ variant = "default", className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "default" | "danger" }) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "grid size-8 place-items-center rounded-full text-muted transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+        variant === "danger" && "text-red-600 hover:bg-red-500/10 hover:text-red-700",
+        className
+      )}
+      {...props}
+    />
+  )
+}
 
 export { Button, buttonVariants }

@@ -1,391 +1,678 @@
-import { motion } from 'framer-motion'
-import {
-  Type,
-  Flame,
-  Clock,
-  ArrowRight,
-  Copy,
-  RotateCcw,
-  Trash2,
-  Zap,
-  BookOpen,
-  Activity,
-  Layers,
-  CheckCircle2,
-  ShieldCheck,
-  Plug,
-  Sparkles,
-  X,
-  AlertTriangle,
-} from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useVaaniUi } from '../context/vaani-ui'
-import { useMemo, useState, useEffect, useRef } from 'react'
-import type { PermissionStatus, Settings } from '@shared/types'
-import { KNOWN_PROVIDERS } from '@shared/defaults'
-import { Card } from '@renderer/components/ui/card'
-import { Tag } from '@renderer/components/ui/tag'
-import { Button } from '@renderer/components/ui/button'
-import PermissionStatusIndicator from '@renderer/components/PermissionStatusIndicator'
+import { useEffect, useMemo, useState } from "react";
+import { Check, Copy, Mic, ShieldCheck, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import type { PermissionStatus } from "@shared/types";
+import { KNOWN_PROVIDERS } from "@shared/defaults";
+import { formatHotkeyLabel } from "@renderer/components/HotkeyCapture";
+import PageHeader from "@renderer/components/ui/PageHeader";
+import { Card } from "@renderer/components/ui/card";
+import { IconButton, Button } from "@renderer/components/ui/button";
+import { Kbd, KbdGroup } from "@renderer/components/ui/Kbd";
+import AppIcon from "@renderer/components/ui/AppIcon";
+import MiniCapsule from "@renderer/components/ui/MiniCapsule";
+import VaaniMark from "@renderer/components/ui/VaaniMark";
+import { useSettingsPanel } from "@renderer/context/settings-panel";
+import { useVaaniUi } from "@renderer/context/vaani-ui";
+import { useDictateTip } from "@renderer/hooks/useDictateTip";
+import { deriveHomeStats } from "@renderer/lib/homeStats";
+import { countWords } from "@renderer/lib/historyDerivations";
+import { buildProof, summarizeProof } from "@renderer/lib/proofMarks";
+import { proofSummaryText } from "@renderer/lib/listRows";
 
-const container = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.07 } },
-}
-const item = {
-  hidden: { opacity: 0, y: 18 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
-}
+const APP_COLORS = [
+  "#e3e3ff",
+  "#ddeeff",
+  "#e4f7cf",
+  "#fbe1f6",
+  "#ffe9e3",
+  "#fff2bd",
+];
 
-function OnboardingChecklist({
-  settings,
-  permissions,
-  onDismiss,
-  onRestartTour,
-}: {
-  settings: Settings
-  permissions: PermissionStatus
-  onDismiss: () => void
-  onRestartTour: () => void
-}) {
-  const navigate = useNavigate()
-
-  const activeProvider = KNOWN_PROVIDERS.find(
-    (p) => p.id === settings.transcriptionProvider && (p.type === 'stt' || p.type === 'local-stt')
-  )
-  const hasApiKey =
-    activeProvider?.requiresApiKey === false ||
-    (settings.providerApiKeys ?? []).some(
-      (pk) => pk.providerId === settings.transcriptionProvider && pk.hasKey === true
+// Draws a compact line chart for the two-week word count.
+function Sparkline({ values }: { values: number[] }) {
+  const max = Math.max(...values, 1);
+  const points = values
+    .map(
+      (value, index) =>
+        `${(index / Math.max(values.length - 1, 1)) * 84},${30 - (value / max) * 26}`,
     )
-
-  const items = [
-    { label: 'Complete Welcome Tour', done: settings.onboardingCompleted, icon: <Sparkles size={15} />, action: onRestartTour, actionLabel: 'Restart Tour' },
-    { label: 'Setup API Key', done: hasApiKey, icon: <Plug size={15} />, action: undefined, actionLabel: undefined },
-    {
-      label: 'Grant Permissions',
-      done: permissions.microphone === 'granted' && permissions.accessibility === 'granted',
-      icon: <ShieldCheck size={15} />,
-      action: () => {
-        if (permissions.microphone !== 'granted') void window.vaani.openPermissionSettings('microphone')
-        else if (permissions.accessibility !== 'granted') void window.vaani.openPermissionSettings('accessibility')
-      },
-      actionLabel: 'Open Settings',
-    },
-    { label: 'Explore Custom Dictionary', done: settings.dictionaryOnboarded, icon: <BookOpen size={15} />, action: () => navigate('/app/dictionary'), actionLabel: 'Go to Dictionary' },
-    { label: 'Try Snippets Shortcuts', done: settings.snippetsOnboarded, icon: <Layers size={15} />, action: () => navigate('/app/snippets'), actionLabel: 'Go to Snippets' },
-  ]
-
-  const completed = items.filter((i) => i.done).length
-  const progress = Math.round((completed / items.length) * 100)
-  if (progress >= 100) return null
-
+    .join(" ");
   return (
-    <motion.div variants={item}>
-      <Card>
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h2 className="text-display text-xl text-ink">Setup checklist</h2>
-            <p className="mt-1 text-sm text-muted">{completed} of {items.length} steps completed</p>
-          </div>
-          <button onClick={onDismiss} aria-label="Dismiss" className="rounded-full p-2 text-muted transition-colors hover:bg-surface">
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="mb-5 h-1.5 overflow-hidden rounded-full bg-surface">
-          <motion.div initial={{ width: 0 }} animate={{ width: `${progress}%` }} transition={{ duration: 0.6 }} className="h-full rounded-full bg-accent" />
-        </div>
-
-        <div className="space-y-2">
-          {items.map((it) => (
-            <div key={it.label} className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3">
-              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${it.done ? 'bg-accent/10 text-accent' : 'bg-bg text-muted'}`}>
-                {it.done ? <CheckCircle2 size={15} /> : it.icon}
-              </div>
-              <span className={`flex-1 text-sm ${it.done ? 'text-faint line-through' : 'font-medium text-ink'}`}>{it.label}</span>
-              {!it.done && it.action && it.actionLabel && (
-                <button onClick={it.action} className="shrink-0 text-xs font-semibold text-accent transition-colors hover:text-accent-strong">
-                  {it.actionLabel}
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </Card>
-    </motion.div>
-  )
+    <svg
+      viewBox="0 0 84 34"
+      aria-label="Words per day over the last 14 days"
+      role="img"
+      className="absolute right-4 top-11 h-[34px] w-[84px] text-[#1d1d1d]/80"
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
 }
 
+// Shows the main Home dashboard and the setup actions that still apply.
 export default function Dashboard() {
   const {
-    stats, historyEntries, historyItems, historyLoading,
-    copyHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry,
-    settings, updateSettings, updateStatus, restartAndInstall,
-  } = useVaaniUi()
-  const [permissions, setPermissions] = useState<PermissionStatus>({ microphone: 'unknown', accessibility: 'unknown' })
-  const [optimisticChecklistDismissed, setOptimisticChecklistDismissed] = useState(false)
-  const checklistDismissed = settings.setupChecklistDismissed || optimisticChecklistDismissed
-  const prevPermissionsRef = useRef<PermissionStatus | null>(null)
-  const [permissionLostWarning, setPermissionLostWarning] = useState<string | null>(null)
-  const [busyPermission, setBusyPermission] = useState<keyof PermissionStatus | null>(null)
+    historyEntries,
+    historyItems,
+    copyHistoryEntry,
+    deleteHistoryEntry,
+    settings,
+    updateSettings,
+  } = useVaaniUi();
+  const settingsPanel = useSettingsPanel();
+  const [permissions, setPermissions] = useState<PermissionStatus>({
+    microphone: "unknown",
+    accessibility: "unknown",
+  });
+  const [busyPermission, setBusyPermission] = useState<
+    keyof PermissionStatus | null
+  >(null);
+  const tip = useDictateTip(historyEntries.length);
+  const recentItems = useMemo(() => {
+    const options = {
+      fillers: [...settings.fillerWords, ...settings.extraFillerWords],
+      corrections: settings.customCorrections,
+    };
+    return historyItems.slice(0, 4).map((item) => {
+      const entry = historyEntries.find((candidate) => candidate.id === item.id);
+      const changes = entry ? proofSummaryText(summarizeProof(buildProof(entry.rawText, entry.cleanedText, options))) : "";
+      return { ...item, changes };
+    });
+  }, [historyItems, historyEntries, settings.fillerWords, settings.extraFillerWords, settings.customCorrections]);
+  const now = new Date();
+  const stats = useMemo(
+    () => deriveHomeStats(historyEntries, now),
+    [historyEntries],
+  );
+  const today = historyEntries.filter((entry) => {
+    const date = new Date(entry.timestamp);
+    return (
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate()
+    );
+  });
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const hasEarlierHistory = historyEntries.some(
+    (entry) => new Date(entry.timestamp).getTime() < startOfToday,
+  );
+  const appUsage = useMemo(() => {
+    const apps = new Map<string, { bundleId: string | null; words: number }>();
+    today.forEach((entry) => {
+      const name = entry.appName?.trim() || "Unknown";
+      const current = apps.get(name) ?? {
+        bundleId: entry.appBundleId,
+        words: 0,
+      };
+      current.words += countWords(entry.cleanedText);
+      apps.set(name, current);
+    });
+    return [...apps.entries()]
+      .map(([name, data]) => ({ name, ...data }))
+      .sort((a, b) => b.words - a.words);
+  }, [today]);
 
   useEffect(() => {
-    const poll = () => {
-      window.vaani.getPermissionStatus().then((status) => {
-        const prev = prevPermissionsRef.current
-        if (prev) {
-          if (prev.accessibility === 'granted' && status.accessibility !== 'granted') {
-            setPermissionLostWarning('Accessibility permission was revoked. Dictation hotkeys won\'t work until re-granted.')
-          }
-          if (prev.microphone === 'granted' && status.microphone !== 'granted') {
-            setPermissionLostWarning('Microphone permission was revoked. Dictation won\'t work until re-granted.')
-          }
-        }
-        prevPermissionsRef.current = status
-        setPermissions(status)
-      }).catch(() => {})
-    }
-    poll()
-    const id = window.setInterval(poll, 3000)
-    const unsub = window.vaani.onPermissionStatusChanged?.((status) => {
-      const prev = prevPermissionsRef.current
-      if (prev) {
-        if (prev.accessibility === 'granted' && status.accessibility !== 'granted') {
-          setPermissionLostWarning('Accessibility permission was revoked. Dictation hotkeys won\'t work until re-granted.')
-        }
-        if (prev.microphone === 'granted' && status.microphone !== 'granted') {
-          setPermissionLostWarning('Microphone permission was revoked. Dictation won\'t work until re-granted.')
-        }
-      }
-      prevPermissionsRef.current = status
-      setPermissions(status)
-    })
-    return () => {
-      window.clearInterval(id)
-      unsub?.()
-    }
-  }, [])
+    // Loads the current macOS permission states and listens for updates.
+    const refresh = () => {
+      void window.vaani.getPermissionStatus().then(setPermissions);
+    };
+    refresh();
+    const unsubscribe =
+      window.vaani.onPermissionStatusChanged?.(setPermissions);
+    return () => unsubscribe?.();
+  }, []);
 
-  async function handlePermissionAction(permission: keyof PermissionStatus): Promise<void> {
-    if (busyPermission !== null) return
-    setBusyPermission(permission)
+  // Requests permission or opens the matching macOS settings pane.
+  async function grantPermission(
+    permission: keyof PermissionStatus,
+  ): Promise<void> {
+    if (busyPermission) return;
+    setBusyPermission(permission);
     try {
-      const state = permissions[permission]
-      if (state === 'not-determined' || (permission === 'accessibility' && state === 'denied')) {
-        const nextState = permission === 'microphone'
-          ? await window.vaani.requestMicrophonePermission()
-          : await window.vaani.requestAccessibilityPermission()
-        if (nextState === 'granted') {
-          setPermissions((current) => ({ ...current, [permission]: nextState }))
-          return
-        }
-      }
-      await window.vaani.openPermissionSettings(permission)
+      const current = permissions[permission];
+      const next =
+        current === "not-determined" ||
+        (permission === "accessibility" && current === "denied")
+          ? permission === "microphone"
+            ? await window.vaani.requestMicrophonePermission()
+            : await window.vaani.requestAccessibilityPermission()
+          : current;
+      setPermissions((value) => ({ ...value, [permission]: next }));
+      if (next !== "granted")
+        await window.vaani.openPermissionSettings(permission);
     } finally {
-      setBusyPermission(null)
+      setBusyPermission(null);
     }
   }
 
-  const appBreakdown = useMemo(() => {
-    const counts = new Map<string, { words: number; sessions: number }>()
-    for (const entry of historyEntries) {
-      const app = entry.appName?.trim() || 'Unknown'
-      const existing = counts.get(app) ?? { words: 0, sessions: 0 }
-      const wordCount = entry.cleanedText?.split(/\s+/).filter(Boolean).length ?? 0
-      counts.set(app, { words: existing.words + wordCount, sessions: existing.sessions + 1 })
-    }
-    return Array.from(counts.entries()).map(([app, d]) => ({ app, ...d })).sort((a, b) => b.sessions - a.sessions).slice(0, 5)
-  }, [historyEntries])
-
-  const maxAppSessions = Math.max(...appBreakdown.map((a) => a.sessions), 1)
-
-  const statCards = [
-    { label: 'Total Sessions', value: stats.totalSessions.toLocaleString(), change: `${stats.sessionsToday} today`, icon: Activity, iconBg: 'bg-accent/10 text-accent' },
-    { label: 'Words Dictated', value: stats.totalWords.toLocaleString(), change: `${stats.wordsToday.toLocaleString()} today`, icon: Type, iconBg: 'bg-accent/10 text-accent' },
-    { label: 'Current Streak', value: `${stats.streak} day${stats.streak === 1 ? '' : 's'}`, change: stats.streak > 0 ? 'Keep it going' : 'Start today', icon: Flame, iconBg: 'bg-accent/10 text-accent' },
-    { label: 'Injection Rate', value: stats.totalSessions > 0 ? `${stats.accuracy}%` : '—', change: stats.totalSessions > 0 ? 'Successful' : 'No sessions yet', icon: Clock, iconBg: 'bg-accent/10 text-accent' },
-  ] as const
-
-  const recentItems = historyItems.slice(0, 4)
+  const provider = KNOWN_PROVIDERS.find(
+    (item) =>
+      item.id === settings.transcriptionProvider &&
+      (item.type === "stt" || item.type === "local-stt"),
+  );
+  const providerReady =
+    provider?.requiresApiKey === false ||
+    settings.providerApiKeys.some(
+      (key) =>
+        key.providerId === settings.transcriptionProvider &&
+        key.hasKey === true,
+    );
+  const setup = [
+    { label: "Microphone access", done: permissions.microphone === "granted" },
+    {
+      label: "Accessibility access",
+      done: permissions.accessibility === "granted",
+    },
+    { label: "Transcription provider key", done: providerReady },
+    { label: "Launch at login", done: settings.launchAtLogin },
+  ];
+  const setupDone = setup.filter((item) => item.done).length;
+  const missingPermissions = (
+    Object.keys(permissions) as Array<keyof PermissionStatus>
+  ).filter((key) => permissions[key] !== "granted");
+  const showSetup =
+    !settings.setupChecklistDismissed && setupDone < setup.length;
+  const hasSideCards = showSetup || missingPermissions.length > 0;
+  const hour = now.getHours();
+  const greeting =
+    historyEntries.length === 0
+      ? "Welcome to Vaani."
+      : hour < 12
+        ? "Good morning."
+        : hour < 18
+          ? "Good afternoon."
+          : "Good evening.";
+  const dateLabel = `${now.toLocaleDateString("en-GB", { weekday: "long" })}, ${now.getDate()} ${now.toLocaleDateString("en-GB", { month: "long" })}`;
+  const hotkey = formatHotkeyLabel(settings.primaryHotkey);
+  const pasteHotkey = formatHotkeyLabel(settings.pasteLatestHotkey);
 
   return (
-    <motion.div variants={container} initial="hidden" animate="visible" className="mx-auto max-w-6xl space-y-8">
-      <motion.div variants={item} className="flex items-end justify-between">
-        <div>
-          <p className="label-meta mb-2 text-[11px] text-accent">✦ Overview</p>
-          <h1 className="text-display text-5xl text-ink">Dashboard</h1>
-          <p className="mt-3 max-w-md text-muted">Welcome back. Here is what is happening with your dictation.</p>
-        </div>
-        <span className="label-meta hidden text-[11px] text-faint sm:block">
-          {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-        </span>
-      </motion.div>
+    <div className="mx-auto max-w-[1180px]">
+      <PageHeader
+        eyebrow={dateLabel}
+        title={greeting}
+        subtitle={`${settings.dictationMode === "toggle" ? "Press" : "Hold"} ${hotkey} anywhere to dictate. Vaani types where your cursor is.`}
+      />
 
-      {(updateStatus.available || updateStatus.status === 'ready') && (
-        <motion.div variants={item}>
-          <Card tone="lav" className="flex items-center justify-between gap-4 py-4">
-            <span className="text-sm font-medium text-ink">
-              {updateStatus.status === 'ready' ? `Vaani ${updateStatus.version} is ready to install` : `Vaani ${updateStatus.version} is available`}
-            </span>
-            {updateStatus.status === 'ready' && (
-              <Button size="sm" variant="accent" onClick={() => restartAndInstall()}>Restart &amp; Install</Button>
-            )}
-          </Card>
-        </motion.div>
-      )}
-
-      <motion.div variants={item}>
-        <PermissionStatusIndicator
-          status={permissions}
-          busyPermission={busyPermission}
-          onPermissionAction={(permission) => { void handlePermissionAction(permission) }}
+      <div className="mb-[14px] grid grid-cols-2 gap-[14px] @min-[821px]/main:grid-cols-4">
+        <StatCard
+          tone="butter"
+          label="Words today"
+          value={stats.wordsToday.toLocaleString()}
+          sub={hasEarlierHistory ? "" : "Your first day"}
+          spark={stats.days.map((day) => day.words)}
         />
-      </motion.div>
-
-      {permissionLostWarning && (
-        <motion.div variants={item}>
-          <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/10">
-            <AlertTriangle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />
-            <span className="flex-1 text-sm text-amber-800 dark:text-amber-300">{permissionLostWarning}</span>
-            <button onClick={() => setPermissionLostWarning(null)} className="shrink-0 text-amber-600 transition-colors hover:text-amber-800 dark:text-amber-400">
-              <X size={14} />
-            </button>
-          </div>
-        </motion.div>
-      )}
-
-      {!checklistDismissed && (
-        <OnboardingChecklist
-          settings={settings}
-          permissions={permissions}
-          onDismiss={() => { setOptimisticChecklistDismissed(true); updateSettings({ setupChecklistDismissed: true }); }}
-          onRestartTour={() => updateSettings({ onboardingCompleted: false })}
+        <StatCard
+          tone="mint"
+          label="Dictations today"
+          value={String(stats.sessionsToday)}
+          sub={`${stats.insertedToday} inserted, ${stats.savedToday} saved`}
         />
-      )}
-
-      <motion.div variants={item} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {statCards.map((stat) => (
-          <Card key={stat.label} hover className="p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <div className={`flex h-11 w-11 items-center justify-center rounded-full ${stat.iconBg}`}>
-                <stat.icon size={18} />
-              </div>
-              <Tag tone="surface">{historyLoading ? '…' : stat.change}</Tag>
-            </div>
-            <div className="text-display text-3xl text-ink">{historyLoading ? '—' : stat.value}</div>
-            <div className="mt-1 text-sm text-muted">{stat.label}</div>
-          </Card>
-        ))}
-      </motion.div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <motion.div variants={item} className="lg:col-span-2">
-          <Card className="h-full">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-display text-xl text-ink">Where you dictate</h2>
-                <p className="mt-1 text-sm text-muted">Apps used most with Vaani</p>
-              </div>
-              <Tag tone="lav">{appBreakdown.length} apps</Tag>
-            </div>
-            <div className="space-y-3">
-              {appBreakdown.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted">Start dictating to see your app usage here</p>
-              ) : (
-                appBreakdown.map((it) => (
-                  <div key={it.app} className="flex items-center gap-3">
-                    <span className="w-24 truncate text-right text-xs font-medium text-muted">{it.app}</span>
-                    <div className="h-5 flex-1 overflow-hidden rounded-full bg-surface">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${(it.sessions / maxAppSessions) * 100}%` }}
-                        transition={{ duration: 0.6 }}
-                        className="h-full rounded-full"
-                        style={{ background: 'var(--color-accent)' }}
-                      />
-                    </div>
-                    <span className="w-8 text-right text-xs font-medium text-muted">{it.sessions}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={item} className="space-y-4">
-          <Link to="/app/dictionary" className="group block">
-            <Card hover className="flex items-center gap-4 p-4">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/10 text-accent"><BookOpen size={18} /></div>
-              <div className="flex-1">
-                <div className="font-semibold text-ink">Dictionary</div>
-                <div className="text-sm text-muted">Manage word replacements</div>
-              </div>
-              <ArrowRight size={16} className="text-faint transition-transform group-hover:translate-x-1 group-hover:text-ink" />
-            </Card>
-          </Link>
-          <Link to="/app/snippets" className="group block">
-            <Card hover className="flex items-center gap-4 p-4">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/10 text-accent"><Layers size={18} /></div>
-              <div className="flex-1">
-                <div className="font-semibold text-ink">Snippets</div>
-                <div className="text-sm text-muted">Manage slash commands</div>
-              </div>
-              <ArrowRight size={16} className="text-faint transition-transform group-hover:translate-x-1 group-hover:text-ink" />
-            </Card>
-          </Link>
-          <Card tone="peach" bordered={false} className="p-4">
-            <div className="flex items-start gap-3">
-              <Zap size={18} className="mt-0.5 shrink-0 text-accent" />
-              <div>
-                <div className="mb-1 text-sm font-semibold text-ink">Tip of the day</div>
-                <p className="text-sm leading-relaxed text-muted">
-                  Use snippets to expand common phrases. Try typing{' '}
-                  <code className="rounded-md bg-bg px-1.5 py-0.5 font-mono text-xs">/email</code> to insert your signature.
-                </p>
-              </div>
-            </div>
-          </Card>
-        </motion.div>
+        <StatCard
+          tone="sky"
+          label="Time saved"
+          value={`${stats.timeSavedMinutes}`}
+          unit="min"
+          sub="vs typing at 45 wpm"
+        />
+        <StatCard
+          tone="blush"
+          label="Speaking pace"
+          value={`${stats.speakingPace}`}
+          unit="wpm"
+          sub={`${stats.streak}-day streak`}
+        />
       </div>
 
-      <motion.div variants={item}>
-        <Card className="overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b border-line px-6 py-5">
-            <div>
-              <h2 className="text-display text-xl text-ink">Recent dictations</h2>
-              <p className="mt-1 text-sm text-muted">Your latest transcriptions</p>
-            </div>
-            <Link to="/app/history" className="flex items-center gap-1 text-sm font-semibold text-accent transition-colors hover:text-accent-strong">
-              View all <ArrowRight size={14} />
-            </Link>
+      <div className="grid grid-cols-12 gap-[14px]">
+        {tip.visible && (
+          <HowToCard
+            hotkey={hotkey}
+            pasteHotkey={pasteHotkey}
+            mode={settings.dictationMode}
+            remaining={tip.remaining}
+            tipMode={tip.mode}
+            onHide={() => tip.setVisible(false)}
+          />
+        )}
+        <div
+          className={`col-span-12 grid min-w-0 gap-[14px] ${hasSideCards ? "@min-[861px]/main:col-span-8" : "@min-[861px]/main:col-span-12"}`}
+        >
+          <RecentCard
+            entries={recentItems}
+            copy={copyHistoryEntry}
+            remove={deleteHistoryEntry}
+          />
+          <WhereCard apps={appUsage} words={stats.wordsToday} />
+        </div>
+        {hasSideCards && (
+          <div className="col-span-12 grid content-start gap-[14px] @min-[861px]/main:col-span-4 @min-[861px]/main:grid-cols-1 @max-[860px]/main:grid-cols-2">
+            {showSetup && (
+              <SetupCard
+                items={setup}
+                done={setupDone}
+                onLaunch={() => {
+                  void updateSettings({ launchAtLogin: true });
+                }}
+                onGrant={(permission) => {
+                  void grantPermission(permission);
+                }}
+                onProvider={() => settingsPanel.open("api")}
+              />
+            )}
+            {missingPermissions.length > 0 && (
+              <PermissionsCard
+                missing={missingPermissions}
+                status={permissions}
+                busy={busyPermission}
+                onGrant={grantPermission}
+              />
+            )}
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-          {recentItems.length === 0 ? (
-            <div className="p-10 text-center text-sm text-muted">No dictations yet. Press your hotkey to start!</div>
-          ) : (
-            <div className="divide-y divide-line">
-              {recentItems.map((it) => (
-                <div key={it.id} className="group px-6 py-5 transition-colors hover:bg-surface">
-                  <div className="mb-2 flex items-start justify-between gap-4">
-                    <p className="line-clamp-2 flex-1 text-sm leading-relaxed text-ink/80">{it.text}</p>
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button onClick={() => copyHistoryEntry(it.text)} className="rounded-lg p-2 text-muted transition-colors hover:bg-bg" title="Copy"><Copy size={14} /></button>
-                      <button onClick={() => reinjectHistoryEntry(it.id)} className="rounded-lg p-2 text-muted transition-colors hover:bg-bg" title="Re-inject"><RotateCcw size={14} /></button>
-                      <button onClick={() => deleteHistoryEntry(it.id)} className="rounded-lg p-2 text-muted transition-colors hover:bg-bg hover:text-red-500" title="Delete"><Trash2 size={14} /></button>
-                    </div>
-                  </div>
-                  <div className="label-meta flex items-center gap-3 text-[10px] text-faint">
-                    <span>{it.group}, {it.time}</span>
-                    <span>·</span><span>{it.duration}</span>
-                    <span>·</span><span>{it.wordCount} words</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+// Renders a pastel statistic tile with an optional sparkline.
+function StatCard({
+  tone,
+  label,
+  value,
+  unit,
+  sub,
+  spark,
+}: {
+  tone: "butter" | "mint" | "sky" | "blush";
+  label: string;
+  value: string;
+  unit?: string;
+  sub: string;
+  spark?: number[];
+}) {
+  return (
+    <Card
+      tone={tone}
+      bordered={false}
+      className="relative flex min-h-[134px] flex-col overflow-hidden p-5 text-[#1d1d1d]"
+    >
+      <span className="label-meta text-[10px] text-[#1d1d1d]/70">{label}</span>
+      {spark && <Sparkline values={spark} />}
+      <div className="mt-auto font-display text-[46px] font-extrabold leading-none tracking-[-.04em]">
+        {value}
+        {unit && (
+          <small className="ml-1 text-[18px] tracking-tight">{unit}</small>
+        )}
+      </div>
+      <div className="mt-1.5 min-h-[18px] truncate text-xs text-[#1d1d1d]/65">
+        {sub}
+      </div>
+    </Card>
+  );
+}
+
+// Shows the first-use dictation instructions and settings-aware hotkeys.
+function HowToCard({
+  hotkey,
+  pasteHotkey,
+  mode,
+  remaining,
+  tipMode,
+  onHide,
+}: {
+  hotkey: string;
+  pasteHotkey: string;
+  mode: string;
+  remaining: number;
+  tipMode: string;
+  onHide: () => void;
+}) {
+  return (
+    <Card
+      tone="lav"
+      bordered={false}
+      className="relative col-span-12 grid overflow-hidden p-6 text-[#1d1d1d] @min-[721px]/main:grid-cols-2 @min-[721px]/main:gap-x-10"
+    >
+      <VaaniMark
+        size={265}
+        className="pointer-events-none absolute -bottom-24 left-[40%] text-[#1d1d1d]/[.06]"
+      />
+      <div>
+        <div className="label-meta text-[10px] text-[#1d1d1d]/65">
+          How to dictate
+        </div>
+        <h2 className="mt-3 font-display text-[44px] font-extrabold leading-[.98] tracking-[-.035em]">
+          {mode === "toggle" ? "Press" : "Hold"} <Kbd className="align-[.12em]">{hotkey}</Kbd>,<br />
+          {mode === "toggle" ? "speak, press again." : "speak, let go."}
+        </h2>
+      </div>
+      <div className="relative mt-5 @min-[721px]/main:mt-0">
+        <p className="max-w-[430px] text-[13.5px] leading-relaxed text-[#1d1d1d]/75">
+          Vaani types cleaned-up text wherever your cursor is.{" "}
+          {mode === "toggle-double" && (
+            <>
+              Double-press <Kbd>{hotkey}</Kbd> for hands-free.{" "}
+            </>
           )}
-        </Card>
-      </motion.div>
-    </motion.div>
-  )
+          Press{" "}
+          <KbdGroup>
+            <Kbd>{pasteHotkey}</Kbd>
+          </KbdGroup>{" "}
+          to paste your latest dictation.
+        </p>
+        <div className="mt-4 flex items-center gap-3">
+          <MiniCapsule state="rec" />
+          <span className="text-[11px] text-muted">
+            This capsule sits at the bottom of your screen
+          </span>
+        </div>
+      </div>
+      <div className="relative col-span-full mt-5 flex flex-wrap items-center gap-3 border-t border-dashed border-[#1d1d1d]/20 pt-4">
+        {tipMode === "auto" && (
+          <span
+            className="flex gap-1"
+            aria-label={`${5 - remaining} of 5 dictations`}
+            role="img"
+          >
+            {[1, 2, 3, 4, 5].map((pip) => (
+              <i
+                key={pip}
+                className={`h-1.5 w-[18px] rounded-full ${pip <= 5 - remaining ? "bg-[#1d1d1d]" : "bg-[#1d1d1d]/15"}`}
+              />
+            ))}
+          </span>
+        )}
+        <span className="text-xs text-[#1d1d1d]/70">
+          {tipMode === "auto"
+            ? `Shows for your first 5 dictations, then hides. ${remaining} left.`
+            : "You turned this card back on in Settings › Appearance."}
+        </span>
+        <Button
+          size="sm"
+          variant="default"
+          className="ml-auto"
+          onClick={onHide}
+        >
+          Got it, hide this
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+// Lists the latest dictations with the existing copy and delete actions.
+function RecentCard({
+  entries,
+  copy,
+  remove,
+}: {
+  entries: Array<{
+    id: string;
+    text: string;
+    time: string;
+    app: string;
+    wordCount: number;
+    changes: string;
+  }>;
+  copy: (text: string) => Promise<void>;
+  remove: (id: string) => Promise<void>;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="mb-2 flex items-center justify-between px-2">
+        <h2 className="font-display text-[22px] font-bold text-ink">
+          Recent dictations
+        </h2>
+        <Link
+          className="text-xs font-semibold text-accent hover:underline"
+          to="/app/history"
+        >
+          Open History →
+        </Link>
+      </div>
+      {entries.length ? (
+        entries.map((entry) => (
+          <div
+            key={entry.id}
+            className="group grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl px-2 py-3 hover:bg-surface"
+          >
+            <AppIcon name={entry.app} size={32} />
+            <div className="min-w-0">
+              <p className="line-clamp-2 text-sm leading-relaxed text-ink">
+                {entry.text.split("\n")[0]}
+              </p>
+              <div className="mt-1 text-xs text-muted">
+                {entry.app} · {entry.time} · {entry.wordCount} {entry.wordCount === 1 ? "word" : "words"}
+                {entry.changes && <span className="text-accent"> · ✎ {entry.changes}</span>}
+              </div>
+            </div>
+            <div className="flex opacity-70 group-hover:opacity-100 group-focus-within:opacity-100">
+              <IconButton
+                title="Copy dictation"
+                aria-label="Copy dictation"
+                onClick={() => {
+                  void copy(entry.text);
+                }}
+              >
+                <Copy size={15} />
+              </IconButton>
+              <IconButton
+                title="Delete dictation"
+                aria-label="Delete dictation"
+                className="hover:bg-red-500/10 hover:text-red-600"
+                onClick={() => {
+                  void remove(entry.id);
+                }}
+              >
+                <Trash2 size={15} />
+              </IconButton>
+            </div>
+          </div>
+        ))
+      ) : (
+        <p className="px-3 py-7 text-sm text-muted">
+          Your recent dictations will show up here.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+// Shows the share of today's words dictated in each app.
+function WhereCard({
+  apps,
+  words,
+}: {
+  apps: Array<{ name: string; bundleId: string | null; words: number }>;
+  words: number;
+}) {
+  const total = apps.reduce((sum, app) => sum + app.words, 0);
+  return (
+    <Card className="p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="font-display text-[22px] font-bold text-ink">
+          Where you dictate
+        </h2>
+        <span className="label-meta text-[10px] text-muted">
+          Today · {words.toLocaleString()} words
+        </span>
+      </div>
+      {apps.length ? (
+        <>
+          <div className="my-4 flex h-3 gap-[3px] overflow-hidden rounded-full">
+            {apps.map((app, index) => (
+              <i
+                key={app.name}
+                style={{
+                  flex: app.words,
+                  backgroundColor: APP_COLORS[index % APP_COLORS.length],
+                }}
+              />
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 @min-[641px]/main:grid-cols-3">
+            {apps.map((app) => (
+              <div key={app.name} className="flex min-w-0 items-center gap-2.5">
+                <AppIcon name={app.name} bundleId={app.bundleId} size={30} />
+                <div className="min-w-0">
+                  <b className="block truncate text-[13px] text-ink">
+                    {app.name}
+                  </b>
+                  <small className="text-xs text-muted">
+                    {Math.round((app.words / Math.max(total, 1)) * 100)}% ·{" "}
+                    {app.words} words
+                  </small>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="mt-4 text-sm text-muted">No dictations today yet.</p>
+      )}
+    </Card>
+  );
+}
+
+// Lists setup steps and keeps each action tied to existing settings.
+function SetupCard({
+  items,
+  done,
+  onLaunch,
+  onGrant,
+  onProvider,
+}: {
+  items: Array<{ label: string; done: boolean }>;
+  done: number;
+  onLaunch: () => void;
+  onGrant: (permission: keyof PermissionStatus) => void;
+  onProvider: () => void;
+}) {
+  return (
+    <Card className="p-5">
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-display text-xl font-bold text-ink">Setup</h2>
+        <span className="label-meta text-[10px] text-muted">
+          {done} of {items.length}
+        </span>
+      </div>
+      <div className="my-3 grid grid-cols-4 gap-1">
+        {items.map((item) => (
+          <i
+            key={item.label}
+            className={`h-1.5 rounded-full ${item.done ? "bg-accent" : "bg-surface"}`}
+          />
+        ))}
+      </div>
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className="flex min-h-10 items-center gap-2.5 text-[13px]"
+        >
+          <span
+            className={`grid size-[18px] shrink-0 place-items-center rounded-full ${item.done ? "bg-mint text-green-800" : "border border-dashed border-faint"}`}
+          >
+            {item.done && <Check size={11} />}
+          </span>
+          <span
+            className={`min-w-0 truncate ${item.done ? "text-muted" : "text-ink"}`}
+          >
+            {item.label}
+          </span>
+          {!item.done &&
+            (item.label === "Launch at login" ? (
+              <Button
+                size="sm"
+                variant="primary"
+                className="ml-auto"
+                onClick={onLaunch}
+              >
+                Turn on
+              </Button>
+            ) : item.label === "Transcription provider key" ? (
+              <Button size="sm" className="ml-auto" onClick={onProvider}>
+                Add key
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="ml-auto"
+                onClick={() =>
+                  onGrant(
+                    item.label.startsWith("Microphone")
+                      ? "microphone"
+                      : "accessibility",
+                  )
+                }
+              >
+                Grant
+              </Button>
+            ))}
+        </div>
+      ))}
+    </Card>
+  );
+}
+
+// Shows only permissions that macOS has not granted yet.
+function PermissionsCard({
+  missing,
+  status,
+  busy,
+  onGrant,
+}: {
+  missing: Array<keyof PermissionStatus>;
+  status: PermissionStatus;
+  busy: keyof PermissionStatus | null;
+  onGrant: (permission: keyof PermissionStatus) => Promise<void>;
+}) {
+  return (
+    <Card className="p-5">
+      <h2 className="mb-2 font-display text-xl font-bold text-ink">
+        Permissions
+      </h2>
+      {missing.map((permission) => (
+        <div key={permission} className="flex items-center gap-3 py-2">
+          <span className="grid size-7 place-items-center rounded-[9px] bg-peach text-[#a2462c]">
+            {permission === "microphone" ? (
+              <Mic size={15} />
+            ) : (
+              <ShieldCheck size={15} />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <b className="block text-[13px] font-semibold text-ink">
+              {permission === "microphone" ? "Microphone" : "Accessibility"}
+            </b>
+            <small className="text-xs text-muted">
+              {status[permission] === "denied"
+                ? "Access is off"
+                : "Access is needed"}
+            </small>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => {
+              void onGrant(permission);
+            }}
+            disabled={busy === permission}
+          >
+            Grant
+          </Button>
+        </div>
+      ))}
+    </Card>
+  );
 }

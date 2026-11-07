@@ -1,187 +1,163 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ─── Vaani design system ────────────────────────────────────────────────────
-   Sleek, editorial, minimal. Bold display type, soft pastels, gentle shadows. */
-
 @theme {
-  /* Fonts */
-  --font-display: "Cabinet Grotesk", "DM Sans", sans-serif;
-  --font-body: "DM Sans", "General Sans", system-ui, sans-serif;
+  --font-display: "Funnel Display", "DM Sans", sans-serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
   --font-mono: "Fragment Mono", ui-monospace, monospace;
+  --radius-card: 24px;
 
-  /* Core palette */
-  --color-bg:      #ffffff;
-  --color-surface: #f7f7f7;
-  --color-ink:     #1d1d1d;
-  --color-muted:   #888888;
-  --color-faint:   #999999;
-  --color-line:    #ececec;
-
-  /* Interactive */
-  --color-accent:        #7575c8;
+  --color-bg: #ffffff;
+  --color-side: #f6f6f8;
+  --color-card: #ffffff;
+  --color-surface: #f4f4f6;
+  --color-ink: #1d1d1d;
+  --color-muted: #80808a;
+  --color-faint: #a5a5ad;
+  --color-line: #ececef;
+  --color-accent: #7575c8;
   --color-accent-strong: #5b5bb5;
-  --color-link:          #0099ff;
+  --color-lav: #e3e3ff;
+  --color-sky: #ddeeff;
+  --color-mint: #e4f7cf;
+  --color-blush: #fbe1f6;
+  --color-peach: #ffe9e3;
+  --color-butter: #fff2bd;
+  --color-chip-lav: var(--color-lav);
+  --color-chip-sky: var(--color-sky);
+  --color-chip-mint: var(--color-mint);
+  --color-chip-blush: var(--color-blush);
+  --color-chip-peach: var(--color-peach);
+  --color-chip-butter: var(--color-butter);
+}
 
-  /* Pastel accent chips */
-  --color-chip-lav:    #e3e3ff;
-  --color-chip-sky:    #e3f2ff;
-  --color-chip-mint:   #f3ffe3;
-  --color-chip-blush:  #fde4f9;
-  --color-chip-peach:  #ffeeeb;
-  --color-chip-butter: #fff5c9;
-
-  /* Radius */
-  --radius-card: 20px;
-
-  /* Motion */
-  --ease-ui: cubic-bezier(0.44, 0, 0.56, 1);
+html.dark {
+  --color-bg: #121214;
+  --color-side: #17171a;
+  --color-card: #1b1b1f;
+  --color-surface: #222227;
+  --color-ink: #f3f3f5;
+  --color-muted: #9c9ca6;
+  --color-faint: #64646d;
+  --color-line: #2a2a30;
+  --color-lav: #c9c9f6;
+  --color-sky: #c4def6;
+  --color-mint: #cfe8b4;
+  --color-blush: #ecc8e4;
+  --color-peach: #f3cfc4;
+  --color-butter: #f0de98;
+  --color-chip-lav: var(--color-lav);
+  --color-chip-sky: var(--color-sky);
+  --color-chip-mint: var(--color-mint);
+  --color-chip-blush: var(--color-blush);
+  --color-chip-peach: var(--color-peach);
+  --color-chip-butter: var(--color-butter);
 }
 
 @layer base {
-  html {
-    scroll-behavior: smooth;
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
   }
 
-  *, *::before, *::after {
-    transition-property: color, background-color, border-color;
-    transition-timing-function: ease;
-    transition-duration: 200ms;
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
   }
 
   body {
-    font-family: var(--font-body);
-    background-color: var(--color-bg);
+    background: var(--color-bg);
     color: var(--color-ink);
+    font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    overflow-x: hidden;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    color: inherit;
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
   }
 
   ::selection {
-    background: var(--color-chip-lav);
+    background: var(--color-lav);
     color: #1d1d1d;
   }
 
-  /* Minimal light scrollbar */
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+  * {
+    scrollbar-color: var(--color-line) transparent;
+    scrollbar-width: thin;
   }
-  ::-webkit-scrollbar-track {
-    background: transparent;
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
   }
-  ::-webkit-scrollbar-thumb {
-    background: #e2e2e2;
-    background-clip: content-box;
-    border: 3px solid transparent;
+
+  *::-webkit-scrollbar-thumb {
     border-radius: 999px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #cfcfcf;
-    background-clip: content-box;
+    background: var(--color-line);
   }
 }
 
-@layer utilities {
-  /* Theme cross-fade resilience.
-     The universal `*` rule transitions color/background/border for the dark-mode
-     cross-fade, but any element carrying a Tailwind transition-* utility
-     (transition-transform/opacity/shadow) overwrites transition-property entirely
-     and loses the color cross-fade. Re-add the color properties for those
-     utilities. The doubled class selector (specificity 0,2,0) plus utilities-layer
-     placement guarantees this wins over Tailwind's single-class utility. */
-  .transition-transform.transition-transform,
-  .transition-opacity.transition-opacity,
-  .transition-shadow.transition-shadow {
-    transition-property:
-      transform, opacity, box-shadow, color, background-color, border-color;
-  }
-
-  /* Editorial display heading */
-  .text-display {
-    font-family: var(--font-display);
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    line-height: 0.95;
-  }
-
-  /* Uppercase tracked label */
-  .label-meta {
-    font-family: var(--font-mono);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-  }
-
-  /* Soft + layered card shadows from the design spec */
-  .shadow-soft {
-    box-shadow: rgba(29, 29, 29, 0.1) 0px 2px 4px 0px;
-  }
-  .shadow-card {
-    box-shadow:
-      rgba(0, 0, 0, 0.17) 0px 0.6px 1.6px -1.5px,
-      rgba(0, 0, 0, 0.14) 0px 2.3px 6px -3px,
-      rgba(0, 0, 0, 0.02) 0px 10px 26px -4.5px;
-  }
-
-  /* Borderless underline input */
-  .input-underline {
-    border: 0;
-    border-bottom: 2px solid var(--color-ink);
-    border-radius: 0;
-    background: transparent;
-    transition: border-color 0.2s var(--ease-ui);
-  }
-  .input-underline::placeholder {
-    color: var(--color-faint);
-  }
-  .input-underline:focus {
-    outline: none;
-    border-bottom-color: var(--color-accent);
-  }
+@utility text-display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
 }
 
-/* ─── Motion ─────────────────────────────────────────────────────────────── */
-
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
-}
-.animate-marquee {
-  animation: marquee 26s linear infinite;
+@utility label-meta {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
 }
 
-@keyframes float-y {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-8px); }
+@utility shadow-soft {
+  box-shadow: rgba(29, 29, 29, 0.1) 0 2px 4px;
 }
-.animate-float {
-  animation: float-y 4s ease-in-out infinite;
+
+@utility shadow-card {
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+}
+
+@utility input-underline {
+  border: 0;
+  border-bottom: 2px solid var(--color-ink);
+  background: transparent;
 }
 
 @keyframes spin-ui {
   to { transform: rotate(360deg); }
 }
+
 .animate-spin-ui {
   animation: spin-ui 1s linear infinite;
 }
 
-/* ─── Dark mode ──────────────────────────────────────────────────────────────
-   Semantic tokens are overridden under .dark so every utility (bg-bg, text-ink,
-   border-line, …) re-themes automatically. Pastel chips + accent stay constant
-   — they read as vibrant tags on the dark surface. */
-html.dark {
-  --color-bg:      #131316;
-  --color-surface: #1b1b1f;
-  --color-ink:     #f3f3f5;
-  --color-muted:   #a1a1aa;
-  --color-faint:   #6c6c75;
-  --color-line:    #2a2a31;
+@keyframes vaani-cursor-blink {
+  50% { opacity: 0; }
 }
 
-html.dark ::-webkit-scrollbar-thumb {
-  background: #3a3a42;
+@keyframes vaani-pulse {
+  50% { opacity: 0.4; }
 }
-html.dark ::-webkit-scrollbar-thumb:hover {
-  background: #4a4a54;
+
+@keyframes vaani-capsule-bar {
+  from { transform: scaleY(0.3); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes vaani-processing-dot {
+  0%, 55%, 100% { opacity: 0.28; transform: scale(1); }
+  28% { opacity: 1; transform: scale(1.4); }
 }

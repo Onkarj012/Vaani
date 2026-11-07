@@ -230,7 +230,7 @@ export default function OnboardingModal({ settings, onComplete, updateSettings }
             </div>
 
             {isLastSlide ? (
-              <Button variant="accent" size="sm" onClick={() => { void onComplete(); }}>Start Dictating <Sparkles size={16} /></Button>
+              <Button variant="accent" size="sm" onClick={() => { void onComplete(); }}>Start dictating <Sparkles size={16} /></Button>
             ) : (
               <Button size="sm" onClick={goNext} disabled={nextDisabled}>{slide === 2 || slide === 3 ? "Continue" : "Next"} <ChevronRight size={16} /></Button>
             )}
@@ -303,10 +303,10 @@ function PermissionsSlide({
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><ShieldCheck size={26} /></SlideIcon>
-      <h2 className="text-display mb-2 text-3xl text-ink">Grant Permissions</h2>
+      <h2 className="text-display mb-2 text-3xl text-ink">Grant permissions</h2>
       <p className="mb-6 text-sm text-muted">Vaani needs two macOS permissions to transcribe and insert text.</p>
       <div className="w-full space-y-3">
-        <PermissionRow icon={<Mic size={18} />} title="Microphone" description="Allows Vaani to record your voice when you press the hotkey." granted={micGranted} disabled={busy} actionLabel={micState === "denied" ? "Open Settings" : "Enable"} onAction={onRequestMicrophone} />
+        <PermissionRow icon={<Mic size={18} />} title="Microphone" description="Allows Vaani to record your voice when you press the hotkey." granted={micGranted} disabled={busy} actionLabel={micState === "denied" ? "Open settings" : "Enable"} onAction={onRequestMicrophone} />
         <PermissionRow icon={<Keyboard size={18} />} title="Accessibility" description="Allows Vaani to insert dictated text into the active app." granted={accessibilityGranted} disabled={busy} actionLabel="Enable" onAction={onRequestAccessibility} />
       </div>
       {showMicHint && (
@@ -359,24 +359,24 @@ function ProviderApiSlide({
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Plug size={24} /></SlideIcon>
-      <h2 className="text-display mb-1 text-3xl text-ink">Choose Providers &amp; Add Keys</h2>
+      <h2 className="text-display mb-1 text-3xl text-ink">Choose providers &amp; add keys</h2>
       <p className="mb-5 text-sm text-muted">Choose your transcription and cleanup providers. Your keys stay on your device.</p>
 
       <div className="w-full space-y-3 text-left">
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted">Spoken Language</label>
+          <label className="mb-1 block text-xs font-medium text-muted">Spoken language</label>
           <Select value={settings.language} onChange={onLanguageChange} options={ONBOARDING_LANGUAGES} />
           <p className="mt-1.5 text-xs text-faint">Use Auto-detect for mixed languages, or choose Hindi/Hinglish for better names and phrasing.</p>
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted">Transcription Provider</label>
+          <label className="mb-1 block text-xs font-medium text-muted">Transcription provider</label>
           <Select value={settings.transcriptionProvider} onChange={onProviderChange} options={sttProviders.map((p) => ({ value: p.id, label: p.name }))} />
         </div>
 
         {activeProvider?.requiresApiKey !== false && (
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted">{activeProvider?.name ?? "Provider"} API Key</label>
+            <label className="mb-1 block text-xs font-medium text-muted">{activeProvider?.name ?? "Provider"} API key</label>
             <div className="relative">
               <Input type={showApiKey ? "text" : "password"} value={apiKey} onChange={(e) => onKeyChange(e.target.value)} onBlur={onKeyBlur} autoComplete="off" spellCheck={false}
                 placeholder={activeProvider?.id === "groq" ? "gsk_..." : "sk-or-..."} className="pr-11 font-mono" />
@@ -390,13 +390,13 @@ function ProviderApiSlide({
         <div className="h-px bg-line" />
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted">Formatting Provider</label>
+          <label className="mb-1 block text-xs font-medium text-muted">Formatting provider</label>
           <Select value={settings.formattingProvider} onChange={onLlmProviderChange} options={llmProviders.map((p) => ({ value: p.id, label: p.name }))} />
         </div>
 
         {showLlmKeyInput && (
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted">{activeLlm?.name ?? "Provider"} API Key</label>
+            <label className="mb-1 block text-xs font-medium text-muted">{activeLlm?.name ?? "Provider"} API key</label>
             <div className="relative">
               <Input type={showLlmApiKey ? "text" : "password"} value={llmApiKey} onChange={(e) => onLlmKeyChange(e.target.value)} onBlur={onLlmKeyBlur} autoComplete="off" spellCheck={false}
                 placeholder={activeLlm?.id === "anthropic" ? "sk-ant-..." : activeLlm?.id === "openrouter" ? "sk-or-..." : "sk-..."} className="pr-11 font-mono" />
@@ -409,7 +409,7 @@ function ProviderApiSlide({
 
         {isValid && (
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex items-center gap-2 rounded-xl bg-accent/10 px-3 py-2 text-xs font-medium text-accent">
-            <CheckCircle2 size={13} /> API key saved — you&apos;re ready to dictate
+            <CheckCircle2 size={13} /> API key saved. You&apos;re ready to dictate
           </motion.div>
         )}
 
@@ -465,7 +465,7 @@ function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onCha
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Keyboard size={26} /></SlideIcon>
-      <h2 className="text-display mb-2 text-3xl text-ink">Your Shortcut</h2>
+      <h2 className="text-display mb-2 text-3xl text-ink">Your shortcut</h2>
       <p className="mb-8 text-sm text-muted">Choose the key combination you will press to start dictating.</p>
 
       <div className="w-full rounded-2xl border border-line bg-surface p-5">
@@ -495,7 +495,7 @@ function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onCha
             {error && <p className="text-xs leading-relaxed text-red-600">{error}</p>}
           </div>
         )}
-        <p className="mt-3 text-left text-xs text-faint"><Volume2 size={10} className="mr-1 inline" /> You can also change this anytime in Settings</p>
+        <p className="mt-3 text-left text-xs text-faint"><Volume2 size={10} className="mr-1 inline" /> You can also change this anytime in settings</p>
       </div>
     </div>
   );
@@ -503,15 +503,15 @@ function HotkeySlide({ primaryHotkey, onChange }: { primaryHotkey: string; onCha
 
 function FeaturesSlide() {
   const features = [
-    { icon: <Sparkles size={18} />, title: "Smart Cleanup", desc: "Removes filler words and adds punctuation automatically.", tone: "bg-accent/10 text-accent" },
-    { icon: <BookOpen size={18} />, title: "Custom Dictionary", desc: "Teach Vaani names, brands, and words you use often.", tone: "bg-accent/10 text-accent" },
+    { icon: <Sparkles size={18} />, title: "Smart cleanup", desc: "Removes filler words and adds punctuation automatically.", tone: "bg-accent/10 text-accent" },
+    { icon: <BookOpen size={18} />, title: "Custom dictionary", desc: "Teach Vaani names, brands, and words you use often.", tone: "bg-accent/10 text-accent" },
     { icon: <FileText size={18} />, title: "Snippets", desc: "Type shortcuts like /address to expand full text blocks.", tone: "bg-accent/10 text-accent" },
-    { icon: <BarChart3 size={18} />, title: "History & Insights", desc: "Track your dictation habits, word counts, and streaks.", tone: "bg-accent/10 text-accent" },
+    { icon: <BarChart3 size={18} />, title: "History & insights", desc: "Track your dictation habits, word counts, and streaks.", tone: "bg-accent/10 text-accent" },
   ];
   return (
     <div className="flex flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Sparkles size={26} /></SlideIcon>
-      <h2 className="text-display mb-2 text-3xl text-ink">Power Features</h2>
+      <h2 className="text-display mb-2 text-3xl text-ink">Power features</h2>
       <p className="mb-8 text-sm text-muted">Explore these anytime from the sidebar.</p>
       <div className="grid w-full grid-cols-2 gap-3">
         {features.map((f, i) => (
@@ -593,14 +593,14 @@ function DemoSlide({ primaryHotkey, dictationMode }: { primaryHotkey: string; di
     streamRef.current?.getTracks().forEach((t) => t.stop());
   }, []);
 
-  const statusLabel = phase === "active" ? "Listening…" : phase === "transcribing" ? "Transcribing…" : transcription ? "Done — try again anytime" : "Press Record to try your shortcut";
+  const statusLabel = phase === "active" ? "Listening…" : phase === "transcribing" ? "Transcribing…" : transcription ? "Done. Try again anytime." : "Press Record to try your shortcut";
   const isRecording = phase === "active";
 
   return (
     <div className="flex w-full flex-col items-center text-center">
       <SlideIcon tone="bg-accent/10 text-accent"><Keyboard size={24} /></SlideIcon>
-      <h2 className="text-display mb-1 text-3xl text-ink">Try Your Shortcut</h2>
-      <p className="mb-4 text-sm text-muted">Press Record and speak your phrase — just like real dictation.</p>
+      <h2 className="text-display mb-1 text-3xl text-ink">Try your shortcut</h2>
+      <p className="mb-4 text-sm text-muted">Press Record and speak your phrase, just like real dictation.</p>
 
       <div className="mb-4 w-full rounded-2xl border border-line bg-surface p-4">
         <HotkeyBadges keys={displayKeys} />
@@ -660,7 +660,7 @@ function ReadySlide() {
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10 text-accent"><History size={18} /></div>
         <div className="text-left">
           <div className="text-sm font-medium text-ink">Reopen this guide</div>
-          <div className="text-xs text-muted">Settings → Reset Onboarding</div>
+          <div className="text-xs text-muted">Settings → Reset onboarding</div>
         </div>
       </div>
     </div>

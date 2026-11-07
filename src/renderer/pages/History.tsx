@@ -1,337 +1,608 @@
-import { recoveryReadinessMessage } from "@shared/recoveryReadiness";
-import { useEffect, useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Search, Copy, RotateCcw, Trash2, Clock, Type, X, Check, AudioLines, Edit3, FileWarning, RefreshCw, Globe, Play, ShieldAlert } from 'lucide-react'
-import { useVaaniUi } from '@renderer/context/vaani-ui'
-import { Card } from '@renderer/components/ui/card'
-import { Input, Textarea } from '@renderer/components/ui/input'
-import { Button } from '@renderer/components/ui/button'
-import type { DictationTrace } from '@shared/types'
-import { getLanguageLabel } from '@shared/defaults'
-import { createRecoveryActionRunner, dedupeRecoveryEntries, deriveRecoveryItem, filterRecoveryItems, matchesRecoverySearch, type RecoveryAction, type RecoveryFilter } from '@renderer/lib/recoveryDerivations'
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import {
+  Bug,
+  Check,
+  ChevronDown,
+  Copy,
+  Pencil,
+  Search,
+  Trash2,
+} from "lucide-react";
+import type { DictationEntry, DictationTrace } from "@shared/types";
+import { useVaaniUi } from "@renderer/context/vaani-ui";
+import AppIcon from "@renderer/components/ui/AppIcon";
+import { Button } from "@renderer/components/ui/button";
+import { Tag } from "@renderer/components/ui/tag";
+import FilterChips from "@renderer/components/ui/FilterChips";
+import PageHeader from "@renderer/components/ui/PageHeader";
+import { Segmented } from "@renderer/components/ui/Segmented";
+import { Textarea } from "@renderer/components/ui/input";
+import { formatHotkeyLabel } from "@renderer/components/HotkeyCapture";
+import {
+  buildProof,
+  summarizeProof,
+  type ProofToken,
+} from "@renderer/lib/proofMarks";
+import { historyTimeLabel, proofSummaryText } from "@renderer/lib/listRows";
+import { cn } from "@renderer/lib/utils";
 
-type TraceLoadState = DictationTrace | null | 'loading'
+type HistoryFilter = "all" | "inserted" | "saved";
+type DetailTab = "proof" | "cleaned" | "raw";
 
-const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } }
-const item = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }
-
+// Renders the expandable history list and its selected dictation details.
 export default function History() {
-  const { historyItems, updateHistoryEntry, deleteHistoryEntry, reinjectHistoryEntry, retryHistoryEntry, copyHistoryEntry, recoveryReadiness, recoveryEntries, reloadHistory, retryRecoveryTranscription, retryRecoveryFormatting, useRawRecoveryTranscript, retryRecoveryInsertion, copyRecoveryEntry, playRecoveryAudio, deleteRecoveryAudio, discardRecoveryEntry } = useVaaniUi()
-  const [searchQuery, setSearchQuery] = useState('')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editText, setEditText] = useState('')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [traces, setTraces] = useState<Record<string, TraceLoadState>>({})
-  const [recoveryFilter, setRecoveryFilter] = useState<RecoveryFilter>('all')
-  const [busyRecoveryIds, setBusyRecoveryIds] = useState<string[]>([])
-  const [recoveryActionErrors, setRecoveryActionErrors] = useState<Record<string, string>>({})
-  const [recoveryActionRunner] = useState(() => createRecoveryActionRunner(
-    (id, busy) => setBusyRecoveryIds((current) => busy ? [...current, id] : current.filter((value) => value !== id)),
-    (id, message) => setRecoveryActionErrors((current) => {
-      const next = { ...current }
-      if (message) next[id] = message
-      else delete next[id]
-      return next
+  const {
+    historyEntries,
+    settings,
+    updateHistoryEntry,
+    deleteHistoryEntry,
+    copyHistoryEntry,
+  } = useVaaniUi();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get("q") ?? "";
+  const requestedEditId = searchParams.get("editEntryId");
+  const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>("proof");
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [traces, setTraces] = useState<
+    Record<string, DictationTrace | null | "loading">
+  >({});
+  const processedEditId = useRef<string | null>(null);
+
+  const entries = useMemo(
+    () =>
+      [...historyEntries].sort(
+        (a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp),
+      ),
+    [historyEntries],
+  );
+  const options = useMemo(
+    () => ({
+      fillers: [...settings.fillerWords, ...settings.extraFillerWords],
+      corrections: settings.customCorrections,
     }),
-  ))
-
-  const groups = ['Today', 'Yesterday', 'This Week', 'Earlier']
-  const grouped = groups
-    .map((group) => ({
-      date: group,
-      items: historyItems
-        .filter((it) => it.group === group)
-        .filter((it) => it.text.toLowerCase().includes(searchQuery.toLowerCase())),
-    }))
-    .filter((group) => group.items.length > 0)
-  const recoveryItems = useMemo(
-    () => filterRecoveryItems(
-      dedupeRecoveryEntries(recoveryEntries).map((entry) => deriveRecoveryItem(entry)),
-      recoveryFilter,
-    ).filter((item) => matchesRecoverySearch(item, searchQuery)),
-    [recoveryEntries, recoveryFilter, searchQuery],
-  )
-
-  const runRecoveryAction = async (id: string, action: RecoveryAction) => {
-    if (recoveryActionRunner.isBusy(id)) return
-    if (action === 'delete-audio' && !window.confirm('Delete the encrypted recovery audio? The transcript will stay in History.')) return
-    if (action === 'discard' && !window.confirm('Discard this recovery item and its encrypted audio?')) return
-    await recoveryActionRunner.run(id, async () => {
-      if (action === 'retry-transcription') return retryRecoveryTranscription(id)
-      if (action === 'retry-formatting') return retryRecoveryFormatting(id)
-      if (action === 'use-raw-transcript') return useRawRecoveryTranscript(id)
-      if (action === 'retry-insertion') return retryRecoveryInsertion(id)
-      if (action === 'copy') {
-        const copied = await copyRecoveryEntry(id)
-        if (copied) await reloadHistory()
-        return copied
-      }
-      if (action === 'play-audio') return playRecoveryAudio(id)
-      if (action === 'delete-audio') return deleteRecoveryAudio(id)
-      return discardRecoveryEntry(id)
-    })
-  }
-
-  const handleSave = () => {
-    if (editingId) void updateHistoryEntry(editingId, editText)
-    setEditingId(null)
-  }
+    [
+      settings.fillerWords,
+      settings.extraFillerWords,
+      settings.customCorrections,
+    ],
+  );
+  // Proof summaries are costly, so they are worked out once per history or settings change, not on every keystroke.
+  const lineSummaries = useMemo(
+    () =>
+      new Map(
+        entries.map((entry) => [
+          entry.id,
+          proofSummaryText(summarizeProof(buildProof(entry.rawText, entry.cleanedText, options))),
+        ]),
+      ),
+    [entries, options],
+  );
+  const visibleEntries = entries.filter((entry) => {
+    const filterMatches =
+      filter === "all" ||
+      (filter === "inserted" ? entry.injectionStatus === "injected" : entry.injectionStatus === "saved");
+    return (
+      filterMatches &&
+      (!query.trim() ||
+        `${entry.cleanedText} ${entry.formattedText} ${entry.rawText} ${entry.appName ?? ""}`
+          .toLocaleLowerCase()
+          .includes(query.trim().toLocaleLowerCase()))
+    );
+  });
+  const selected = visibleEntries.find((entry) => entry.id === openId) ?? null;
 
   useEffect(() => {
-    const item = historyItems.find((candidate) => candidate.id === expandedId)
-    if (!item?.traceId || traces[item.traceId] !== undefined) return
-    const traceId = item.traceId
-    setTraces((current) => ({ ...current, [traceId]: 'loading' }))
-    void window.vaani.getDictationTrace(traceId)
-      .then((trace) => {
-        setTraces((current) => ({ ...current, [traceId]: trace ?? null }))
-      })
-      .catch(() => {
-        setTraces((current) => ({ ...current, [traceId]: null }))
-      })
-  }, [expandedId, historyItems, traces])
+    // Forget the last request once its param is gone, so the same entry can be opened again.
+    if (!requestedEditId) {
+      processedEditId.current = null;
+      return;
+    }
+    if (processedEditId.current === requestedEditId) return;
+    const entry = historyEntries.find((item) => item.id === requestedEditId);
+    if (!entry) return;
+    processedEditId.current = requestedEditId;
+    setFilter("all");
+    setOpenId(entry.id);
+    setDraft(entry.cleanedText);
+    setEditing(true);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("editEntryId");
+        next.delete("q");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [requestedEditId, historyEntries, setSearchParams]);
 
-  const copyBugReport = async (entryId: string) => {
-    const report = await window.vaani.exportBugReport(entryId)
-    await window.vaani.copyText(JSON.stringify(report, null, 2))
-  }
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (editing) {
+        setEditing(false);
+        setDraft(selected?.cleanedText ?? "");
+        return;
+      }
+      if (openId) setOpenId(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editing, openId, selected]);
+
+  useEffect(() => {
+    const traceId = selected?.traceId;
+    if (!traceId || traces[traceId] !== undefined) return;
+    setTraces((current) => ({ ...current, [traceId]: "loading" }));
+    void window.vaani
+      .getDictationTrace(traceId)
+      .then((trace) =>
+        setTraces((current) => ({ ...current, [traceId]: trace ?? null })),
+      )
+      .catch(() => setTraces((current) => ({ ...current, [traceId]: null })));
+  }, [selected?.traceId, traces]);
+
+  const setQuery = (value: string) =>
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value) next.set("q", value);
+        else next.delete("q");
+        return next;
+      },
+      { replace: true },
+    );
+  const counts = {
+    all: entries.length,
+    inserted: entries.filter((entry) => entry.injectionStatus === "injected")
+      .length,
+    saved: entries.filter((entry) => entry.injectionStatus === "saved").length,
+  };
+  const close = () => {
+    setOpenId(null);
+    setEditing(false);
+    setDraft("");
+  };
+  const saveEdit = () => {
+    if (!selected) return;
+    void updateHistoryEntry(selected.id, draft);
+    setEditing(false);
+  };
+  const deleteEntry = () => {
+    if (!selected) return;
+    void deleteHistoryEntry(selected.id);
+    close();
+  };
+  const exportReport = async (entry: DictationEntry) => {
+    const report = await window.vaani.exportBugReport(entry.id);
+    await window.vaani.copyText(JSON.stringify(report, null, 2));
+  };
+  const proof = selected
+    ? buildProof(selected.rawText, selected.cleanedText, options)
+    : [];
+  const summary = summarizeProof(proof);
+  const trace = selected?.traceId ? traces[selected.traceId] : undefined;
 
   return (
-    <motion.div variants={container} initial="hidden" animate="visible" className="mx-auto max-w-6xl space-y-7">
-      <motion.div variants={item} className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <p className="label-meta mb-2 text-[11px] text-accent">✦ Archive</p>
-          <h1 className="text-display text-5xl text-ink">History</h1>
-          <p className="mt-3 text-muted">Search and manage your past dictations.</p>
-        </div>
-        <span className="label-meta text-[11px] text-faint">{historyItems.length} total</span>
-      </motion.div>
-
-      <motion.div variants={item} className="relative">
-        <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-faint" />
-        <Input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search dictations…"
-          className="pl-11"
+    <div className="flex min-h-0 flex-1 flex-col">
+      <PageHeader
+        eyebrow="Kept on this Mac"
+        title="History"
+        subtitle="Everything you dictated, with what Vaani changed."
+      />
+      <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3">
+        <label className="flex h-10 w-[340px] max-w-full items-center gap-[9px] rounded-full bg-surface px-[15px] text-muted">
+          <SearchFieldInput value={query} onChange={setQuery} />
+        </label>
+        <FilterChips
+          value={filter}
+          onChange={(value) => setFilter(value as HistoryFilter)}
+          options={[
+            { value: "all", label: "All", count: counts.all },
+            { value: "inserted", label: "Inserted", count: counts.inserted },
+            { value: "saved", label: "Saved", count: counts.saved },
+          ]}
         />
-        {searchQuery && (
-          <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-faint hover:text-ink">
-            <X size={15} />
-          </button>
-        )}
-      </motion.div>
-
-      <p role="status" className="rounded-2xl border border-line p-4 text-sm text-muted">{recoveryReadinessMessage(recoveryReadiness)}</p>
-      {recoveryEntries.length > 0 && (
-        <RecoverySection total={recoveryEntries.length} items={recoveryItems} filter={recoveryFilter} onFilterChange={setRecoveryFilter} busyIds={busyRecoveryIds} errors={recoveryActionErrors} onAction={(id, action) => { void runRecoveryAction(id, action) }} />
-      )}
-
-      <div className="space-y-8">
-        {grouped.length === 0 ? (
-          <motion.div variants={item} className="py-20 text-center">
-            <Search size={44} className="mx-auto mb-4 text-line" />
-            <h3 className="text-display text-xl text-ink">No results found</h3>
-            <p className="mt-2 text-sm text-muted">Try adjusting your search query.</p>
-          </motion.div>
+      </div>
+      <section
+        aria-label="Dictations"
+        className="min-h-0 flex-1 overflow-y-auto rounded-card border border-line bg-card p-1.5"
+      >
+        {visibleEntries.length === 0 ? (
+          <p className="px-5 py-12 text-center text-sm text-muted">
+            {entries.length
+              ? "No dictations match."
+              : `No dictations yet. ${settings.dictationMode === "toggle" ? "Press" : "Hold"} ${formatHotkeyLabel(settings.primaryHotkey)} anywhere to start.`}
+          </p>
         ) : (
-          grouped.map((group) => (
-            <motion.div key={group.date} variants={item}>
-              <div className="mb-4 flex items-center gap-3">
-                <h2 className="label-meta text-[11px] text-muted">{group.date}</h2>
-                <div className="h-px flex-1 bg-line" />
-              </div>
-
-              <div className="space-y-3">
-                {group.items.map((it) => (
-                  <Card key={it.id} hover className="p-5">
-                    {editingId === it.id ? (
-                      <div className="space-y-3">
-                        <Textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={3} />
-                        <div className="flex items-center justify-end gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
-                          <Button variant="accent" size="sm" onClick={handleSave}><Check size={14} />Save</Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className={`text-sm leading-relaxed text-ink/85 ${expandedId === it.id ? '' : 'line-clamp-2'}`}>{it.text}</p>
-                        {it.text.length > 150 && (
-                          <button
-                            onClick={() => setExpandedId(expandedId === it.id ? null : it.id)}
-                            className="mt-2 text-xs font-semibold text-accent transition-colors hover:text-accent-strong"
-                          >
-                            {expandedId === it.id ? 'Show less' : 'Show more'}
-                          </button>
-                        )}
-                        {expandedId === it.id && it.traceId && (
-                          <Diagnostics trace={resolvedTrace(traces[it.traceId])} />
-                        )}
-
-                        <div className="label-meta mt-4 flex items-center gap-3 text-[10px] text-faint">
-                          <span className="flex items-center gap-1"><Clock size={11} />{it.time}</span>
-                          <span className="flex items-center gap-1"><AudioLines size={11} />{it.duration}</span>
-                          <span className="flex items-center gap-1"><Type size={11} />{it.wordCount} words</span>
-                          {(it.detectedLanguage || it.language) && (
-                            <span className="flex items-center gap-1">
-                              <Globe size={11} />{getLanguageLabel(it.detectedLanguage || it.language)}
-                            </span>
-                          )}
-                          <span>{it.injectionStatus === 'injected' ? 'Inserted' : 'Saved'}</span>
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap items-center gap-2">
-                          <Button variant="soft" size="sm" onClick={() => copyHistoryEntry(it.text)}><Copy size={13} />Copy</Button>
-                          <Button variant="soft" size="sm" onClick={() => reinjectHistoryEntry(it.id)}><RotateCcw size={13} />Re-inject</Button>
-                          <Button variant="soft" size="sm" onClick={() => retryHistoryEntry(it.id)}><RefreshCw size={13} />Retry</Button>
-                          <Button variant="soft" size="sm" onClick={() => { setEditingId(it.id); setEditText(it.text) }}><Edit3 size={13} />Edit</Button>
-                          {it.traceId && (
-                            <Button variant="soft" size="sm" onClick={() => setExpandedId(expandedId === it.id ? null : it.id)}><AudioLines size={13} />Diagnostics</Button>
-                          )}
-                          <Button variant="soft" size="sm" onClick={() => copyBugReport(it.id)}><FileWarning size={13} />Report</Button>
-                          <button
-                            onClick={() => deleteHistoryEntry(it.id)}
-                            className="ml-auto rounded-full p-2 text-faint transition-colors hover:bg-red-50 hover:text-red-500"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </>
+          visibleEntries.map((entry) => {
+            const isOpen = entry.id === openId;
+            const app = entry.appName?.trim() || "Unknown app";
+            const time = historyTimeLabel(entry.timestamp);
+            const lineSummary = lineSummaries.get(entry.id) ?? "";
+            return (
+              <article
+                key={entry.id}
+                className={cn("rounded-[18px]", isOpen && "bg-surface")}
+              >
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  aria-controls={`history-${entry.id}`}
+                  onClick={() => {
+                    if (isOpen) close();
+                    else {
+                      setOpenId(entry.id);
+                      setDraft(entry.cleanedText);
+                      setEditing(false);
+                      setDetailTab("proof");
+                    }
+                  }}
+                  className={cn(
+                    "grid w-full grid-cols-[30px_minmax(0,1fr)_auto_136px_16px] items-center gap-3.5 rounded-[18px] px-3.5 py-[11px] text-left hover:bg-surface @max-[720px]/main:grid-cols-[30px_minmax(0,1fr)_auto_16px] @max-[720px]/main:[&_.history-time]:hidden",
+                    isOpen && "hover:bg-transparent",
+                  )}
+                >
+                  <AppIcon name={app} bundleId={entry.appBundleId} size={30} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[14px] font-medium text-ink">
+                      {entry.cleanedText.split("\n")[0] || "Empty dictation"}
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-muted">
+                      {app} ·{" "}
+                      {new Date(entry.timestamp).toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                      {lineSummary && (
+                        <>
+                          {" "}
+                          · <span className="text-accent">✎ {lineSummary}</span>
+                        </>
+                      )}
+                    </span>
+                  </span>
+                  {entry.injectionStatus === "saved" ? (
+                    <Tag tone="butter">Saved</Tag>
+                  ) : (
+                    <span />
+                  )}
+                  <span className="history-time whitespace-nowrap text-right text-xs text-muted">
+                    {time}
+                  </span>
+                  <ChevronDown
+                    size={15}
+                    className={cn(
+                      "text-faint transition-transform",
+                      isOpen && "rotate-180",
                     )}
-                  </Card>
-                ))}
-              </div>
-            </motion.div>
-          ))
-        )}
-      </div>
-    </motion.div>
-  )
-}
-
-function RecoverySection({
-  total,
-  items,
-  filter,
-  onFilterChange,
-  onAction,
-  busyIds,
-  errors,
-}: {
-  total: number;
-  items: ReturnType<typeof deriveRecoveryItem>[];
-  filter: RecoveryFilter;
-  onFilterChange: (filter: RecoveryFilter) => void;
-  onAction: (id: string, action: RecoveryAction) => void;
-  busyIds: string[];
-  errors: Record<string, string>;
-}) {
-  const filters: Array<{ value: RecoveryFilter; label: string }> = [
-    { value: 'all', label: 'All' },
-    { value: 'needs-transcription', label: 'Transcription' },
-    { value: 'needs-formatting', label: 'Formatting' },
-    { value: 'ready-to-insert', label: 'Ready to insert' },
-    { value: 'text-only', label: 'Text only' },
-  ]
-  return (
-    <motion.section variants={item} aria-labelledby="recovery-heading" className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-3">
-          <h2 id="recovery-heading" className="text-display text-2xl text-ink">Recovery</h2>
-          <span className="rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">{total}</span>
-        </div>
-        <div className="flex flex-wrap gap-1.5 sm:ml-auto">
-          {filters.map((option) => (
-            <button key={option.value} onClick={() => onFilterChange(option.value)} className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${filter === option.value ? 'bg-ink text-bg' : 'bg-surface text-muted hover:bg-line hover:text-ink'}`}>
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {items.length === 0 ? <p className="rounded-2xl border border-line p-5 text-sm text-muted">No recovery items match this filter.</p> : (
-        <div className="space-y-3">
-          {items.map((item) => (
-            <Card key={item.entry.id} className="p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-700">{item.status}</span>
-                    {item.entry.recoveryMode === 'text-only' && <span className="rounded-full bg-surface px-2.5 py-1 text-[11px] font-semibold text-muted">Reduced recovery</span>}
+                  />
+                </button>
+                {isOpen && (
+                  <div
+                    id={`history-${entry.id}`}
+                    role="region"
+                    aria-label={`${app} dictation, ${time}`}
+                    className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-5 px-4 pb-5 pl-[58px] @max-[860px]/main:grid-cols-1 @max-[720px]/main:pl-4"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center justify-between gap-3">
+                        <Segmented
+                          value={detailTab}
+                          onChange={(value) => setDetailTab(value as DetailTab)}
+                          options={[
+                            { value: "proof", label: "Proof" },
+                            {
+                              value: "cleaned",
+                              label: "Cleaned",
+                            },
+                            { value: "raw", label: "Raw" },
+                          ]}
+                        />
+                        <span className="label-meta text-[10px] text-faint">
+                          {detailTab === "proof"
+                            ? "What Vaani changed"
+                            : detailTab === "raw"
+                              ? "Before cleanup"
+                              : "What was typed"}
+                        </span>
+                      </div>
+                      {editing ? (
+                        <div className="mt-3 rounded-[18px] border border-line bg-card p-4">
+                          <Textarea
+                            aria-label="Edit dictation text"
+                            value={draft}
+                            onChange={(event) => setDraft(event.target.value)}
+                            rows={5}
+                            className="resize-y"
+                          />
+                          <div className="mt-3 flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setEditing(false);
+                                setDraft(entry.cleanedText);
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button size="sm" onClick={saveEdit}>
+                              <Check />
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="my-3 rounded-[20px] border border-line bg-card p-5">
+                          <div
+                            className={cn(
+                              "min-h-[54px] whitespace-pre-line text-[16.5px] leading-[1.7] text-ink",
+                              detailTab === "raw" &&
+                                "font-mono text-sm text-muted",
+                            )}
+                          >
+                            {detailTab === "raw" ? (
+                              entry.rawText
+                            ) : detailTab === "cleaned" ? (
+                              entry.cleanedText
+                            ) : (
+                              <ProofText tokens={proof} />
+                            )}
+                          </div>
+                          {detailTab === "proof" && (
+                            <ProofLegend summary={summary} />
+                          )}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            void copyHistoryEntry(entry.cleanedText)
+                          }
+                        >
+                          <Copy />
+                          Copy
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          disabled={editing}
+                          onClick={() => {
+                            setDraft(entry.cleanedText);
+                            setEditing(true);
+                          }}
+                        >
+                          <Pencil />
+                          Edit
+                        </Button>
+                        <span className="flex-1" />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void exportReport(entry)}
+                        >
+                          <Bug />
+                          Export bug report
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          aria-label="Delete dictation"
+                          onClick={deleteEntry}
+                        >
+                          <Trash2 />
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="label-meta text-[10px] text-faint">
+                        Diagnostics
+                      </p>
+                      <Diagnostics
+                        entry={entry}
+                        trace={trace === "loading" ? undefined : trace}
+                      />
+                    </div>
                   </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink/85">{item.preview}</p>
-                </div>
-                <div className="label-meta text-right text-[10px] text-faint">
-                  <div>{item.age}</div>
-                  <div className="mt-1">{item.expires}</div>
-                </div>
-              </div>
-              <div className="label-meta mt-4 flex flex-wrap items-center gap-3 text-[10px] text-faint">
-                <span>{item.entry.audioAvailable ? `Audio available${item.entry.audioDurationSeconds ? ` · ${Math.round(item.entry.audioDurationSeconds)}s` : ''}` : 'Audio unavailable'}</span>
-                {item.entry.appName && <span>Target noted: {item.entry.appName}</span>}
-                <span>State: {item.entry.state.replaceAll('_', ' ')}</span>
-              </div>
-              {item.entry.lastError.class !== 'none' && (
-                <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-500/5 p-3 text-xs text-red-600"><ShieldAlert size={14} className="mt-0.5 shrink-0" /><span>Last error: {item.entry.lastError.class.replaceAll('_', ' ')}{item.entry.lastError.detail ? ` · ${item.entry.lastError.detail}` : ''}</span></div>
-              )}
-              {errors[item.entry.id] && <p role="alert" className="mt-3 text-xs text-red-600">{errors[item.entry.id]}</p>}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {item.actions.map((action) => <RecoveryActionButton key={action} action={action} disabled={busyIds.includes(item.entry.id)} onClick={() => onAction(item.entry.id, action)} />)}
-              </div>
-            </Card>
-          ))}
-        </div>
+                )}
+              </article>
+            );
+          })
+        )}
+      </section>
+    </div>
+  );
+}
+
+// Renders the history search input that the toolbar shortcut focuses.
+function SearchFieldInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <>
+      <Search size={16} aria-hidden="true" />
+      <input
+        data-history-search
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Search what you said…"
+        className="min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-muted"
+      />
+      <kbd className="pointer-events-none rounded-[7px] border border-line bg-card px-1.5 py-1 text-[11px] font-semibold text-ink">
+        ⌘K
+      </kbd>
+    </>
+  );
+}
+
+// Renders proof tokens with the prototype's change marks.
+function ProofText({ tokens }: { tokens: ProofToken[] }) {
+  return (
+    <>
+      {tokens.map((token, index) => {
+        if (token.kind === "break") return <br key={index} />;
+        if (token.kind === "filler" || token.kind === "scratched")
+          return (
+            <Fragment key={index}>
+              <s className="text-[#c2412d] decoration-[#c2412d] dark:text-[#f0907c] dark:decoration-[#f0907c]">
+                {token.text}
+              </s>{" "}
+            </Fragment>
+          );
+        if (token.kind === "command")
+          return (
+            <span
+              key={index}
+              className="mx-1 rounded-md bg-blush px-1.5 py-0.5 font-mono text-[11px] text-[#7a2d66]"
+            >
+              ⌫ {token.text}
+            </span>
+          );
+        if (token.kind === "fix")
+          return (
+            <Fragment key={index}>
+              <span
+                className={cn(
+                  "rounded-md px-1 py-0.5 text-[#1d1d1d]",
+                  token.dictionary ? "bg-sky" : "bg-butter",
+                )}
+              >
+                <s className="mr-1 font-mono text-[11px] text-[#45515f]">
+                  {token.from}
+                </s>
+                {token.to}
+              </span>{" "}
+            </Fragment>
+          );
+        if (token.kind === "added")
+          return (
+            <Fragment key={index}>
+              <span className="rounded-md bg-butter px-1 text-[#1d1d1d]">
+                {token.text}
+              </span>{" "}
+            </Fragment>
+          );
+        if (token.kind === "removed")
+          return (
+            <Fragment key={index}>
+              <s className="text-muted">{token.text}</s>{" "}
+            </Fragment>
+          );
+        return <span key={index}>{token.text} </span>;
+      })}
+    </>
+  );
+}
+
+// Renders the proof legend from the changes found in the transcript.
+function ProofLegend({
+  summary,
+}: {
+  summary: ReturnType<typeof summarizeProof>;
+}) {
+  const labels = [
+    summary.fillers > 0 &&
+      `${summary.fillers} filler${summary.fillers === 1 ? "" : "s"} removed`,
+    summary.scratched > 0 && "Scratched with ‘scratch that’",
+    summary.dictionaryFixes > 0 &&
+      `${summary.dictionaryFixes} dictionary fix${summary.dictionaryFixes === 1 ? "" : "es"}`,
+    summary.rewrites > 0 &&
+      `${summary.rewrites} text fix${summary.rewrites === 1 ? "" : "es"}`,
+  ].filter((label): label is string => Boolean(label));
+  return (
+    <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-dashed border-line pt-3 text-xs text-muted">
+      {labels.length ? (
+        labels.map((label) => <span key={label}>{label}</span>)
+      ) : (
+        <span>Vaani only added punctuation and capitals</span>
       )}
-    </motion.section>
-  )
-}
-
-function RecoveryActionButton({ action, onClick, disabled }: { action: RecoveryAction; onClick: () => void; disabled: boolean }) {
-  const labels: Record<RecoveryAction, string> = {
-    'retry-transcription': 'Retry transcription',
-    'retry-formatting': 'Retry formatting',
-    'use-raw-transcript': 'Use raw transcript',
-    'retry-insertion': 'Retry insertion',
-    copy: 'Copy',
-    'play-audio': 'Play audio',
-    'delete-audio': 'Delete audio',
-    discard: 'Discard',
-  }
-  const Icon = action === 'copy' ? Copy : action === 'play-audio' ? Play : action === 'discard' || action === 'delete-audio' ? Trash2 : action.startsWith('retry') ? RefreshCw : RotateCcw
-  return <Button variant={action === 'discard' || action === 'delete-audio' ? 'destructive' : 'soft'} size="sm" onClick={onClick} disabled={disabled}><Icon size={13} />{labels[action]}</Button>
-}
-
-function Diagnostics({ trace }: { trace: DictationTrace | null | undefined }) {
-  if (trace === undefined) {
-    return <div className="mt-4 rounded-md border border-line bg-bg/60 p-3 text-xs text-muted">Loading diagnostics…</div>
-  }
-  if (!trace) {
-    return <div className="mt-4 rounded-md border border-line bg-bg/60 p-3 text-xs text-muted">No diagnostics saved for this dictation.</div>
-  }
-  const raw = trace.rawAudio
-  const trimmed = trace.trimmedAudio
-  return (
-    <div className="mt-4 grid gap-3 rounded-md border border-line bg-bg/60 p-3 text-xs text-muted sm:grid-cols-2">
-      <Diagnostic label="Outcome" value={trace.outcome} />
-      <Diagnostic label="Target" value={trace.targetAppName ?? 'Unknown app'} />
-      <Diagnostic label="STT" value={`${trace.sttProvider ?? 'default'}${trace.sttLatencyMs ? ` · ${trace.sttLatencyMs}ms` : ''}`} />
-      <Diagnostic label="Reason" value={trace.rejectionReason ?? trace.userMessage ?? 'None'} />
-      <Diagnostic label="Quality" value={trace.qualityDecision ? `${trace.qualityDecision.action} · ${trace.qualityDecision.reason}` : 'Not captured'} />
-      <Diagnostic label="Raw audio" value={raw ? `${raw.durationSeconds.toFixed(2)}s · peak ${raw.peakAmplitude.toFixed(2)} · clip ${(raw.clippingRatio * 100).toFixed(2)}%` : 'Not captured'} />
-      <Diagnostic label="Trimmed audio" value={trimmed ? `${trimmed.durationSeconds.toFixed(2)}s · silence ${(trimmed.silenceRatio * 100).toFixed(0)}%` : 'Not captured'} />
-      {trace.rawAudioPath && <div className="sm:col-span-2 truncate text-faint">Audio: {trace.rawAudioPath}</div>}
     </div>
-  )
+  );
 }
 
-function resolvedTrace(trace: TraceLoadState | undefined): DictationTrace | null | undefined {
-  return trace === 'loading' ? undefined : trace
-}
-
-function Diagnostic({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="label-meta mb-1 text-[9px] text-faint">{label}</div>
-      <div className="truncate text-ink/80">{value}</div>
+// Shows diagnostics only when the trace contains the corresponding data.
+function Diagnostics({
+  entry,
+  trace,
+}: {
+  entry: DictationEntry;
+  trace: DictationTrace | null | undefined;
+}) {
+  const cells: { label: string; value?: string; detail?: string }[] = [
+    {
+      label: "Outcome",
+      value:
+        trace?.outcome ??
+        (entry.injectionStatus === "saved" ? "Saved to History" : "Inserted"),
+    },
+    {
+      label: "Target",
+      value: trace?.targetAppName ?? entry.appName ?? undefined,
+      detail: insertMethodLabel(trace?.injectionMethod ?? entry.injectionMethod ?? undefined),
+    },
+    {
+      label: "Speech to text",
+      value: trace?.sttProvider ?? undefined,
+      detail:
+        trace?.sttLatencyMs === undefined
+          ? undefined
+          : `${trace.sttLatencyMs} ms`,
+    },
+    {
+      label: "Cleanup",
+      value: trace?.stages?.formatterUsed ?? undefined,
+      detail:
+        trace?.formattingLatencyMs === undefined
+          ? undefined
+          : `${trace.formattingLatencyMs} ms`,
+    },
+    {
+      label: "Quality / reason",
+      value: trace?.qualityDecision?.action ?? undefined,
+      detail:
+        trace?.qualityDecision?.reason ?? trace?.rejectionReason ?? undefined,
+    },
+  ];
+  const shown = cells.filter((cell) => cell.value || cell.detail);
+  return shown.length ? (
+    <div className="mt-2 grid grid-cols-2 gap-2 @max-[720px]/main:grid-cols-1">
+      {shown.map((cell) => (
+        <div key={cell.label} className="min-w-0 rounded-[14px] bg-card p-3">
+          <span className="block text-xs text-muted">{cell.label}</span>
+          {cell.value && (
+            <b className="mt-1 block break-words text-[13px] font-semibold text-ink">
+              {cell.value}
+            </b>
+          )}
+          {cell.detail && (
+            <small className="mt-0.5 block break-words text-xs text-muted">
+              {cell.detail}
+            </small>
+          )}
+        </div>
+      ))}
     </div>
-  )
+  ) : (
+    <p className="mt-2 rounded-[14px] bg-card p-3 text-sm text-muted">
+      No diagnostics were recorded.
+    </p>
+  );
+}
+
+// Names the insertion method the way Settings does.
+function insertMethodLabel(method: string | undefined): string | undefined {
+  if (method === "ax") return "Accessibility API";
+  if (method === "clipboard") return "Clipboard paste";
+  return method;
 }

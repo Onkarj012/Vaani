@@ -2,14 +2,14 @@ import * as React from "react"
 import { cn } from "@renderer/lib/utils"
 
 const tones = {
-  white:  "bg-bg",
-  surface:"bg-surface",
-  lav:    "bg-accent/5",
-  sky:    "bg-accent/5",
-  mint:   "bg-accent/5",
-  blush:  "bg-accent/5",
-  peach:  "bg-accent/5",
-  butter: "bg-accent/5",
+  white: "bg-card",
+  surface: "bg-surface",
+  lav: "bg-lav",
+  sky: "bg-sky",
+  mint: "bg-mint",
+  blush: "bg-blush",
+  peach: "bg-peach",
+  butter: "bg-butter",
 } as const
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -18,12 +18,13 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   hover?: boolean
 }
 
+// Renders a rounded card with an optional pastel tone and hover lift.
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
   ({ className, tone = "white", bordered = true, hover = false, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
-        "rounded-[20px] p-6 shadow-soft transition-all duration-200",
+        "rounded-[24px] p-6 transition-all duration-200",
         tones[tone],
         bordered && "border border-line",
         hover && "hover:-translate-y-0.5 hover:shadow-card",
