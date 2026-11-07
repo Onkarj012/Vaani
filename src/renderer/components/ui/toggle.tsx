@@ -1,5 +1,6 @@
 import { cn } from "@renderer/lib/utils"
 
+// Renders a labelled on or off switch.
 export function Toggle({
   checked,
   onChange,
@@ -7,7 +8,7 @@ export function Toggle({
   "aria-label": ariaLabel,
 }: {
   checked: boolean
-  onChange: (v: boolean) => void
+  onChange: (value: boolean) => void
   disabled?: boolean
   "aria-label"?: string
 }) {
@@ -20,12 +21,16 @@ export function Toggle({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "tg",
-        checked ? "on" : "",
-        disabled && "opacity-40"
+        "relative h-6 w-10 shrink-0 rounded-full transition-colors disabled:opacity-40",
+        checked ? "bg-accent" : "bg-line"
       )}
     >
-      <i />
+      <span
+        className={cn(
+          "absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-[0_1px_3px_#0003] transition-transform",
+          checked && "translate-x-[16px]"
+        )}
+      />
     </button>
   )
 }

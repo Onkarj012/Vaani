@@ -7,6 +7,7 @@ export interface SelectOption {
   label: string
 }
 
+// Renders a custom select menu.
 export function Select({
   value,
   onChange,
@@ -15,14 +16,14 @@ export function Select({
   className,
 }: {
   value: string
-  onChange: (v: string) => void
+  onChange: (value: string) => void
   options: SelectOption[]
   dropUp?: boolean
   className?: string
 }) {
   const [open, setOpen] = useState(false)
   const listboxId = useId()
-  const current = options.find((o) => o.value === value)
+  const current = options.find((option) => option.value === value)
 
   return (
     <div className={cn("relative", className)}>
@@ -32,14 +33,22 @@ export function Select({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        className="sel flex w-full items-center justify-between rounded-xl border border-line bg-card px-[13px] py-2 text-[13px] text-ink hover:border-ink/20 focus:border-accent focus:outline-none"
+        className="flex h-9 w-full items-center justify-between rounded-xl border border-line bg-card px-[13px] text-[13px] text-ink hover:border-ink/20 focus:border-accent focus:outline-none"
       >
         {current?.label ?? value}
-        <ChevronDown size={15} className={cn("text-muted transition-transform", open && "rotate-180")} />
+        <ChevronDown
+          size={15}
+          className={cn("text-muted transition-transform", open && "rotate-180")}
+        />
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <button
+            type="button"
+            aria-label="Close options"
+            className="fixed inset-0 z-20 cursor-default"
+            onClick={() => setOpen(false)}
+          />
           <div
             id={listboxId}
             role="listbox"
@@ -48,20 +57,23 @@ export function Select({
               dropUp ? "bottom-full mb-2" : "top-full mt-2"
             )}
           >
-            {options.map((opt) => (
+            {options.map((option) => (
               <button
-                key={opt.value}
+                key={option.value}
                 type="button"
                 role="option"
-                aria-selected={value === opt.value}
-                onClick={() => { onChange(opt.value); setOpen(false) }}
+                aria-selected={value === option.value}
+                onClick={() => {
+                  onChange(option.value)
+                  setOpen(false)
+                }}
                 className={cn(
                   "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface",
-                  value === opt.value ? "font-semibold text-accent" : "text-ink"
+                  value === option.value ? "font-semibold text-accent" : "text-ink"
                 )}
               >
-                {opt.label}
-                {value === opt.value && <Check size={14} />}
+                {option.label}
+                {value === option.value && <Check size={14} />}
               </button>
             ))}
           </div>

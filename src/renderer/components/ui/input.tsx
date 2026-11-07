@@ -1,19 +1,19 @@
 import * as React from "react"
-import { cn } from "@/lib/utils"
+import { cn } from "@renderer/lib/utils"
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   variant?: "soft" | "underline"
 }
 
+// Renders a text input in soft or underline style.
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, variant = "soft", ...props }, ref) => (
     <input
       ref={ref}
       className={cn(
         "w-full text-sm text-ink placeholder:text-faint outline-none transition-all duration-200 ease-[cubic-bezier(0.44,0,0.56,1)]",
-        variant === "soft" &&
-          "search h-10 rounded-full px-[15px] focus-within:ring-1 focus-within:ring-accent",
-        variant === "underline" && "input-underline px-0 py-3",
+        variant === "soft" && "rounded-full bg-surface px-[15px] py-2 focus-visible:ring-1 focus-visible:ring-accent",
+        variant === "underline" && "border-0 border-b-2 border-ink bg-transparent px-0 py-3 focus:border-accent",
         className
       )}
       {...props}
@@ -22,6 +22,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 )
 Input.displayName = "Input"
 
+// Renders a multiline text input.
 export const Textarea = React.forwardRef<
   HTMLTextAreaElement,
   React.TextareaHTMLAttributes<HTMLTextAreaElement>

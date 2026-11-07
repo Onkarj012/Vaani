@@ -12,6 +12,12 @@ interface HotkeyCaptureProps {
 const MOD_SYMBOL: Record<string, string> = {
   Cmd: "⌘", Ctrl: "⌃", Option: "⌥", Shift: "⇧",
   Command: "⌘", Alt: "⌥", Control: "⌃", Fn: "Fn",
+  Return: "↩", Space: "Space",
+}
+
+// Formats a stored hotkey as compact key labels.
+export function formatHotkeyLabel(value: string): string {
+  return value.split("+").map((part) => MOD_SYMBOL[part] ?? part).join("")
 };
 
 const MODIFIER_LABELS: Record<string, string> = {
