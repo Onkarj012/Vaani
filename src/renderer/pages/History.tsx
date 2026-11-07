@@ -27,7 +27,7 @@ import {
 import { historyTimeLabel, proofSummaryText } from "@renderer/lib/listRows";
 import { cn } from "@renderer/lib/utils";
 
-type HistoryFilter = "all" | "inserted" | "saved" | "edited";
+type HistoryFilter = "all" | "inserted" | "saved";
 type DetailTab = "proof" | "cleaned" | "raw";
 
 // Renders the expandable history list and its selected dictation details.
@@ -71,14 +71,9 @@ export default function History() {
     ],
   );
   const visibleEntries = entries.filter((entry) => {
-    const edited = entry.cleanedText !== entry.formattedText;
     const filterMatches =
       filter === "all" ||
-      (filter === "inserted"
-        ? entry.injectionStatus === "injected"
-        : filter === "saved"
-          ? entry.injectionStatus === "saved"
-          : edited);
+      (filter === "inserted" ? entry.injectionStatus === "injected" : entry.injectionStatus === "saved");
     return (
       filterMatches &&
       (!query.trim() ||
@@ -148,8 +143,6 @@ export default function History() {
     inserted: entries.filter((entry) => entry.injectionStatus === "injected")
       .length,
     saved: entries.filter((entry) => entry.injectionStatus === "saved").length,
-    edited: entries.filter((entry) => entry.cleanedText !== entry.formattedText)
-      .length,
   };
   const close = () => {
     setOpenId(null);
@@ -194,7 +187,6 @@ export default function History() {
             { value: "all", label: "All", count: counts.all },
             { value: "inserted", label: "Inserted", count: counts.inserted },
             { value: "saved", label: "Saved", count: counts.saved },
-            { value: "edited", label: "Edited", count: counts.edited },
           ]}
         />
       </div>
@@ -218,7 +210,6 @@ export default function History() {
                 buildProof(entry.rawText, entry.cleanedText, options),
               ),
             );
-            const edited = entry.cleanedText !== entry.formattedText;
             return (
               <article
                 key={entry.id}
@@ -263,8 +254,6 @@ export default function History() {
                   </span>
                   {entry.injectionStatus === "saved" ? (
                     <Tag tone="butter">Saved</Tag>
-                  ) : edited ? (
-                    <Tag tone="sky">Edited</Tag>
                   ) : (
                     <span />
                   )}
@@ -295,7 +284,7 @@ export default function History() {
                             { value: "proof", label: "Proof" },
                             {
                               value: "cleaned",
-                              label: edited ? "Edited" : "Cleaned",
+                              label: "Cleaned",
                             },
                             { value: "raw", label: "Raw" },
                           ]}
@@ -305,9 +294,7 @@ export default function History() {
                             ? "What Vaani changed"
                             : detailTab === "raw"
                               ? "Before cleanup"
-                              : edited
-                                ? "Edited text"
-                                : "What was typed"}
+                              : "What was typed"}
                         </span>
                       </div>
                       {editing ? (
@@ -348,7 +335,7 @@ export default function History() {
                             {detailTab === "raw" ? (
                               entry.rawText
                             ) : detailTab === "cleaned" ? (
-                              entry.formattedText
+                              entry.cleanedText
                             ) : (
                               <ProofText tokens={proof} />
                             )}

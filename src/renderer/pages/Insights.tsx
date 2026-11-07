@@ -111,11 +111,8 @@ export default function Insights() {
   const inserted = entries.filter(
     (entry) => entry.injectionStatus === "injected",
   );
-  const unedited = inserted.filter(
-    (entry) => entry.cleanedText === entry.formattedText,
-  ).length;
-  const accuracy = inserted.length
-    ? Math.round((unedited / inserted.length) * 100)
+  const insertedShare = entries.length
+    ? Math.round((inserted.length / entries.length) * 100)
     : null;
   let peak = 0;
   hours.forEach((value, hour) => {
@@ -157,9 +154,9 @@ export default function Insights() {
         />
         <Kpi
           tone="blush"
-          label="Accuracy"
-          value={accuracy === null ? "None" : `${accuracy}%`}
-          sub="Dictations you didn't edit"
+          label="Inserted"
+          value={insertedShare === null ? "None" : `${insertedShare}%`}
+          sub="Typed into an app, not just saved"
         />
       </div>
       <div className="grid grid-cols-12 gap-[14px]">

@@ -41,7 +41,7 @@ const history: DictationEntry[] = Array.from({ length: 30 }, (_, i) => {
     timestamp: at(i * 2.6 * 3600_000 + 20 * 60_000),
     rawText,
     formattedText: cleanedText,
-    // Every seventh entry was edited by hand after it was typed.
+    // Every seventh entry differs after post-format cleanup, like real history.
     cleanedText: i % 7 === 2 ? `${cleanedText} Thanks!` : cleanedText,
     durationSeconds: 4 + (i % 7) * 2.5,
     appBundleId,
