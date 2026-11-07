@@ -42,7 +42,7 @@ function Sparkline({ values }: { values: number[] }) {
       viewBox="0 0 84 34"
       aria-label="Words per day over the last 14 days"
       role="img"
-      className="absolute right-4 top-4 h-[34px] w-[84px] text-[#1d1d1d]/80"
+      className="absolute right-4 top-11 h-[34px] w-[84px] text-[#1d1d1d]/80"
     >
       <polyline
         points={points}
@@ -454,7 +454,7 @@ function RecentCard({
                 {entry.text.split("\n")[0]}
               </p>
               <div className="mt-1 text-xs text-muted">
-                {entry.app} · {entry.time} · {entry.wordCount} words
+                {entry.app} · {entry.time} · {entry.wordCount} {entry.wordCount === 1 ? "word" : "words"}
                 {entry.changes && <span className="text-accent"> · ✎ {entry.changes}</span>}
               </div>
             </div>
