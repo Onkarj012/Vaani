@@ -38,14 +38,9 @@ export default function GeneralSection({ context: c }: SectionComponentProps) {
               sync.
             </p>
           </div>
-          <button
-            type="button"
-            disabled
-            aria-label="Sign in, coming soon"
-            className="h-9 rounded-full border border-line px-4 text-[13px] font-semibold text-muted"
-          >
+          <Button variant="primary" size="sm" disabled aria-label="Sign in, coming soon">
             Sign in
-          </button>
+          </Button>
         </div>
         <Row
           title="Launch at login"

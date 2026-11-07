@@ -27,6 +27,7 @@ import PermissionGuard from "@renderer/components/PermissionGuard";
 import UpdateBanner from "@renderer/components/UpdateBanner";
 import VaaniMark from "@renderer/components/ui/VaaniMark";
 import MiniCapsule from "@renderer/components/ui/MiniCapsule";
+import { Button } from '@renderer/components/ui/button'
 import SearchField from "@renderer/components/ui/SearchField";
 import { Kbd } from "@renderer/components/ui/Kbd";
 import { formatHotkeyLabel } from "@renderer/components/HotkeyCapture";
@@ -465,13 +466,9 @@ function AppLayoutContent() {
                       History and recordings will not sync.
                     </p>
                     <div className="flex gap-[7px]">
-                      <button
-                        className="inline-flex h-9 items-center rounded-full border border-line bg-card px-[15px] text-[13px] font-semibold"
-                        disabled
-                        aria-label="Sign in, coming soon"
-                      >
+                      <Button variant="primary" size="sm" disabled aria-label="Sign in, coming soon">
                         Sign in
-                      </button>
+                      </Button>
                       <button
                         className="inline-flex h-9 items-center rounded-full px-[15px] text-[13px] font-semibold text-muted hover:bg-surface"
                         onClick={() => {
