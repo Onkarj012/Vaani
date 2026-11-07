@@ -27,6 +27,7 @@ import MiniCapsule from '@renderer/components/ui/MiniCapsule'
 import SearchField from '@renderer/components/ui/SearchField'
 import { Kbd } from '@renderer/components/ui/Kbd'
 import { formatHotkeyLabel } from '@renderer/components/HotkeyCapture'
+import { providerModels } from '@shared/modelList'
 
 const statusCardClassName = [
   "relative mt-3 overflow-hidden rounded-[20px] bg-[#18181b] p-[13px] text-[#f3f3f5]",
@@ -61,7 +62,7 @@ function Navigation({ onSettings }: { onSettings: () => void }) {
 
   return (
     <>
-      <div className="label-meta mx-2.5 mb-2 text-[10px] text-faint">Workspace</div>
+      <div className="label-meta mx-2.5 mb-2 text-[10px] text-faint @max-[860px]/win:hidden">Workspace</div>
       <nav className="grid gap-0.5" aria-label="Workspace">
         {pages.map(({ path, label, icon: Icon }, index) => (
           <NavLink
@@ -76,7 +77,7 @@ function Navigation({ onSettings }: { onSettings: () => void }) {
           >
             <Icon size={17} strokeWidth={1.8} />
             <span className="min-w-0 @max-[860px]/win:hidden">{label}</span>
-            <Kbd className="ml-auto @max-[860px]/win:hidden">⌘{index + 1}</Kbd>
+            <span className="ml-auto font-mono text-[10.5px] text-faint opacity-0 transition-opacity group-hover:opacity-100 group-aria-[current=page]:opacity-100 @max-[860px]/win:hidden">⌘{index + 1}</span>
           </NavLink>
         ))}
       </nav>
@@ -89,7 +90,7 @@ function Navigation({ onSettings }: { onSettings: () => void }) {
           >
             <SlidersHorizontal size={17} strokeWidth={1.8} />
             <span className="@max-[860px]/win:hidden">Settings</span>
-            <Kbd className="ml-auto @max-[860px]/win:hidden">⌘,</Kbd>
+            <span className="ml-auto font-mono text-[10.5px] text-faint opacity-0 transition-opacity group-hover:opacity-100 @max-[860px]/win:hidden">⌘,</span>
           </button>
         </nav>
       </div>
@@ -102,11 +103,15 @@ function Sidebar({ onSettings }: { onSettings: () => void }) {
   const { dictation, bars, settings } = useVaaniUi()
   const [version, setVersion] = useState('')
   const [providerNames, setProviderNames] = useState<Record<string, string>>({})
+  const [micName, setMicName] = useState('')
   const status = dictation.status
   const live = status === 'recording' || status === 'finalizing' || status === 'transcribing'
+  const cleanupName = providerModels('cleanup', settings.formattingProvider)
+    .find((model) => model.id === settings.formattingModel)?.name
+    ?? providerNames[settings.formattingProvider] ?? settings.formattingProvider
   const details = status === 'recording'
     ? 'Tap Send or press fn again'
-    : `${providerNames[settings.transcriptionProvider] ?? settings.transcriptionProvider} → ${providerNames[settings.formattingProvider] ?? settings.formattingProvider}`
+    : `${providerNames[settings.transcriptionProvider] ?? settings.transcriptionProvider} → ${cleanupName}`
 
   useEffect(() => {
     let alive = true
@@ -115,6 +120,17 @@ function Sidebar({ onSettings }: { onSettings: () => void }) {
       .catch(() => undefined)
     return () => { alive = false }
   }, [])
+
+  useEffect(() => {
+    let alive = true
+    void window.vaani.listAudioInputDevices()
+      .then((devices) => {
+        const picked = devices.find((device) => device.uid === settings.micDeviceId) ?? devices.find((device) => device.isDefault)
+        if (alive) setMicName(picked?.name ?? '')
+      })
+      .catch(() => undefined)
+    return () => { alive = false }
+  }, [settings.micDeviceId])
 
   useEffect(() => {
     let alive = true
@@ -134,7 +150,7 @@ function Sidebar({ onSettings }: { onSettings: () => void }) {
         </span>
         <div className="leading-none @max-[860px]/win:hidden">
           <b className="text-display block text-[25px] text-ink">Vaani</b>
-          {version && <span className="mt-1 block text-[9px] tracking-[0.04em] text-faint">Dictation · {version}</span>}
+          {version && <span className="label-meta mt-1 block text-[11px] tracking-[0.04em] text-faint">Dictation · {version}</span>}
         </div>
       </div>
       <Navigation onSettings={onSettings} />
@@ -144,15 +160,16 @@ function Sidebar({ onSettings }: { onSettings: () => void }) {
         <div className="relative z-[1] flex items-center gap-[9px] text-xs font-semibold @max-[860px]/win:justify-center">
           <i className={`size-2 shrink-0 rounded-full bg-[#3fbf7f] shadow-[0_0_0_3px_rgba(94,211,155,.18)] ${status === 'recording' ? 'animate-[vaani-pulse_1s_infinite] bg-[#f0736a]' : live ? 'bg-accent' : ''}`} />
           <span className="@max-[860px]/win:hidden">{stateLabel(status, status === 'error' ? dictation.message : undefined)}</span>
-          <Kbd className="ml-auto @max-[860px]/win:hidden">{formatHotkeyLabel(settings.primaryHotkey)}</Kbd>
+          <Kbd className="ml-auto h-[22px] border-white/15 bg-white/10 text-[11px] text-[#f3f3f5] shadow-none @max-[860px]/win:hidden">{formatHotkeyLabel(settings.primaryHotkey)}</Kbd>
         </div>
         {live && (
           <div className="relative z-[1] mt-3 @max-[860px]/win:hidden">
             <MiniCapsule state={status === 'recording' ? 'rec' : 'proc'} bars={status === 'recording' ? bars : undefined} />
           </div>
         )}
-        <div className="relative z-[1] mt-[9px] text-[11px] leading-[1.5] text-[#a5a5ad] @max-[860px]/win:hidden">
+        <div className="relative z-[1] mt-[9px] truncate font-mono text-[11px] leading-[1.55] text-white/50 @max-[860px]/win:hidden">
           {details}
+          {micName && status !== 'recording' && <span className="block truncate">{micName}</span>}
         </div>
       </div>
     </aside>
@@ -268,9 +285,9 @@ function AppLayoutContent() {
         className="grid h-full min-w-0 grid-cols-[236px_minmax(0,1fr)] overflow-hidden @max-[1080px]/win:grid-cols-[212px_minmax(0,1fr)] @max-[860px]/win:grid-cols-[78px_minmax(0,1fr)]"
         inert={isOpen || permissionsBlocked ? true : undefined}
       >
-        <Sidebar onSettings={open} />
+        <Sidebar onSettings={() => open()} />
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-          <header className="flex h-14 shrink-0 items-center gap-2.5 px-[max(26px,calc((100cqw-1760px)/2-18px))] pl-[max(44px,calc((100cqw-1760px)/2))] pt-2 @max-[720px]/win:px-4 @max-[720px]/win:pl-6">
+          <header className="flex h-14 shrink-0 items-center gap-2.5 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag] [&_input]:[-webkit-app-region:no-drag] px-[max(26px,calc((100cqw-1760px)/2-18px))] pl-[max(44px,calc((100cqw-1760px)/2))] pt-2 @max-[720px]/win:px-4 @max-[720px]/win:pl-6">
             <div className="label-meta mr-auto whitespace-nowrap text-[10px] text-faint">
               VAANI / <b className="font-medium text-ink">{current}</b>
             </div>
@@ -285,10 +302,10 @@ function AppLayoutContent() {
               />
             )}
             <div className="flex items-center gap-[5px]">
-              <div className="relative">
+              <div className="popover-anchor relative">
                 <button
                   ref={themeRef}
-                  className="grid size-8 place-items-center rounded-full text-muted transition-colors hover:bg-surface hover:text-ink"
+                  className="grid size-8 place-items-center rounded-full border border-line bg-card text-muted transition-colors hover:bg-surface hover:text-ink"
                   aria-label="Choose theme"
                   aria-haspopup="menu"
                   aria-expanded={popover === 'theme'}
@@ -324,10 +341,10 @@ function AppLayoutContent() {
                   </div>
                 )}
               </div>
-              <div className="relative">
+              <div className="popover-anchor relative">
                 <button
                   ref={accountRef}
-                  className="grid size-8 place-items-center rounded-full text-muted transition-colors hover:bg-surface hover:text-ink"
+                  className="grid size-8 place-items-center rounded-full border border-line bg-card text-muted transition-colors hover:bg-surface hover:text-ink"
                   aria-label="Account"
                   aria-haspopup="dialog"
                   aria-expanded={popover === 'account'}
