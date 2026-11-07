@@ -1,194 +1,122 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
-import {
-  LayoutDashboard,
-  History,
-  FileText,
-  BookOpen,
-  Settings,
-  Menu,
-  BarChart3,
-  Sun,
-  Moon,
-} from 'lucide-react'
-import { useVaaniUi } from '../context/vaani-ui'
-import { useColorMode } from '../context/color-mode'
+import { BookOpen, ChartLine, Check, Clock, House, Moon, SlidersHorizontal, Sun, UserRound } from 'lucide-react'
+import { useVaaniUi } from '@renderer/context/vaani-ui'
+import { useColorMode } from '@renderer/context/color-mode'
+import { SettingsPanelProvider, useSettingsPanel } from '@renderer/context/settings-panel'
 import { useUpdateNotification } from '@renderer/hooks/useUpdateNotification'
 import SettingsModal from '@renderer/components/SettingsModal'
 import OnboardingModal from '@renderer/components/OnboardingModal'
 import OpenRouterKeyPrompt from '@renderer/components/OpenRouterKeyPrompt'
 import PermissionGuard from '@renderer/components/PermissionGuard'
 import UpdateBanner from '@renderer/components/UpdateBanner'
-import devanagariLightUrl from '../../../assets/iconset/devanagari/devanagari_light.svg?url'
-import devanagariDarkUrl from '../../../assets/iconset/devanagari/devanagari_dark.svg?url'
-import type { RecoveryRestoredNotice } from '@shared/types'
+import VaaniMark from '@renderer/components/ui/VaaniMark'
+import MiniCapsule from '@renderer/components/ui/MiniCapsule'
+import SearchField from '@renderer/components/ui/SearchField'
+import { Kbd } from '@renderer/components/ui/Kbd'
 
-const navItems = [
-  { path: '/app', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/app/history', label: 'History', icon: History },
-  { path: '/app/snippets', label: 'Snippets', icon: FileText },
-  { path: '/app/dictionary', label: 'Dictionary', icon: BookOpen },
-  { path: '/app/insights', label: 'Insights', icon: BarChart3 },
+const pages = [
+  { path: '/app', label: 'Home', icon: House }, { path: '/app/history', label: 'History', icon: Clock },
+  { path: '/app/dictionary', label: 'Dictionary', icon: BookOpen }, { path: '/app/snippets', label: 'Snippets', icon: SlidersHorizontal },
+  { path: '/app/insights', label: 'Insights', icon: ChartLine },
 ]
 
-function Sidebar({ isOpen, onClose, onSettings }: { isOpen: boolean; onClose: () => void; onSettings: () => void }) {
-  const location = useLocation()
-  const { mode, toggle } = useColorMode()
-
-  return (
-    <>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/30 lg:hidden"
-            onClick={onClose}
-          />
-        )}
-      </AnimatePresence>
-
-      <aside
-        className={`fixed left-0 top-0 z-50 flex h-screen w-[264px] flex-col border-r border-line bg-bg transition-transform duration-300 ease-out lg:translate-x-0 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-7 pb-6 pt-16">
-          <img src={mode === 'dark' ? devanagariDarkUrl : devanagariLightUrl} className="h-9 w-9" alt="Vaani" />
-          <div className="leading-none">
-            <span className="text-display text-2xl text-ink">Vaani</span>
-            <span className="label-meta mt-1 block text-[9px] text-faint">Voice Dictation</span>
-          </div>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 space-y-1 px-4">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path
-            const Icon = item.icon
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.path === '/app'}
-                onClick={onClose}
-                className={`flex items-center gap-3 rounded-full px-4 py-2.5 text-sm transition-all duration-200 ${
-                  isActive
-                    ? 'bg-accent/10 font-semibold text-accent'
-                    : 'font-medium text-muted hover:bg-surface hover:text-ink'
-                }`}
-              >
-                <Icon size={17} />
-                {item.label}
-              </NavLink>
-            )
-          })}
-        </nav>
-
-        {/* Footer */}
-        <div className="space-y-2 px-4 pb-6">
-          <button
-            onClick={toggle}
-            className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-left text-sm font-medium text-muted transition-all hover:bg-surface hover:text-ink"
-          >
-            {mode === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
-            {mode === 'dark' ? 'Light Mode' : 'Dark Mode'}
-          </button>
-          <button
-            onClick={() => { onSettings(); onClose() }}
-            className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-left text-sm font-medium text-muted transition-all hover:bg-surface hover:text-ink"
-          >
-            <Settings size={17} />
-            Settings
-          </button>
-        </div>
-      </aside>
-    </>
-  )
+// Formats the configured shortcut as compact Mac key labels.
+function displayHotkey(value: string): string {
+  return value.split('+').map((part) => ({ Cmd: '⌘', Command: '⌘', Option: '⌥', Ctrl: '⌃', Shift: '⇧', Fn: 'fn', Return: '↩', Space: 'Space' }[part] ?? part)).join('')
 }
 
-export default function AppLayout() {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+// Shows the current dictation state in the sidebar.
+function stateLabel(status: string, message?: string): string {
+  if (status === 'idle' || status === 'starting') return 'Ready to dictate'
+  if (status === 'recording') return 'Listening'
+  if (['finalizing', 'transcribing'].includes(status)) return 'Cleaning up'
+  if (status === 'completed') return 'Inserted'
+  return message || 'Dictation failed'
+}
+
+// Renders one sidebar navigation link.
+function Navigation({ onSettings }: { onSettings: () => void }) {
+  const location = useLocation()
+  return <>
+    <div className="navlabel meta">Workspace</div>
+    <nav className="nav" aria-label="Workspace">{pages.map(({ path, label, icon: Icon }, index) => <NavLink key={path} to={path} end={path === '/app'} title={`${label} (⌘${index + 1})`} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} aria-current={location.pathname === path ? 'page' : undefined}><Icon size={17} strokeWidth={1.8}/><span className="nl">{label}</span><Kbd className="k">⌘{index + 1}</Kbd></NavLink>)}</nav>
+    <div className="side-bottom"><nav className="nav" aria-label="Settings"><button className="nav-link" onClick={onSettings} title="Settings (⌘,)"><SlidersHorizontal size={17}/><span className="nl">Settings</span><Kbd className="k">⌘,</Kbd></button></nav></div>
+  </>
+}
+
+// Renders the app sidebar and live dictation card.
+function Sidebar({ onSettings }: { onSettings: () => void }) {
+  const { dictation, bars, settings } = useVaaniUi()
+  const [version, setVersion] = useState('')
+  const [providerNames, setProviderNames] = useState<Record<string, string>>({})
+  useEffect(() => { let alive = true; void window.vaani.getAppVersion().then((value) => { if (alive) setVersion(value) }).catch(() => undefined); return () => { alive = false } }, [])
+  useEffect(() => { let alive = true; void window.vaani.getProviderStatus().then((providers) => { if (alive) setProviderNames(Object.fromEntries(providers.map((provider) => [provider.id, provider.name]))) }).catch(() => undefined); return () => { alive = false } }, [])
+  const status = dictation.status
+  const live = status === 'recording' || status === 'finalizing' || status === 'transcribing'
+  const details = status === 'recording' ? 'Tap Send or press fn again' : `${providerNames[settings.transcriptionProvider] ?? settings.transcriptionProvider} → ${providerNames[settings.formattingProvider] ?? settings.formattingProvider}`
+  return <aside className="side"><div className="brand"><span className="brand-mark"><VaaniMark size={27} live={live}/></span><div><b>Vaani</b>{version && <span className="meta">Dictation · {version}</span>}</div></div><Navigation onSettings={onSettings}/><div className="status"><div className="st-top"><i className={`ldot ${status === 'recording' ? 'rec' : live ? 'proc' : ''}`}/><span className="st-label">{stateLabel(status, status === 'error' ? dictation.message : undefined)}</span><Kbd>{displayHotkey(settings.primaryHotkey)}</Kbd></div>{live && <div className="st-live"><MiniCapsule state={status === 'recording' ? 'rec' : 'proc'} bars={status === 'recording' ? bars : undefined}/></div>}<div className="st-sub">{details}</div></div></aside>
+}
+
+// Provides the main shell, global shortcuts, and existing app overlays.
+function AppLayoutContent() {
   const [permissionsBlocked, setPermissionsBlocked] = useState(true)
-  const [restoredNotice, setRestoredNotice] = useState<RecoveryRestoredNotice | null>(null)
-  const navigate = useNavigate()
+  const [popover, setPopover] = useState<'theme' | 'account' | null>(null)
+  const { isOpen, open, close } = useSettingsPanel()
   const { settings, settingsLoading, updateSettings, settingsSaveError, dismissSettingsSaveError } = useVaaniUi()
+  const { mode, setMode } = useColorMode()
   const { notification, dismiss } = useUpdateNotification()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const searchRef = useRef<HTMLInputElement>(null)
+  const themeRef = useRef<HTMLButtonElement>(null)
+  const accountRef = useRef<HTMLButtonElement>(null)
+  const historyRoute = location.pathname === '/app/history'
+  const current = pages.find((page) => page.path === location.pathname)?.label ?? 'Home'
   const onboardingOpen = !settingsLoading && !settings.onboardingCompleted
-  const showOpenRouterPrompt = !settingsLoading && settings.onboardingCompleted && !settings.openRouterKeyPromptShown &&
-    !(settings.providerApiKeys ?? []).some((pk) => pk.providerId === 'openrouter' && pk.hasKey)
+  const showOpenRouterPrompt = !settingsLoading && settings.onboardingCompleted && !settings.openRouterKeyPromptShown && !(settings.providerApiKeys ?? []).some((key) => key.providerId === 'openrouter' && key.hasKey)
 
   useEffect(() => {
-    void window.vaani.getRecoveryRestoredNotice().then((notice) => {
-      if (notice) setRestoredNotice(notice)
-    }).catch(() => undefined)
-  }, [])
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && popover) { setPopover(null); (popover === 'theme' ? themeRef : accountRef).current?.focus(); return }
+      if (!event.metaKey) return
+      const target = event.target
+      const isField = target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      if (event.key.toLowerCase() === 'k') { event.preventDefault(); (historyRoute ? document.querySelector<HTMLInputElement>('.main input') : searchRef.current)?.focus(); return }
+      if (isField) return
+      if (event.key === ',') { event.preventDefault(); open(); return }
+      const match = /^([1-5])$/.exec(event.key)
+      if (match?.[1]) { event.preventDefault(); navigate(pages[Number(match[1]) - 1]?.path ?? '/app') }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [historyRoute, navigate, open, popover])
 
-  return (
-    <div className="relative flex min-h-screen bg-bg">
-      <div
-        aria-hidden={permissionsBlocked}
-        ref={(element) => {
-          if (element) element.inert = permissionsBlocked
-        }}
-        className="contents"
-      >
-        <Sidebar
-          isOpen={isMobileMenuOpen}
-          onClose={() => setIsMobileMenuOpen(false)}
-          onSettings={() => setIsSettingsOpen(true)}
-        />
+  useEffect(() => { if (!historyRoute && location.pathname === '/app/history') document.querySelector<HTMLInputElement>('[data-history-search]')?.focus() }, [historyRoute, location.pathname])
+  useEffect(() => {
+    if (!popover) return
+    const onPointerDown = (event: MouseEvent) => { if (!(event.target instanceof Element) || !event.target.closest('.popover-anchor')) setPopover(null) }
+    window.addEventListener('mousedown', onPointerDown)
+    return () => window.removeEventListener('mousedown', onPointerDown)
+  }, [popover])
 
-        <div className="relative z-10 flex min-h-screen flex-1 flex-col overflow-hidden lg:ml-[264px]">
-          <header className="flex h-14 shrink-0 items-center px-4 lg:hidden">
-            <button
-              onClick={() => setIsMobileMenuOpen(true)}
-              aria-label="Open navigation menu"
-              aria-expanded={isMobileMenuOpen}
-              className="rounded-full p-2 text-ink transition-colors hover:bg-surface"
-            >
-              <Menu size={20} />
-            </button>
-          </header>
-
-          {notification && <UpdateBanner notification={notification} onDismiss={dismiss} />}
-          {restoredNotice && (
-            <div className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-2xl bg-accent/10 px-4 py-3 text-sm text-accent lg:mx-12">
-              <span>{restoredNotice.count} unfinished dictation{restoredNotice.count === 1 ? '' : 's'} restored. Nothing was inserted automatically.</span>
-              <div className="flex shrink-0 items-center gap-2">
-                <button onClick={() => { setRestoredNotice(null); navigate('/app/history') }} className="rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white">Open History</button>
-                <button aria-label="Dismiss restored items notice" onClick={() => setRestoredNotice(null)} className="rounded-full p-1 text-accent hover:bg-accent/10"><span aria-hidden="true">×</span></button>
-              </div>
-            </div>
-          )}
-
-          <main className={`flex-1 px-6 py-8 lg:px-12 ${onboardingOpen ? 'touch-none overflow-hidden' : 'overflow-y-auto'}`}>
-            <Outlet />
-          </main>
-        </div>
-
-        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-        {!settingsLoading && !settings.onboardingCompleted && (
-          <OnboardingModal
-            settings={settings}
-            updateSettings={updateSettings}
-            onComplete={() => updateSettings({ onboardingCompleted: true })}
-          />
-        )}
-        {showOpenRouterPrompt && <OpenRouterKeyPrompt updateSettings={updateSettings} />}
-      </div>
-      <PermissionGuard onBlockingChange={setPermissionsBlocked} />
-      {/* Outside the content wrapper's stacking context, so it shows above onboarding. */}
-      {settingsSaveError && (
-        <div role="alert" className="fixed inset-x-4 top-4 z-[80] mx-auto flex max-w-2xl items-center justify-between gap-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 shadow-lg">
-          <span>Settings not saved. {settingsSaveError} Fix or move the file, then restart Vaani.</span>
-          <button aria-label="Dismiss settings error" onClick={dismissSettingsSaveError} className="shrink-0 rounded-full p-1 hover:bg-red-600/10"><span aria-hidden="true">×</span></button>
-        </div>
-      )}
+  const setSearch = (query: string) => { navigate(`/app/history?q=${encodeURIComponent(query)}`); requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.main input')?.focus()) }
+  return <div className="v1 app-shell" inert={isOpen || permissionsBlocked ? true : undefined}>
+    <Sidebar onSettings={() => open()}/>
+    <div className="app-frame" style={{ minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <header className="toolbar"><div className="crumb">VAANI / <b>{current}</b></div>{!historyRoute && <SearchField ref={searchRef} className="tsearch" placeholder="Search dictations" hint="⌘K" onChange={setSearch}/>}<div className="top-actions"><div className="popover-anchor"><button ref={themeRef} className="icb" aria-label="Choose theme" aria-haspopup="menu" aria-expanded={popover === 'theme'} onClick={() => setPopover(popover === 'theme' ? null : 'theme')}>{mode === 'dark' ? <Moon size={17}/> : <Sun size={17}/>}</button>{popover === 'theme' && <div className="pop theme-pop" role="menu" aria-label="Theme" onKeyDown={(event) => { if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return; event.preventDefault(); const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]; const active = document.activeElement; const index = active instanceof HTMLButtonElement ? items.indexOf(active) : -1; items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus() }}><button role="menuitemradio" aria-checked={mode === 'light'} onClick={() => { setMode('light');setPopover(null);themeRef.current?.focus() }}>Light {mode === 'light' && <Check size={14}/>}</button><button role="menuitemradio" aria-checked={mode === 'dark'} onClick={() => { setMode('dark');setPopover(null);themeRef.current?.focus() }}>Dark {mode === 'dark' && <Check size={14}/>}</button></div>}</div><div className="popover-anchor"><button ref={accountRef} className="icb" aria-label="Account" aria-haspopup="dialog" aria-expanded={popover === 'account'} onClick={() => setPopover(popover === 'account' ? null : 'account')}><UserRound size={17}/></button>{popover === 'account' && <div className="pop account-pop" role="dialog" aria-label="Account"><b>Sync across your Macs <span className="chip c-lav">Coming soon</span></b><p>Sync will include your dictionary, snippets and settings. History and recordings will not sync.</p><div><button className="btn" disabled aria-label="Sign in, coming soon">Sign in</button><button className="btn ghost" onClick={() => { setPopover(null);accountRef.current?.focus() }}>Close</button></div></div>}</div></div></header>
+      {notification && <UpdateBanner notification={notification} onDismiss={dismiss}/>}
+      <main className={`main ${historyRoute ? 'fixed' : ''} ${onboardingOpen ? 'touch-none overflow-hidden' : ''}`}><div className="page-wrap"><Outlet/></div></main>
     </div>
-  )
+    {isOpen && <SettingsModal isOpen={isOpen} onClose={close}/>}
+    {onboardingOpen && <OnboardingModal settings={settings} updateSettings={updateSettings} onComplete={() => updateSettings({ onboardingCompleted: true })}/>}
+    {showOpenRouterPrompt && <OpenRouterKeyPrompt updateSettings={updateSettings}/>}
+    <PermissionGuard onBlockingChange={setPermissionsBlocked}/>
+    {settingsSaveError && <div role="alert" className="fixed inset-x-4 top-4 z-[80] mx-auto flex max-w-2xl items-center justify-between gap-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 shadow-lg"><span>Settings not saved. {settingsSaveError} Fix or move the file, then restart Vaani.</span><button aria-label="Dismiss settings error" onClick={dismissSettingsSaveError}>×</button></div>}
+  </div>
+}
+
+// Adds settings panel state around the main shell.
+export default function AppLayout() {
+  return <SettingsPanelProvider><AppLayoutContent/></SettingsPanelProvider>
 }
