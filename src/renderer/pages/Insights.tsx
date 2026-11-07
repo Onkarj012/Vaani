@@ -1,208 +1,130 @@
-import { motion } from 'framer-motion'
-import { useMemo } from 'react'
-import type { DictationEntry } from '@shared/types'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, Legend,
-} from 'recharts'
-import { Zap, Type, RefreshCw, Clock, TrendingUp, BarChart3, Monitor, Calendar } from 'lucide-react'
-import { useVaaniUi } from '../context/vaani-ui'
-import { Card } from '@renderer/components/ui/card'
+import { useMemo, useState } from "react";
+import PageHeader from "@renderer/components/ui/PageHeader";
+import { Card } from "@renderer/components/ui/card";
+import { Segmented } from "@renderer/components/ui/Segmented";
+import AppIcon from "@renderer/components/ui/AppIcon";
+import { useVaaniUi } from "@renderer/context/vaani-ui";
+import { countWords } from "@renderer/lib/historyDerivations";
+import { deriveAppUsage, derivePeakHours, deriveRollingAverage, deriveWordsPerDay } from "@renderer/lib/homeStats";
+import type { DictationEntry } from "@shared/types";
 
-const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.07 } } }
-const item = { hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: 0.5 } } }
+type Range = 7 | 30 | 90;
+const RANGE_OPTIONS = [{ value: "7", label: "7D" }, { value: "30", label: "30D" }, { value: "90", label: "90D" }];
 
-// Data series — pastel-forward, readable on light + dark
-const SERIES = ['#7575c8', '#5bb5d8', '#8cc152', '#f0a07a', '#e6c34d', '#d97fc1', '#b0b0b0']
-const GRID = 'rgba(136,136,136,0.18)'
-const AXIS = '#9a9a9a'
-const CURSOR = 'rgba(136,136,136,0.12)'
+// Returns the start of the local calendar day containing a date.
+function dayStart(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
 
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ color: string; name: string; value: number }>; label?: string }) {
-  if (active && payload && payload.length) {
-    return (
-      <div className="rounded-2xl border border-line bg-bg px-4 py-3 shadow-card">
-        <p className="mb-1 text-sm font-semibold text-ink">{label}</p>
-        {payload.map((p, i) => (
-          <p key={i} className="text-sm text-muted">
-            <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
-            {p.name}: {p.value}
-          </p>
-        ))}
-      </div>
-    )
+// Returns the greatest run of consecutive active days in the selected range.
+function bestStreak(entries: DictationEntry[], now: Date): number {
+  const active = new Set(entries.map((entry) => {
+    const date = dayStart(new Date(entry.timestamp));
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  }));
+  let best = 0;
+  let current = 0;
+  for (let offset = 89; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
+    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    if (active.has(key)) {
+      current += 1;
+      best = Math.max(best, current);
+    } else current = 0;
   }
-  return null
+  return best;
 }
 
-function computeAppUsageData(entries: DictationEntry[]) {
-  const appCounts = new Map<string, number>()
-  for (const entry of entries) {
-    const app = entry.appName?.trim() || 'Unknown'
-    appCounts.set(app, (appCounts.get(app) ?? 0) + 1)
-  }
-  const sorted = Array.from(appCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 7)
-  const total = sorted.reduce((sum, [, count]) => sum + count, 0)
-  const otherCount = entries.length - total
-  const data = sorted.map(([app, count], index) => ({ name: app, value: count, color: SERIES[index % SERIES.length] }))
-  if (otherCount > 0) data.push({ name: 'Other', value: otherCount, color: SERIES[data.length % SERIES.length] })
-  return data
+// Selects dictations inside the requested rolling range.
+function filterRange(entries: DictationEntry[], range: Range, now: Date): DictationEntry[] {
+  const start = dayStart(new Date(now.getFullYear(), now.getMonth(), now.getDate() - range + 1)).getTime();
+  return entries.filter((entry) => new Date(entry.timestamp).getTime() >= start && new Date(entry.timestamp).getTime() <= now.getTime());
 }
 
-function computeHourlyData(entries: DictationEntry[]) {
-  const hourCounts = new Map<number, number>()
-  for (const entry of entries) {
-    const hour = new Date(entry.timestamp).getHours()
-    const words = entry.cleanedText.split(/\s+/).filter(Boolean).length
-    hourCounts.set(hour, (hourCounts.get(hour) ?? 0) + words)
-  }
-  return Array.from({ length: 24 }, (_, hour) => {
-    const period = hour < 12 ? 'AM' : 'PM'
-    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
-    return { hour: `${displayHour}${period}`, words: hourCounts.get(hour) ?? 0 }
-  })
-}
-
-function ChartCard({ title, subtitle, icon: Icon, accent, children }: { title: string; subtitle: string; icon: typeof Zap; accent: string; children: React.ReactNode }) {
-  return (
-    <Card>
-      <div className="mb-6">
-        <h2 className="flex items-center gap-2 text-display text-lg text-ink"><Icon size={17} style={{ color: accent }} />{title}</h2>
-        <p className="mt-1 text-sm text-muted">{subtitle}</p>
-      </div>
-      <div className="h-64">{children}</div>
-    </Card>
-  )
-}
-
+// Shows range totals, app use, peak hours, and daily activity.
 export default function Insights() {
-  const { stats, weeklyActivity, historyEntries } = useVaaniUi()
+  const { historyEntries } = useVaaniUi();
+  const [range, setRange] = useState<Range>(30);
+  const now = new Date();
+  const entries = useMemo(() => filterRange(historyEntries, range, now), [historyEntries, range]);
+  const days = useMemo(() => deriveWordsPerDay(entries, range, now), [entries, range]);
+  const hours = useMemo(() => derivePeakHours(entries), [entries]);
+  const apps = useMemo(() => deriveAppUsage(entries), [entries]);
+  const rolling = useMemo(() => deriveRollingAverage(days), [days]);
+  const words = entries.reduce((sum, entry) => sum + countWords(entry.cleanedText), 0);
+  const average = entries.length ? Math.round(words / entries.length) : 0;
+  const currentStreak = (() => {
+    const daysSet = new Set(entries.map((entry) => dayStart(new Date(entry.timestamp)).toDateString()));
+    let count = 0;
+    for (let offset = 0; daysSet.has(new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset).toDateString()); offset += 1) count += 1;
+    return count;
+  })();
+  const inserted = entries.filter((entry) => entry.injectionStatus === "injected");
+  const unedited = inserted.filter((entry) => entry.cleanedText === entry.formattedText).length;
+  const accuracy = inserted.length ? Math.round(unedited / inserted.length * 100) : null;
+  let peak = 0;
+  hours.forEach((value, hour) => { if (value > (hours[peak] ?? 0)) peak = hour; });
+  const rangeLabel = range === 7 ? "Last 7 days" : `Last ${range} days`;
 
-  const statsCards = [
-    { label: 'Total Words', value: stats.totalWords.toLocaleString(), change: `${stats.wordsToday.toLocaleString()} today`, icon: Type, iconBg: 'bg-accent/10 text-accent' },
-    { label: 'Total Sessions', value: stats.totalSessions.toLocaleString(), change: `${stats.sessionsToday} today`, icon: Zap, iconBg: 'bg-accent/10 text-accent' },
-    { label: 'Current Streak', value: `${stats.streak} day${stats.streak === 1 ? '' : 's'}`, change: 'Keep it going', icon: RefreshCw, iconBg: 'bg-accent/10 text-accent' },
-    { label: 'Accuracy', value: `${stats.accuracy}%`, change: 'Estimated', icon: Clock, iconBg: 'bg-accent/10 text-accent' },
-  ]
+  return <div className="mx-auto max-w-[1180px]">
+    <PageHeader eyebrow={rangeLabel} title="Insights" subtitle="How much you talk, where, and when."><Segmented value={String(range)} options={RANGE_OPTIONS} onChange={(value) => setRange(Number(value) as Range)} /></PageHeader>
+    <div className="mb-[14px] grid grid-cols-2 gap-[14px] @min-[821px]/main:grid-cols-4">
+      <Kpi tone="butter" label="Words" value={words.toLocaleString()} sub={`≈ ${Math.round(words / 45 / 60)} h of typing saved`} />
+      <Kpi tone="mint" label="Sessions" value={entries.length.toLocaleString()} sub={`${average.toLocaleString()} words on average`} />
+      <Kpi tone="sky" label="Streak" value={`${currentStreak} days`} sub={`Best: ${bestStreak(entries, now)} days`} />
+      <Kpi tone="blush" label="Accuracy" value={accuracy === null ? "—" : `${accuracy}%`} sub="Dictations you didn't edit" />
+    </div>
+    <div className="grid grid-cols-12 gap-[14px]">
+      <Card className="col-span-12 p-5 @min-[861px]/main:col-span-8"><div className="flex justify-between gap-3"><h2 className="font-display text-xl font-bold text-ink">Words per day</h2><span className="label-meta text-[10px] text-muted">Avg {Math.round(words / range).toLocaleString()}</span></div>{entries.length ? <><BarsChart values={days.map((day) => day.words)} /> <Axis left={`${range} days ago`} right="Today" /></> : <EmptyChart />}</Card>
+      <Card className="col-span-12 p-5 @min-[861px]/main:col-span-4"><h2 className="font-display text-xl font-bold text-ink">Peak hours</h2>{entries.length ? <><p className="mt-1 text-xs text-muted">Busiest {formatHour(peak)}</p><HourChart values={hours} peak={peak} /><Axis left="12a" right="12a" /></> : <EmptyChart />}</Card>
+      <Card className="col-span-12 p-5 @min-[861px]/main:col-span-5"><h2 className="mb-2 font-display text-xl font-bold text-ink">App usage</h2>{apps.length ? apps.map((app, index) => <div key={app.name} className="grid grid-cols-[26px_74px_minmax(0,1fr)_40px] items-center gap-2.5 py-1.5 text-[13px]"><AppIcon name={app.name} bundleId={app.bundleId} size={24} /><span className="truncate text-ink">{app.name}</span><span className="h-2 overflow-hidden rounded-full bg-surface"><i className="block h-full rounded-full bg-accent" style={{ width: `${app.percent}%`, opacity: 1 - index * 0.1 }} /></span><code className="text-right font-mono text-[11px] text-muted">{app.percent}%</code></div>) : <EmptyChart />}</Card>
+      <Card className="col-span-12 p-5 @min-[861px]/main:col-span-7"><h2 className="font-display text-xl font-bold text-ink">Activity trend</h2>{entries.length ? <><LineChart values={rolling} /><Axis left="7-day average" right="Today" /></> : <EmptyChart />}</Card>
+    </div>
+  </div>;
+}
 
-  const appUsageData = useMemo(() => computeAppUsageData(historyEntries), [historyEntries])
-  const hourlyData = useMemo(() => computeHourlyData(historyEntries), [historyEntries])
-  const recentActivityData = useMemo(() => (
-    historyEntries.slice(0, 20).map((entry, i) => ({
-      index: i + 1,
-      words: entry.cleanedText.split(/\s+/).filter(Boolean).length,
-    }))
-  ), [historyEntries])
+// Renders one pastel KPI tile.
+function Kpi({ tone, label, value, sub }: { tone: "butter" | "mint" | "sky" | "blush"; label: string; value: string; sub: string }) {
+  return <Card tone={tone} bordered={false} className="flex min-h-[128px] flex-col p-5 text-[#1d1d1d]"><span className="label-meta text-[10px] text-[#1d1d1d]/70">{label}</span><div className="mt-auto truncate font-display text-[42px] font-extrabold leading-none tracking-[-.04em]">{value}</div><div className="mt-1.5 text-xs text-[#1d1d1d]/65">{sub}</div></Card>;
+}
 
-  return (
-    <motion.div variants={container} initial="hidden" animate="visible" className="mx-auto max-w-6xl space-y-8">
-      <motion.div variants={item} className="flex items-end justify-between">
-        <div>
-          <p className="label-meta mb-2 text-[11px] text-accent">✦ Analytics</p>
-          <h1 className="text-display text-5xl text-ink">Insights</h1>
-          <p className="mt-3 text-muted">Deep dive into your dictation patterns and productivity.</p>
-        </div>
-        <span className="label-meta hidden text-[11px] text-faint sm:block">Last 30 days</span>
-      </motion.div>
+// Draws the daily word totals as plain SVG bars.
+function BarsChart({ values }: { values: number[] }) {
+  const max = Math.max(...values, 1);
+  const gap = values.length > 40 ? 2 : 5;
+  const width = 600;
+  const slot = width / values.length;
+  const barWidth = Math.max(1, slot - gap);
+  return <svg viewBox={`0 0 ${width} 150`} preserveAspectRatio="none" className="mt-[18px] h-[150px] w-full" role="img" aria-label="Words dictated per day">{values.map((value, index) => { const height = value ? Math.max(2, value / max * 140) : 0; return <rect key={index} x={index * slot + gap / 2} y={150 - height} width={barWidth} height={height} rx="3" className={index === values.length - 1 ? "fill-accent" : "fill-accent/30"} />; })}</svg>;
+}
 
-      <motion.div variants={item} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {statsCards.map((stat) => (
-          <Card key={stat.label} hover className="p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <div className={`flex h-11 w-11 items-center justify-center rounded-full ${stat.iconBg}`}><stat.icon size={18} /></div>
-              <TrendingUp size={16} className="text-accent" />
-            </div>
-            <div className="text-display text-3xl text-ink">{stat.value}</div>
-            <div className="mt-1 text-sm text-muted">{stat.label}</div>
-            <div className="label-meta mt-1 text-[10px] text-faint">{stat.change}</div>
-          </Card>
-        ))}
-      </motion.div>
+// Draws hourly word counts as 24 columns.
+function HourChart({ values, peak }: { values: number[]; peak: number }) {
+  const max = Math.max(...values, 1);
+  return <div className="mt-4 grid h-[120px] grid-cols-[repeat(24,minmax(0,1fr))] items-end gap-[3px]" role="img" aria-label="Dictation words by hour">{values.map((value, hour) => <i key={hour} title={`${formatHour(hour)}: ${value} words`} className={`min-h-[3px] rounded-[4px] ${hour === peak ? "bg-accent" : "bg-lav dark:bg-accent/50"}`} style={{ height: `${Math.max(3, value / max * 100)}%` }} />)}</div>;
+}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <motion.div variants={item}>
-          <ChartCard title="Words per day" subtitle="Total words dictated each day" icon={BarChart3} accent="#8cc152">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={weeklyActivity}>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-                <XAxis dataKey="day" stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: CURSOR }} />
-                <Bar dataKey="words" fill="#7575c8" radius={[6, 6, 0, 0]} name="Words" />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartCard>
-        </motion.div>
+// Draws a line and shaded area for the rolling average.
+function LineChart({ values }: { values: number[] }) {
+  const max = Math.max(...values, 1);
+  const points = values.map((value, index) => `${(index / Math.max(values.length - 1, 1)) * 560},${140 - value / max * 130}`).join(" ");
+  return <svg viewBox="0 0 560 150" preserveAspectRatio="none" className="mt-[18px] h-[150px] w-full" role="img" aria-label="Seven-day rolling average of daily words"><polygon points={`0,150 ${points} 560,150`} className="fill-accent/10" /><polyline points={points} fill="none" className="stroke-accent" strokeWidth="2.2" vectorEffect="non-scaling-stroke" /></svg>;
+}
 
-        <motion.div variants={item}>
-          <ChartCard title="App usage" subtitle="Where your dictations were injected" icon={Monitor} accent="#f0a07a">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={appUsageData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={4} dataKey="value" stroke="none">
-                  {appUsageData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
-                </Pie>
-                <Tooltip content={<CustomTooltip />} />
-                <Legend verticalAlign="middle" align="right" layout="vertical" iconType="circle" iconSize={10}
-                  formatter={(value: string) => <span className="text-sm text-muted">{value}</span>} />
-              </PieChart>
-            </ResponsiveContainer>
-          </ChartCard>
-        </motion.div>
+// Labels the chart's first and last points.
+function Axis({ left, right }: { left: string; right: string }) {
+  return <div className="mt-2 flex justify-between label-meta text-[10px] text-faint"><span>{left}</span><span>{right}</span></div>;
+}
 
-        <motion.div variants={item}>
-          <ChartCard title="Peak hours" subtitle="When you dictate the most" icon={Clock} accent="#5bb5d8">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={hourlyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-                <XAxis dataKey="hour" stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: CURSOR }} />
-                <Bar dataKey="words" fill="#5bb5d8" radius={[6, 6, 0, 0]} name="Words" />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartCard>
-        </motion.div>
+// Shows the busiest hour in a short local clock format.
+function formatHour(hour: number): string {
+  const start = hour % 12 || 12;
+  const end = (hour + 1) % 12 || 12;
+  const suffix = hour < 12 ? "AM" : "PM";
+  return `${start}–${end} ${suffix}`;
+}
 
-        <motion.div variants={item}>
-          <ChartCard title="Activity trend" subtitle="Words over the last 7 days" icon={TrendingUp} accent="#7575c8">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={weeklyActivity}>
-                <defs>
-                  <linearGradient id="wordsGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#7575c8" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#7575c8" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-                <XAxis dataKey="day" stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="words" stroke="#7575c8" strokeWidth={3} fill="url(#wordsGradient)" name="Words" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </ChartCard>
-        </motion.div>
-      </div>
-
-      <motion.div variants={item}>
-        <Card>
-          <div className="mb-6">
-            <h2 className="flex items-center gap-2 text-display text-lg text-ink"><Calendar size={17} className="text-accent" />Recent activity</h2>
-            <p className="mt-1 text-sm text-muted">Your last {Math.min(historyEntries.length, 20)} dictations</p>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={recentActivityData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-                <XAxis dataKey="index" stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke={AXIS} fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Line type="monotone" dataKey="words" stroke="#7575c8" strokeWidth={3} dot={{ fill: '#7575c8', r: 4 }} activeDot={{ r: 6 }} name="Words" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-      </motion.div>
-    </motion.div>
-  )
+// Explains that there is no chart data in this range.
+function EmptyChart() {
+  return <div className="mt-4 grid min-h-[150px] place-items-center rounded-2xl bg-surface px-4 text-center text-sm text-muted">No dictations in this range yet.</div>;
 }
