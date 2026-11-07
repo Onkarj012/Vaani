@@ -51,7 +51,7 @@ export function getMicrophonePermissionRemediation(state: MacOSPermissionState, 
   switch (state) {
     case "not-determined":
       return attempted
-        ? { action: "open-settings", guidance: "macOS did not grant microphone access. Enable Vaani in System Settings, then click Check Again." }
+        ? { action: "open-settings", guidance: "macOS did not grant microphone access. Enable Vaani in System Settings, then click Check again." }
         : { action: "request" };
     case "denied": return { action: "open-settings" };
     case "restricted": return {

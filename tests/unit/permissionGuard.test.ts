@@ -39,7 +39,7 @@ describe("permission guard policy", () => {
     expect(getMicrophonePermissionRemediation("not-determined").action).toBe("request");
     expect(getMicrophonePermissionRemediation("not-determined", true)).toEqual({
       action: "open-settings",
-      guidance: "macOS did not grant microphone access. Enable Vaani in System Settings, then click Check Again.",
+      guidance: "macOS did not grant microphone access. Enable Vaani in System Settings, then click Check again.",
     });
     expect(getMicrophonePermissionRemediation("granted").action).toBe("none");
     expect(getMicrophonePermissionRemediation("denied").action).toBe("open-settings");

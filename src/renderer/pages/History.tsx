@@ -453,7 +453,7 @@ function ProofText({ tokens }: { tokens: ProofToken[] }) {
         if (token.kind === "break") return <br key={index} />;
         if (token.kind === "filler" || token.kind === "scratched")
           return (
-            <s key={index} className="mx-0.5 text-muted decoration-[#d36b54]">
+            <s key={index} className="mx-0.5 text-[#c2412d] decoration-[#c2412d] dark:text-[#f0907c] dark:decoration-[#f0907c]">
               {token.text}
             </s>
           );
@@ -543,7 +543,7 @@ function Diagnostics({
     {
       label: "Target",
       value: trace?.targetAppName ?? entry.appName ?? undefined,
-      detail: trace?.injectionMethod ?? entry.injectionMethod ?? undefined,
+      detail: insertMethodLabel(trace?.injectionMethod ?? entry.injectionMethod ?? undefined),
     },
     {
       label: "Speech to text",
@@ -592,4 +592,11 @@ function Diagnostics({
       No diagnostics were recorded.
     </p>
   );
+}
+
+// Names the insertion method the way Settings does.
+function insertMethodLabel(method: string | undefined): string | undefined {
+  if (method === "ax") return "Accessibility API";
+  if (method === "clipboard") return "Clipboard paste";
+  return method;
 }
