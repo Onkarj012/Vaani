@@ -32,7 +32,7 @@ export function Select({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        className="flex w-full items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 text-sm text-ink transition-colors hover:border-ink/20 focus:border-accent focus:outline-none"
+        className="sel flex w-full items-center justify-between rounded-xl border border-line bg-card px-[13px] py-2 text-[13px] text-ink hover:border-ink/20 focus:border-accent focus:outline-none"
       >
         {current?.label ?? value}
         <ChevronDown size={15} className={cn("text-muted transition-transform", open && "rotate-180")} />

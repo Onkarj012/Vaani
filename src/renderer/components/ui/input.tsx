@@ -12,7 +12,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       className={cn(
         "w-full text-sm text-ink placeholder:text-faint outline-none transition-all duration-200 ease-[cubic-bezier(0.44,0,0.56,1)]",
         variant === "soft" &&
-          "rounded-2xl border border-line bg-surface px-4 py-3 focus:border-accent focus:bg-bg",
+          "search h-10 rounded-full px-[15px] focus-within:ring-1 focus-within:ring-accent",
         variant === "underline" && "input-underline px-0 py-3",
         className
       )}
@@ -29,7 +29,7 @@ export const Textarea = React.forwardRef<
   <textarea
     ref={ref}
     className={cn(
-      "w-full resize-none rounded-2xl border border-line bg-surface px-4 py-3 text-sm text-ink placeholder:text-faint outline-none transition-all duration-200 focus:border-accent focus:bg-bg",
+      "w-full resize-none rounded-2xl border border-line bg-surface px-4 py-3 text-sm text-ink placeholder:text-faint outline-none focus:border-accent focus:bg-card",
       className
     )}
     {...props}
