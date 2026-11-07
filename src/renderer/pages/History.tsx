@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Bug,
@@ -453,9 +453,11 @@ function ProofText({ tokens }: { tokens: ProofToken[] }) {
         if (token.kind === "break") return <br key={index} />;
         if (token.kind === "filler" || token.kind === "scratched")
           return (
-            <s key={index} className="mx-0.5 text-[#c2412d] decoration-[#c2412d] dark:text-[#f0907c] dark:decoration-[#f0907c]">
-              {token.text}
-            </s>
+            <Fragment key={index}>
+              <s className="text-[#c2412d] decoration-[#c2412d] dark:text-[#f0907c] dark:decoration-[#f0907c]">
+                {token.text}
+              </s>{" "}
+            </Fragment>
           );
         if (token.kind === "command")
           return (
@@ -468,30 +470,33 @@ function ProofText({ tokens }: { tokens: ProofToken[] }) {
           );
         if (token.kind === "fix")
           return (
-            <span
-              key={index}
-              className={cn(
-                "mx-0.5 rounded-md px-1 py-0.5",
-                token.dictionary ? "bg-sky" : "bg-butter",
-              )}
-            >
-              <s className="mr-1 font-mono text-[11px] text-[#45515f]">
-                {token.from}
-              </s>
-              {token.to}
-            </span>
+            <Fragment key={index}>
+              <span
+                className={cn(
+                  "rounded-md px-1 py-0.5 text-[#1d1d1d]",
+                  token.dictionary ? "bg-sky" : "bg-butter",
+                )}
+              >
+                <s className="mr-1 font-mono text-[11px] text-[#45515f]">
+                  {token.from}
+                </s>
+                {token.to}
+              </span>{" "}
+            </Fragment>
           );
         if (token.kind === "added")
           return (
-            <span key={index} className="rounded-md bg-butter px-1">
-              {token.text}
-            </span>
+            <Fragment key={index}>
+              <span className="rounded-md bg-butter px-1 text-[#1d1d1d]">
+                {token.text}
+              </span>{" "}
+            </Fragment>
           );
         if (token.kind === "removed")
           return (
-            <s key={index} className="text-muted">
-              {token.text}
-            </s>
+            <Fragment key={index}>
+              <s className="text-muted">{token.text}</s>{" "}
+            </Fragment>
           );
         return <span key={index}>{token.text} </span>;
       })}
