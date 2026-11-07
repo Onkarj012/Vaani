@@ -14,7 +14,7 @@ import type { RecoveryJournalStore } from "@main/store/recoveryJournal";
 import type { EncryptedRecoveryAudioStore } from "@main/audio/recoveryAudio";
 import { createRecoveryEntry, type RecoveryEntry, type RecoveryEntrySeed, type RecoveryErrorClass, type RecoveryInsertionPreparation, type RecoveryTransitionInput } from "@shared/recovery";
 import { DictationService } from "./dictation.fixture";
-import { extractCorrectedInsertedText, selectRecoveryText } from "@main/dictation";
+import { extractCorrectedInsertedText, pasteLatestHint, selectRecoveryText } from "@main/dictation";
 import { detectDictionarySuggestions } from "@shared/dictionarySuggestions";
 import { nativeBridge } from "@main/nativeBridge";
 import { settlePendingCaretMove } from "@main/injection/clipboard";
@@ -2221,6 +2221,30 @@ describe("DictationService", () => {
     expect(service.getState()).toMatchObject({ status: "completed", insertionOutcome: "refused", text: "Open get hub.", message: "Not inserted: target changed." });
   });
 
+  it("tells the user how to paste a refused dictation with their Paste Latest hotkey", async () => {
+    const { service, appDetector, overlay, settings } = createDictationService();
+    settings.get.mockReturnValue({ ...settings.get(), pasteLatestHotkey: "Cmd+Shift+L" });
+    appDetector.getContext
+      .mockReturnValueOnce({ appBundleId: "com.apple.TextEdit", appName: "TextEdit", context: "default" as const })
+      .mockReturnValue({ appBundleId: "com.apple.Notes", appName: "Notes", context: "default" as const });
+
+    await submitHelloWorld(service);
+
+    expect(overlay.setStatusMessage).toHaveBeenLastCalledWith("Not inserted: target changed. Focus the field and press Cmd+Shift+L to paste it.");
+  });
+
+  it("points a refused dictation to History when it could not be saved", async () => {
+    const { service, appDetector, overlay, history } = createDictationService();
+    history.append.mockRejectedValueOnce(new Error("disk full"));
+    appDetector.getContext
+      .mockReturnValueOnce({ appBundleId: "com.apple.TextEdit", appName: "TextEdit", context: "default" as const })
+      .mockReturnValue({ appBundleId: "com.apple.Notes", appName: "Notes", context: "default" as const });
+
+    await submitHelloWorld(service);
+
+    expect(overlay.setStatusMessage).not.toHaveBeenCalledWith(expect.stringContaining("to paste it"));
+  });
+
   it("does not retry a failed insertion into a newly focused app", async () => {
     const { service, injector, appDetector, history } = createDictationService();
     injector.inject.mockImplementationOnce(async () => {
@@ -3133,5 +3157,12 @@ describe("recording length cap", () => {
     advanceWithFrames(service, 20_000);
     expect(recorder.stopRecording).toHaveBeenCalledWith(laterSessionId);
     expect(recorder.stopRecording).toHaveBeenCalledOnce();
+  });
+});
+
+describe("pasteLatestHint", () => {
+  it("names the hotkey, or falls back to History when none is set", () => {
+    expect(pasteLatestHint("Ctrl+Cmd+V")).toBe("Focus the field and press Ctrl+Cmd+V to paste it.");
+    expect(pasteLatestHint("  ")).toBe("Find this session in History.");
   });
 });
