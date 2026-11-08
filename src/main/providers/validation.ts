@@ -9,6 +9,25 @@ export function unavailableValidation(providerName: string): ApiKeyValidationRes
   };
 }
 
+/** Message for a key check that got no answer before the timeout. */
+function timeoutMessage(providerName: string): string {
+  return `${providerName} didn't answer within ${VALIDATION_TIMEOUT_MS / 1000} seconds. Check your internet connection and try again.`;
+}
+
+/** Turns a non-OK key-check status into a message that says whether the key or the service is at fault. */
+function statusFailureMessage(providerName: string, status: number): string {
+  if (status === 401 || status === 403) {
+    return `${providerName} rejected the API key. Check that you pasted the whole key.`;
+  }
+  if (status === 429) {
+    return `${providerName} is limiting requests right now. Your key may be fine. Try again in a minute.`;
+  }
+  if (status >= 500) {
+    return `${providerName} is having trouble right now (status ${status}). Your key may be fine. Try again later.`;
+  }
+  return `${providerName} validation failed with status ${status}.`;
+}
+
 export async function validateBearerEndpoint(
   providerName: string,
   url: string,
@@ -27,18 +46,23 @@ export async function validateBearerEndpoint(
       headers.Authorization = `${authScheme} ${apiKey}`;
     }
 
-    const response = await fetch(url, { method: "GET", headers, signal: controller.signal });
-    if (response.ok) {
-      const verdict = inspectOkReply ? await inspectOkReply(response) : null;
-      return verdict ?? { valid: true, message: `${providerName} API key is valid.` };
+    let response: Response;
+    try {
+      response = await fetch(url, { method: "GET", headers, signal: controller.signal });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return { valid: false, message: timeoutMessage(providerName) };
+      }
+      return { valid: false, message: `Couldn't reach ${providerName}. Check your internet connection and try again.` };
     }
-    if (response.status === 401 || response.status === 403) {
-      return { valid: false, message: `${providerName} rejected the API key.` };
+    if (!response.ok) {
+      return { valid: false, message: statusFailureMessage(providerName, response.status) };
     }
-    return { valid: false, message: `${providerName} validation failed with status ${response.status}.` };
+    const verdict = inspectOkReply ? await inspectOkReply(response) : null;
+    return verdict ?? { valid: true, message: `${providerName} API key is valid.` };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      return { valid: false, message: `${providerName} validation timed out.` };
+      return { valid: false, message: timeoutMessage(providerName) };
     }
     return { valid: false, message: `${providerName} validation failed.` };
   } finally {
