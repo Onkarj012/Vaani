@@ -191,7 +191,7 @@ describe("OpenRouter transcription through the service", () => {
     const result = await OpenRouterSttProvider.validateApiKey?.("or-key");
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/key");
-    expect(result).toEqual({ valid: false, message: "OpenRouter rejected the API key." });
+    expect(result).toEqual({ valid: false, message: "OpenRouter rejected the API key. Check that you pasted the whole key." });
   });
 
   it("rejects a provisioning key, which the API accepts for reads but not for calls", async () => {
