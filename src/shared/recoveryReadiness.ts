@@ -3,11 +3,12 @@ export interface RecoveryReadiness {
   entryCount: number | null;
 }
 
+// History shows this on every visit while recovery is off, so it says what that means for a dictation.
 export function recoveryReadinessMessage(readiness: RecoveryReadiness): string {
   switch (readiness.state) {
-    case "disabled": return "Recovery is disabled in this build. Completed dictations remain in History.";
-    case "initializing": return "Recovery is initializing. Saved items have not been loaded yet.";
-    case "degraded": return "Recovery is unavailable. Saved data has been preserved; retry after restarting the app.";
-    case "ready": return readiness.entryCount === 0 ? "Recovery is ready. No unfinished dictations." : "Recovery is ready.";
+    case "disabled": return "This build doesn't keep an unfinished dictation for retry. Finished ones stay in History.";
+    case "initializing": return "Loading unfinished dictations. They'll show up here in a moment.";
+    case "degraded": return "Unfinished dictations can't be opened right now. Restart Vaani and try again. Finished ones are still in History.";
+    case "ready": return readiness.entryCount === 0 ? "No unfinished dictations. Finished ones stay in History." : "Unfinished dictations can be retried from here.";
   }
 }
