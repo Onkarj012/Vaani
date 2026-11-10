@@ -582,6 +582,42 @@ describe("applySnippets — spoken marker", () => {
       expected: "From Alice to alice@example.com.",
     },
     {
+      name: "spoken hyphenated trigger matches when said as separate words",
+      raw: "thanks slash work sig",
+      snippets: [{ trigger: "work-sig", content: "Onkar, Vaani" }],
+      expected: "Thanks Onkar, Vaani.",
+    },
+    {
+      name: "spoken underscore trigger matches when said as separate words",
+      raw: "send it to snippet my email please",
+      snippets: [{ trigger: "my_email", content: "hi@example.com" }],
+      expected: "Send it to hi@example.com please.",
+    },
+    {
+      name: "spoken multi-word trigger matches a hyphenated transcript",
+      raw: "use slash work-sig here",
+      snippets: [{ trigger: "work sig", content: "Onkar" }],
+      expected: "Use Onkar here.",
+    },
+    {
+      name: "comma after the spoken marker still expands",
+      raw: "Reach me at Snippet, email.",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "Reach me at hi@example.com.",
+    },
+    {
+      name: "comma after the slash marker still expands",
+      raw: "my address is slash, email",
+      snippets: [{ trigger: "email", content: "hi@example.com" }],
+      expected: "My address is hi@example.com.",
+    },
+    {
+      name: "typed hyphenated trigger stays exact",
+      raw: "use /work sig here",
+      snippets: [{ trigger: "work-sig", content: "Onkar" }],
+      expected: "Use /work sig here.",
+    },
+    {
       name: "longest name wins on overlap",
       raw: "use snippet emailsig now",
       snippets: [
