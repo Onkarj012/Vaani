@@ -542,6 +542,16 @@ interface SnippetMatcher {
   contentByTrigger: Map<string, string>;
 }
 
+// Builds a trigger pattern where spaces, hyphens, and underscores all match one another.
+function spokenTriggerPattern(trigger: string): string {
+  return trigger.split(/[\s_-]+/).map(escapeRegExp).join("[\\s_-]+");
+}
+
+// Gives every spelling of a trigger ("Work-Sig", "work sig", "work_sig") the same lookup key.
+function snippetLookupKey(trigger: string): string {
+  return trigger.toLowerCase().replace(/[\s_-]+/g, " ");
+}
+
 // Builds the trigger pattern for the snippets that apply to this app profile, or null if none do.
 function buildSnippetMatcher(snippets: Snippet[], appProfileId: string | null | undefined): SnippetMatcher | null {
   // Longest-trigger-first so overlapping triggers resolve to the longest match.
@@ -558,22 +568,27 @@ function buildSnippetMatcher(snippets: Snippet[], appProfileId: string | null | 
   // cross-form cascade (e.g. a typed snippet whose body contains `snippet name`
   // expanding again on a separate spoken pass).
   const alternation = ordered.map(({ trigger }) => escapeRegExp(trigger)).join("|");
+  // Speech has no hyphens or underscores, so "work-sig" must also match "work sig" when spoken.
+  const spokenAlternation = ordered.map(({ trigger }) => spokenTriggerPattern(trigger)).join("|");
   const bareAlternation = ordered
     .filter(({ trigger, matchBareTrigger }) => (matchBareTrigger ?? false) && (trigger.length >= 6 || trigger.split(/\s+/).length >= 2))
-    .map(({ trigger }) => escapeRegExp(trigger))
+    .map(({ trigger }) => spokenTriggerPattern(trigger))
     .join("|");
+  // Whisper often writes a pause after the marker as a comma or colon: "Snippet, email."
   const combined = new RegExp(
     `(^|\\s)/(${alternation})(?=\\s|$|[,.!?;:])` +
-      `|(^|[\\s,.!?;:])snippet\\s+(${alternation})(?=\\s|$|[,.!?;:])` +
-      `|(^|[\\s,.!?;:])slash\\s+(${alternation})(?=\\s|$|[,.!?;:])` +
+      `|(^|[\\s,.!?;:])snippet[,:]?\\s+(${spokenAlternation})(?=\\s|$|[,.!?;:])` +
+      `|(^|[\\s,.!?;:])slash[,:]?\\s+(${spokenAlternation})(?=\\s|$|[,.!?;:])` +
       (bareAlternation ? `|(^|[\\s,.!?;:])(${bareAlternation})(?=\\s|$|[,.!?;:])` : ""),
     "gi",
   );
 
-  return {
-    pattern: combined,
-    contentByTrigger: new Map(ordered.map(snippet => [snippet.trigger.toLowerCase(), snippet.content])),
-  };
+  const contentByTrigger = new Map<string, string>();
+  for (const snippet of ordered) {
+    const key = snippetLookupKey(snippet.trigger);
+    if (!contentByTrigger.has(key)) contentByTrigger.set(key, snippet.content);
+  }
+  return { pattern: combined, contentByTrigger };
 }
 
 // True when a snippet that uses {{clipboard}} would expand in this text for this app profile.
@@ -583,7 +598,7 @@ export function clipboardSnippetExpands(text: string, snippets: Snippet[], appPr
   return [...text.matchAll(matcher.pattern)].some(match => {
     // Groups 2, 4, 6, and 8 hold the trigger name for the typed, spoken, slash, and bare forms.
     const trigger = match[2] ?? match[4] ?? match[6] ?? match[8] ?? "";
-    return matcher.contentByTrigger.get(trigger.toLowerCase())?.includes("{{clipboard}}") === true;
+    return matcher.contentByTrigger.get(snippetLookupKey(trigger))?.includes("{{clipboard}}") === true;
   });
 }
 
@@ -595,7 +610,7 @@ function applySnippets(
 ): string {
   const matcher = buildSnippetMatcher(snippets, appProfileId);
   if (!matcher) return text;
-  const lookup = (raw: string): string => (matcher.contentByTrigger.get(raw.toLowerCase()) ?? raw).replace(/\{\{(date|time|clipboard)\}\}/g, (_match, name: "date" | "time" | "clipboard") => placeholderResolver?.(name) ?? `{{${name}}}`);
+  const lookup = (raw: string): string => (matcher.contentByTrigger.get(snippetLookupKey(raw)) ?? raw).replace(/\{\{(date|time|clipboard)\}\}/g, (_match, name: "date" | "time" | "clipboard") => placeholderResolver?.(name) ?? `{{${name}}}`);
 
   return text.replace(
     matcher.pattern,
