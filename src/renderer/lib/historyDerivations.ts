@@ -128,6 +128,39 @@ export function deriveStreak(facts: EntryFacts[], now = new Date()): number {
   return streak;
 }
 
+// History rows and the Dashboard recent list show this string, with no separate date.
+// Today stays a clock time. Older rows name the calendar day, and a different year
+// names the year, so "This Week" and "Earlier" still say which day.
+export function formatHistoryTime(timestamp: string, now = new Date()): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "Invalid Date";
+  const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/[\u202f\u00a0]/g, " ");
+  if (startOfDay(date).getTime() === startOfDay(now).getTime()) return time;
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const dateLabel = date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  return `${dateLabel}, ${time}`;
+}
+
+// Local calendar day, used to rebuild history labels after midnight.
+export function localDayKey(now = new Date()): string {
+  const day = startOfDay(now);
+  const month = String(day.getMonth() + 1).padStart(2, "0");
+  const date = String(day.getDate()).padStart(2, "0");
+  return `${day.getFullYear()}-${month}-${date}`;
+}
+
+// Milliseconds until the next local midnight. At least 1 ms, so a timer scheduled
+// exactly on the boundary cannot fire again in the same turn.
+export function msUntilNextLocalDay(now = new Date()): number {
+  const next = startOfDay(now);
+  next.setDate(next.getDate() + 1);
+  return Math.max(1, next.getTime() - now.getTime());
+}
+
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
