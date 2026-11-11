@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { DictationEntry, DictationState, Settings, UpdateNotificationPayload } from "@shared/types";
 import type { RecoveryEntryView, RecoveryStorageUsage } from "@shared/recovery";
+import { useLocalDay } from "@renderer/hooks/useLocalDay";
 import { buildResetSettingsPatch } from "@renderer/lib/settingsReset";
 import {
   computeEntryFacts,
@@ -301,7 +302,8 @@ export function VaaniUiProvider({
     await updateSettings({ snippets: next });
   }, [settings.snippets, updateSettings]);
 
-  const historyItems = useMemo(() => mapHistoryItems(history.entries), [history.entries]);
+  const localDay = useLocalDay();
+  const historyItems = useMemo(() => mapHistoryItems(history.entries), [history.entries, localDay]);
   const wordHistory = useMemo(() => mapWordHistory(history.entries), [history.entries]);
   const entryFacts = useMemo(() => computeEntryFacts(history.entries), [history.entries]);
   const historyHaystack = useMemo(() => createHistoryHaystack(history.entries), [history.entries]);

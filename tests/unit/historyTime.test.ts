@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DictationEntry } from "@shared/types";
 import { mapHistoryItems } from "@renderer/context/vaani-ui";
-import { formatHistoryTime } from "@renderer/lib/historyDerivations";
+import { formatHistoryTime, localDayKey, msUntilNextLocalDay } from "@renderer/lib/historyDerivations";
 
 const now = new Date(2026, 10, 11, 18, 30, 0);
 
@@ -45,5 +45,29 @@ describe("mapHistoryItems", () => {
     const [item] = mapHistoryItems([entry(new Date(2026, 10, 10, 9, 5))], now);
     expect(item?.time).toBe("Nov 10, 9:05 AM");
     expect(item?.group).toBe("Yesterday");
+  });
+
+  it("moves a same-day dictation off the clock-only label once the calendar day changes", () => {
+    const dictatedAt = new Date(2026, 10, 11, 15, 42);
+    const [onTheDay] = mapHistoryItems([entry(dictatedAt)], now);
+    const [nextMorning] = mapHistoryItems([entry(dictatedAt)], new Date(2026, 10, 12, 8, 0));
+    expect(onTheDay?.time).toBe("3:42 PM");
+    expect(onTheDay?.group).toBe("Today");
+    expect(nextMorning?.time).toBe("Nov 11, 3:42 PM");
+    expect(nextMorning?.group).toBe("Yesterday");
+  });
+});
+
+describe("local day refresh", () => {
+  it("names the local calendar day, including the year boundary", () => {
+    expect(localDayKey(now)).toBe("2026-11-11");
+    expect(localDayKey(new Date(2026, 11, 31, 23, 59, 59))).toBe("2026-12-31");
+    expect(localDayKey(new Date(2027, 0, 1, 0, 0, 1))).toBe("2027-01-01");
+  });
+
+  it("waits until the next local midnight, and at least one millisecond", () => {
+    const evening = new Date(2026, 11, 31, 23, 0, 0);
+    expect(msUntilNextLocalDay(evening)).toBe(60 * 60 * 1000);
+    expect(msUntilNextLocalDay(new Date(2027, 0, 1, 0, 0, 0))).toBe(24 * 60 * 60 * 1000);
   });
 });
