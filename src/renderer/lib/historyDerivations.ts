@@ -128,6 +128,23 @@ export function deriveStreak(facts: EntryFacts[], now = new Date()): number {
   return streak;
 }
 
+// History rows and the Dashboard recent list show this string, with no separate date.
+// Today stays a clock time. Older rows name the calendar day, and a different year
+// names the year, so "This Week" and "Earlier" still say which day.
+export function formatHistoryTime(timestamp: string, now = new Date()): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "Invalid Date";
+  const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/[\u202f\u00a0]/g, " ");
+  if (startOfDay(date).getTime() === startOfDay(now).getTime()) return time;
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const dateLabel = date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  return `${dateLabel}, ${time}`;
+}
+
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }

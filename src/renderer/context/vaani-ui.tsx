@@ -17,6 +17,7 @@ import {
   createHistoryHaystack,
   deriveStats,
   deriveWeeklyActivity,
+  formatHistoryTime,
   mapDictionaryItems,
   type DictionaryItemView,
   type StatsView,
@@ -423,13 +424,13 @@ function mapSnippets(snippets: Array<{ trigger: string; content: string }>): Sni
   }));
 }
 
-export function mapHistoryItems(entries: DictationEntry[]): HistoryItemView[] {
+export function mapHistoryItems(entries: DictationEntry[], now = new Date()): HistoryItemView[] {
   return [...entries]
     .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))
     .map((entry) => ({
       id: entry.id,
-      group: groupForTimestamp(entry.timestamp),
-      time: formatDisplayTime(entry.timestamp),
+      group: groupForTimestamp(entry.timestamp, now),
+      time: formatHistoryTime(entry.timestamp, now),
       text: entry.cleanedText,
       duration: formatShortDuration(entry.durationSeconds),
       wordCount: countWords(entry.cleanedText),
@@ -459,13 +460,6 @@ function mapUserDictionary(corrections: Array<{ spoken: string; written: string 
     replacement: written,
     category: "correction" as const
   }));
-}
-
-function formatDisplayTime(timestamp: string): string {
-  return new Date(timestamp).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit"
-  });
 }
 
 function formatShortDuration(durationSeconds: number): string {
@@ -510,9 +504,8 @@ function formatTerminalTimestamp(timestamp: string): string {
   }).toUpperCase();
 }
 
-function groupForTimestamp(timestamp: string): string {
+function groupForTimestamp(timestamp: string, now = new Date()): string {
   const date = new Date(timestamp);
-  const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   if (isSameDay(date, now)) {
