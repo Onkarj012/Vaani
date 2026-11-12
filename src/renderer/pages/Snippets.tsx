@@ -5,6 +5,7 @@ import { useVaaniUi } from '../context/vaani-ui'
 import { Card } from '@renderer/components/ui/card'
 import { Input, Textarea } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
+import { emptyListCopy } from '@renderer/lib/emptyListCopy'
 import { editSnippet, normalizeAppProfileIds, normalizeSnippetTrigger } from '@shared/textRuleEdits'
 
 const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } }
@@ -26,6 +27,7 @@ export default function Snippets() {
   const filtered = snippets.filter(
     (s) => s.trigger.toLowerCase().includes(searchQuery.toLowerCase()) || s.content.toLowerCase().includes(searchQuery.toLowerCase())
   )
+  const emptyCopy = emptyListCopy({ singular: 'snippet', plural: 'snippets' }, searchQuery, snippets.length)
   const editing = editingTrigger === null ? undefined : settings.snippets.find((snippet) => snippet.trigger === editingTrigger)
 
   const resetForm = () => {
@@ -108,7 +110,7 @@ export default function Snippets() {
 
       <motion.div variants={item}><Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search snippets…" /></motion.div>
       <motion.div variants={item} className="space-y-3">
-        {filtered.length === 0 ? <div className="py-20 text-center"><Terminal size={44} className="mx-auto mb-4 text-line" /><h3 className="text-display text-xl text-ink">No snippets found</h3><p className="mt-2 text-sm text-muted">Create your first snippet to get started.</p></div> : filtered.map((snippet) => (
+        {filtered.length === 0 ? <div className="py-20 text-center"><Terminal size={44} className="mx-auto mb-4 text-line" /><h3 className="text-display text-xl text-ink">{emptyCopy.title}</h3><p className="mt-2 text-sm text-muted">{emptyCopy.body}</p>{emptyCopy.canClearSearch && <Button variant="ghost" size="sm" className="mt-4" onClick={() => setSearchQuery('')}>Clear search</Button>}</div> : filtered.map((snippet) => (
           <Card key={snippet.trigger} hover className="group p-5"><div className="flex items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="mb-2 flex items-center gap-3"><code className="rounded-lg bg-accent/10 px-2 py-1 font-mono text-sm font-semibold text-accent">/{snippet.trigger}</code><span className="label-meta flex items-center gap-1 text-[10px] text-faint"><Zap size={10} />Snippet</span></div><p className="mb-1 text-[11px] text-faint">say: &ldquo;snippet {snippet.trigger}&rdquo; or &ldquo;slash {snippet.trigger}&rdquo;{settings.snippets.find((entry) => entry.trigger === snippet.trigger)?.matchBareTrigger && ' · bare trigger enabled'}</p><p className="line-clamp-2 text-sm leading-relaxed text-muted">{snippet.content}</p></div><div className="flex items-center gap-1"><button aria-label={`Copy ${snippet.trigger}`} onClick={() => handleCopy(snippet.trigger, snippet.content)} className="rounded-lg p-2 text-muted transition-colors hover:bg-surface">{copiedTrigger === snippet.trigger ? <Check size={14} className="text-accent" /> : <Copy size={14} />}</button><button aria-label={`Edit ${snippet.trigger}`} onClick={() => beginEdit(snippet.trigger)} className="rounded-lg p-2 text-muted transition-colors hover:bg-surface"><Pencil size={14} /></button><button aria-label={`Delete ${snippet.trigger}`} onClick={() => removeSnippet(snippet.trigger)} className="rounded-lg p-2 text-muted transition-colors hover:bg-red-50 hover:text-red-500"><Trash2 size={14} /></button></div></div></Card>
         ))}
       </motion.div>
