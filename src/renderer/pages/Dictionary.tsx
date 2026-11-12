@@ -7,6 +7,7 @@ import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
 import { Tag } from '@renderer/components/ui/tag'
 import { editCorrection } from '@shared/textRuleEdits'
+import { emptyListCopy } from '@renderer/lib/emptyListCopy'
 
 const container = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } }
 const item = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }
@@ -29,6 +30,7 @@ export default function Dictionary() {
   const filtered = userDictionary.filter(
     (rule) => rule.word.toLowerCase().includes(searchQuery.toLowerCase()) || rule.replacement.toLowerCase().includes(searchQuery.toLowerCase())
   )
+  const emptyCopy = emptyListCopy({ singular: 'rule', plural: 'rules' }, searchQuery, userDictionary.length)
   const editing = editingWord === null ? undefined : settings.customCorrections.find((rule) => rule.spoken === editingWord)
 
   const resetForm = () => {
@@ -123,7 +125,7 @@ export default function Dictionary() {
       <motion.div variants={item}>
         <Card className="overflow-hidden p-0">
           <div className="label-meta grid grid-cols-12 gap-4 border-b border-line px-5 py-4 text-[10px] text-faint"><div className="col-span-3">Trigger</div><div className="col-span-5">Replacement</div><div className="col-span-2">Category</div><div className="col-span-2 text-right">Actions</div></div>
-          {filtered.length === 0 ? <div className="py-16 text-center"><ScrollText size={44} className="mx-auto mb-4 text-line" /><h3 className="text-display text-xl text-ink">No rules found</h3><p className="mt-2 text-sm text-muted">Add your first dictionary rule.</p></div> : (
+          {filtered.length === 0 ? <div className="py-16 text-center"><ScrollText size={44} className="mx-auto mb-4 text-line" /><h3 className="text-display text-xl text-ink">{emptyCopy.title}</h3><p className="mt-2 text-sm text-muted">{emptyCopy.body}</p>{emptyCopy.canClearSearch && <Button variant="ghost" size="sm" className="mt-4" onClick={() => setSearchQuery('')}>Clear search</Button>}</div> : (
             <div className="divide-y divide-line">{filtered.map((rule) => {
               const fullRule = settings.customCorrections.find((item) => item.spoken === rule.word)
               return <div key={rule.word} className="group grid grid-cols-12 items-center gap-4 px-5 py-4 transition-colors hover:bg-surface">
