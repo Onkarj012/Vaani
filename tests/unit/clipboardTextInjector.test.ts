@@ -209,6 +209,54 @@ describe("ClipboardTextInjector restore timing", () => {
     expect(writes.filter((w) => w.value === "orig1")).toHaveLength(1);
   });
 
+  it("reads the user's clipboard, not the last insert, while a restore is pending", async () => {
+    const { ClipboardTextInjector, readUserClipboardText } = await import("@main/injection/clipboard");
+    const injector = new ClipboardTextInjector();
+
+    setClipboardText("original");
+    const done = injector.inject("dictated", chromeTarget);
+    await vi.advanceTimersByTimeAsync(1_500);
+    await done;
+    expect(clipboardText()).toBe("dictated");
+    await expect(readUserClipboardText()).resolves.toBe("original");
+
+    await vi.runAllTimersAsync();
+    expect(clipboardText()).toBe("original");
+    await expect(readUserClipboardText()).resolves.toBe("original");
+  });
+
+  it("expands a {{clipboard}} snippet with the user's copy while a restore is pending", async () => {
+    const { ClipboardTextInjector } = await import("@main/injection/clipboard");
+    const { snippetPlaceholderResolver } = await import("@main/dictation");
+    const { cleanupText } = await import("@main/text/cleanup");
+    const { DEFAULT_SETTINGS } = await import("@shared/defaults");
+    const injector = new ClipboardTextInjector();
+    const settings = { ...DEFAULT_SETTINGS, snippets: [{ trigger: "paste clip", content: "Copied: {{clipboard}}" }] };
+
+    setClipboardText("banana");
+    const done = injector.inject("hello there", chromeTarget);
+    await vi.advanceTimersByTimeAsync(1_500);
+    await done;
+    expect(clipboardText()).toBe("hello there");
+
+    const resolver = await snippetPlaceholderResolver(settings, "snippet paste clip", null);
+    expect(cleanupText({ rawText: "snippet paste clip", settings, placeholderResolver: resolver })).toBe("Copied: banana.");
+  });
+
+  it("reads a copy the user made while a restore was pending", async () => {
+    const { ClipboardTextInjector, readUserClipboardText } = await import("@main/injection/clipboard");
+    const injector = new ClipboardTextInjector();
+
+    setClipboardText("original");
+    const done = injector.inject("dictated", chromeTarget);
+    await vi.advanceTimersByTimeAsync(1_500);
+    await done;
+    setClipboardText("userCopied");
+    pasteboardChangeCount += 1;
+
+    await expect(readUserClipboardText()).resolves.toBe("userCopied");
+  });
+
   it("returns success for a clipboard-only target", async () => {
     const { ClipboardTextInjector } = await import("@main/injection/clipboard");
     const injector = new ClipboardTextInjector();
