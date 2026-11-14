@@ -36,7 +36,7 @@ import { trimSilence, isValidClip } from "./audio/vad";
 import { evaluateSpeechGate } from "./audio/speechGate";
 import { AppDetector, type AppContextResult } from "./context/appDetector";
 import { TextInjector } from "./injection";
-import { cancelPendingClipboardRestore, settlePendingCaretMove } from "./injection/clipboard";
+import { cancelPendingClipboardRestore, readUserClipboardText, settlePendingCaretMove } from "./injection/clipboard";
 import { nativeBridge } from "./nativeBridge";
 import { debug } from "@main/log";
 import { OverlayController } from "./overlay";
@@ -2496,10 +2496,10 @@ function resolveAppProfile(appProfiles: NonNullable<Settings["appProfiles"]>, bu
   return appProfiles.find(p => p.appBundleIds.some(b => b.toLowerCase() === id)) ?? null;
 }
 
-// Reads the clipboard once, only when a {{clipboard}} snippet expands in this text. Electron 44 made readText async.
+// Reads the user's clipboard once, only when a {{clipboard}} snippet expands in this text. Electron 44 made readText async.
 export async function snippetPlaceholderResolver(settings: Settings, text: string, appProfileId: string | null | undefined): Promise<(name: "date" | "time" | "clipboard") => string> {
   const needsClipboard = clipboardSnippetExpands(text, settings.snippets ?? [], appProfileId);
-  const clipboardText = needsClipboard ? await electron.clipboard.readText() : "";
+  const clipboardText = needsClipboard ? await readUserClipboardText() : "";
   return (name) => {
     const now = new Date();
     if (name === "date") return now.toLocaleDateString();

@@ -40,6 +40,12 @@ export function cancelPendingClipboardRestore(): void {
   pendingRestore = null;
 }
 
+// Returns the user's clipboard text. While a restore is pending the clipboard still holds Vaani's last insert, so the saved text is used.
+export async function readUserClipboardText(): Promise<string> {
+  if (pendingRestore && clipboardChangeCount() === pendingRestore.changeCount) return plainTextOf(pendingRestore.items);
+  return clipboard.readText();
+}
+
 export class ClipboardTextInjector {
   async inject(text: string, target?: InjectionTarget, guard: InjectionGuard = () => null, onDispatch?: () => void): Promise<InjectionResult> {
     const previous = injectionQueue;
@@ -337,8 +343,13 @@ async function restoreClipboard(items: PasteboardItem[]): Promise<void> {
     // Something else wrote the pasteboard after the failed write. It is no longer ours to restore.
     if (result && clipboardChangeCount() !== result.failedChangeCount) return;
   }
-  const text = items.flat().find((entry) => entry.type === PLAIN_TEXT_TYPE)?.data.toString("utf8");
+  const text = plainTextOf(items);
   if (text) await clipboard.writeText(text);
+}
+
+// The plain text among saved pasteboard items, or "" when there is none.
+function plainTextOf(items: PasteboardItem[]): string {
+  return items.flat().find((entry) => entry.type === PLAIN_TEXT_TYPE)?.data.toString("utf8") ?? "";
 }
 
 async function restoreClipboardAfterDelay(items: PasteboardItem[], ownedChangeCount: number, delayMs: number, generation: number): Promise<void> {
