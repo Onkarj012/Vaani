@@ -8,7 +8,8 @@ export default defineConfig({
       "@main": resolve("src/main"),
       "@renderer": resolve("src/renderer"),
       "@preload": resolve("src/preload"),
-      "@scripts": resolve("scripts")
+      "@scripts": resolve("scripts"),
+      "@": resolve("src/renderer")
     }
   },
   test: {
