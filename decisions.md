@@ -2,6 +2,12 @@
 
 Log of project decisions, newest first. Agents add entries as decisions happen; Ledger dedupes and marks superseded entries.
 
+## 2026-11-18 — Match dictionary terms using letter and number boundaries so punctuation stays part of technical names
+- rejected: JavaScript word boundaries, which reject names such as C++ and .NET
+- why: users can save technical names with punctuation in their dictionary
+- source: T3 thread "nightshift dictionary usage counts"
+- status: active
+
 Entry format:
 
 ## YYYY-MM-DD — decision in one line
