@@ -58,7 +58,9 @@ export function mapDictionaryItems(
   return corrections.map(({ spoken, written }, index) => {
     const normalized = spoken.trim();
     const escaped = escapeRegExp(normalized.toLowerCase());
-    const usageCount = normalized ? (haystack.match(new RegExp(`\\b${escaped}\\b`, "g"))?.length ?? 0) : 0;
+    const usageCount = normalized
+      ? (haystack.match(new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "gu"))?.length ?? 0)
+      : 0;
     return {
       id: index + 1,
       word: normalized,

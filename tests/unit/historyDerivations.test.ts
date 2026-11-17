@@ -100,6 +100,17 @@ describe("history derivations", () => {
     ]);
   });
 
+  it("counts technical dictionary terms with punctuation", () => {
+    const haystack = createHistoryHaystack([
+      entry("technical", now, "C++ is different from C. Use .NET with C++.", "injected"),
+    ]);
+
+    expect(mapDictionaryItems([
+      { spoken: "C++", written: "C++" },
+      { spoken: ".NET", written: ".NET" },
+    ], haystack).map(({ usageCount }) => usageCount)).toEqual([2, 1]);
+  });
+
   it("carries detected language into the history presentation model", () => {
     const mapped = mapHistoryItems([{
       ...entry("detected", now, "namaste world"),
